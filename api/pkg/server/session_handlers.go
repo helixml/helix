@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -297,12 +298,18 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	// Validate external agent configuration if specified
 	if startReq.AgentType == "zed_external" {
 		if startReq.ExternalAgentConfig == nil {
-			log.Warn().
+			log.Info().
 				Str("session_id", session.ID).
 				Str("user_id", user.ID).
-				Msg("External agent type specified but no configuration provided")
-			http.Error(rw, "external agent configuration required for zed_external type", http.StatusBadRequest)
-			return
+				Msg("External agent type specified with no configuration, using defaults")
+
+			// Create default configuration
+			startReq.ExternalAgentConfig = &types.ExternalAgentConfig{
+				WorkspaceDir:   "workspace",
+				ProjectPath:    "workspace/project",
+				EnvVars:        []string{},
+				AutoConnectRDP: true,
+			}
 		}
 
 		// Validate external agent configuration for security
@@ -319,11 +326,43 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		log.Info().
 			Str("session_id", session.ID).
 			Str("user_id", user.ID).
-			Msg("External agent configuration validated successfully")
+			Msg("Launching external agent for Zed session")
 	}
 
 	// Handle external agent routing if agent type is zed_external
 	if newSession && startReq.AgentType == "zed_external" {
+		// Register the session in the external agent executor before launching
+		if s.externalAgentExecutor != nil {
+			// Create a ZedAgent struct with session info for registration
+			zedAgent := &types.ZedAgent{
+				SessionID:   session.ID,
+				UserID:      user.ID,
+				Input:       "Initialize Zed development environment",
+				ProjectPath: "workspace", // Use relative path
+			}
+
+			// Apply external agent configuration (guaranteed to exist from validation above)
+			if startReq.ExternalAgentConfig.WorkspaceDir != "" {
+				zedAgent.WorkDir = startReq.ExternalAgentConfig.WorkspaceDir
+			}
+			if startReq.ExternalAgentConfig.ProjectPath != "" {
+				zedAgent.ProjectPath = startReq.ExternalAgentConfig.ProjectPath
+			}
+			if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
+				zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
+			}
+
+			// Register session in executor so RDP endpoint can find it
+			_, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
+			if regErr != nil {
+				log.Error().Err(regErr).Str("session_id", session.ID).Msg("Failed to register session in external agent executor")
+				http.Error(rw, fmt.Sprintf("failed to initialize external agent: %s", regErr.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			log.Info().Str("session_id", session.ID).Msg("External agent session registered successfully")
+		}
+
 		err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
 		if err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to launch external agent")
@@ -756,6 +795,16 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 	start := time.Now()
 
+	// Check if this is an external agent session
+	if session.Metadata.AgentType == "zed_external" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Routing session to external agent")
+
+		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+	}
+
 	// Instruct the agent to send thoughts about tools and decisions
 	options.Conversational = true
 
@@ -915,6 +964,300 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	}
 
 	return nil
+}
+
+// handleExternalAgentStreaming routes chat messages to external Zed agent via WebSocket
+func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user *types.User, session *types.Session, interaction *types.Interaction, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter, start time.Time) error {
+	// Check if external agent executor is available
+	if s.externalAgentExecutor == nil {
+		log.Error().Str("session_id", session.ID).Msg("External agent executor not available")
+		return s.writeErrorResponse(rw, "External agent not available")
+	}
+
+	// Get the external agent session
+	agentSession, err := s.externalAgentExecutor.GetSession(session.ID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent session not found")
+		return s.writeErrorResponse(rw, "External agent session not found")
+	}
+
+	// Ensure model parameter is set in chatCompletionRequest
+	if chatCompletionRequest.Model == "" {
+		// Use a default model for external agents or get from session metadata
+		chatCompletionRequest.Model = "gpt-4" // Default model for external agents
+		log.Debug().Str("session_id", session.ID).Str("model", chatCompletionRequest.Model).Msg("Set default model for external agent")
+	}
+
+	// Extract the user's message from the chat completion request
+	var userMessage string
+	if len(chatCompletionRequest.Messages) > 0 {
+		lastMessage := chatCompletionRequest.Messages[len(chatCompletionRequest.Messages)-1]
+		if lastMessage.Role == "user" {
+			userMessage = lastMessage.Content
+		}
+	}
+
+	if userMessage == "" {
+		log.Error().Str("session_id", session.ID).Msg("No user message found in chat completion request")
+		return s.writeErrorResponse(rw, "No user message found")
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("user_message", userMessage).
+		Str("agent_session_status", agentSession.Status).
+		Msg("Sending message to external Zed agent")
+
+	// Send message to external agent via WebSocket and stream response back
+	return s.streamFromExternalAgent(ctx, session, userMessage, chatCompletionRequest, rw)
+}
+
+// streamFromExternalAgent sends a message to the external agent and streams the response
+func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage string, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter) error {
+	// Wait for external agent to be ready (WebSocket connection established)
+	if err := s.waitForExternalAgentReady(ctx, session.ID, 30*time.Second); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
+		http.Error(rw, fmt.Sprintf("External agent not ready: %s", err.Error()), http.StatusServiceUnavailable)
+		return err
+	}
+
+	// Generate unique request ID for tracking
+	requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+
+	// Send chat message to external agent
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"request_id": requestID,
+			"message":    userMessage,
+			"role":       "user",
+		},
+	}
+
+	// Set up legacy channel handling for external agent communication
+	responseChan := make(chan string, 100)
+	doneChan := make(chan bool, 1)
+	errorChan := make(chan error, 1)
+
+	// Store response channel with request ID (would use proper storage in production)
+	s.storeResponseChannel(session.ID, requestID, responseChan, doneChan, errorChan)
+	defer s.cleanupResponseChannel(session.ID, requestID)
+
+	// Send command to external agent
+	if err := s.sendCommandToExternalAgent(session.ID, command); err != nil {
+		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to send command to external agent")
+		http.Error(rw, fmt.Sprintf("Failed to send command to external agent: %s", err.Error()), http.StatusInternalServerError)
+		return err
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("request_id", requestID).
+		Str("message", userMessage).
+		Msg("Sent message to external agent")
+
+	// Stream response chunks as they arrive
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case chunk := <-responseChan:
+			response := &openai.ChatCompletionStreamResponse{
+				Object: "chat.completion.chunk",
+				ID:     session.ID,
+				Model:  chatCompletionRequest.Model,
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Index: 0,
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: chunk,
+						},
+					},
+				},
+			}
+
+			bts, err := json.Marshal(response)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to marshal response")
+				continue
+			}
+
+			if err := writeChunk(rw, bts); err != nil {
+				log.Error().Err(err).Msg("failed to write chunk")
+				return err
+			}
+
+		case <-doneChan:
+			// Send completion signal
+			response := &openai.ChatCompletionStreamResponse{
+				Object: "chat.completion.chunk",
+				ID:     session.ID,
+				Model:  chatCompletionRequest.Model,
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Index:        0,
+						Delta:        openai.ChatCompletionStreamChoiceDelta{},
+						FinishReason: "stop",
+					},
+				},
+			}
+
+			bts, err := json.Marshal(response)
+			if err == nil {
+				writeChunk(rw, bts)
+			}
+
+			// Send [DONE] signal
+			if err := writeChunk(rw, []byte("data: [DONE]\n\n")); err != nil {
+				log.Error().Err(err).Msg("failed to write done signal")
+			}
+
+			log.Info().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response completed")
+			return nil
+
+		case err := <-errorChan:
+			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
+			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
+
+		case <-time.After(30 * time.Second):
+			log.Warn().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response timeout")
+			return s.writeErrorResponse(rw, "External agent response timeout")
+		}
+	}
+}
+
+// waitForExternalAgentReady waits for the external agent WebSocket connection to be established
+func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionID string, timeout time.Duration) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Dur("timeout", timeout).
+		Msg("Waiting for external agent to be ready")
+
+	startCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	startTime := time.Now()
+	attemptCount := 0
+
+	for {
+		select {
+		case <-startCtx.Done():
+			elapsed := time.Since(startTime)
+			log.Error().
+				Str("session_id", sessionID).
+				Dur("elapsed", elapsed).
+				Int("attempts", attemptCount).
+				Msg("Timeout waiting for external agent to be ready")
+			return fmt.Errorf("timeout waiting for external agent to be ready after %v (%d attempts)", elapsed, attemptCount)
+		case <-ticker.C:
+			attemptCount++
+
+			// Check if WebSocket connection exists
+			_, exists := s.externalAgentWSManager.getConnection(sessionID)
+			if exists {
+				elapsed := time.Since(startTime)
+				log.Info().
+					Str("session_id", sessionID).
+					Dur("elapsed", elapsed).
+					Int("attempts", attemptCount).
+					Msg("External agent is ready")
+				return nil
+			}
+
+			// Log periodic status updates
+			elapsed := time.Since(startTime)
+			if attemptCount%10 == 0 || elapsed > 10*time.Second {
+				timeLeft := timeout - elapsed
+				log.Debug().
+					Str("session_id", sessionID).
+					Dur("elapsed", elapsed).
+					Dur("time_left", timeLeft).
+					Int("attempt", attemptCount).
+					Msg("Still waiting for external agent to connect")
+			}
+		}
+	}
+}
+
+// Response channel management for external agent requests
+var responseChannels = make(map[string]map[string]chan string)
+var doneChannels = make(map[string]map[string]chan bool)
+var errorChannels = make(map[string]map[string]chan error)
+var channelMutex sync.RWMutex
+
+// storeResponseChannel stores response channels for a request
+func (s *HelixAPIServer) storeResponseChannel(sessionID, requestID string, responseChan chan string, doneChan chan bool, errorChan chan error) {
+	channelMutex.Lock()
+	defer channelMutex.Unlock()
+
+	if responseChannels[sessionID] == nil {
+		responseChannels[sessionID] = make(map[string]chan string)
+		doneChannels[sessionID] = make(map[string]chan bool)
+		errorChannels[sessionID] = make(map[string]chan error)
+	}
+
+	responseChannels[sessionID][requestID] = responseChan
+	doneChannels[sessionID][requestID] = doneChan
+	errorChannels[sessionID][requestID] = errorChan
+}
+
+// cleanupResponseChannel cleans up channels for a request
+func (s *HelixAPIServer) cleanupResponseChannel(sessionID, requestID string) {
+	channelMutex.Lock()
+	defer channelMutex.Unlock()
+
+	if responseChannels[sessionID] != nil {
+		delete(responseChannels[sessionID], requestID)
+		delete(doneChannels[sessionID], requestID)
+		delete(errorChannels[sessionID], requestID)
+
+		if len(responseChannels[sessionID]) == 0 {
+			delete(responseChannels, sessionID)
+			delete(doneChannels, sessionID)
+			delete(errorChannels, sessionID)
+		}
+	}
+}
+
+// getResponseChannel gets response channels for a request
+func (s *HelixAPIServer) getResponseChannel(sessionID, requestID string) (chan string, chan bool, chan error, bool) {
+	channelMutex.RLock()
+	defer channelMutex.RUnlock()
+
+	if responseChannels[sessionID] != nil {
+		responseChan, responseExists := responseChannels[sessionID][requestID]
+		doneChan, doneExists := doneChannels[sessionID][requestID]
+		errorChan, errorExists := errorChannels[sessionID][requestID]
+
+		if responseExists && doneExists && errorExists {
+			return responseChan, doneChan, errorChan, true
+		}
+	}
+
+	return nil, nil, nil, false
+}
+
+// writeErrorResponse writes an error response in SSE format
+func (s *HelixAPIServer) writeErrorResponse(rw http.ResponseWriter, errorMsg string) error {
+	// Write error message in SSE format
+	errorMsg = fmt.Sprintf("data: {\"error\":{\"message\":\"%s\"}}\n\n", errorMsg)
+	_, err := rw.Write([]byte(errorMsg))
+	if err != nil {
+		return err
+	}
+
+	if f, ok := rw.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
+// Helper function to create string pointer
+func stringPtr(s string) *string {
+	return &s
 }
 
 // getSessionStepInfo godoc

@@ -268,9 +268,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	// Using external agent executor
-	log.Info().Msg("Using external agent executor")
-	var gse external_agent.Executor // nil executor placeholder
+	// External agent executor not used - following GPTScript pattern with WebSocket + PubSub
+	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")
+	var gse external_agent.Executor // nil executor - communication via WebSocket + PubSub
 
 	var extractor extract.Extractor
 
@@ -504,7 +504,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		cfg,
 		postgresStore,
 		ps,
-		gse,
 		providerManager,
 		dynamicInfoProvider,
 		helixInference,

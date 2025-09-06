@@ -47,9 +47,16 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 
 	// External agent executor should be initialized in server constructor
 	if apiServer.externalAgentExecutor == nil {
+		log.Error().Str("session_id", agent.SessionID).Msg("External agent executor not available")
 		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
 		return
 	}
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("user_id", agent.UserID).
+		Str("project_path", agent.ProjectPath).
+		Msg("Creating external agent via API endpoint")
 
 	// Generate auth token for WebSocket connection
 	token, err := apiServer.generateExternalAgentToken(agent.SessionID)
@@ -67,9 +74,21 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("rdp_url", response.RDPURL).
+		Str("status", response.Status).
+		Msg("External agent started successfully")
+
 	// Add WebSocket connection info to response
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
 	response.AuthToken = token
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("websocket_url", response.WebSocketURL).
+		Bool("has_auth_token", len(response.AuthToken) > 0).
+		Msg("External agent API response prepared")
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(response)
@@ -92,13 +111,22 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 	}
 
 	if apiServer.externalAgentExecutor == nil {
+		log.Error().Str("session_id", sessionID).Msg("External agent executor not available")
 		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
+	log.Debug().
+		Str("session_id", sessionID).
+		Msg("Getting external agent session info")
+
 	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
 	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("External agent session not found")
+		http.Error(res, fmt.Sprintf("session %s not found: %s", sessionID, err.Error()), http.StatusNotFound)
 		return
 	}
 
@@ -201,11 +229,39 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		return
 	}
 
+	log.Debug().
+		Str("session_id", sessionID).
+		Msg("Looking up external agent session for RDP info")
+
 	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
 	if err != nil {
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to find external agent session")
+
+		// Try to list all sessions to see what's available
+		allSessions := apiServer.externalAgentExecutor.ListSessions()
+		log.Debug().
+			Int("total_sessions", len(allSessions)).
+			Msg("Current external agent sessions")
+
+		for _, s := range allSessions {
+			log.Debug().
+				Str("available_session_id", s.SessionID).
+				Str("status", s.Status).
+				Msg("Available session")
+		}
+
+		http.Error(res, fmt.Sprintf("session %s not found: %s", sessionID, err.Error()), http.StatusNotFound)
 		return
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("status", session.Status).
+		Str("rdp_url", session.RDPURL).
+		Msg("Found external agent session for RDP")
 
 	// Return RDP connection details with WebSocket info
 	rdpInfo := map[string]interface{}{
@@ -214,13 +270,19 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		"rdp_port":            8080,
 		"rdp_password":        session.RDPPassword, // Secure random password
 		"display":             fmt.Sprintf(":%d", 1),
-		"status":              "running",
+		"status":              session.Status,
 		"username":            "zed", // Default RDP username
 		"host":                "localhost",
 		"proxy_url":           fmt.Sprintf("wss://%s/api/v1/external-agents/%s/rdp/proxy", req.Host, session.SessionID),
 		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
 		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
 	}
+
+	log.Info().
+		Str("session_id", session.SessionID).
+		Str("status", session.Status).
+		Bool("websocket_connected", rdpInfo["websocket_connected"].(bool)).
+		Msg("Returning RDP connection info")
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(rdpInfo)

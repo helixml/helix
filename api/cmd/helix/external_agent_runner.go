@@ -45,15 +45,13 @@ func externalAgentRunner(_ *cobra.Command) error {
 	}
 
 	log.Info().
-		Str("api_host", cfg.APIHost).
-		Str("runner_id", cfg.RunnerID).
 		Int("concurrency", cfg.Concurrency).
 		Int("max_tasks", cfg.MaxTasks).
 		Int("rdp_start_port", cfg.RDPStartPort).
 		Str("workspace_dir", cfg.WorkspaceDir).
 		Msg("starting external agent runner")
 
-	// Create external agent runner (ZedExecutor no longer available)
+	// Create external agent runner
 	runner := external_agent.NewExternalAgentRunner(&cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())

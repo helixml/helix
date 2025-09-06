@@ -27,6 +27,11 @@ type Executor interface {
 	ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error)
 }
 
+// NATSExecutorAdapter adapts NATSExternalAgentService to the Executor interface
+type NATSExecutorAdapter struct {
+	natsService *NATSExternalAgentService
+}
+
 // PoolExecutor manages a pool of Zed runners using the runner pattern
 type PoolExecutor struct {
 	runnerPool []string // IDs of available runners in the pool
@@ -405,4 +410,197 @@ func containsDangerousPath(path string) bool {
 		}
 	}
 	return false
+}
+
+// NewNATSExecutorAdapter creates an adapter for NATSExternalAgentService
+func NewNATSExecutorAdapter(natsService *NATSExternalAgentService) Executor {
+	return &NATSExecutorAdapter{
+		natsService: natsService,
+	}
+}
+
+// StartZedAgent implements Executor interface
+func (adapter *NATSExecutorAdapter) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("user_id", agent.UserID).
+		Str("project_path", agent.ProjectPath).
+		Msg("NATS adapter starting external agent")
+
+	response, err := adapter.natsService.AssignExternalAgent(ctx, agent)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", agent.SessionID).
+			Msg("NATS adapter failed to assign external agent")
+		return nil, err
+	}
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("status", response.Status).
+		Msg("NATS adapter successfully assigned external agent")
+
+	return response, nil
+}
+
+// StopZedAgent implements Executor interface
+func (adapter *NATSExecutorAdapter) StopZedAgent(ctx context.Context, sessionID string) error {
+	log.Info().Str("session_id", sessionID).Msg("NATS adapter stopping external agent")
+
+	err := adapter.natsService.StopAgentSession(ctx, sessionID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("NATS adapter failed to stop external agent")
+	}
+
+	return err
+}
+
+// GetSession implements Executor interface
+func (adapter *NATSExecutorAdapter) GetSession(sessionID string) (*ZedSession, error) {
+	log.Debug().Str("session_id", sessionID).Msg("NATS adapter getting session")
+
+	session, err := adapter.natsService.GetAgentSession(sessionID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("NATS adapter failed to get session")
+
+		// Debug: List all available sessions
+		allSessions := adapter.natsService.ListActiveSessions()
+		log.Debug().
+			Int("total_sessions", len(allSessions)).
+			Str("requested_session_id", sessionID).
+			Msg("Available sessions in NATS service")
+
+		for _, s := range allSessions {
+			log.Debug().
+				Str("available_session_id", s.ID).
+				Str("agent_id", s.AgentID).
+				Str("status", s.Status).
+				Msg("Available NATS session")
+		}
+
+		return nil, err
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("agent_id", session.AgentID).
+		Str("status", session.Status).
+		Msg("NATS adapter found session")
+
+	// Convert AgentSession to ZedSession
+	return &ZedSession{
+		SessionID:   session.ID,
+		UserID:      session.HelixSession, // Using HelixSession as UserID placeholder
+		Status:      session.Status,
+		StartTime:   session.CreatedAt,
+		LastAccess:  session.LastActivity,
+		RDPURL:      session.RDPURL,
+		RDPPassword: session.RDPPassword,
+	}, nil
+}
+
+// CleanupExpiredSessions implements Executor interface
+func (adapter *NATSExecutorAdapter) CleanupExpiredSessions(ctx context.Context, timeout time.Duration) {
+	// The NATS service handles cleanup internally
+	log.Debug().Msg("Cleanup handled by NATS service")
+}
+
+// ListSessions implements Executor interface
+func (adapter *NATSExecutorAdapter) ListSessions() []*ZedSession {
+	sessions := adapter.natsService.ListActiveSessions()
+	zedSessions := make([]*ZedSession, len(sessions))
+
+	log.Debug().Int("session_count", len(sessions)).Msg("NATS adapter listing sessions")
+
+	for i, session := range sessions {
+		zedSessions[i] = &ZedSession{
+			SessionID:   session.ID,
+			UserID:      session.HelixSession,
+			Status:      session.Status,
+			StartTime:   session.CreatedAt,
+			LastAccess:  session.LastActivity,
+			RDPURL:      session.RDPURL,
+			RDPPassword: session.RDPPassword,
+		}
+
+		log.Debug().
+			Str("session_id", session.ID).
+			Str("status", session.Status).
+			Str("agent_id", session.AgentID).
+			Msg("Listed NATS session")
+	}
+
+	return zedSessions
+}
+
+// StartZedInstance implements Executor interface
+func (adapter *NATSExecutorAdapter) StartZedInstance(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+	return adapter.natsService.AssignExternalAgent(ctx, agent)
+}
+
+// CreateZedThread implements Executor interface
+func (adapter *NATSExecutorAdapter) CreateZedThread(ctx context.Context, instanceID, threadID string, config map[string]interface{}) error {
+	// For NATS-based agents, thread creation is handled by the agent itself
+	log.Info().
+		Str("instance_id", instanceID).
+		Str("thread_id", threadID).
+		Msg("Thread creation delegated to external agent")
+	return nil
+}
+
+// StopZedInstance implements Executor interface
+func (adapter *NATSExecutorAdapter) StopZedInstance(ctx context.Context, instanceID string) error {
+	// Find session by instance ID and stop it
+	sessions := adapter.natsService.ListActiveSessions()
+	for _, session := range sessions {
+		if session.InstanceID == instanceID {
+			return adapter.natsService.StopAgentSession(ctx, session.ID)
+		}
+	}
+	return fmt.Errorf("instance not found: %s", instanceID)
+}
+
+// GetInstanceStatus implements Executor interface
+func (adapter *NATSExecutorAdapter) GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error) {
+	sessions := adapter.natsService.ListActiveSessions()
+	for _, session := range sessions {
+		if session.InstanceID == instanceID {
+			return &ZedInstanceStatus{
+				InstanceID:   instanceID,
+				SpecTaskID:   session.HelixSession,
+				Status:       session.Status,
+				ThreadCount:  len(session.ZedContexts),
+				LastActivity: &session.LastActivity,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("instance not found: %s", instanceID)
+}
+
+// ListInstanceThreads implements Executor interface
+func (adapter *NATSExecutorAdapter) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error) {
+	sessions := adapter.natsService.ListActiveSessions()
+	for _, session := range sessions {
+		if session.InstanceID == instanceID {
+			threads := make([]*ZedThreadInfo, 0, len(session.ZedContexts))
+			for contextID, interactionID := range session.ZedContexts {
+				threads = append(threads, &ZedThreadInfo{
+					ThreadID:      contextID,
+					WorkSessionID: interactionID,
+					Status:        "active",
+					CreatedAt:     session.CreatedAt,
+					LastActivity:  &session.LastActivity,
+				})
+			}
+			return threads, nil
+		}
+	}
+	return nil, fmt.Errorf("instance not found: %s", instanceID)
 }

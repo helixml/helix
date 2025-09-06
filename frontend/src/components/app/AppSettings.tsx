@@ -26,6 +26,8 @@ import {
   AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
+
+
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
@@ -211,9 +213,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
 
   // Agent type settings
-  const [default_agent_type, setDefaultAgentType] = useState(app.default_agent_type || 'helix_basic')
-  const [external_agent_enabled, setExternalAgentEnabled] = useState(app.external_agent_enabled || false)
-  const [external_agent_config, setExternalAgentConfig] = useState(app.external_agent_config || {})
+  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+  const [external_agent_config, setExternalAgentConfig] = useState<IExternalAgentConfig>(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
@@ -246,8 +247,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
-      setDefaultAgentType(app.default_agent_type || 'helix_basic')
-      setExternalAgentEnabled(app.external_agent_enabled || false)
+      setDefaultAgentType(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
       setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
@@ -285,7 +285,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       model,
       agent_mode,
       default_agent_type,
-      external_agent_enabled,
       external_agent_config,
       reasoning_model,
       reasoning_model_provider,
@@ -332,7 +331,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       global: field === 'global' ? value : global,
       agent_mode: field === 'agent_mode' ? value : agent_mode,
       default_agent_type,
-      external_agent_enabled,
       external_agent_config,
       model,
       provider,
@@ -341,7 +339,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       max_tokens: maxTokens,
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
-      temperature,
+      temperature: temperature,
       top_p: topP,
       max_iterations: max_iterations
     }
@@ -352,6 +350,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Handle agent type changes
   const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
     setDefaultAgentType(agentType)
+    
     if (config !== undefined) {
       setExternalAgentConfig(config)
     }
@@ -361,8 +360,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       agent_mode,
       default_agent_type: agentType,
-      external_agent_enabled: agentType === 'zed_external',
-      external_agent_config: config || external_agent_config,
+      external_agent_config: config !== undefined ? config : external_agent_config,
       model,
       provider,
       context_limit: contextLimit,
@@ -370,7 +368,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       max_tokens: maxTokens,
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
-      temperature: temperature,
+      temperature,
       top_p: topP,
       system_prompt: system_prompt,
       max_iterations: max_iterations
@@ -378,6 +376,8 @@ const AppSettings: FC<AppSettingsProps> = ({
 
     onUpdate(updatedApp)
   }
+
+
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
@@ -557,23 +557,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       <Box sx={{ mb: 3 }}>
         <Typography variant="subtitle1" sx={{ mb: 2 }}>Default Agent Type</Typography>
         <AgentTypeSelector
-          value={default_agent_type as IAgentType}
-          onChange={(agentType, config) => {
-            setDefaultAgentType(agentType);
-            if (config) {
-              setExternalAgentConfig(config);
-            }
-            const updatedApp: IAppFlatState = {
-              ...app,
-              default_agent_type: agentType,
-              external_agent_config: config || app.external_agent_config,
-            };
-            onUpdate(updatedApp);
-          }}
+          value={default_agent_type}
+          onChange={handleAgentTypeChange}
           externalAgentConfig={external_agent_config}
           disabled={readOnly}
           showExternalConfig={default_agent_type === AGENT_TYPE_ZED_EXTERNAL}
         />
+
       </Box>
 
       {/* Basic Agent Configuration - Model Selection Only */}

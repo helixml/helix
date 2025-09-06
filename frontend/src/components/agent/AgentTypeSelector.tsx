@@ -52,6 +52,11 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
 }) => {
   const [localConfig, setLocalConfig] = React.useState<IExternalAgentConfig>(externalAgentConfig);
 
+  // Sync localConfig with externalAgentConfig prop changes
+  React.useEffect(() => {
+    setLocalConfig(externalAgentConfig);
+  }, [externalAgentConfig]);
+
   const handleAgentTypeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newAgentType = event.target.value as IAgentType;
     onChange(newAgentType, newAgentType === AGENT_TYPE_ZED_EXTERNAL ? localConfig : undefined);
