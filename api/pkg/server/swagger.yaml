@@ -4687,6 +4687,23 @@ paths:
       summary: Get app usage
       tags:
       - apps
+  /api/v1/apps/{id}/duplicate:
+    post:
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional new name for the app
+        in: query
+        name: name
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
   /api/v1/apps/{id}/interactions:
     get:
       description: List interactions with pagination and optional session filtering
