@@ -174,11 +174,18 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		if err != nil {
 			log.Warn().
 				Err(err).
-				Str("url", tool.Config.MCP.URL).
-				Str("name", tool.Config.MCP.Name).
+				Str("url", mcpConfig.URL).
+				Str("name", mcpConfig.Name).
 				Str("user_id", userID).
 				Msg("failed to initialize MCP client, might not work during runtime")
 		} else {
+			// Find assistant mcp tool with the same name and update the tools
+			for idx, mcp := range assistant.MCPs {
+				if mcp.Name == mcpConfig.Name {
+					assistant.MCPs[idx].Tools = resp.Tools
+					break
+				}
+			}
 			tool.Config.MCP.Tools = resp.Tools
 		}
 
