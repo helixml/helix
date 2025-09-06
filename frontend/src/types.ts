@@ -637,6 +637,7 @@ export interface IAssistantConfig {
   model?: string;
   conversation_starters?: string[];
   agent_mode?: boolean;
+  agent_type?: IAgentType;
   max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
@@ -805,7 +806,6 @@ export interface IAppHelixConfig {
   triggers?: TypesTrigger[];
   external_url: string;
   default_agent_type?: IAgentType;
-  external_agent_enabled?: boolean;
   external_agent_config?: IExternalAgentConfig;
   // Add any other properties that might be part of the helix config
 }
@@ -887,7 +887,6 @@ export interface IAppFlatState {
   triggers?: TypesTrigger[];
   tests?: ITest[];
   default_agent_type?: IAgentType;
-  external_agent_enabled?: boolean;
   external_agent_config?: IExternalAgentConfig;
 
   tools?: ITool[]

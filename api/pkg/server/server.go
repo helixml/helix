@@ -81,7 +81,6 @@ type HelixAPIServer struct {
 	pubsub                   pubsub.PubSub
 	providerManager          manager.ProviderManager
 	modelInfoProvider        model.ModelInfoProvider
-	zedAgentExecutor         external_agent.Executor
 	externalAgentExecutor    external_agent.Executor
 	externalAgentWSManager   *ExternalAgentWSManager
 	inferenceServer          *openai.InternalHelixServer
@@ -107,7 +106,7 @@ func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
-	zedAgentExecutor external_agent.Executor,
+
 	providerManager manager.ProviderManager,
 	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
@@ -204,13 +203,15 @@ func NewServer(
 	// Initialize external agent WebSocket manager
 	externalAgentWSManager := NewExternalAgentWSManager()
 
+	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
+
 	apiServer := &HelixAPIServer{
-		Cfg:                    cfg,
-		Store:                  store,
-		Stripe:                 stripe,
-		Controller:             controller,
-		Janitor:                janitor,
-		zedAgentExecutor:       zedAgentExecutor,
+		Cfg:        cfg,
+		Store:      store,
+		Stripe:     stripe,
+		Controller: controller,
+		Janitor:    janitor,
+
 		externalAgentExecutor:  externalAgentExecutor,
 		externalAgentWSManager: externalAgentWSManager,
 		inferenceServer:        inferenceServer,
@@ -305,16 +306,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	)
 
 	// Zed Agent Runner WebSocket Server
-	apiServer.startZedAgentRunnerWebSocketServer(
-		apiRouter,
-		"/ws/zed-runner",
-	)
-
 	// External Agent Runner WebSocket Server (with query parameter auth)
-	apiServer.startExternalAgentRunnerWebSocketServer(
-		apiRouter,
-		"/ws/external-agent-runner",
-	)
+	// Note: External agent runners connect via /ws/external-agent-runner endpoint
 
 	// Start UNIX socket server for embeddings if configured
 	if apiServer.Cfg.WebServer.EmbeddingsSocket != "" {
@@ -526,24 +519,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
-	// Zed agent routes
-	authRouter.HandleFunc("/zed-agents", apiServer.createZedAgent).Methods("POST")
-	authRouter.HandleFunc("/zed-agents", apiServer.listZedAgents).Methods("GET")
-	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.getZedAgent).Methods("GET")
-	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.updateZedAgent).Methods("PUT")
-	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.deleteZedAgent).Methods("DELETE")
-	authRouter.HandleFunc("/zed-agents/{sessionID}/rdp", apiServer.getZedAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/zed-agents/{sessionID}/rdp/proxy", apiServer.proxyZedAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/zed-agents/{sessionID}/stats", apiServer.getZedAgentStats).Methods("GET")
-	authRouter.HandleFunc("/zed-agents/{sessionID}/logs", apiServer.getZedAgentLogs).Methods("GET")
+	// External agent WebSocket sync endpoint
+	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented
 
-	// External agent WebSocket sync endpoint
-	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
-
-	// External agent management routes (moved above)
+	// External agent WebSocket runner endpoint
+	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
 
 	// Agent dashboard and management routes
 	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
@@ -995,45 +978,21 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 }
 
 // startExternalAgentRunnerWebSocketServer starts a WebSocket server for external agent runners
-// This is similar to startZedAgentRunnerWebSocketServer but uses query parameter authentication
+// Follows the exact same pattern as GPTScript runner for consistency
 func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.Router, path string) {
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		// Extract authentication and runner info from query parameters
-		runnerID := r.URL.Query().Get("runnerid")
-		accessToken := r.URL.Query().Get("access_token")
-		concurrencyStr := r.URL.Query().Get("concurrency")
-
-		if runnerID == "" {
-			http.Error(w, "runnerid is required", http.StatusBadRequest)
-			return
-		}
-		if accessToken == "" {
-			http.Error(w, "access_token is required", http.StatusBadRequest)
+		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
+		if err != nil {
+			log.Error().Msgf("Error getting user: %s", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Validate the runner token
-		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
-			log.Warn().
-				Str("provided_token", accessToken).
-				Str("expected_token", apiServer.Cfg.WebServer.RunnerToken).
-				Str("runner_id", runnerID).
-				Msg("Invalid runner token for external agent runner")
-			http.Error(w, "Invalid access token", http.StatusUnauthorized)
+		if user == nil || !isRunner(user) {
+			log.Error().Msgf("Error authorizing external agent runner websocket")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-
-		concurrency := 1
-		if concurrencyStr != "" {
-			if c, err := strconv.Atoi(concurrencyStr); err == nil {
-				concurrency = c
-			}
-		}
-
-		log.Info().
-			Str("runner_id", runnerID).
-			Int("concurrency", concurrency).
-			Msg("External agent runner connected")
 
 		wsConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -1046,9 +1005,21 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
-		defer log.Info().Str("runner_id", runnerID).Msg("External agent runner disconnected")
+		runnerID := r.URL.Query().Get("runnerid")
+		concurrencyStr := r.URL.Query().Get("concurrency")
 
-		// Subscribe to Zed agent tasks
+		concurrency, err := strconv.Atoi(concurrencyStr)
+		if err != nil {
+			log.Error().Msgf("Error parsing concurrency: %s", err.Error())
+			concurrency = 1
+		}
+
+		log.Info().
+			Str("action", "🟢 External agent runner connected").
+			Int("concurrency", concurrency).
+			Msgf("connected external agent runner websocket: %s\n", runnerID)
+
+		// Subscribe to Zed agent tasks (using ZedAgentRunnerStream like GPTScript uses ScriptRunnerStream)
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
 			var messageType types.RunnerEventRequestType
 
@@ -1097,9 +1068,8 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			log.Trace().Msgf("External agent runner websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
 				log.Info().
-					Str("action", "External agent runner ws DISCONNECT").
-					Str("runner_id", runnerID).
-					Msg("External agent runner disconnected - container will restart for cleanup")
+					Str("action", "🟠 External agent runner ws DISCONNECT").
+					Msgf("disconnected external agent runner websocket: %s\n", runnerID)
 				return
 			}
 
