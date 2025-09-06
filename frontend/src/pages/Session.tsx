@@ -211,6 +211,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   const isOwner = account.user?.id == session?.data?.owner
 
+  // Test RDP Mode state
+  const [testRDPMode, setTestRDPMode] = useState(false)
+
   // Check if this is an external agent session
   useEffect(() => {
     if (session?.data?.config?.agent_type === 'zed_external' || testRDPMode) {
@@ -261,7 +264,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [assistantID, setAssistantID] = useState<string | null>(null)
   const [showRDPViewer, setShowRDPViewer] = useState(false)
   const [isExternalAgent, setIsExternalAgent] = useState(false)
-  const [testRDPMode, setTestRDPMode] = useState(false)
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})

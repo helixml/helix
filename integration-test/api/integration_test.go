@@ -202,3 +202,73 @@ func createApp(t *testing.T, apiClient *client.HelixClient, agentConfig *types.A
 
 	return app, nil
 }
+
+// TestExternalAgentModelParameter tests that external agent sessions
+// properly handle the model parameter and don't get rejected with
+// "you must provide a model parameter" error
+func TestExternalAgentModelParameter(t *testing.T) {
+	if os.Getenv("START_HELIX_TEST_SERVER") != "true" {
+		t.Skip("Skipping integration test - set START_HELIX_TEST_SERVER=true to enable")
+	}
+
+	db, err := getStoreClient()
+	if err != nil {
+		t.Fatalf("Failed to get store client: %v", err)
+	}
+
+	// Create test user
+	user, apiKey, err := createUser(t, db, nil, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
+	if err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+
+	apiClient, err := getAPIClient(apiKey)
+	if err != nil {
+		t.Fatalf("Failed to get API client: %v", err)
+	}
+
+	// Test session creation with external agent configuration
+	sessionReq := &types.SessionChatRequest{
+		Type:      types.SessionTypeText,
+		Model:     "external_agent",
+		AgentType: "zed_external",
+		Messages: []*types.Message{
+			{
+				Role: "user",
+				Content: types.MessageContent{
+					Parts: []interface{}{
+						"Hello from external agent integration test",
+					},
+				},
+			},
+		},
+		ExternalAgentConfig: &types.ExternalAgentConfig{
+			WorkspaceDir: "/tmp/test",
+		},
+	}
+
+	// This should not fail with "you must provide a model parameter" error
+	// Note: It may fail for other reasons (like no external agent available)
+	// but we're specifically testing that the model parameter is accepted
+	session, err := apiClient.CreateSession(context.Background(), sessionReq)
+
+	// The session creation might fail due to external agent not being available,
+	// but it should NOT fail with "you must provide a model parameter"
+	if err != nil {
+		// Check that it's not the model parameter error
+		if fmt.Sprintf("%v", err) == "400 Bad Request: you must provide a model parameter" {
+			t.Fatalf("Got the model parameter error that should be fixed: %v", err)
+		}
+		// Other errors are acceptable for this test (external agent not available, etc.)
+		t.Logf("Session creation failed with expected error (external agent not available): %v", err)
+		return
+	}
+
+	// If session creation succeeded, verify the model is set correctly
+	if session != nil {
+		if session.ModelName != "external_agent" {
+			t.Errorf("Expected model to be 'external_agent', got '%s'", session.ModelName)
+		}
+		t.Logf("Successfully created external agent session with ID: %s", session.ID)
+	}
+}

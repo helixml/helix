@@ -29,6 +29,7 @@ require (
 	github.com/gocolly/colly/v2 v2.1.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang-migrate/migrate/v4 v4.16.2
+	github.com/golang/mock v1.6.0
 	github.com/google/go-github/v61 v61.0.0
 	github.com/google/go-tika v0.3.1
 	github.com/google/uuid v1.6.0
@@ -100,7 +101,6 @@ require (
 	github.com/go-git/go-billy/v6 v6.0.0-20250627091229-31e2a16eef30 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/grokify/mogo v0.64.12 // indirect
@@ -111,7 +111,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xanzy/go-gitlab v0.110.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
