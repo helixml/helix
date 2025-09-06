@@ -120,6 +120,7 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 
 	// Generate the authorization URL
 	authURL := oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	// authURL := oauth2Config.AuthCodeURL(state)
 
 	return authURL, nil
 }
@@ -202,6 +203,8 @@ func (p *OAuth2Provider) RefreshTokenIfNeeded(ctx context.Context, connection *t
 
 	// Create the token source
 	tokenSource := p.oauthConfig.TokenSource(ctx, token)
+
+	log.Info().Str("provider_id", p.config.ID).Str("user_id", connection.UserID).Msg("Refreshing token")
 
 	// Refresh the token
 	newToken, err := tokenSource.Token()
