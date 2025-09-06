@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -180,7 +181,12 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 		return nil, fmt.Errorf("failed to decode request body: %w", err)
 	}
 
-	return mcp.InitializeMCPClientSkill(r.Context(), agent.Meta{
+	resp, err := mcp.InitializeMCPClientSkill(context.Background(), agent.Meta{
 		UserID: user.ID,
 	}, s.oauthManager, &config)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to initialize MCP client skill")
+	}
+
+	return resp, err
 }
