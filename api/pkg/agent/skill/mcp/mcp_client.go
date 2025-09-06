@@ -3,7 +3,9 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/data"
@@ -42,16 +44,17 @@ func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Mana
 		}
 		t = sse
 	default:
-		fmt.Println("XXX SETTING HEADERS", cfg.Headers)
 		httpTransport, err := transport.NewStreamableHTTP(
 			cfg.URL,
 			transport.WithHTTPHeaders(cfg.Headers),
-			// You can add HTTP-specific options here like headers, OAuth, etc.
+			transport.WithHTTPTimeout(60*time.Second),
+			// Passing default client so that we don't need to close it
+			transport.WithHTTPBasicClient(http.DefaultClient),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create HTTP transport: %w", err)
 		}
-		defer httpTransport.Close()
+		// defer httpTransport.Close()
 		t = httpTransport
 	}
 
