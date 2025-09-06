@@ -6066,6 +6066,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Tool"
+                    }
+                },
                 "url": {
                     "type": "string"
                 }
