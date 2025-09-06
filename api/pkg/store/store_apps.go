@@ -273,13 +273,6 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 
 		// Convert MCP to Tools
 		for _, mcp := range assistant.MCPs {
-			// If already initialized, add it to the tools
-			t, ok := initializedTools[mcp.Name]
-			if ok && len(t.Config.MCP.Tools) > 0 {
-				tools = append(tools, t)
-				continue
-			}
-			// Otherwise, create a new tool, fallback mechanism
 			tools = append(tools, &types.Tool{
 				Name:        mcp.Name,
 				Description: mcp.Description,
@@ -292,6 +285,7 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 						Headers:       mcp.Headers,
 						OAuthProvider: mcp.OAuthProvider,
 						OAuthScopes:   mcp.OAuthScopes,
+						Tools:         mcp.Tools,
 					},
 				},
 			})
