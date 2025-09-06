@@ -162,14 +162,22 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 
 		// Get MCP config from assistant
 		mcpConfig := &types.AssistantMCP{
-			URL:     tool.Config.MCP.URL,
-			Headers: tool.Config.MCP.Headers,
+			Name:          tool.Config.MCP.Name,
+			URL:           tool.Config.MCP.URL,
+			Headers:       tool.Config.MCP.Headers,
+			OAuthProvider: tool.Config.MCP.OAuthProvider,
+			OAuthScopes:   tool.Config.MCP.OAuthScopes,
 		}
 
 		// Attempt to initialize the MCP client
 		resp, err := mcp.InitializeMCPClientSkill(context.Background(), agent.Meta{UserID: userID}, oauthManager, mcpConfig)
 		if err != nil {
-			log.Warn().Err(err).Msg("failed to initialize MCP client, might not work during runtime")
+			log.Warn().
+				Err(err).
+				Str("url", tool.Config.MCP.URL).
+				Str("name", tool.Config.MCP.Name).
+				Str("user_id", userID).
+				Msg("failed to initialize MCP client, might not work during runtime")
 		} else {
 			tool.Config.MCP.Tools = resp.Tools
 		}
