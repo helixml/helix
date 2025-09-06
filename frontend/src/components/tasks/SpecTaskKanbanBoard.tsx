@@ -29,6 +29,8 @@ import {
   InputLabel,
   Avatar,
 } from '@mui/material';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   Add as AddIcon,
   ExpandMore as ExpandMoreIcon,
@@ -368,7 +370,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         // Better phase mapping based on actual status
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
-          let planningStatus = 'none';
+          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
           
           if (task.status === 'spec_generation') {
             phase = 'planning';
@@ -424,7 +426,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
-          let planningStatus = 'none';
+          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
             
           if (task.status === 'spec_generation') {
             phase = 'planning';
@@ -517,7 +519,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           
           const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
             let phase: SpecTaskPhase = 'backlog';
-            let planningStatus = 'none';
+            let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
             
             if (task.status === 'spec_generation') {
               phase = 'planning';

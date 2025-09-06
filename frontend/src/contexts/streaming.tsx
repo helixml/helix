@@ -336,6 +336,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       sessionChatRequest.messages = messages;
     }
 
+    console.log('📡 Sending session chat request:', {
+      url: '/api/v1/sessions/chat',
+      payload: sessionChatRequest,
+      modelName: sessionChatRequest.model,
+      agentType: sessionChatRequest.agent_type,
+      externalAgentConfig: sessionChatRequest.external_agent_config
+    });
+
     try {
       const response = await fetch('/api/v1/sessions/chat', {
         method: 'POST',

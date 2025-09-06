@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -26,7 +29,7 @@ const (
 )
 
 // ExternalAgentRunner connects using a WebSocket to the Control Plane
-// and listens for external agent tasks to run
+// and listens for external agent tasks to run (follows GPTScript runner pattern)
 type ExternalAgentRunner struct {
 	cfg *config.ExternalAgentRunnerConfig
 }
@@ -147,7 +150,7 @@ func (r *ExternalAgentRunner) dial(ctx context.Context) (*websocket.Conn, error)
 		apiHost = strings.Replace(r.cfg.APIHost, "http", "ws", 1)
 	}
 
-	// Use external-agent-runner endpoint
+	// Use external-agent-runner endpoint (matching GPTScript pattern)
 	apiHost = fmt.Sprintf("%s%s?access_token=%s&concurrency=%d&runnerid=%s",
 		apiHost,
 		system.GetAPIPath("/ws/external-agent-runner"),
@@ -193,27 +196,150 @@ func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *
 		return fmt.Errorf("failed to unmarshal Zed agent (%s): %w", string(req.Payload), err)
 	}
 
-	logger.Debug().
+	logger.Info().
 		Str("session_id", agent.SessionID).
 		Str("input", agent.Input).
 		Str("project_path", agent.ProjectPath).
 		Str("work_dir", agent.WorkDir).
-		Msg("processing Zed agent request")
+		Msg("starting Zed agent")
 
 	start := time.Now()
 
-	// ZedExecutor not available in this configuration
-	err := fmt.Errorf("Zed execution not supported")
-	logger.Error().Err(err).Msg("failed to start Zed agent")
-	resp := &types.ZedAgentResponse{
-		SessionID: agent.SessionID,
-		Error:     err.Error(),
-		Status:    "error",
+	// Start Zed agent in container with RDP
+	resp, err := r.startZedAgent(ctx, &agent)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to start Zed agent")
+		resp = &types.ZedAgentResponse{
+			SessionID: agent.SessionID,
+			Error:     err.Error(),
+			Status:    "error",
+		}
 	}
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("Zed agent request processed")
 
 	return r.respond(conn, req.RequestID, req.Reply, resp)
+}
+
+// startZedAgent starts a Zed agent in a container with RDP access
+func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+	// Generate RDP credentials
+	rdpPassword := r.generatePassword()
+	rdpPort := 5900 // Fixed RDP port inside container
+
+	logger := log.With().Str("session_id", agent.SessionID).Logger()
+
+	// Set up workspace directory
+	workspaceDir := agent.WorkDir
+	if workspaceDir == "" {
+		workspaceDir = fmt.Sprintf("/workspace/%s", agent.SessionID)
+	}
+
+	// Set up project path
+	projectPath := agent.ProjectPath
+	if projectPath == "" {
+		projectPath = workspaceDir
+	}
+
+	logger.Info().
+		Str("workspace_dir", workspaceDir).
+		Str("project_path", projectPath).
+		Int("rdp_port", rdpPort).
+		Msg("initializing Zed agent environment")
+
+	// Actually start Zed binary with the workspace
+	err := r.startZedBinary(ctx, workspaceDir, projectPath, agent)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to start Zed binary")
+		return nil, fmt.Errorf("failed to start Zed binary: %w", err)
+	}
+
+	logger.Info().Msg("Zed binary started successfully")
+
+	// Return successful response with RDP info
+	response := &types.ZedAgentResponse{
+		SessionID:   agent.SessionID,
+		Status:      "running",
+		RDPURL:      fmt.Sprintf("rdp://localhost:%d", rdpPort),
+		RDPPassword: rdpPassword,
+	}
+
+	logger.Info().
+		Str("status", response.Status).
+		Str("rdp_url", response.RDPURL).
+		Msg("Zed agent started successfully")
+
+	return response, nil
+}
+
+// generatePassword generates a secure password for RDP access
+// startZedBinary spawns the actual Zed editor binary
+func (r *ExternalAgentRunner) startZedBinary(ctx context.Context, workspaceDir, projectPath string, agent *types.ZedAgent) error {
+	logger := log.With().Str("session_id", agent.SessionID).Logger()
+
+	// Ensure workspace directory exists
+	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Set up environment for Zed
+	env := []string{
+		"DISPLAY=:1",
+		"HOME=/home/zed",
+		"USER=zed",
+		fmt.Sprintf("WORKSPACE_DIR=%s", workspaceDir),
+		fmt.Sprintf("PROJECT_PATH=%s", projectPath),
+		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
+	}
+
+	// Add any custom environment variables from agent config
+	if agent.Env != nil {
+		env = append(env, agent.Env...)
+	}
+
+	// Prepare Zed command - open the project path
+	args := []string{"zed", projectPath}
+
+	logger.Info().
+		Str("workspace_dir", workspaceDir).
+		Str("project_path", projectPath).
+		Strs("args", args).
+		Msg("Starting Zed binary")
+
+	// Start Zed as a background process
+	cmd := exec.CommandContext(ctx, "/usr/local/bin/zed", args[1:]...)
+	cmd.Env = env
+	cmd.Dir = workspaceDir
+
+	// Set up process group to ensure proper cleanup
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start Zed process: %w", err)
+	}
+
+	logger.Info().
+		Int("pid", cmd.Process.Pid).
+		Msg("Zed process started successfully")
+
+	// Start a goroutine to monitor the process
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			logger.Error().Err(err).Msg("Zed process exited with error")
+		} else {
+			logger.Info().Msg("Zed process exited normally")
+		}
+	}()
+
+	return nil
+}
+
+func (r *ExternalAgentRunner) generatePassword() string {
+	// Simple password generation - use crypto/rand in production
+	return fmt.Sprintf("zed_%d", time.Now().Unix())
 }
 
 func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {

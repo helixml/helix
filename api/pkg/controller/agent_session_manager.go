@@ -245,7 +245,7 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("Launching Zed agent for single session")
 	}
 
-	// Dispatch to Zed runner pool via pub/sub
+	// Dispatch to Zed runner pool via pub/sub (following GPTScript pattern)
 	data, err := json.Marshal(zedAgent)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Zed agent request: %w", err)
@@ -264,7 +264,7 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		}
 	}
 
-	// Send to runner pool (runners will compete for the task)
+	// Send to runner pool (runners will compete for the task) - same pattern as GPTScript
 	_, err = c.Options.PubSub.StreamRequest(
 		ctx,
 		pubsub.ZedAgentRunnerStream,
@@ -344,7 +344,7 @@ func (c *Controller) launchVSCodeAgent(ctx context.Context, sessionID string) er
 
 // StopExternalAgent stops an external agent for a session
 func (c *Controller) StopExternalAgent(ctx context.Context, sessionID string) error {
-	// In runner pool pattern, we send a stop signal to the pool
+	// In runner pool pattern, we send a stop signal to the pool (following GPTScript pattern)
 	// The runner will complete its current task and exit (container restarts for cleanup)
 	stopRequest := map[string]string{
 		"action":     "stop",

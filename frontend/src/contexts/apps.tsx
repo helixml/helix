@@ -123,10 +123,11 @@ export const useAppsContext = (): IAppsContext => {
             description: params.description || '',
             avatar: params.avatar || '',
             image: params.image || '',
+            default_agent_type: 'helix_basic',
             assistants: [{
               name: params.name,
               description: '',
-              agent_mode: true,
+              agent_mode: false,
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,

@@ -171,6 +171,7 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Str("event_type", syncMsg.EventType).
 		Msg("Processing external agent sync message")
 
+	// Process sync message directly
 	switch syncMsg.EventType {
 	case "context_created":
 		return apiServer.handleContextCreated(sessionID, syncMsg)
@@ -180,6 +181,14 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleMessageUpdated(sessionID, syncMsg)
 	case "context_title_changed":
 		return apiServer.handleContextTitleChanged(sessionID, syncMsg)
+	case "chat_response":
+		return apiServer.handleChatResponse(sessionID, syncMsg)
+	case "chat_response_chunk":
+		return apiServer.handleChatResponseChunk(sessionID, syncMsg)
+	case "chat_response_done":
+		return apiServer.handleChatResponseDone(sessionID, syncMsg)
+	case "chat_response_error":
+		return apiServer.handleChatResponseError(sessionID, syncMsg)
 	default:
 		log.Warn().Str("event_type", syncMsg.EventType).Msg("Unknown sync message type")
 		return nil
@@ -325,6 +334,130 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 		})
 	}
 	return connections
+}
+
+// handleChatResponse processes complete chat response from external agent
+func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, ok := syncMsg.Data["request_id"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Msg("Chat response missing request_id")
+		return nil
+	}
+
+	content, ok := syncMsg.Data["content"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Chat response missing content")
+		return nil
+	}
+
+	// Handle response via legacy channel handling
+	responseChan, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+	if !exists {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for request")
+		return nil
+	}
+
+	// Send content as single chunk
+	select {
+	case responseChan <- content:
+	default:
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Response channel full")
+	}
+
+	// Send completion signal
+	select {
+	case doneChan <- true:
+	default:
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Done channel full")
+	}
+
+	return nil
+}
+
+// handleChatResponseChunk processes streaming chat response chunk from external agent
+func (apiServer *HelixAPIServer) handleChatResponseChunk(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, ok := syncMsg.Data["request_id"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Msg("Chat response chunk missing request_id")
+		return nil
+	}
+
+	chunk, ok := syncMsg.Data["chunk"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Chat response chunk missing chunk")
+		return nil
+	}
+
+	// Handle response chunk via legacy channel handling
+	responseChan, _, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+	if !exists {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for chunk")
+		return nil
+	}
+
+	// Send chunk
+	select {
+	case responseChan <- chunk:
+	default:
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Response channel full for chunk")
+	}
+
+	return nil
+}
+
+// handleChatResponseDone processes completion signal from external agent
+func (apiServer *HelixAPIServer) handleChatResponseDone(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, ok := syncMsg.Data["request_id"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Msg("Chat response done missing request_id")
+		return nil
+	}
+
+	// Handle response completion via legacy channel handling
+	_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+	if !exists {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for done signal")
+		return nil
+	}
+
+	// Send completion signal
+	select {
+	case doneChan <- true:
+	default:
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Done channel full")
+	}
+
+	return nil
+}
+
+// handleChatResponseError processes error from external agent
+func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
+	requestID, ok := syncMsg.Data["request_id"].(string)
+	if !ok {
+		log.Warn().Str("session_id", sessionID).Msg("Chat response error missing request_id")
+		return nil
+	}
+
+	errorMsg, ok := syncMsg.Data["error"].(string)
+	if !ok {
+		errorMsg = "Unknown error from external agent"
+	}
+
+	// Handle response error via legacy channel handling
+	_, _, errorChan, exists := apiServer.getResponseChannel(sessionID, requestID)
+	if !exists {
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for error")
+		return nil
+	}
+
+	// Send error
+	select {
+	case errorChan <- fmt.Errorf("%s", errorMsg):
+	default:
+		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Error channel full")
+	}
+
+	return nil
 }
 
 // validateExternalAgentToken validates the auth token for external agent
