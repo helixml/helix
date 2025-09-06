@@ -275,7 +275,7 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 		for _, mcp := range assistant.MCPs {
 			// If already initialized, add it to the tools
 			t, ok := initializedTools[mcp.Name]
-			if ok {
+			if ok && len(t.Config.MCP.Tools) > 0 {
 				tools = append(tools, t)
 				continue
 			}
