@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react'
 import {
   Box,
   Button,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,  
@@ -39,6 +38,8 @@ import {
   useDeleteOAuthConnection, 
   useRefreshOAuthConnection 
 } from '../../services/oauthProvidersService'
+
+import DarkDialog from '../dialog/DarkDialog'
 
 // Import the shared icon components
 import {
@@ -622,7 +623,7 @@ const OAuthProvidersTable: React.FC = () => {
         </>
       )}
       
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+      <DarkDialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           {isEditing 
             ? `Edit ${currentProvider?.name} Provider`
@@ -762,12 +763,12 @@ const OAuthProvidersTable: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog} color="inherit">Cancel</Button>
-          <Button onClick={handleSaveProvider} color="primary" variant="contained" startIcon={isEditing ? <SettingsIcon /> : <AddIcon />}>
+          <Button onClick={handleCloseDialog} color="primary">Cancel</Button>
+          <Button onClick={handleSaveProvider} color="secondary" variant="contained" startIcon={isEditing ? <SettingsIcon /> : <AddIcon />}>
             {isEditing ? 'Update Provider' : 'Create Provider'}
           </Button>
         </DialogActions>
-      </Dialog>
+      </DarkDialog>
     </Box>
   )
 }
