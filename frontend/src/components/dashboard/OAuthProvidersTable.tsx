@@ -24,7 +24,6 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import SettingsIcon from '@mui/icons-material/Settings'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
@@ -33,10 +32,7 @@ import atlassianLogo from '../../../assets/img/atlassian-logo.png'
 import { TypesOAuthProviderType, TypesOAuthProvider } from '../../api/api'
 
 import { 
-  useListOAuthConnections, 
-  useListOAuthProviders, 
-  useDeleteOAuthConnection, 
-  useRefreshOAuthConnection 
+  useListOAuthProviders,  
 } from '../../services/oauthProvidersService'
 
 import DarkDialog from '../dialog/DarkDialog'
@@ -55,42 +51,56 @@ export const PROVIDER_DEFAULTS: Record<string, {
   token_url: string;
   user_info_url: string;
   scopes: string[];
+  type: string;
 }> = {
   github: {
     auth_url: 'https://github.com/login/oauth/authorize',
     token_url: 'https://github.com/login/oauth/access_token',
     user_info_url: 'https://api.github.com/user',
-    scopes: ['read:user', 'user:email', 'repo']
+    scopes: ['read:user', 'user:email', 'repo'],
+    type: 'github'
   },
   google: {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
     token_url: 'https://oauth2.googleapis.com/token',
     user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
-    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email']
+    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+    type: 'google'
   },
   microsoft: {
     auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     user_info_url: 'https://graph.microsoft.com/v1.0/me',
-    scopes: ['openid', 'profile', 'email', 'offline_access']
+    scopes: ['openid', 'profile', 'email', 'offline_access'],
+    type: 'microsoft'
   },
   slack: {
     auth_url: 'https://slack.com/oauth/v2/authorize',
     token_url: 'https://slack.com/api/oauth.v2.access',
     user_info_url: 'https://slack.com/api/users.identity',
-    scopes: ['identity.basic', 'identity.email', 'identity.avatar']
+    scopes: ['identity.basic', 'identity.email', 'identity.avatar'],
+    type: 'slack'
   },
   linkedin: {
     auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
     token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
     user_info_url: 'https://api.linkedin.com/v2/me',
-    scopes: ['r_liteprofile', 'r_emailaddress']
+    scopes: ['r_liteprofile', 'r_emailaddress'],
+    type: 'linkedin'
   },
   atlassian: {
     auth_url: 'https://auth.atlassian.com/authorize',
     token_url: 'https://auth.atlassian.com/oauth/token',
     user_info_url: 'https://api.atlassian.com/me',
-    scopes: ['read:me']
+    scopes: ['read:me'],
+    type: 'atlassian'
+  },
+  hubspot: {
+    auth_url: 'https://app-na2.hubspot.com/oauth/authorize',
+    token_url: 'https://api.hubapi.com/oauth/v1/token',
+    user_info_url: 'https://api.hubapi.com/oauth/v1/access-tokens/{token}',
+    scopes: ['oauth', 'crm.objects.contacts.read', 'crm.objects.companies.read', 'crm.objects.tickets.read', 'crm.objects.deals.read'],
+    type: 'hubspot'
   }
 }; 
 
@@ -264,12 +274,72 @@ const OAuthProvidersTable: React.FC = () => {
     }
   }
 
-  const getProviderIcon = (type: string) => {
-    return PROVIDER_ICONS[type] || PROVIDER_ICONS.custom;
+  // Helper function to guess provider type from auth URL
+  const guessProviderTypeFromUrl = (authUrl: string): string | null => {
+    const url = authUrl.toLowerCase();    
+    
+    // Iterate over PROVIDER_DEFAULTS to find matching domain
+    for (const [providerType, defaults] of Object.entries(PROVIDER_DEFAULTS)) {
+      const defaultAuthUrl = defaults.auth_url.toLowerCase();
+      const domain = new URL(defaultAuthUrl).hostname;
+      
+      // Check if the provided URL contains the same domain
+      if (url.includes(domain)) {        
+        return providerType;
+      }
+    }
+    
+    // Additional manual checks for providers not in PROVIDER_DEFAULTS
+    if (url.includes('facebook.com')) return 'facebook';
+    if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
+    if (url.includes('apple.com')) return 'apple';
+    if (url.includes('hubspot.com')) return 'hubspot';    
+    
+    return null;
   }
 
-  const getProviderColor = (type: string) => {
-    return PROVIDER_COLORS[type] || PROVIDER_COLORS.custom;
+  const getProviderIcon = (provider: TypesOAuthProvider) => {
+    // If provider type is set, use it
+    if (provider.type) {
+      // console.log('provider', provider.name,;
+      // If it's custom, try to guess it
+      if (provider.type === 'custom') {
+        const guessedType = guessProviderTypeFromUrl(provider.auth_url || '');
+        if (guessedType) {
+          return PROVIDER_ICONS[guessedType] || PROVIDER_ICONS.custom;
+        }
+      }
+      return PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom;
+    }
+
+    // Otherwise, guess it from the provider auth URL
+    if (provider.auth_url) {
+      const guessedType = guessProviderTypeFromUrl(provider.auth_url);
+      if (guessedType) {
+        return PROVIDER_ICONS[guessedType] || PROVIDER_ICONS.custom;
+      }
+    }
+
+    // Default to custom icon if no type and no recognizable URL pattern
+    return PROVIDER_ICONS.custom;
+  }
+
+  const getProviderColor = (provider: TypesOAuthProvider) => {
+    // If provider type is set, use it
+    if (provider.type) {
+      return PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom;
+    }
+
+    // Otherwise, guess it from the provider auth URL
+    if (provider.auth_url) {
+      const guessedType = guessProviderTypeFromUrl(provider.auth_url);
+      if (guessedType) {
+        return PROVIDER_COLORS[guessedType] || PROVIDER_COLORS.custom;
+      }
+    }
+
+    // Default to custom color if no type and no recognizable URL pattern
+    return PROVIDER_COLORS.custom;
   }
   
   // Get all providers including built-in ones that are not yet configured
@@ -396,8 +466,8 @@ const OAuthProvidersTable: React.FC = () => {
       return renderAddCard();
     }
     
-    const icon = getProviderIcon(provider.type as string);
-    const color = getProviderColor(provider.type as string);
+    const icon = getProviderIcon(provider);
+    const color = getProviderColor(provider);
     
     // Check if this is a template - explicit isTemplate flag or not from API and missing credentials
     const isTemplate = provider.id?.includes('template');
