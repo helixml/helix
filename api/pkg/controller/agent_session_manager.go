@@ -307,11 +307,13 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 	}
 
 	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "stream_request_start").
+		Str("ZED_FLOW_DEBUG", "api_publishing_to_nats").
 		Str("stream", pubsub.ZedAgentRunnerStream).
 		Str("queue", pubsub.ZedAgentQueue).
 		Interface("header", header).
-		Msg("📤 EXTERNAL_AGENT_DEBUG: Sending StreamRequest to NATS")
+		Int("data_length", len(data)).
+		Str("session_id", sessionID).
+		Msg("🚀 ZED_FLOW_DEBUG: [STEP 1] API about to publish Zed agent task to NATS stream")
 
 	// Send to runner pool (runners will compete for the task) - same pattern as GPTScript
 	response, err := c.Options.PubSub.StreamRequest(
@@ -324,20 +326,21 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 	)
 	if err != nil {
 		log.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "stream_request_error").
+			Str("ZED_FLOW_DEBUG", "nats_publish_failed").
 			Err(err).
 			Str("session_id", sessionID).
 			Str("user_id", session.Owner).
 			Str("stream", pubsub.ZedAgentRunnerStream).
 			Str("queue", pubsub.ZedAgentQueue).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dispatch Zed agent to runner pool")
+			Msg("❌ ZED_FLOW_DEBUG: [STEP 2 FAILED] Failed to publish to NATS - no WebSocket runner will receive this")
 		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
 	}
 
 	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "stream_request_success").
+		Str("ZED_FLOW_DEBUG", "nats_publish_success").
 		Str("response_length", fmt.Sprintf("%d", len(response))).
-		Msg("✅ EXTERNAL_AGENT_DEBUG: StreamRequest completed successfully")
+		Str("session_id", sessionID).
+		Msg("✅ ZED_FLOW_DEBUG: [STEP 2] NATS publish successful - message should reach WebSocket server")
 
 	// Update Zed thread status if this is a multi-session work session
 	if isMultiSession && workSessionContext != nil {

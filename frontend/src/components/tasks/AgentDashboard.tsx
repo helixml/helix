@@ -53,7 +53,8 @@ import {
   Person as PersonIcon,
   Timeline as TimelineIcon,
   Edit as EditIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  DesktopWindows as DesktopWindowsIcon
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
 // Removed date-fns dependency - using native JavaScript instead
@@ -62,6 +63,7 @@ import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
 import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
+import RDPViewer from '../external-agent/RDPViewer'
 
 // Using generated API types instead of local interfaces
 
@@ -99,6 +101,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const [specReviewOpen, setSpecReviewOpen] = useState<TypesAgentWorkItem | null>(null)
   const [approvalComments, setApprovalComments] = useState('')
   const [approvalLoading, setApprovalLoading] = useState(false)
+  const [rdpSessionId, setRdpSessionId] = useState<string | null>(null)
   
   // Use ref to store API to prevent dependency issues
   const apiRef = useRef(api)
@@ -677,6 +680,22 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               </Box>
                             }
                           />
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            <Tooltip title="Connect to Desktop">
+                              <IconButton 
+                                size="small" 
+                                onClick={() => setRdpSessionId(connection.session_id)}
+                                sx={{ 
+                                  backgroundColor: theme.palette.primary.light + '20',
+                                  '&:hover': {
+                                    backgroundColor: theme.palette.primary.light + '40'
+                                  }
+                                }}
+                              >
+                                <DesktopWindowsIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
                         </ListItem>
                       ))}
                     </List>
@@ -1184,6 +1203,16 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* RDP Viewer Modal */}
+      {rdpSessionId && (
+        <RDPViewer
+          sessionId={rdpSessionId}
+          onClose={() => setRdpSessionId(null)}
+          autoConnect={true}
+          connectionType="runner"
+        />
+      )}
 
       {/* Last updated indicator */}
       <Box sx={{ mt: 3, textAlign: 'center' }}>

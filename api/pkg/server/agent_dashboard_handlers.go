@@ -238,15 +238,29 @@ func (s *HelixAPIServer) getAgentFleet(_ http.ResponseWriter, r *http.Request) (
 
 	sessionsNeedingHelpStatus := sessionsNeedingHelpResponse.Sessions
 
-	// Get external agent runner connections
+	// Get external agent runner connections (both sync and runner connections)
 	var externalAgentRunners []*types.ExternalAgentConnection
+
+	// Get Zed instance connections (via /external-agents/sync)
 	if s.externalAgentWSManager != nil {
 		connections := s.externalAgentWSManager.listConnections()
 		externalAgentRunners = make([]*types.ExternalAgentConnection, len(connections))
 		for i := range connections {
 			externalAgentRunners[i] = &connections[i]
 		}
-	} else {
+	}
+
+	// Get external agent runner connections (via /ws/external-agent-runner)
+	if s.externalAgentRunnerManager != nil {
+		runnerConnections := s.externalAgentRunnerManager.listConnections()
+		// Append runner connections to the list
+		for i := range runnerConnections {
+			externalAgentRunners = append(externalAgentRunners, &runnerConnections[i])
+		}
+	}
+
+	// If neither manager exists, return empty slice
+	if s.externalAgentWSManager == nil && s.externalAgentRunnerManager == nil {
 		externalAgentRunners = []*types.ExternalAgentConnection{}
 	}
 
