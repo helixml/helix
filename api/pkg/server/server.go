@@ -19,6 +19,7 @@ import (
 	"gocloud.dev/blob"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -76,6 +77,7 @@ type HelixAPIServer struct {
 	Janitor           *janitor.Janitor
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
+	mcpClientGetter   mcp.ClientGetter
 	providerManager   manager.ProviderManager
 	modelInfoProvider model.ModelInfoProvider
 	gptScriptExecutor gptscript.Executor
@@ -216,6 +218,7 @@ func NewServer(
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 		cache:             cache,
+		mcpClientGetter:   &mcp.DefaultClientGetter{},
 		avatarsBucket:     avatarsBucket,
 		trigger:           trigger,
 	}, nil

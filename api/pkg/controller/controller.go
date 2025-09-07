@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/extract"
@@ -42,6 +43,7 @@ type Options struct {
 	OAuthManager     *oauth.Manager
 	Browser          *browser.Browser
 	SearchProvider   searxng.SearchProvider
+	MCPClientGetter  mcp.ClientGetter
 }
 
 type Controller struct {
@@ -98,6 +100,11 @@ func NewController(
 	}
 	if options.ProviderManager == nil {
 		return nil, fmt.Errorf("provider manager is required")
+	}
+
+	if options.MCPClientGetter == nil {
+		// Initialize default client getter
+		options.MCPClientGetter = &mcp.DefaultClientGetter{}
 	}
 
 	models, err := model.GetModels()

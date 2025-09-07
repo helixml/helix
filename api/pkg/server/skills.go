@@ -181,7 +181,7 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 		return nil, fmt.Errorf("failed to decode request body: %w", err)
 	}
 
-	resp, err := mcp.InitializeMCPClientSkill(context.Background(), agent.Meta{
+	resp, err := mcp.InitializeMCPClientSkill(context.Background(), s.mcpClientGetter, agent.Meta{
 		UserID: user.ID,
 	}, s.oauthManager, &config)
 	if err != nil {

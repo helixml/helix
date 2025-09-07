@@ -128,7 +128,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeMCP {
-			skills = append(skills, mcp.NewDirectMCPClientSkills(c.Options.OAuthManager, assistantTool)...)
+			skills = append(skills, mcp.NewDirectMCPClientSkills(c.Options.MCPClientGetter, c.Options.OAuthManager, assistantTool)...)
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
