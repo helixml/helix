@@ -234,17 +234,6 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
 	// Memory estimation no longer needs GPU config - runner returns all configurations
 
-	// Debug logging for context length tracing
-	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "entry_point").
-		Str("model_name", modelName).
-		Int("num_ctx", opts.NumCtx).
-		Int("num_batch", opts.NumBatch).
-		Int("num_parallel", opts.NumParallel).
-		Int("num_gpu", opts.NumGPU).
-		Str("kv_cache_type", opts.KVCacheType).
-		Msg("🐠 SHARK EstimateModelMemory called with parameters")
-
 	// Check if this is an Ollama model - only Ollama models support GGUF-based estimation
 	models, err := s.modelProvider.ListModels(ctx)
 	if err != nil {
@@ -270,71 +259,23 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 
 	// Check cache first - try to find any cached result for this model+options
 	if result := s.getCachedResultForModel(modelName, opts); result != nil {
-		log.Debug().
-			Str("model_name", modelName).
-			Int("num_ctx_used", opts.NumCtx).
-			Str("kv_cache_type_used", opts.KVCacheType).
-			Str("recommendation", result.Recommendation).
-			Msg("🐠 SHARK returning cached memory estimation result")
 		return result, nil
 	}
 
 	// Cache miss - need to calculate all configurations from runner
-	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "cache_miss").
-		Str("model_name", modelName).
-		Int("num_ctx", opts.NumCtx).
-		Str("kv_cache_type", opts.KVCacheType).
-		Msg("🐠 SHARK cache miss - will get all GPU configurations from runner")
 
 	// Find a runner that has this model
-	log.Info().
-		Str("model_name", modelName).
-		Msg("PREWARM_DEBUG: About to find runner with model for memory estimation")
 
 	runnerID, err := s.findRunnerWithModel(ctx, modelName)
 	if err != nil {
-		log.Error().
-			Str("model_name", modelName).
-			Err(err).
-			Msg("PREWARM_DEBUG: CRITICAL - Failed to find runner with model - no available runners may have this model yet")
 		return nil, fmt.Errorf("failed to find runner with model %s: %w", modelName, err)
 	}
 
 	// Get memory estimation from runner using exact Ollama algorithm
 	estimationResp, err := s.getMemoryEstimationFromRunner(ctx, runnerID, modelName, opts)
 	if err != nil {
-		log.Error().
-			Str("model_name", modelName).
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("PREWARM_DEBUG: CRITICAL - Failed to get memory estimation from runner - timing issue or runner not ready")
 		return nil, fmt.Errorf("failed to get memory estimation from runner %s: %w", runnerID, err)
 	}
-
-	// Log raw runner response
-	log.Debug().
-		Str("MEMORY_DEBUG", "raw_runner_response").
-		Str("model_name", modelName).
-		Str("runner_id", runnerID).
-		Str("architecture", estimationResp.Architecture).
-		Int("config_count", len(estimationResp.Configurations)).
-		Interface("configurations", estimationResp.Configurations).
-		Msg("🔥 MEMORY_DEBUG: Raw response from runner")
-
-	// Debug logging for memory estimation results from runner
-	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "runner_estimation_received").
-		Str("architecture", estimationResp.Architecture).
-		Uint64("block_count", estimationResp.BlockCount).
-		Int("config_count", len(estimationResp.Configurations)).
-		Int64("response_time_ms", estimationResp.ResponseTime).
-		Msg("🐠 SHARK Memory estimation received from runner using exact Ollama")
-
-	// GPU configuration is now handled internally by the runner
-	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "gpu_config").
-		Msg("🐠 SHARK using standard GPU configuration for memory estimation")
 
 	// Convert runner's multi-config response to our EstimationResult format
 	result := s.convertRunnerEstimationToResult(estimationResp, opts)
@@ -342,11 +283,6 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 	// Debug logging for memory estimation results
 
 	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "result").
-		Str("model_name", modelName).
-		Str("recommendation", result.Recommendation).
-		Str("runner_id", runnerID).
-		Int("num_ctx_used", opts.NumCtx).
 		Int("single_gpu_total_mb", func() int {
 			if result.SingleGPU != nil {
 				return int(result.SingleGPU.TotalSize / (1024 * 1024))
@@ -364,22 +300,7 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 	// Cache all GPU configurations separately - but NEVER cache insufficient_memory results
 	if result.Recommendation != "insufficient_memory" {
 		s.cacheAllConfigurations(modelName, result, opts)
-		log.Debug().
-			Str("model_name", modelName).
-			Str("recommendation", result.Recommendation).
-			Msg("cached all GPU configurations for model")
-	} else {
-		log.Warn().
-			Str("model_name", modelName).
-			Str("recommendation", result.Recommendation).
-			Msg("NOT caching insufficient_memory result - this is an error, not a real estimate")
 	}
-
-	log.Info().
-		Str("model_name", modelName).
-		Str("runner_id", runnerID).
-		Str("recommendation", result.Recommendation).
-		Msg("successfully obtained memory estimation")
 
 	return result, nil
 }
@@ -462,12 +383,6 @@ func (s *MemoryEstimationService) GetCachedEstimation(modelName string, gpuCount
 func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, modelName string) (runnerID string, err error) {
 	// Get list of connected runners
 	runnerIDs := s.runnerSender.RunnerIDs()
-
-	log.Info().
-		Str("model_name", modelName).
-		Int("total_runners", len(runnerIDs)).
-		Strs("runner_ids", runnerIDs).
-		Msg("PREWARM_DEBUG: Looking for runner with model - checking all connected runners")
 
 	// Check each runner for the model by calling the status endpoint
 	for _, runnerID := range runnerIDs {

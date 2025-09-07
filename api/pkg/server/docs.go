@@ -618,6 +618,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/duplicate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional new name for the app",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/interactions": {
             "get": {
                 "security": [
@@ -6026,6 +6055,23 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "oauth_provider": {
+                    "description": "The name of the OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Tool"
+                    }
+                },
                 "url": {
                     "type": "string"
                 }
@@ -7742,6 +7788,7 @@ const docTemplate = `{
                 "github",
                 "slack",
                 "linkedin",
+                "hubspot",
                 "custom"
             ],
             "x-enum-varnames": [
@@ -7752,6 +7799,7 @@ const docTemplate = `{
                 "OAuthProviderTypeGitHub",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeHubSpot",
                 "OAuthProviderTypeCustom"
             ]
         },
@@ -9749,6 +9797,16 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "oauth_provider": {
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tools": {
                     "type": "array",

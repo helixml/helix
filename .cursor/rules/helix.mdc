@@ -31,7 +31,7 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
 		Msg("User information from request")
   ```
 
-  Naming:
+  ## Naming:
   - Lots of places in the backend and frontend we have a name "App" which we are transitioning into "Agent". Those two are interchangable but all new code should be using "Agent" terminology when adding comments, titles, labels, etc. Over time all app code will be replaced by agent code.
 - Testing:
   
@@ -43,3 +43,19 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
   require.NoError(t, err)
   ... etc
   ```
+
+## Interfaces:
+  
+If struct doesn't have an interface exposed, never do this:
+
+```
+if toolsPlanner, ok := t.planner.(interface {
+    GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error)
+  }); ok {
+```
+
+First add it on the interface, then use it:
+
+```go
+t.planner.GetTokenForApp(ctx, user, provider)
+```

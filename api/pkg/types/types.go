@@ -1192,11 +1192,13 @@ type ToolConfig struct {
 }
 
 type ToolMCPClientConfig struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
-	URL         string            `json:"url" yaml:"url"`
-	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	Enabled       bool              `json:"enabled" yaml:"enabled"`
+	URL           string            `json:"url" yaml:"url"`
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
 
 	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
@@ -1315,10 +1317,13 @@ type AssistantZapier struct {
 }
 
 type AssistantMCP struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	URL         string            `json:"url" yaml:"url"`
-	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	URL           string            `json:"url" yaml:"url"`
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
+	Tools         []mcp.Tool        `json:"tools" yaml:"tools"`
 }
 
 type AssistantAPI struct {
