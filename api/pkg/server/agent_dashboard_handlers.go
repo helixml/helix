@@ -238,16 +238,29 @@ func (s *HelixAPIServer) getAgentFleet(_ http.ResponseWriter, r *http.Request) (
 
 	sessionsNeedingHelpStatus := sessionsNeedingHelpResponse.Sessions
 
+	// Get external agent runner connections
+	var externalAgentRunners []*types.ExternalAgentConnection
+	if s.externalAgentWSManager != nil {
+		connections := s.externalAgentWSManager.listConnections()
+		externalAgentRunners = make([]*types.ExternalAgentConnection, len(connections))
+		for i := range connections {
+			externalAgentRunners[i] = &connections[i]
+		}
+	} else {
+		externalAgentRunners = []*types.ExternalAgentConnection{}
+	}
+
 	return &types.AgentFleetSummary{
-		ActiveSessions:      activeSessions,
-		SessionsNeedingHelp: sessionsNeedingHelpStatus,
-		PendingWork:         pendingWorkResponse.WorkItems,
-		RunningWork:         runningWorkResponse.WorkItems,
-		RecentCompletions:   recentCompletions,
-		PendingReviews:      pendingReviews,
-		ActiveHelpRequests:  activeHelpRequests,
-		WorkQueueStats:      workQueueStats,
-		LastUpdated:         time.Now(),
+		ActiveSessions:       activeSessions,
+		SessionsNeedingHelp:  sessionsNeedingHelpStatus,
+		ExternalAgentRunners: externalAgentRunners,
+		PendingWork:          pendingWorkResponse.WorkItems,
+		RunningWork:          runningWorkResponse.WorkItems,
+		RecentCompletions:    recentCompletions,
+		PendingReviews:       pendingReviews,
+		ActiveHelpRequests:   activeHelpRequests,
+		WorkQueueStats:       workQueueStats,
+		LastUpdated:          time.Now(),
 	}, nil
 }
 
