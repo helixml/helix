@@ -72,34 +72,35 @@ type Options struct {
 }
 
 type HelixAPIServer struct {
-	Cfg                      *config.ServerConfig
-	Store                    store.Store
-	Stripe                   *stripe.Stripe
-	Controller               *controller.Controller
-	Janitor                  *janitor.Janitor
-	authMiddleware           *authMiddleware
-	pubsub                   pubsub.PubSub
-	providerManager          manager.ProviderManager
-	modelInfoProvider        model.ModelInfoProvider
-	externalAgentExecutor    external_agent.Executor
-	externalAgentWSManager   *ExternalAgentWSManager
-	inferenceServer          *openai.InternalHelixServer
-	knowledgeManager         knowledge.Manager
-	skillManager             *api_skill.Manager
-	router                   *mux.Router
-	scheduler                *scheduler.Scheduler
-	pingService              *version.PingService
-	oidcClient               auth.OIDC
-	oauthManager             *oauth.Manager
-	fileServerHandler        http.Handler
-	cache                    *ristretto.Cache[string, string]
-	avatarsBucket            *blob.Bucket
-	trigger                  *trigger.Manager
-	specDrivenTaskService    *services.SpecDrivenTaskService
-	sampleProjectCodeService *services.SampleProjectCodeService
-	gitRepositoryService     *services.GitRepositoryService
-	zedPlanningService       *services.ZedPlanningService
-	rdpProxyManager          *RDPProxyManager
+	Cfg                        *config.ServerConfig
+	Store                      store.Store
+	Stripe                     *stripe.Stripe
+	Controller                 *controller.Controller
+	Janitor                    *janitor.Janitor
+	authMiddleware             *authMiddleware
+	pubsub                     pubsub.PubSub
+	providerManager            manager.ProviderManager
+	modelInfoProvider          model.ModelInfoProvider
+	externalAgentExecutor      external_agent.Executor
+	externalAgentWSManager     *ExternalAgentWSManager
+	externalAgentRunnerManager *ExternalAgentRunnerManager
+	inferenceServer            *openai.InternalHelixServer
+	knowledgeManager           knowledge.Manager
+	skillManager               *api_skill.Manager
+	router                     *mux.Router
+	scheduler                  *scheduler.Scheduler
+	pingService                *version.PingService
+	oidcClient                 auth.OIDC
+	oauthManager               *oauth.Manager
+	fileServerHandler          http.Handler
+	cache                      *ristretto.Cache[string, string]
+	avatarsBucket              *blob.Bucket
+	trigger                    *trigger.Manager
+	specDrivenTaskService      *services.SpecDrivenTaskService
+	sampleProjectCodeService   *services.SampleProjectCodeService
+	gitRepositoryService       *services.GitRepositoryService
+	zedPlanningService         *services.ZedPlanningService
+	rdpProxyManager            *RDPProxyManager
 }
 
 func NewServer(
@@ -203,6 +204,9 @@ func NewServer(
 	// Initialize external agent WebSocket manager
 	externalAgentWSManager := NewExternalAgentWSManager()
 
+	// Initialize external agent runner connection manager
+	externalAgentRunnerManager := NewExternalAgentRunnerManager()
+
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
 	apiServer := &HelixAPIServer{
@@ -212,9 +216,10 @@ func NewServer(
 		Controller: controller,
 		Janitor:    janitor,
 
-		externalAgentExecutor:  externalAgentExecutor,
-		externalAgentWSManager: externalAgentWSManager,
-		inferenceServer:        inferenceServer,
+		externalAgentExecutor:      externalAgentExecutor,
+		externalAgentWSManager:     externalAgentWSManager,
+		externalAgentRunnerManager: externalAgentRunnerManager,
+		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			oidcClient,
 			authenticator,
@@ -511,6 +516,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
 	// Specific routes must come before parametric routes
 	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
+	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp", apiServer.getExternalAgentRunnerRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
@@ -1056,10 +1062,15 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
-		defer log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
-			Str("runner_id", runnerID).
-			Msg("🟠 EXTERNAL_AGENT_DEBUG: External agent runner disconnected")
+		defer func() {
+			// Remove the connection from the runner manager
+			apiServer.externalAgentRunnerManager.removeConnection(runnerID)
+
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+				Str("runner_id", runnerID).
+				Msg("🟠 EXTERNAL_AGENT_DEBUG: External agent runner disconnected")
+		}()
 
 		log.Info().
 			Str("EXTERNAL_AGENT_DEBUG", "runner_connected").
@@ -1068,29 +1079,47 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			Int("concurrency", concurrency).
 			Msg("🎉 EXTERNAL_AGENT_DEBUG: Connected external agent runner websocket")
 
+		// Track the connection in the runner manager
+		apiServer.externalAgentRunnerManager.addConnection(runnerID, concurrency)
+
 		// Subscribe to Zed agent tasks (using ZedAgentRunnerStream like GPTScript uses ScriptRunnerStream)
 		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "subscribing_to_stream").
+			Str("ZED_FLOW_DEBUG", "websocket_subscribing_to_nats").
 			Str("stream", pubsub.ZedAgentRunnerStream).
 			Str("queue", pubsub.ZedAgentQueue).
 			Str("runner_id", runnerID).
-			Msg("📡 EXTERNAL_AGENT_DEBUG: Subscribing to Zed agent stream")
+			Msg("📡 ZED_FLOW_DEBUG: [STEP 2.5] WebSocket server about to subscribe to NATS stream")
 
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
-			log.Debug().
-				Str("EXTERNAL_AGENT_DEBUG", "message_from_stream").
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "message_from_nats_stream").
 				Str("runner_id", runnerID).
 				Str("kind", msg.Header.Get("kind")).
-				Msg("📨 EXTERNAL_AGENT_DEBUG: Received message from stream")
+				Str("reply", msg.Reply).
+				Int("data_length", len(msg.Data)).
+				Msg("🎯 ZED_FLOW_DEBUG: [STEP 3] Received message from NATS stream - about to forward to WebSocket")
+
 			var messageType types.RunnerEventRequestType
 
 			switch msg.Header.Get("kind") {
 			case "zed_agent":
 				messageType = types.RunnerEventRequestZedAgent
+				log.Info().
+					Str("ZED_FLOW_DEBUG", "message_type_zed_agent").
+					Str("runner_id", runnerID).
+					Msg("🎯 ZED_FLOW_DEBUG: Message type identified as zed_agent")
 			case "stop_zed_agent":
 				messageType = types.RunnerEventRequestZedAgent // Handle stop requests
+				log.Info().
+					Str("ZED_FLOW_DEBUG", "message_type_stop_zed_agent").
+					Str("runner_id", runnerID).
+					Msg("🎯 ZED_FLOW_DEBUG: Message type identified as stop_zed_agent")
 			default:
-				log.Warn().Str("kind", msg.Header.Get("kind")).Msg("Unknown message kind, defaulting to zed_agent")
+				log.Warn().
+					Str("ZED_FLOW_DEBUG", "unknown_message_type").
+					Str("kind", msg.Header.Get("kind")).
+					Str("runner_id", runnerID).
+					Msg("⚠️ ZED_FLOW_DEBUG: Unknown message kind, defaulting to zed_agent")
 				messageType = types.RunnerEventRequestZedAgent
 			}
 
@@ -1101,58 +1130,82 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				Payload:   msg.Data, // The actual payload (Zed agent request)
 			}
 
-			log.Debug().
-				Str("EXTERNAL_AGENT_DEBUG", "sending_to_runner").
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "envelope_created").
 				Str("runner_id", runnerID).
 				Str("request_id", envelope.RequestID).
 				Str("reply", envelope.Reply).
-				Str("type", string(envelope.Type)).
-				Msg("📤 EXTERNAL_AGENT_DEBUG: Sending message to external agent runner")
+				Int("type", int(envelope.Type)).
+				Int("payload_length", len(envelope.Payload)).
+				Msg("📦 ZED_FLOW_DEBUG: Created envelope - about to send via WebSocket")
 
 			err := wsConn.WriteJSON(envelope)
 			if err != nil {
 				log.Error().
-					Str("EXTERNAL_AGENT_DEBUG", "websocket_write_error").
+					Str("ZED_FLOW_DEBUG", "websocket_write_error").
 					Err(err).
 					Str("runner_id", runnerID).
-					Msg("❌ EXTERNAL_AGENT_DEBUG: Error writing to external agent runner websocket")
+					Str("request_id", envelope.RequestID).
+					Msg("❌ ZED_FLOW_DEBUG: [STEP 4 FAILED] Error writing envelope to WebSocket")
 				if nakErr := msg.Nak(); nakErr != nil {
 					return fmt.Errorf("error writing to external agent runner websocket: %v, failed to Nak the message: %v", err, nakErr)
 				}
 				return err
 			}
 
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "websocket_write_success").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Msg("✅ ZED_FLOW_DEBUG: [STEP 4] Successfully sent envelope to external agent runner via WebSocket")
+
 			if err := msg.Ack(); err != nil {
+				log.Error().
+					Str("ZED_FLOW_DEBUG", "nats_ack_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("request_id", envelope.RequestID).
+					Msg("❌ ZED_FLOW_DEBUG: Failed to acknowledge NATS message")
 				return fmt.Errorf("failed to ack the message: %v", err)
 			}
+
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "nats_message_acked").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Msg("✅ ZED_FLOW_DEBUG: NATS message acknowledged successfully")
+
 			return nil
 		})
 		if err != nil {
 			log.Error().
-				Str("EXTERNAL_AGENT_DEBUG", "stream_subscribe_error").
+				Str("ZED_FLOW_DEBUG", "nats_subscription_failed").
 				Err(err).
 				Str("stream", pubsub.ZedAgentRunnerStream).
 				Str("queue", pubsub.ZedAgentQueue).
 				Str("runner_id", runnerID).
-				Msg("❌ EXTERNAL_AGENT_DEBUG: Error subscribing to Zed agent queue")
+				Msg("❌ ZED_FLOW_DEBUG: [STEP 2.5 FAILED] WebSocket server failed to subscribe to NATS - no messages will be received")
 			return
 		}
 
 		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "stream_subscribed").
+			Str("ZED_FLOW_DEBUG", "nats_subscription_success").
 			Str("runner_id", runnerID).
-			Msg("✅ EXTERNAL_AGENT_DEBUG: Successfully subscribed to Zed agent stream")
+			Msg("✅ ZED_FLOW_DEBUG: [STEP 2.5] WebSocket server successfully subscribed to NATS - waiting for messages")
 		defer func() {
 			if err := zedAgentSub.Unsubscribe(); err != nil {
-				log.Err(err).Msg("failed to unsubscribe from zed agent queue")
+				log.Err(err).
+					Str("ZED_FLOW_DEBUG", "nats_unsubscribe_error").
+					Str("runner_id", runnerID).
+					Msg("❌ ZED_FLOW_DEBUG: Error unsubscribing from NATS stream")
 			}
 		}()
 
 		// Block reads in order to detect disconnects and handle responses
 		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "message_loop_start").
+			Str("ZED_FLOW_DEBUG", "websocket_message_loop_start").
 			Str("runner_id", runnerID).
-			Msg("🔄 EXTERNAL_AGENT_DEBUG: Starting message read loop")
+			Msg("🔄 ZED_FLOW_DEBUG: Starting WebSocket message read loop - ready to receive responses from external agent")
 
 		for {
 			messageType, messageBytes, err := wsConn.ReadMessage()
@@ -1164,6 +1217,74 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 					Err(err).
 					Msg("🟠 EXTERNAL_AGENT_DEBUG: Disconnected external agent runner websocket")
 				return
+			}
+
+			// Log all incoming WebSocket messages with their types
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "websocket_message_received").
+				Str("runner_id", runnerID).
+				Int("message_type", int(messageType)).
+				Str("message_type_name", getWebSocketMessageTypeName(messageType)).
+				Int("message_length", len(messageBytes)).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: WebSocket message received from external agent runner")
+
+			// Handle ping messages
+			if messageType == websocket.PingMessage {
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "ping_received").
+					Str("runner_id", runnerID).
+					Int("ping_data_length", len(messageBytes)).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
+
+				// Update last ping time in connection manager
+				if apiServer.externalAgentRunnerManager != nil {
+					apiServer.externalAgentRunnerManager.updatePing(runnerID)
+					log.Info().
+						Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
+						Str("runner_id", runnerID).
+						Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
+				} else {
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "no_connection_manager").
+						Str("runner_id", runnerID).
+						Msg("❌ EXTERNAL_AGENT_DEBUG: No external agent runner manager available to update ping")
+				}
+
+				// Send pong response
+				err := wsConn.WriteMessage(websocket.PongMessage, messageBytes)
+				if err != nil {
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "pong_send_error").
+						Str("runner_id", runnerID).
+						Err(err).
+						Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send pong response")
+					return
+				}
+
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_sent").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sent pong response to external agent runner")
+				continue
+			}
+
+			// Handle pong messages (if any)
+			if messageType == websocket.PongMessage {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_received").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received pong from external agent runner")
+				continue
+			}
+
+			// Only process text messages as JSON
+			if messageType != websocket.TextMessage {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "non_text_message").
+					Str("runner_id", runnerID).
+					Int("message_type", int(messageType)).
+					Msg("🔄 EXTERNAL_AGENT_DEBUG: Received non-text message, skipping")
+				continue
 			}
 
 			log.Debug().
@@ -1218,4 +1339,22 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			}
 		}
 	})
+}
+
+// Helper function to get WebSocket message type names for logging
+func getWebSocketMessageTypeName(messageType int) string {
+	switch messageType {
+	case websocket.TextMessage:
+		return "TextMessage"
+	case websocket.BinaryMessage:
+		return "BinaryMessage"
+	case websocket.CloseMessage:
+		return "CloseMessage"
+	case websocket.PingMessage:
+		return "PingMessage"
+	case websocket.PongMessage:
+		return "PongMessage"
+	default:
+		return fmt.Sprintf("Unknown(%d)", messageType)
+	}
 }

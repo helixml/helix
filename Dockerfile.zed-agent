@@ -31,11 +31,11 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq
     # Basic utilities
     wget git unzip curl sqlite3 ca-certificates \
     # X11 and GUI support
-    xvfb x11vnc xauth xterm dbus-x11 \
+    xvfb xauth xterm dbus-x11 \
     # Window manager and desktop environment
     openbox obconf \
-    # RDP/VNC support
-    socat tigervnc-standalone-server xrdp openssh-server \
+    # RDP support
+    socat xrdp openssh-server \
     # Development tools that Zed needs
     build-essential cmake \
     # Fonts for better display
@@ -170,7 +170,7 @@ autorestart=true
 user=root
 priority=100
 stdout_logfile=/var/log/dbus.log
-stderr_logfile=/var/log/dbus.err.log
+redirect_stderr=true
 
 [program:xvfb]
 command=/usr/bin/Xvfb :1 -screen 0 1920x1080x24 -ac -extension GLX +extension RANDR +extension RENDER
@@ -180,7 +180,7 @@ user=root
 environment=DISPLAY=":1"
 priority=200
 stdout_logfile=/var/log/xvfb.log
-stderr_logfile=/var/log/xvfb.err.log
+redirect_stderr=true
 
 [program:window-manager]
 command=/usr/bin/openbox --config-file /etc/xdg/openbox/rc.xml
@@ -190,17 +190,9 @@ user=zed
 environment=HOME="/home/zed",USER="zed",DISPLAY=":1"
 priority=300
 stdout_logfile=/var/log/openbox.log
-stderr_logfile=/var/log/openbox.err.log
+redirect_stderr=true
 
-[program:vnc-server]
-command=/usr/bin/x11vnc -display :1 -nopw -listen localhost -xkb -ncache 10 -ncache_cr -forever -shared
-autostart=true
-autorestart=true
-user=root
-environment=DISPLAY=":1"
-priority=400
-stdout_logfile=/var/log/vnc.log
-stderr_logfile=/var/log/vnc.err.log
+
 
 [program:xrdp]
 command=/usr/sbin/xrdp -nodaemon
@@ -210,7 +202,7 @@ user=root
 environment=DISPLAY=":1"
 priority=450
 stdout_logfile=/var/log/xrdp.log
-stderr_logfile=/var/log/xrdp.err.log
+redirect_stderr=true
 
 [program:xrdp-sesman]
 command=/usr/sbin/xrdp-sesman --nodaemon
@@ -219,16 +211,15 @@ autorestart=true
 user=root
 priority=460
 stdout_logfile=/var/log/xrdp-sesman.log
-stderr_logfile=/var/log/xrdp-sesman.err.log
+redirect_stderr=true
 
 [program:helix-external-agent-runner]
 command=/start-external-agent-runner.sh
 autostart=true
 autorestart=true
-stderr_logfile=/var/log/helix-external-agent-runner.err.log
-stderr_logfile_maxbytes=50MB
 stdout_logfile=/var/log/helix-external-agent-runner.log
 stdout_logfile_maxbytes=50MB
+redirect_stderr=true
 user=root
 directory=/workspace/helix
 priority=500
@@ -348,12 +339,10 @@ MaxSessions=50
 AllowRootLogin=true
 MaxLoginRetry=4
 
-[Xvnc]
-param1=-bs
-param2=-ac
-param3=-localhost
-param4=-dpi
-param5=96
+[Xrdp]
+port=3389
+crypt_level=high
+channel_code=1
 SESMAN_EOF
 
 echo "RDP user setup completed for \$RDP_USER"
@@ -444,13 +433,13 @@ ENV DISPLAY=:1 \
     DISPLAY_NUM=1 \
     DISPLAY_WIDTH=1920 \
     DISPLAY_HEIGHT=1080 \
-    VNC_PORT=5901 \
+
     SESSION_TIMEOUT=3600 \
     MAX_SESSIONS=10 \
     RUST_LOG=external_websocket_sync=info
 
 # Expose ports for external sync and remote access
-EXPOSE 3030 5900-5920 3389-3409 5901-5921
+EXPOSE 3030 5900-5920 3389-3409
 
 # Health check - temporarily disabled while debugging WebSocket connections
 # HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -471,7 +460,7 @@ echo "3. Checking processes:"
 pgrep -af "helix\|external-agent\|supervisor"
 
 echo "4. Checking ports:"
-netstat -tlnp | grep -E ":3030|:5901"
+netstat -tlnp | grep -E ":3030|:3389"
 
 echo "5. Testing Zed with external sync (quick test):"
 RUST_LOG=external_websocket_sync=debug timeout 10 /usr/local/bin/zed --help > /dev/null || echo "Integration test completed"

@@ -52,6 +52,7 @@ interface RDPViewerProps {
   autoConnect?: boolean;
   width?: number;
   height?: number;
+  connectionType?: 'session' | 'runner'; // New prop to specify connection type
 }
 
 interface GuacamoleInstruction {
@@ -65,6 +66,7 @@ const RDPViewer: React.FC<RDPViewerProps> = ({
   autoConnect = true,
   width = 1280,
   height = 720,
+  connectionType = 'session',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,7 +88,11 @@ const RDPViewer: React.FC<RDPViewerProps> = ({
   // Fetch RDP connection info
   const fetchConnectionInfo = async () => {
     try {
-      const response = await fetch(`/api/v1/external-agents/${sessionId}/rdp`);
+      const endpoint = connectionType === 'runner' 
+        ? `/api/v1/external-agents/runners/${sessionId}/rdp`
+        : `/api/v1/external-agents/${sessionId}/rdp`;
+      
+      const response = await fetch(endpoint);
       if (!response.ok) {
         throw new Error(`Failed to get RDP info: ${response.statusText}`);
       }

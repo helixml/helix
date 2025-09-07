@@ -447,9 +447,96 @@ func (apiServer *HelixAPIServer) getExternalAgentConnections(res http.ResponseWr
 		return
 	}
 
-	connections := apiServer.externalAgentWSManager.listConnections()
+	allConnections := make([]types.ExternalAgentConnection, 0) // Initialize as empty array, not nil
+
+	// Get Zed instance connections (via /external-agents/sync)
+	if apiServer.externalAgentWSManager != nil {
+		syncConnections := apiServer.externalAgentWSManager.listConnections()
+		allConnections = append(allConnections, syncConnections...)
+	}
+
+	// Get external agent runner connections (via /ws/external-agent-runner)
+	if apiServer.externalAgentRunnerManager != nil {
+		runnerConnections := apiServer.externalAgentRunnerManager.listConnections()
+		allConnections = append(allConnections, runnerConnections...)
+	}
+
 	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(connections)
+	json.NewEncoder(res).Encode(allConnections)
+}
+
+// getExternalAgentRunnerRDP handles GET /api/v1/external-agents/runners/{runnerID}/rdp
+func (apiServer *HelixAPIServer) getExternalAgentRunnerRDP(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	runnerID := vars["runnerID"]
+
+	if runnerID == "" {
+		http.Error(res, "runner ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if runner is connected
+	if apiServer.externalAgentRunnerManager == nil {
+		http.Error(res, "external agent runner manager not available", http.StatusNotFound)
+		return
+	}
+
+	// Verify runner exists in our connection manager
+	connections := apiServer.externalAgentRunnerManager.listConnections()
+	var runnerExists bool
+	for _, conn := range connections {
+		if conn.SessionID == runnerID { // SessionID is used as RunnerID in our connections
+			runnerExists = true
+			break
+		}
+	}
+
+	if !runnerExists {
+		http.Error(res, fmt.Sprintf("runner %s not found or not connected", runnerID), http.StatusNotFound)
+		return
+	}
+
+	// Create RDP proxy for this runner
+	if apiServer.rdpProxyManager == nil {
+		http.Error(res, "RDP proxy manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	proxy, err := apiServer.rdpProxyManager.CreateRunnerRDPProxy(req.Context(), runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to create RDP proxy for runner")
+		http.Error(res, fmt.Sprintf("failed to create RDP proxy: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Return RDP connection details for the runner
+	rdpInfo := map[string]interface{}{
+		"runner_id":         runnerID,
+		"rdp_url":           fmt.Sprintf("rdp://localhost:%d", proxy.LocalPort), // Use proxy port
+		"rdp_port":          proxy.LocalPort,
+		"rdp_password":      "zed123", // Default password from config
+		"display":           ":1",     // Default display
+		"status":            "connected",
+		"username":          "zed", // Default RDP username
+		"host":              "localhost",
+		"connection_type":   "external_agent_runner",
+		"desktop_available": true,
+		"proxy_url":         fmt.Sprintf("ws://localhost:8080/api/v1/external-agents/runners/%s/rdp/proxy", runnerID),
+	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("rdp_url", rdpInfo["rdp_url"].(string)).
+		Msg("Returning RDP connection info for external agent runner")
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(rdpInfo)
 }
 
 // sendCommandToExternalAgentHandler allows manual command sending for testing

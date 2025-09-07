@@ -1,7 +1,7 @@
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
     restart: always
-    entrypoint: bash -c "cd /workspace/helix && go version && GOTOOLCHAIN=local go mod download && tail -f /dev/null"
+    entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
     env_file:
         - .env
     environment:
@@ -267,12 +267,19 @@ services:
     runner_gpu:
         <<: *runner-config
         profiles: ["runner_gpu"]
+        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
         build:
             context: .
             dockerfile: Dockerfile.runner
             args:
                 TAG: 2025-08-13c-large
         environment:
+            # Runner configuration
+            - API_HOST=http://172.17.0.1:8080
+            - API_TOKEN=oh-hallo-insecure-token
+            - RUNNER_ID=dev-gpu-runner
+            - LOG_LEVEL=debug
+            - HELIX_COMMAND=runner
             # Prevent toolchain downloads
             - GOTOOLCHAIN=local
         deploy:

@@ -1900,6 +1900,8 @@ func (r RunnerEventRequestType) String() string {
 	switch r {
 	case RunnerEventRequestZedAgent:
 		return "zed_agent"
+	case RunnerEventRequestRDPData:
+		return "rdp_data"
 	default:
 		return "unknown"
 	}
@@ -1907,6 +1909,7 @@ func (r RunnerEventRequestType) String() string {
 
 const (
 	RunnerEventRequestZedAgent RunnerEventRequestType = iota
+	RunnerEventRequestRDPData
 )
 
 type RunnerEventRequestEnvelope struct {

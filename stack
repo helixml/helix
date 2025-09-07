@@ -18,9 +18,9 @@ function setup_runner_profile() {
   if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
     # CPU mode
     if [[ -n "$FORCE_CPU" ]]; then
-      echo "FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
+      echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
     else
-      echo "No NVIDIA GPU detected, running without GPU support"
+      echo "❌ No NVIDIA GPU detected, running without GPU support"
     fi
     export RUNNER_CONTAINER="runner"
     export RUNNER_PROFILE="--profile runner"
@@ -28,7 +28,7 @@ function setup_runner_profile() {
     export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   else
     # GPU mode
-    echo "NVIDIA GPU detected, using GPU support"
+    echo "🚀 NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
@@ -37,10 +37,10 @@ function setup_runner_profile() {
 }
 
 function mock-runner() {
-  echo "Building helix-runner binary for mock runner..."
+  echo "🔨 Building helix-runner binary for mock runner..."
   build-runner || return 1
   
-  echo "Starting mock runner..."
+  echo "🚀 Starting mock runner..."
   ./helix-runner \
     --mock-runner \
     --server-port 8090 \
@@ -80,19 +80,19 @@ function build() {
       }
     fi
 
-    echo "Building runner: $RUNNER_CONTAINER"
+    echo "🔨 Building runner: $RUNNER_CONTAINER"
     docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
     return
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
-    echo "Building demos"
+    echo "🔨 Building demos"
     docker compose -f docker-compose.dev.yaml --profile demos build
     return
   fi
 
   # No profiles specified, just build everything
-  echo "Building all services"
+  echo "🔨 Building all services"
   docker compose -f docker-compose.dev.yaml build
 }
 
@@ -102,7 +102,7 @@ function static-compile() {
 }
 
 function build-runner() {
-  echo "Building helix-runner binary..."
+  echo "🔨 Building helix-runner binary..."
   export CGO_ENABLED=1
   local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
   
@@ -115,7 +115,7 @@ function build-runner() {
 }
 
 function build-zed() {
-  echo "Building Zed with External WebSocket Thread Sync..."
+  echo "🔨 Building Zed with External WebSocket Thread Sync..."
   
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
@@ -231,7 +231,7 @@ EOF
 
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    echo "Session $TMUX_SESSION already exists. Attaching..."
+    echo "📺 Session $TMUX_SESSION already exists. Attaching..."
     sleep 1
     tmux -2 attach -t $TMUX_SESSION
     exit 0;
@@ -262,7 +262,7 @@ function start() {
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  echo "Starting docker compose"
+  echo "🐳 Starting docker compose"
 
   # Setup runner profiles first
   setup_runner_profile
@@ -271,146 +271,207 @@ function start() {
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
       # Both runner and demos
-      echo "Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
       docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
     else
       # Just runner
-      echo "Starting services with runner ($RUNNER_CONTAINER) profile"
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) profile"
       docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
     fi
   elif [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
-    echo "Starting services with demos profile"
+    echo "🚀 Starting services with demos profile"
     docker compose -f docker-compose.dev.yaml --profile demos up -d
   else
     # No special profiles
-    echo "Starting base services"
+    echo "🚀 Starting base services"
     docker compose -f docker-compose.dev.yaml up -d
   fi
 
   sleep 2
 
+  # Wait for postgres to be ready before trying to wipe slots
+  echo "⏳ Waiting for postgres to be ready..."
+  timeout=60
+  while ! docker compose -f docker-compose.dev.yaml exec postgres pg_isready -h localhost -p 5432 >/dev/null 2>&1; do
+    timeout=$((timeout - 1))
+    if [[ $timeout -eq 0 ]]; then
+      echo "⚠️ Warning: Postgres not ready after 60 seconds, continuing anyway"
+      break
+    fi
+    echo "⏳ Waiting for postgres... ($timeout seconds remaining)"
+    sleep 1
+  done
+
   # Check if WIPE_SLOTS is set and wipe slots if requested
   if [[ -n "$WIPE_SLOTS" ]]; then
-    echo "WIPE_SLOTS is set, wiping slots from database..."
-    wipe-slots
+    echo "🧹 WIPE_SLOTS is set, wiping slots from database..."
+    if ! wipe-slots; then
+      echo "⚠️ Warning: Failed to wipe slots, but continuing startup..."
+    fi
   fi
 
-  echo "Creating tmux session $TMUX_SESSION..."
+  echo "📺 Creating tmux session $TMUX_SESSION with 3x2 grid layout + full-width hacking terminal..."
+  tmux -2 new-session -d -s "$TMUX_SESSION"
 
-  # get the size of the window and create a session at that size
-  local screensize=$(stty size)
-  local width=$(echo -n "$screensize" | awk '{print $2}')
-  local height=$(echo -n "$screensize" | awk '{print $1}')
-  tmux -2 new-session -d -s $TMUX_SESSION -x "$width" -y "$(($height - 1))"
-
+  # Create a 3x2 grid layout with full-width hacking terminal at bottom
+  # First create top and middle rows for logs
   tmux split-window -v -d
-  tmux select-pane -t 1
   tmux split-window -v -d
+  
+  # Split the top row into 3 columns (Frontend, API, Haystack)
   tmux select-pane -t 0
-  tmux split-window -v -d
+  tmux split-window -h -d
   tmux select-pane -t 1
-  tmux split-window -v -d
-  tmux select-pane -t 0
-  tmux split-window -v -d
+  tmux split-window -h -d
+  
+  # Split the middle row into 3 columns (Zed Agent, Zed Process, GPU Runner)
+  tmux select-pane -t 3
+  tmux split-window -h -d
+  tmux select-pane -t 4
+  tmux split-window -h -d
+  
+  # Bottom pane (6) stays full-width for hacking terminal
 
+  # Set pane titles and start processes in 3x2 + full-width layout
+  # Top row (0-2): Frontend, API, Haystack
+  tmux select-pane -t 0 -T "Frontend Logs"
   tmux send-keys -t 0 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
+  
+  tmux select-pane -t 1 -T "API Logs"
   tmux send-keys -t 1 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
+  
+  tmux select-pane -t 2 -T "Haystack Logs"
   tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
+  # Middle row (3-5): Zed Agent, Zed Process, GPU Runner/Demos
+  tmux select-pane -t 3 -T "Zed Agent Runner"
+  tmux send-keys -t 3 'echo "Monitoring Zed Agent Runner logs..." && sleep 2 && docker compose -f docker-compose.dev.yaml logs -f zed-runner' C-m
+  
+  tmux select-pane -t 4 -T "Supervisor/Zed Process"
+  tmux send-keys -t 4 'echo "Monitoring Supervisor logs for Zed process..." && sleep 5 && docker compose -f docker-compose.dev.yaml exec zed-runner bash -c "
+    echo \"Waiting for log files to be created...\"
+    while true; do
+      if [ -f /var/log/supervisor/supervisord.log ] || [ -f /var/log/helix-external-agent-runner.log ]; then
+        tail -F /var/log/supervisor/supervisord.log /var/log/helix-external-agent-runner.log 2>/dev/null
+        break
+      else
+        echo \"Log files not available yet, checking again in 5 seconds...\"
+        sleep 5
+      fi
+    done
+  "' C-m
+
+  # Middle right pane (5) - contextual based on enabled services
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
-    # Build the runner binary first using our build-runner function
-    tmux send-keys -t 3 "echo 'Building helix-runner binary...' && export CGO_ENABLED=1 && go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev' -o helix-runner ./runner-cmd/helix-runner && echo 'Runner binary built successfully'" C-m
-    # Lack of space is intentional below - don't want to break ctrl+c up enter
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD}LOG_LEVEL=debug ${VLLM_ENV_VARS} ./helix-runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
+    # GPU runner logs with air hot reloading
+    tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
+    tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
+  elif [[ -n "$WITH_DEMOS" ]]; then
+    # Demos interactive session
+    tmux select-pane -t 5 -T "Demos"
+    tmux send-keys -t 5 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+  else
+    # Available for monitoring
+    tmux select-pane -t 5 -T "Available"
+    tmux send-keys -t 5 'echo "Pane available for monitoring"' C-m
   fi
 
-  if [[ -n "$WITH_DEMOS" ]]; then
-    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
-    tmux send-keys -t 4 'go run .' C-m
+  # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
+  tmux select-pane -t 6 -T "🔨 HACKING TERMINAL"
+  tmux send-keys -t 6 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building" && cd /home/luke/pm/helix' C-m
+
+  if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
+    echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
   fi
 
+  # Enable pane titles display
+  tmux set-option -g pane-border-status top
+  tmux set-option -g pane-border-format "#{pane_index}: #{pane_title}"
+  
+  # Make all panes equal size
+  tmux select-layout even-horizontal
+  tmux select-layout tiled
+  
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
+  echo "🛑 Stopping docker containers and tmux session..."
+  
   # Build exclude pattern for services that should not be stopped
   local exclude_services=()
   [[ -z "$STOP_KEYCLOAK" ]] && exclude_services+=("keycloak")
   [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
   [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
 
-  if [[ ${#exclude_services[@]} -eq 0 ]]; then
-    echo "Removing all docker containers"
+  # Setup runner profiles first
+  setup_runner_profile
 
-    # Setup runner profiles first
-    setup_runner_profile
+  if [[ ${#exclude_services[@]} -eq 0 ]]; then
+    echo "🗑️ Removing all docker containers"
 
     # Stop containers based on enabled profiles
     if [[ -n "$WITH_RUNNER" ]]; then
       if [[ -n "$WITH_DEMOS" ]]; then
         # Both runner and demos
-        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
       else
         # Just runner
-        echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 || echo "⚠️  Some services may not exist"
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
-      echo "Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml --profile demos down -t 1
+      echo "🔄 Stopping services with demos profile"
+      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     else
       # Include all profiles when no environment variables are set
-      echo "Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1
+      echo "🔄 Stopping all services (all profiles)"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     fi
   else
-    # Create grep pattern to exclude services
+    # Create exclude list for display and grep pattern
+    local exclude_list=$(IFS=', '; echo "${exclude_services[*]}")
     local exclude_pattern=$(IFS='|'; echo "${exclude_services[*]}")
-    echo "Removing docker containers (except: ${exclude_services[*]})"
+    echo "🗑️ Removing docker containers (except: $exclude_list)"
 
-    # Setup runner profiles first
-    setup_runner_profile
-
-    # Stop containers based on enabled profiles
+    # Get list of services to stop (excluding the ones we want to keep)
     if [[ -n "$WITH_RUNNER" ]]; then
       if [[ -n "$WITH_DEMOS" ]]; then
-        # Both runner and demos
-        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: ${exclude_services[*]})"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-        if [[ -n "$services" ]]; then
-          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 $services
-        fi
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
       else
-        # Just runner
-        echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except: ${exclude_services[*]})"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v -E "$exclude_pattern")
-        if [[ -n "$services" ]]; then
-          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 $services
-        fi
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
-      # Just demos
-      echo "Stopping services with demos profile (except: ${exclude_services[*]})"
-      local services=$(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-      if [[ -n "$services" ]]; then
-        docker compose -f docker-compose.dev.yaml --profile demos down -t 1 $services
-      fi
+      echo "🔄 Stopping services with demos profile (except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
     else
-      # Include all profiles when no environment variables are set
-      echo "Stopping all services (all profiles, except: ${exclude_services[*]})"
-      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-      if [[ -n "$services" ]]; then
-        docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 $services
-      fi
+      echo "🔄 Stopping all services (all profiles, except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+    fi
+    
+    # Stop only the non-excluded services
+    if [[ -n "$services" ]]; then
+      echo "🗑️ Going to remove containers: $(echo $services | tr '\n' ' ')"
+      # Stop and remove containers in parallel
+      echo $services | xargs -P 0 -I {} sh -c 'echo "🗑️ Going to remove {}" && docker compose -f docker-compose.dev.yaml stop {} && docker compose -f docker-compose.dev.yaml rm -f {} || echo "⚠️  Could not stop/remove {}"'
+    else
+      echo "✨ No services to stop (all are excluded)"
     fi
   fi
 
-  echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION ||true
+  echo "📺 Stopping tmux session $TMUX_SESSION..."
+  if tmux has-session -t $TMUX_SESSION 2>/dev/null; then
+    tmux kill-session -t $TMUX_SESSION || echo "⚠️  Failed to kill tmux session, but continuing..."
+  else
+    echo "📺 Tmux session $TMUX_SESSION not found"
+  fi
+  
+  echo "✨ Stop completed successfully!"
 }
 
 function up() {
@@ -538,9 +599,9 @@ function slot-stats() {
 }
 
 function wipe-slots() {
-  echo "Wiping all slots from database..."
+  echo "🧹 Wiping all slots from database..."
   echo "DELETE FROM runner_slots;" | db pipe postgres
-  echo "All slots have been deleted from the database."
+  echo "✅ All slots have been deleted from the database."
 }
 
 function install() {
