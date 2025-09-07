@@ -9,7 +9,6 @@ import {
   FormControlLabel,
   Grid,
   IconButton,
-  SelectChangeEvent,
   Switch,
   TextField,
   Typography,
@@ -31,48 +30,86 @@ import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
 import atlassianLogo from '../../../assets/img/atlassian-logo.png'
-// Import the shared icon components
+
+import { TypesOAuthProviderType, TypesOAuthProvider } from '../../api/api'
+
 import { 
-  MicrosoftLogo, 
-  SlackLogo, 
-  LinkedInLogo,
+  useListOAuthConnections, 
+  useListOAuthProviders, 
+  useDeleteOAuthConnection, 
+  useRefreshOAuthConnection 
+} from '../../services/oauthProvidersService'
+
+// Import the shared icon components
+import {
   PROVIDER_ICONS,
   PROVIDER_COLORS,
   PROVIDER_TYPES,
   BUILT_IN_PROVIDERS,
-  PROVIDER_DEFAULTS
 } from '../icons/ProviderIcons'
 
-interface OAuthProvider {
-  id: string
-  name: string
-  description: string
-  type: string
-  client_id: string
-  client_secret: string
-  auth_url: string
-  token_url: string
-  user_info_url: string
-  callback_url: string
-  scopes: string[]
-  enabled: boolean
-  created_at: string
-  isTemplate?: boolean
-  isAddCard?: boolean
-  isConfigured: boolean
-  fromApi: boolean
-}
+// Add provider URL defaults for built-in providers
+export const PROVIDER_DEFAULTS: Record<string, {
+  auth_url: string;
+  token_url: string;
+  user_info_url: string;
+  scopes: string[];
+}> = {
+  github: {
+    auth_url: 'https://github.com/login/oauth/authorize',
+    token_url: 'https://github.com/login/oauth/access_token',
+    user_info_url: 'https://api.github.com/user',
+    scopes: ['read:user', 'user:email', 'repo']
+  },
+  google: {
+    auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token_url: 'https://oauth2.googleapis.com/token',
+    user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
+    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email']
+  },
+  microsoft: {
+    auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    user_info_url: 'https://graph.microsoft.com/v1.0/me',
+    scopes: ['openid', 'profile', 'email', 'offline_access']
+  },
+  slack: {
+    auth_url: 'https://slack.com/oauth/v2/authorize',
+    token_url: 'https://slack.com/api/oauth.v2.access',
+    user_info_url: 'https://slack.com/api/users.identity',
+    scopes: ['identity.basic', 'identity.email', 'identity.avatar']
+  },
+  linkedin: {
+    auth_url: 'https://www.linkedin.com/oauth/v2/authorization',
+    token_url: 'https://www.linkedin.com/oauth/v2/accessToken',
+    user_info_url: 'https://api.linkedin.com/v2/me',
+    scopes: ['r_liteprofile', 'r_emailaddress']
+  },
+  atlassian: {
+    auth_url: 'https://auth.atlassian.com/authorize',
+    token_url: 'https://auth.atlassian.com/oauth/token',
+    user_info_url: 'https://api.atlassian.com/me',
+    scopes: ['read:me']
+  }
+}; 
 
 const OAuthProvidersTable: React.FC = () => {
   const { error, success } = useSnackbar()
   const api = useApi()
+
+  const { 
+    data: providersData, 
+    isLoading: providersLoading, 
+    error: providersError,
+    refetch: refetchProviders,
+  } = useListOAuthProviders()
   
-  const [providers, setProviders] = useState<OAuthProvider[]>([])
-  const [loading, setLoading] = useState(true)
+  // const [providers, setProviders] = useState<OAuthProvider[]>([])
+  // const [loading, setLoading] = useState(true)
   const [openDialog, setOpenDialog] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [currentProvider, setCurrentProvider] = useState<OAuthProvider | null>(null)
-  const [renderCount, setRenderCount] = useState(0)
+  const [currentProvider, setCurrentProvider] = useState<TypesOAuthProvider | null>(null)
+  // const [renderCount, setRenderCount] = useState(0)
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({})
   
   // Function to validate a single field
@@ -86,76 +123,12 @@ const OAuthProvidersTable: React.FC = () => {
   // Reset field errors when opening dialog
   const resetFieldErrors = () => {
     setFieldErrors({});
-  };
+  };  
   
-  // Function to fetch providers
-  const fetchProvidersManually = async () => {
-    try {
-      setLoading(true);
-      
-      // Get providers from API
-      const providers = await api.get('/api/v1/oauth/providers');
-      
-      if (!Array.isArray(providers)) {
-        console.error("Error: API did not return an array of providers");
-        setProviders([]);
-        setLoading(false);
-        return;
-      }
-      
-      // Process each provider
-      const processedProviders = providers.map((provider: any) => {
-        const clientId = provider.client_id || '';
-        const clientSecret = provider.client_secret || '';
-        
-        const hasClientId = typeof clientId === 'string' && clientId.trim() !== '';
-        const hasClientSecret = typeof clientSecret === 'string' && clientSecret.trim() !== '';
-        const hasCredentials = hasClientId && hasClientSecret;
-        
-        return {
-          id: provider.id,
-          name: provider.name,
-          description: provider.description || '',
-          type: provider.type,
-          client_id: clientId,
-          client_secret: clientSecret,
-          auth_url: provider.auth_url || '',
-          token_url: provider.token_url || '',
-          user_info_url: provider.user_info_url || '',
-          callback_url: provider.callback_url || '',
-          scopes: provider.scopes || [],
-          enabled: provider.enabled === true,
-          created_at: provider.created_at || new Date().toISOString(),
-          isTemplate: false, // Never a template if it came from the API
-          isConfigured: hasCredentials, // But we still track if it has credentials
-          fromApi: true // Flag to indicate this came from the API
-        } as OAuthProvider;
-      });
-      
-      // Update state
-      setProviders(processedProviders);
-      setLoading(false);
-      
-      // Force rerender to ensure UI updates
-      setTimeout(() => {
-        setRenderCount(prev => prev + 1);
-      }, 100);
-    } catch (err) {
-      console.error("Error fetching providers:", err);
-      setProviders([]);
-      setLoading(false);
-    }
-  };
-
-  // Load providers on component mount
-  useEffect(() => {
-    fetchProvidersManually();
-  }, []);
-  
-  const handleOpenDialog = (provider?: OAuthProvider) => {
+  const handleOpenDialog = (provider?: TypesOAuthProvider) => {
     resetFieldErrors();
     
-    if (provider && !provider.isTemplate) {
+    if (provider && !provider.id?.includes('template')) {
       // Editing an existing provider
       setCurrentProvider({...provider});
       setIsEditing(true);
@@ -177,7 +150,7 @@ const OAuthProvidersTable: React.FC = () => {
         id: '',
         name: provider?.name || '',
         description: provider?.description || '',
-        type: templateType,
+        type: templateType as TypesOAuthProviderType,
         client_id: '',
         client_secret: '',
         auth_url: defaults.auth_url,
@@ -187,9 +160,6 @@ const OAuthProvidersTable: React.FC = () => {
         scopes: defaults.scopes,
         enabled: true,
         created_at: new Date().toISOString(),
-        isConfigured: false,
-        fromApi: false,
-        isTemplate: false
       });
       setIsEditing(false);
     }
@@ -209,7 +179,7 @@ const OAuthProvidersTable: React.FC = () => {
     try {
       await api.delete(`/api/v1/oauth/providers/${id}`)
       success('Provider deleted')
-      fetchProvidersManually()
+      refetchProviders()
     } catch (err) {
       error('Failed to delete provider')
       console.error(err)
@@ -286,7 +256,7 @@ const OAuthProvidersTable: React.FC = () => {
       }
       
       handleCloseDialog()
-      await fetchProvidersManually() // Added await to ensure providers are loaded before continuing
+      await refetchProviders() // Added await to ensure providers are loaded before continuing
     } catch (err) {
       error('Failed to save provider')
       console.error('Error saving provider:', err)
@@ -304,27 +274,20 @@ const OAuthProvidersTable: React.FC = () => {
   // Get all providers including built-in ones that are not yet configured
   const getAllProviders = () => {
     // Safety check for providers being undefined
-    if (!Array.isArray(providers)) {
+    if (!Array.isArray(providersData)) {
       console.warn('🚨 CRITICAL: Providers is not an array');
       return createTemplateProviders();
     }
     
-    // Check if we have any providers with credentials in state
-    const configuredProviders = providers.filter(p => {
-      const hasClientId = p.client_id && p.client_id.trim() !== '';
-      const hasClientSecret = p.client_secret && p.client_secret.trim() !== '';
-      return hasClientId && hasClientSecret;
-    });
-    
     // Get unique provider types that already exist
-    const existingTypes = new Set(providers.map(p => p.type));
+    const existingTypes = new Set(providersData.map(p => p.type));
     
     // Create a copy of the providers
-    const result = [...providers];
+    const result = [...providersData];
     
     // Add missing built-in providers as templates
     BUILT_IN_PROVIDERS.forEach(builtIn => {
-      const providerType = builtIn.type as string;
+      const providerType = builtIn.type as TypesOAuthProviderType;
       if (!existingTypes.has(providerType)) {
         result.push({
           id: `template-${providerType}`,
@@ -343,16 +306,16 @@ const OAuthProvidersTable: React.FC = () => {
           isTemplate: true,
           isConfigured: false,
           fromApi: false
-        } as OAuthProvider);
+        } as TypesOAuthProvider);
       }
     });
     
-    // Add the "Add Custom Provider" card at the end
+    // Add only ONE "Add Custom Provider" card at the end
     result.push({
       id: 'add-card',
       name: 'Add Custom Provider',
       description: 'Configure a new OAuth integration with any provider',
-      type: 'custom',
+      type: TypesOAuthProviderType.OAuthProviderTypeCustom,
       client_id: '',
       client_secret: '',
       auth_url: '',
@@ -362,24 +325,23 @@ const OAuthProvidersTable: React.FC = () => {
       scopes: [],
       enabled: false,
       created_at: '',
-      isAddCard: true,
-      isTemplate: false,
-      isConfigured: false,
-      fromApi: false
-    } as OAuthProvider);
+    } as TypesOAuthProvider);
     
-    // Sort providers - Always put configured providers first
+    // Sort providers - configured providers first, then templates, then add card last
     const sortedResult = result.sort((a, b) => {
-      // Add card is always last
-      if (a.isAddCard) return 1;
-      if (b.isAddCard) return -1;
+      // Add card always goes last
+      if (a.id === 'add-card') return 1;
+      if (b.id === 'add-card') return -1;
       
-      // Check isConfigured flag first
-      if (a.isConfigured && !b.isConfigured) return -1;
-      if (!a.isConfigured && b.isConfigured) return 1;
+      // Templates go after configured providers
+      const aIsTemplate = a.id?.includes('template');
+      const bIsTemplate = b.id?.includes('template');
       
-      // Then sort by name
-      return a.name.localeCompare(b.name);
+      if (aIsTemplate && !bIsTemplate) return 1;
+      if (!aIsTemplate && bIsTemplate) return -1;
+      
+      // Within same category, sort by name
+      return a.name?.localeCompare(b.name || '') || 0;
     });
     
     return sortedResult;
@@ -403,13 +365,11 @@ const OAuthProvidersTable: React.FC = () => {
         scopes: [],
         enabled: false,
         created_at: new Date().toISOString(),
-        isTemplate: true,
-        isConfigured: false,
-        fromApi: false
-      } as OAuthProvider;
+        isTemplate: true,        
+      } as TypesOAuthProvider;
     });
     
-    // Add the "Add Custom Provider" card
+    // Add only ONE "Add Custom Provider" card
     const result = [...templates, {
       id: 'add-card',
       name: 'Add Custom Provider',
@@ -424,26 +384,22 @@ const OAuthProvidersTable: React.FC = () => {
       scopes: [],
       enabled: false,
       created_at: '',
-      isAddCard: true,
-      isTemplate: false,
-      isConfigured: false,
-      fromApi: false
-    } as OAuthProvider];
+    } as TypesOAuthProvider];
     
     return result;
   }
   
-  const renderProviderCard = (provider: OAuthProvider) => {
-    if (provider.isAddCard) {
+  const renderProviderCard = (provider: TypesOAuthProvider) => {
+    // Handle the special "Add Custom Provider" card
+    if (provider.id === 'add-card') {
       return renderAddCard();
     }
     
-    const icon = getProviderIcon(provider.type);
-    const color = getProviderColor(provider.type);
+    const icon = getProviderIcon(provider.type as string);
+    const color = getProviderColor(provider.type as string);
     
     // Check if this is a template - explicit isTemplate flag or not from API and missing credentials
-    const isTemplate = provider.isTemplate === true || 
-      (!provider.fromApi && !provider.isConfigured);
+    const isTemplate = provider.id?.includes('template');
     
     const isAtlassian = provider.type === 'atlassian';
     
@@ -490,9 +446,6 @@ const OAuthProvidersTable: React.FC = () => {
               scopes: defaults.scopes,
               enabled: true,
               created_at: new Date().toISOString(),
-              isConfigured: false,
-              fromApi: false,
-              isTemplate: false
             });
             setIsEditing(false);
             setOpenDialog(true);
@@ -547,7 +500,7 @@ const OAuthProvidersTable: React.FC = () => {
           {!isTemplate && (
             <>
               <Typography variant="caption" display="block" color="text.secondary">
-                Created: {formatDate(provider.created_at)}
+                Created: {formatDate(provider.created_at || '')}
               </Typography>
             </>
           )}
@@ -575,7 +528,7 @@ const OAuthProvidersTable: React.FC = () => {
               <IconButton 
                 onClick={(e) => {
                   e.stopPropagation(); // Prevent the card click from triggering
-                  handleDeleteProvider(provider.id);
+                  handleDeleteProvider(provider.id || '');
                 }} 
                 size="small" 
                 color="default"
@@ -649,27 +602,13 @@ const OAuthProvidersTable: React.FC = () => {
         </Box>
       </Box>
       
-      {loading && providers.length === 0 ? (
+      {providersLoading ? (
         <>
           <Typography>Loading providers...</Typography>
-          <Typography variant="caption" color="text.secondary">
-            Debug: renderCount={renderCount}, providersLength={providers.length}
-          </Typography>
         </>
       ) : (
-        <>
-          <Typography variant="h5" sx={{ mb: 3 }}>Provider Catalog</Typography>
-          {loading && <Typography variant="caption" color="text.secondary">Refreshing...</Typography>}
-          
-          <Button 
-            variant="outlined" 
-            size="small" 
-            sx={{ mb: 2 }}
-            onClick={() => fetchProvidersManually()}
-            startIcon={<RefreshIcon />}
-          >
-            Refresh
-          </Button>
+        <>          
+          {providersLoading && <Typography variant="caption" color="text.secondary">Refreshing...</Typography>}
           
           <Grid container spacing={3}>
             {getAllProviders().map((provider) => {
@@ -814,7 +753,7 @@ const OAuthProvidersTable: React.FC = () => {
                   fullWidth
                   label="Scopes"
                   name="scopes"
-                  value={currentProvider.scopes.join(', ')}
+                  value={currentProvider?.scopes?.join(', ')}
                   onChange={handleScopeChange}
                   helperText="Comma-separated list of OAuth scopes (e.g. profile, email, read:user)"
                 />
