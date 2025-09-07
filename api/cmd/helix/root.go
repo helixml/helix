@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -65,6 +66,19 @@ func Execute() {
 	RootCmd := NewRootCmd()
 	RootCmd.SetContext(context.Background())
 	RootCmd.SetOutput(os.Stdout)
+
+	// Check for HELIX_COMMAND environment variable to support air hot reloading
+	if helixCmd := os.Getenv("HELIX_COMMAND"); helixCmd != "" {
+		// Split the command and inject it into os.Args
+		cmdParts := strings.Fields(helixCmd)
+		if len(cmdParts) > 0 {
+			// Replace os.Args to include the subcommand
+			newArgs := []string{os.Args[0]}
+			newArgs = append(newArgs, cmdParts...)
+			os.Args = newArgs
+		}
+	}
+
 	if err := RootCmd.Execute(); err != nil {
 		Fatal(RootCmd, err.Error(), 1)
 	}

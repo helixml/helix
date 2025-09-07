@@ -74,24 +74,50 @@ Work methodically and document your progress. When you're done, use the JobCompl
 
 // LaunchExternalAgent launches an external agent (Zed, VS Code, etc.) for a session
 func (c *Controller) LaunchExternalAgent(ctx context.Context, sessionID, agentType string) error {
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "launch_external_agent").
+		Str("session_id", sessionID).
+		Str("agent_type", agentType).
+		Msg("🚀 EXTERNAL_AGENT_DEBUG: LaunchExternalAgent called")
+
 	switch agentType {
 	case "zed":
 		return c.launchZedAgent(ctx, sessionID)
 	case "vscode":
 		return c.launchVSCodeAgent(ctx, sessionID)
 	default:
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "unsupported_agent_type").
+			Str("agent_type", agentType).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Unsupported agent type")
 		return fmt.Errorf("unsupported agent type: %s", agentType)
 	}
 }
 
 // launchZedAgent dispatches a Zed agent task to the runner pool
 func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error {
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "launch_zed_agent").
+		Str("session_id", sessionID).
+		Msg("🎯 EXTERNAL_AGENT_DEBUG: launchZedAgent called")
+
 	// Get session information
 	session, err := c.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for Zed agent launch")
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "session_load_error").
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to get session for Zed agent launch")
 		return fmt.Errorf("failed to get session: %w", err)
 	}
+
+	log.Debug().
+		Str("EXTERNAL_AGENT_DEBUG", "session_loaded").
+		Str("session_id", sessionID).
+		Str("owner", session.Owner).
+		Str("agent_type", session.Metadata.AgentType).
+		Msg("📄 EXTERNAL_AGENT_DEBUG: Session loaded successfully")
 
 	// Check if this session is part of a multi-session SpecTask
 	var specTaskContext *types.SpecTask
@@ -245,11 +271,27 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			Msg("Launching Zed agent for single session")
 	}
 
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "dispatch_to_pool").
+		Str("session_id", sessionID).
+		Str("user_id", session.Owner).
+		Interface("zed_agent", zedAgent).
+		Msg("📡 EXTERNAL_AGENT_DEBUG: About to dispatch to Zed runner pool")
+
 	// Dispatch to Zed runner pool via pub/sub (following GPTScript pattern)
 	data, err := json.Marshal(zedAgent)
 	if err != nil {
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "marshal_error").
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to marshal Zed agent request")
 		return fmt.Errorf("failed to marshal Zed agent request: %w", err)
 	}
+
+	log.Debug().
+		Str("EXTERNAL_AGENT_DEBUG", "marshaled_request").
+		Str("data_length", fmt.Sprintf("%d", len(data))).
+		Msg("📦 EXTERNAL_AGENT_DEBUG: Marshaled Zed agent request")
 
 	header := map[string]string{
 		"kind": "zed_agent",
@@ -264,8 +306,15 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		}
 	}
 
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "stream_request_start").
+		Str("stream", pubsub.ZedAgentRunnerStream).
+		Str("queue", pubsub.ZedAgentQueue).
+		Interface("header", header).
+		Msg("📤 EXTERNAL_AGENT_DEBUG: Sending StreamRequest to NATS")
+
 	// Send to runner pool (runners will compete for the task) - same pattern as GPTScript
-	_, err = c.Options.PubSub.StreamRequest(
+	response, err := c.Options.PubSub.StreamRequest(
 		ctx,
 		pubsub.ZedAgentRunnerStream,
 		pubsub.ZedAgentQueue,
@@ -274,12 +323,21 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		30*time.Second,
 	)
 	if err != nil {
-		log.Error().Err(err).
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "stream_request_error").
+			Err(err).
 			Str("session_id", sessionID).
 			Str("user_id", session.Owner).
-			Msg("Failed to dispatch Zed agent to runner pool")
+			Str("stream", pubsub.ZedAgentRunnerStream).
+			Str("queue", pubsub.ZedAgentQueue).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dispatch Zed agent to runner pool")
 		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
 	}
+
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "stream_request_success").
+		Str("response_length", fmt.Sprintf("%d", len(response))).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: StreamRequest completed successfully")
 
 	// Update Zed thread status if this is a multi-session work session
 	if isMultiSession && workSessionContext != nil {
@@ -290,10 +348,11 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 	}
 
 	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "dispatch_complete").
 		Str("session_id", sessionID).
 		Str("user_id", session.Owner).
 		Bool("multi_session", isMultiSession).
-		Msg("Zed agent dispatched to runner pool successfully")
+		Msg("🎉 EXTERNAL_AGENT_DEBUG: Zed agent dispatched to runner pool successfully")
 
 	return nil
 }

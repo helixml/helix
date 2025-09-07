@@ -17,8 +17,11 @@ WORKDIR /app/api
 # Install C++ compiler for CGO compilation
 RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
 
-# Build the Go app with Zed agent support
-RUN CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w" -o /helix
+# Install air for hot reloading
+RUN go install github.com/air-verse/air@v1.52.3
+
+# Build the Go app with Zed agent support (matching air build command)
+RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
 
 # Main runtime image with GUI support
 FROM ubuntu:24.04
@@ -64,14 +67,27 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq
     libcairo2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy Go from build stage for air hot reloading
+COPY --from=go-build-env /usr/local/go /usr/local/go
+
+# Add Go to PATH
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+ENV GOMODCACHE="/go/pkg/mod"
+ENV GOCACHE="/root/.cache/go-build"
+
+# Fix git ownership issue for mounted source code
+RUN git config --global --add safe.directory /workspace/helix
+
 # Copy the pre-built Zed binary from local build
 COPY ./zed-build/zed /usr/local/bin/zed
 
 # Make sure Zed binary is executable
 RUN chmod +x /usr/local/bin/zed
 
-# Copy the compiled Helix binary
+# Copy the compiled Helix binary and air
 COPY --from=go-build-env /helix /helix
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
 
 # Create zed user and setup directories
 RUN useradd -m -s /bin/bash zed \
@@ -206,15 +222,58 @@ stdout_logfile=/var/log/xrdp-sesman.log
 stderr_logfile=/var/log/xrdp-sesman.err.log
 
 [program:helix-external-agent-runner]
-command=/helix external-agent-runner
+command=/start-external-agent-runner.sh
 autostart=true
 autorestart=true
 stderr_logfile=/var/log/helix-external-agent-runner.err.log
-stdout_logfile=/var/log/helix-external-agent-runner.out.log
+stderr_logfile_maxbytes=50MB
+stdout_logfile=/var/log/helix-external-agent-runner.log
+stdout_logfile_maxbytes=50MB
 user=root
-environment=HOME="/root",USER="root"
+environment=HOME="/root",USER="root",API_HOST="%(ENV_API_HOST)s",API_TOKEN="%(ENV_API_TOKEN)s",CONCURRENCY="%(ENV_CONCURRENCY)s",MAX_TASKS="%(ENV_MAX_TASKS)s",WORKSPACE_DIR="%(ENV_WORKSPACE_DIR)s",DISPLAY="%(ENV_DISPLAY)s",GOPATH="/go",GOMODCACHE="/go/pkg/mod",GOCACHE="/root/.cache/go-build"
+directory=/workspace/helix
 priority=500
 EOF
+
+# Create air startup script for external agent runner
+COPY <<EOF /start-external-agent-runner.sh
+#!/bin/bash
+set -e
+
+echo "EXTERNAL_AGENT_DEBUG: Starting external agent runner with air hot reloading..."
+echo "EXTERNAL_AGENT_DEBUG: Environment variables:"
+echo "  API_HOST=$API_HOST"
+echo "  API_TOKEN=$API_TOKEN ($(if [ -n "$API_TOKEN" ]; then echo "set"; else echo "empty"; fi))"
+echo "  RUNNER_ID=$RUNNER_ID"
+echo "  CONCURRENCY=$CONCURRENCY"
+echo "  MAX_TASKS=$MAX_TASKS"
+echo "  WORKSPACE_DIR=$WORKSPACE_DIR"
+echo "  DISPLAY=$DISPLAY"
+
+# Set HELIX_COMMAND for the external agent runner subcommand
+export HELIX_COMMAND=external-agent-runner
+echo "  HELIX_COMMAND=$HELIX_COMMAND (set by script)"
+
+# Change to source directory
+cd /workspace/helix
+
+echo "EXTERNAL_AGENT_DEBUG: Current directory: $(pwd)"
+echo "EXTERNAL_AGENT_DEBUG: HELIX_COMMAND is set to: $HELIX_COMMAND"
+
+echo "EXTERNAL_AGENT_DEBUG: About to run air with arguments:"
+echo "  --build.bin /helix"
+echo "  --build.cmd 'CGO_ENABLED=0 go build -buildvcs=false -ldflags \"-s -w\" -o /helix'"
+echo "  --build.stop_on_error true"
+echo "  --log.main_only true"
+
+# Use air for hot reloading - the HELIX_COMMAND env var will be picked up by the main.go Execute() function
+exec air --build.bin /helix \
+  --build.cmd "CGO_ENABLED=0 go build -buildvcs=false -ldflags \"-s -w\" -o /helix" \
+  --build.stop_on_error true \
+  --log.main_only true
+EOF
+
+RUN chmod +x /start-external-agent-runner.sh
 
 # Create RDP user setup script
 COPY <<EOF /setup-rdp-user.sh
