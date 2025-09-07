@@ -5,41 +5,28 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
-  FormControl,
+  DialogTitle,  
   FormControlLabel,
   Grid,
   IconButton,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
   SelectChangeEvent,
   Switch,
   TextField,
   Typography,
   Chip,
   Card,
-  CardContent,
-  CardMedia,
+  CardContent,  
   CardActions,
   CardHeader,
   Avatar,
   Tooltip,
-  Divider,
-  SvgIcon,
+  Divider,  
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import GitHubIcon from '@mui/icons-material/GitHub'
-import GoogleIcon from '@mui/icons-material/Google'
-import AppleIcon from '@mui/icons-material/Apple'
-import CloudIcon from '@mui/icons-material/Cloud'
 import SettingsIcon from '@mui/icons-material/Settings'
-import CodeIcon from '@mui/icons-material/Code'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import { SvgIconComponent } from '@mui/icons-material'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
@@ -249,15 +236,6 @@ const OAuthProvidersTable: React.FC = () => {
     
     const { name, checked } = e.target
     setCurrentProvider(prev => prev ? { ...prev, [name]: checked } : null)
-  }
-  
-  const handleSelectChange = (e: SelectChangeEvent) => {
-    if (!currentProvider) return
-    
-    setCurrentProvider({
-      ...currentProvider,
-      [e.target.name as string]: e.target.value,
-    })
   }
   
   const handleScopeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
