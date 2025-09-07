@@ -24,6 +24,7 @@ AUTO=true
 CLI=false
 CONTROLPLANE=false
 RUNNER=false
+EXTERNAL_ZED_AGENT=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
@@ -39,6 +40,8 @@ PROXY=https://get.helixml.tech
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
+EXTERNAL_ZED_RUNNER_ID=""
+EXTERNAL_ZED_CONCURRENCY="1"
 
 # Enhanced environment detection
 detect_environment() {
@@ -144,6 +147,7 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
+  --external-zed-agent     Install the external Zed agent runner (connects to existing controlplane)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
@@ -155,6 +159,8 @@ Options:
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
+  --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
+  --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -183,13 +189,16 @@ Examples:
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install external Zed agent to connect to existing controlplane:
+   ./install.sh --external-zed-agent --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+
+9. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
-9. Install CLI and controlplane with custom embeddings provider:
+10. Install CLI and controlplane with custom embeddings provider:
    ./install.sh --cli --controlplane --embeddings-provider openai
 
-10. Install on Windows Git Bash (requires Docker Desktop):
+11. Install on Windows Git Bash (requires Docker Desktop):
    ./install.sh --cli --controlplane
 
 EOF
@@ -214,6 +223,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --runner)
             RUNNER=true
+            AUTO=false
+            shift
+            ;;
+        --external-zed-agent)
+            EXTERNAL_ZED_AGENT=true
             AUTO=false
             shift
             ;;
@@ -311,6 +325,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cli-install-path)
             CLI_INSTALL_PATH="$2"
+            shift 2
+            ;;
+        --external-zed-runner-id=*)
+            EXTERNAL_ZED_RUNNER_ID="${1#*=}"
+            shift
+            ;;
+        --external-zed-runner-id)
+            EXTERNAL_ZED_RUNNER_ID="$2"
+            shift 2
+            ;;
+        --external-zed-concurrency=*)
+            EXTERNAL_ZED_CONCURRENCY="${1#*=}"
+            shift
+            ;;
+        --external-zed-concurrency)
+            EXTERNAL_ZED_CONCURRENCY="$2"
             shift 2
             ;;
         *)
@@ -500,6 +530,16 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; th
     exit 1
 fi
 
+if [ "$EXTERNAL_ZED_AGENT" = true ] && [ -z "$API_HOST" ]; then
+    echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
+    echo "to connect to an external controlplane, for example:"
+    echo
+    echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+    echo
+    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+    exit 1
+fi
+
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
@@ -519,6 +559,11 @@ gather_modifications() {
     if [ "$RUNNER" = true ]; then
         modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
+    fi
+
+    if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+        modifications+="  - Build Zed agent Docker image\n"
+        modifications+="  - Install External Zed Agent runner script\n"
     fi
 
     echo -e "$modifications"
@@ -1093,6 +1138,72 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
+# Install external Zed agent if requested
+if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    install_docker
+    
+    # Set default runner ID if not provided
+    if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
+        EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
+    fi
+    
+    echo -e "\nInstalling External Zed Agent..."
+    
+    # Download the external Zed agent scripts
+    echo "Downloading external Zed agent scripts..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
+        chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
+        sudo chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
+        # Change ownership to current user
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/run-external-zed-agent.sh"
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/external-zed-agent.env.example"
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/Dockerfile.zed-agent"
+    fi
+    
+    # Create environment file with user settings
+    ENV_FILE="$INSTALL_DIR/external-zed-agent.env"
+    cat << EOF > "$ENV_FILE"
+# External Zed Agent Configuration
+API_HOST=$API_HOST
+API_TOKEN=$RUNNER_TOKEN
+RUNNER_ID=$EXTERNAL_ZED_RUNNER_ID
+CONCURRENCY=$EXTERNAL_ZED_CONCURRENCY
+MAX_TASKS=0
+SESSION_TIMEOUT=3600
+WORKSPACE_DIR=/tmp/zed-workspaces
+DISPLAY_NUM=1
+LOG_LEVEL=info
+DOCKER_IMAGE=helix-zed-agent:latest
+CONTAINER_NAME=helix-external-zed-agent
+EOF
+
+    echo "External Zed Agent has been installed to $INSTALL_DIR"
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ To complete the External Zed Agent setup:"
+    echo "│"
+    echo "│ 1. Build the Zed agent Docker image:"
+    echo "│    cd $INSTALL_DIR"
+    echo "│    # First, build Zed with external sync support (requires Helix source)"
+    echo "│    # ./stack build-zed"
+    echo "│    # docker build -f Dockerfile.zed-agent -t helix-zed-agent:latest ."
+    echo "│"
+    echo "│ 2. Start the external Zed agent:"
+    echo "│    source $INSTALL_DIR/external-zed-agent.env"
+    echo "│    $INSTALL_DIR/run-external-zed-agent.sh"
+    echo "│"
+    echo "│ The agent will connect to: $API_HOST"
+    echo "│ Runner ID: $EXTERNAL_ZED_RUNNER_ID"
+    echo "│ Concurrency: $EXTERNAL_ZED_CONCURRENCY"
+    echo "└───────────────────────────────────────────────────────────────────────────"
+fi
+
 if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
@@ -1100,6 +1211,9 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo "curl -Ls -O https://get.helixml.tech/install.sh"
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo
+    echo "To connect an external Zed agent to this controlplane:"
+    echo "./install.sh --external-zed-agent --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."
