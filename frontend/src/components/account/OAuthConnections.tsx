@@ -751,10 +751,7 @@ const OAuthConnections: React.FC<{}> = () => {
         <>
           {/* Connected Services Section */}
           {connections.length > 0 && (
-            <Box sx={{ mb: 6 }}>
-              <Typography variant="h5" sx={{ mb: 2 }}>
-                Connected
-              </Typography>
+            <Box sx={{ mb: 6 }}>              
               
               <Grid container spacing={3}>
                 {connections.map((connection) => (
