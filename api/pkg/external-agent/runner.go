@@ -92,8 +92,15 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 		Int("max_tasks", r.cfg.MaxTasks).
 		Msg("🟢 EXTERNAL_AGENT_DEBUG: Starting external agent task processing")
 
+	// Start message processing goroutine
 	go func() {
 		defer close(done)
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "message_processing_goroutine_started").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔄 EXTERNAL_AGENT_DEBUG: Message processing goroutine has started - about to enter ReadMessage loop")
+
 		for {
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
@@ -161,29 +168,81 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 					cancel()
 				}
 			})
-
 		}
 	}()
 
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	// Start ping goroutine
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		// ping every 5 seconds to keep the connection alive
-		case <-ticker.C:
-			err := conn.WriteMessage(websocket.PingMessage, []byte{})
-			if err != nil {
-				if strings.Contains(err.Error(), "broken pipe") {
-					return fmt.Errorf("Helix control-plane has closed connection, restarting (%s)", err)
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "ping_loop_start").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🏓 EXTERNAL_AGENT_DEBUG: Starting ping loop - will send ping every 5 seconds")
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "ping_loop_context_done").
+					Str("runner_id", r.cfg.RunnerID).
+					Msg("🟠 EXTERNAL_AGENT_DEBUG: Ping loop stopping due to context cancellation")
+				return
+			case <-ticker.C:
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "sending_ping").
+					Str("runner_id", r.cfg.RunnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sending ping to control plane")
+
+				err := conn.WriteMessage(websocket.PingMessage, []byte{})
+				if err != nil {
+					if strings.Contains(err.Error(), "broken pipe") {
+						log.Error().
+							Str("EXTERNAL_AGENT_DEBUG", "ping_broken_pipe").
+							Str("runner_id", r.cfg.RunnerID).
+							Err(err).
+							Msg("❌ EXTERNAL_AGENT_DEBUG: Ping failed - control plane closed connection")
+						cancel() // Cancel context to stop all goroutines
+						return
+					}
+
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "ping_send_error").
+						Str("runner_id", r.cfg.RunnerID).
+						Err(err).
+						Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to write ping message, closing connection")
+					cancel() // Cancel context to stop all goroutines
+					return
 				}
 
-				log.Err(err).Msg("failed to write ping message, closing connection")
-				return fmt.Errorf("failed to write ping message (%w), closing connection", err)
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "ping_sent_successfully").
+					Str("runner_id", r.cfg.RunnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Ping sent successfully to control plane")
 			}
 		}
+	}()
+
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "goroutines_started_waiting").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🔄 EXTERNAL_AGENT_DEBUG: Both message processing and ping goroutines started, waiting for completion")
+
+	// Wait for either goroutine to exit or context cancellation
+	select {
+	case <-ctx.Done():
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "context_done_main").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🟠 EXTERNAL_AGENT_DEBUG: Context cancelled, stopping runner")
+		return ctx.Err()
+	case <-done:
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "message_processing_done").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🟠 EXTERNAL_AGENT_DEBUG: Message processing goroutine exited, stopping runner")
+		return fmt.Errorf("message processing goroutine exited")
 	}
 }
 
@@ -247,7 +306,7 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 		Str("EXTERNAL_AGENT_DEBUG", "message_envelope_parsed").
 		Str("request_id", envelope.RequestID).
 		Str("reply", envelope.Reply).
-		Str("type", string(envelope.Type)).
+		Str("type", envelope.Type.String()).
 		Int("payload_length", len(envelope.Payload)).
 		Msg("📦 EXTERNAL_AGENT_DEBUG: Message envelope parsed successfully")
 
@@ -258,10 +317,16 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 			Str("request_id", envelope.RequestID).
 			Msg("🎯 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 		return r.processZedAgentRequest(ctx, conn, &envelope)
+	case types.RunnerEventRequestRDPData:
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "processing_rdp_data").
+			Str("request_id", envelope.RequestID).
+			Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data request")
+		return r.processRDPData(ctx, conn, &envelope)
 	default:
 		log.Error().
 			Str("EXTERNAL_AGENT_DEBUG", "unknown_message_type").
-			Str("type", string(envelope.Type)).
+			Str("type", envelope.Type.String()).
 			Str("request_id", envelope.RequestID).
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Unknown message type")
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
@@ -323,6 +388,58 @@ func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *
 		Str("EXTERNAL_AGENT_DEBUG", "zed_agent_request_completed").
 		TimeDiff("duration", time.Now(), start).
 		Msg("⏱️ EXTERNAL_AGENT_DEBUG: Zed agent request processed")
+
+	return r.respond(conn, req.RequestID, req.Reply, resp)
+}
+
+func (r *ExternalAgentRunner) processRDPData(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().
+		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_processing").
+		Str("request_id", req.RequestID).
+		Logger()
+
+	logger.Debug().
+		Str("reply", req.Reply).
+		Int("payload_length", len(req.Payload)).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data")
+
+	var rdpData types.ZedAgentRDPData
+	if err := json.Unmarshal(req.Payload, &rdpData); err != nil {
+		logger.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "rdp_data_unmarshal_error").
+			Err(err).
+			Str("payload", string(req.Payload)).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal RDP data")
+		return fmt.Errorf("failed to unmarshal RDP data: %w", err)
+	}
+
+	logger.Debug().
+		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_details").
+		Str("session_id", rdpData.SessionID).
+		Str("type", rdpData.Type).
+		Int("data_length", len(rdpData.Data)).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: RDP data details")
+
+	// Forward RDP data to local RDP server (port 3389)
+	// For now, we'll just log that we received the data
+	// In a full implementation, this would forward to the local RDP server
+	logger.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_received").
+		Int("bytes", len(rdpData.Data)).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Received RDP data - would forward to local RDP server")
+
+	// TODO: Implement actual RDP forwarding to localhost:3389
+	// This would involve:
+	// 1. Opening a connection to localhost:3389
+	// 2. Writing the RDP data to that connection
+	// 3. Reading the response from the RDP server
+	// 4. Sending the response back via WebSocket
+
+	// For now, send a simple acknowledgment
+	resp := map[string]interface{}{
+		"status": "received",
+		"bytes":  len(rdpData.Data),
+	}
 
 	return r.respond(conn, req.RequestID, req.Reply, resp)
 }

@@ -42,6 +42,85 @@ func NewExternalAgentWSManager() *ExternalAgentWSManager {
 	}
 }
 
+// External agent runner connection manager (tracks /ws/external-agent-runner connections)
+type ExternalAgentRunnerManager struct {
+	connections map[string]*ExternalAgentRunnerConnection
+	mu          sync.RWMutex
+}
+
+type ExternalAgentRunnerConnection struct {
+	RunnerID    string
+	ConnectedAt time.Time
+	LastPing    time.Time
+	Concurrency int
+	Status      string
+}
+
+func NewExternalAgentRunnerManager() *ExternalAgentRunnerManager {
+	return &ExternalAgentRunnerManager{
+		connections: make(map[string]*ExternalAgentRunnerConnection),
+	}
+}
+
+// addConnection adds a runner connection
+func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concurrency int) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	now := time.Now()
+	manager.connections[runnerID] = &ExternalAgentRunnerConnection{
+		RunnerID:    runnerID,
+		ConnectedAt: now,
+		LastPing:    now,
+		Concurrency: concurrency,
+		Status:      "connected",
+	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Int("concurrency", concurrency).
+		Msg("🔗 External agent runner connection added to manager")
+}
+
+// removeConnection removes a runner connection
+func (manager *ExternalAgentRunnerManager) removeConnection(runnerID string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	delete(manager.connections, runnerID)
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Msg("🔌 External agent runner connection removed from manager")
+}
+
+// updatePing updates the last ping time for a runner
+func (manager *ExternalAgentRunnerManager) updatePing(runnerID string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	if conn, exists := manager.connections[runnerID]; exists {
+		conn.LastPing = time.Now()
+	}
+}
+
+// listConnections returns all active runner connections
+func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAgentConnection {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+
+	connections := make([]types.ExternalAgentConnection, 0, len(manager.connections))
+	for _, conn := range manager.connections {
+		connections = append(connections, types.ExternalAgentConnection{
+			SessionID:   conn.RunnerID, // Use RunnerID as SessionID for consistency
+			ConnectedAt: conn.ConnectedAt,
+			LastPing:    conn.LastPing,
+			Status:      conn.Status,
+		})
+	}
+	return connections
+}
+
 // handleExternalAgentSync handles WebSocket connections from external agents (Zed instances)
 func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter, req *http.Request) {
 	// Extract session ID from query parameters
