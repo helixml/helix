@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -11,22 +12,32 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*client.Client, error) {
+//go:generate mockgen -source $GOFILE -destination mcp_client_mocks.go -package $GOPACKAGE
+
+type ClientGetter interface {
+	NewClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (Client, error)
+}
+
+type Client interface {
+	ListTools(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error)
+	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+}
+
+type DefaultClientGetter struct{}
+
+func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (Client, error) {
 	var t transport.Interface
 
 	// Copy the headers without changing the original map
 	headers := make(map[string]string)
 
-	if cfg.Headers != nil {
-		for k, v := range cfg.Headers {
-			headers[k] = v
-		}
-	}
+	maps.Copy(headers, cfg.Headers)
 
 	if cfg.OAuthProvider != "" && headers["Authorization"] == "" {
 		// Get the token
@@ -92,8 +103,8 @@ func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Mana
 	return mcpClient, nil
 }
 
-func InitializeMCPClientSkill(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
-	mcpClient, err := newMcpClient(ctx, meta, oauthManager, cfg)
+func InitializeMCPClientSkill(ctx context.Context, clientGetter ClientGetter, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
+	mcpClient, err := clientGetter.NewClient(ctx, meta, oauthManager, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
