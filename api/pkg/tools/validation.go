@@ -69,7 +69,7 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
-func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, strict bool) error {
+func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, mcpClientGetter mcp.ClientGetter, strict bool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 
@@ -170,7 +170,7 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		}
 
 		// Attempt to initialize the MCP client
-		resp, err := mcp.InitializeMCPClientSkill(context.Background(), agent.Meta{UserID: userID}, oauthManager, mcpConfig)
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpClientGetter, agent.Meta{UserID: userID}, oauthManager, mcpConfig)
 		if err != nil {
 			log.Warn().
 				Err(err).
