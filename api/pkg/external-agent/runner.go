@@ -151,7 +151,8 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 					Msg("✅ EXTERNAL_AGENT_DEBUG: Message processed successfully")
 
 				// cancel context if max tasks are reached
-				if r.cfg.MaxTasks > 0 && newOps >= uint64(r.cfg.MaxTasks) {
+				// TEMPORARILY DISABLED: Keep runner alive for multiple requests
+				if false && r.cfg.MaxTasks > 0 && newOps >= uint64(r.cfg.MaxTasks) {
 					log.Info().
 						Str("EXTERNAL_AGENT_DEBUG", "max_tasks_reached").
 						Int("max_tasks", r.cfg.MaxTasks).

@@ -230,7 +230,6 @@ stderr_logfile_maxbytes=50MB
 stdout_logfile=/var/log/helix-external-agent-runner.log
 stdout_logfile_maxbytes=50MB
 user=root
-environment=HOME="/root",USER="root",API_HOST="%(ENV_API_HOST)s",API_TOKEN="%(ENV_API_TOKEN)s",CONCURRENCY="%(ENV_CONCURRENCY)s",MAX_TASKS="%(ENV_MAX_TASKS)s",WORKSPACE_DIR="%(ENV_WORKSPACE_DIR)s",DISPLAY="%(ENV_DISPLAY)s",GOPATH="/go",GOMODCACHE="/go/pkg/mod",GOCACHE="/root/.cache/go-build"
 directory=/workspace/helix
 priority=500
 EOF
@@ -253,6 +252,11 @@ echo "  DISPLAY=$DISPLAY"
 # Set HELIX_COMMAND for the external agent runner subcommand
 export HELIX_COMMAND=external-agent-runner
 echo "  HELIX_COMMAND=$HELIX_COMMAND (set by script)"
+
+# Set required Go environment variables
+export GOPATH="/go"
+export GOMODCACHE="/go/pkg/mod"
+export GOCACHE="/root/.cache/go-build"
 
 # Change to source directory
 cd /workspace/helix
