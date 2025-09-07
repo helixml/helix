@@ -41,6 +41,14 @@ func NewExternalAgentRunner(cfg *config.ExternalAgentRunnerConfig) *ExternalAgen
 }
 
 func (r *ExternalAgentRunner) Run(ctx context.Context) error {
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "runner_start").
+		Str("api_host", r.cfg.APIHost).
+		Str("api_token", r.cfg.APIToken).
+		Str("runner_id", r.cfg.RunnerID).
+		Int("concurrency", r.cfg.Concurrency).
+		Int("max_tasks", r.cfg.MaxTasks).
+		Msg("🚀 EXTERNAL_AGENT_DEBUG: Starting external agent runner")
 	return r.run(ctx)
 }
 
@@ -79,9 +87,10 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 
 	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "task_processing_start").
 		Int("concurrency", r.cfg.Concurrency).
 		Int("max_tasks", r.cfg.MaxTasks).
-		Msg("🟢 starting external agent task processing")
+		Msg("🟢 EXTERNAL_AGENT_DEBUG: Starting external agent task processing")
 
 	go func() {
 		defer close(done)
@@ -89,28 +98,65 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
 				if errors.Is(ctx.Err(), context.Canceled) {
+					log.Info().
+						Str("EXTERNAL_AGENT_DEBUG", "context_cancelled").
+						Msg("🟠 EXTERNAL_AGENT_DEBUG: Context cancelled, stopping message processing")
 					return
 				}
-				log.Err(err).Msg("failed to read websocket message")
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "websocket_read_error").
+					Err(err).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to read websocket message")
 				return
 			}
 
 			if mt != websocket.TextMessage {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "non_text_message").
+					Int("message_type", int(mt)).
+					Msg("🔄 EXTERNAL_AGENT_DEBUG: Received non-text message, skipping")
 				continue
 			}
+
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "message_received").
+				Int("message_length", len(message)).
+				Str("message_preview", func() string {
+					if len(message) > 200 {
+						return string(message[:200]) + "..."
+					}
+					return string(message)
+				}()).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: Received WebSocket message from control plane")
 
 			// process message in a goroutine, if max goroutines are reached
 			// the call will block until a goroutine is available
 			pool.Go(func() {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "processing_message").
+					Msg("🔄 EXTERNAL_AGENT_DEBUG: Starting to process message in goroutine")
+
 				if err := r.processMessage(ctx, conn, message); err != nil {
-					log.Err(err).Msg("failed to process message")
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "message_processing_error").
+						Err(err).
+						Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to process message")
 					return
 				}
-				ops.Add(1)
+
+				newOps := ops.Add(1)
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "message_processed").
+					Uint64("total_operations", newOps).
+					Msg("✅ EXTERNAL_AGENT_DEBUG: Message processed successfully")
 
 				// cancel context if max tasks are reached
-				if r.cfg.MaxTasks > 0 && ops.Load() >= uint64(r.cfg.MaxTasks) {
-					log.Info().Msg("max tasks reached, cancelling context")
+				if r.cfg.MaxTasks > 0 && newOps >= uint64(r.cfg.MaxTasks) {
+					log.Info().
+						Str("EXTERNAL_AGENT_DEBUG", "max_tasks_reached").
+						Int("max_tasks", r.cfg.MaxTasks).
+						Uint64("current_operations", newOps).
+						Msg("🛑 EXTERNAL_AGENT_DEBUG: Max tasks reached, cancelling context")
 					cancel()
 				}
 			})
@@ -164,59 +210,118 @@ func (r *ExternalAgentRunner) dial(ctx context.Context) (*websocket.Conn, error)
 	// nolint:bodyclose
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, apiHost, nil)
 	if err != nil {
-		log.Error().Msgf("websocket dial to '%s' failed, error: %s", apiHost, err)
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_dial_failed").
+			Str("api_host", apiHost).
+			Err(err).
+			Msgf("❌ EXTERNAL_AGENT_DEBUG: WebSocket dial to '%s' failed, error: %s", apiHost, err)
 		return nil, fmt.Errorf("websocket dial to '%s' failed, error: %s", apiHost, err)
 	}
 
-	log.Info().Msg("🟢 connected to control plane")
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "connected_to_control_plane").
+		Str("api_host", apiHost).
+		Msg("🟢 EXTERNAL_AGENT_DEBUG: Connected to control plane successfully")
 
 	return conn, nil
 }
 
 func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
+	log.Debug().
+		Str("EXTERNAL_AGENT_DEBUG", "unmarshalling_message").
+		Int("message_length", len(message)).
+		Msg("📋 EXTERNAL_AGENT_DEBUG: Unmarshalling message envelope")
+
 	var envelope types.RunnerEventRequestEnvelope
 	if err := json.Unmarshal(message, &envelope); err != nil {
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "unmarshal_error").
+			Err(err).
+			Str("raw_message", string(message)).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal message")
 		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "message_envelope_parsed").
+		Str("request_id", envelope.RequestID).
+		Str("reply", envelope.Reply).
+		Str("type", string(envelope.Type)).
+		Int("payload_length", len(envelope.Payload)).
+		Msg("📦 EXTERNAL_AGENT_DEBUG: Message envelope parsed successfully")
+
 	switch envelope.Type {
 	case types.RunnerEventRequestZedAgent:
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "processing_zed_agent_request").
+			Str("request_id", envelope.RequestID).
+			Msg("🎯 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 		return r.processZedAgentRequest(ctx, conn, &envelope)
 	default:
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "unknown_message_type").
+			Str("type", string(envelope.Type)).
+			Str("request_id", envelope.RequestID).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Unknown message type")
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
 	}
 }
 
 func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
-	logger := log.With().Str("request_id", req.RequestID).Logger()
+	logger := log.With().
+		Str("EXTERNAL_AGENT_DEBUG", "zed_agent_request").
+		Str("request_id", req.RequestID).
+		Logger()
+
+	logger.Debug().
+		Str("reply", req.Reply).
+		Int("payload_length", len(req.Payload)).
+		Msg("🔄 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 
 	var agent types.ZedAgent
 	if err := json.Unmarshal(req.Payload, &agent); err != nil {
-		logger.Err(err).Msgf("failed to unmarshal Zed agent (%s)", string(req.Payload))
+		logger.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "zed_agent_unmarshal_error").
+			Err(err).
+			Str("payload", string(req.Payload)).
+			Msgf("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal Zed agent (%s)", string(req.Payload))
 		return fmt.Errorf("failed to unmarshal Zed agent (%s): %w", string(req.Payload), err)
 	}
 
 	logger.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "zed_agent_request_details").
 		Str("session_id", agent.SessionID).
 		Str("input", agent.Input).
 		Str("project_path", agent.ProjectPath).
 		Str("work_dir", agent.WorkDir).
-		Msg("starting Zed agent")
+		Msg("🚀 EXTERNAL_AGENT_DEBUG: Starting Zed agent")
 
 	start := time.Now()
 
 	// Start Zed agent in container with RDP
 	resp, err := r.startZedAgent(ctx, &agent)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to start Zed agent")
+		logger.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "zed_agent_start_error").
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to start Zed agent")
 		resp = &types.ZedAgentResponse{
 			SessionID: agent.SessionID,
 			Error:     err.Error(),
 			Status:    "error",
 		}
+	} else {
+		logger.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "zed_agent_started").
+			Str("session_id", agent.SessionID).
+			Str("status", resp.Status).
+			Msg("✅ EXTERNAL_AGENT_DEBUG: Zed agent started successfully")
 	}
 
-	logger.Info().TimeDiff("duration", time.Now(), start).Msg("Zed agent request processed")
+	logger.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "zed_agent_request_completed").
+		TimeDiff("duration", time.Now(), start).
+		Msg("⏱️ EXTERNAL_AGENT_DEBUG: Zed agent request processed")
 
 	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
@@ -343,8 +448,19 @@ func (r *ExternalAgentRunner) generatePassword() string {
 }
 
 func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {
+	log.Debug().
+		Str("EXTERNAL_AGENT_DEBUG", "marshalling_response").
+		Str("request_id", reqID).
+		Str("reply", reply).
+		Msg("📤 EXTERNAL_AGENT_DEBUG: Marshalling response")
+
 	bts, err := json.Marshal(resp)
 	if err != nil {
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "response_marshal_error").
+			Str("request_id", reqID).
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to marshal response")
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
@@ -356,12 +472,35 @@ func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string,
 
 	bts, err = json.Marshal(env)
 	if err != nil {
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "envelope_marshal_error").
+			Str("request_id", reqID).
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to marshal external agent response envelope")
 		return fmt.Errorf("failed to marshal external agent response envelope: %w", err)
 	}
 
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "sending_response").
+		Str("request_id", reqID).
+		Str("reply", reply).
+		Int("response_length", len(bts)).
+		Msg("📡 EXTERNAL_AGENT_DEBUG: Sending response to control plane")
+
 	if err := conn.WriteMessage(websocket.TextMessage, bts); err != nil {
+		log.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_write_error").
+			Str("request_id", reqID).
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to write message to WebSocket")
 		return fmt.Errorf("failed to write message: %w", err)
 	}
+
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "response_sent").
+		Str("request_id", reqID).
+		Str("reply", reply).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: Response sent successfully")
 
 	return nil
 }

@@ -981,46 +981,107 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 // Follows the exact same pattern as GPTScript runner for consistency
 func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.Router, path string) {
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
-		if err != nil {
-			log.Error().Msgf("Error getting user: %s", err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		// Extract authentication and runner info from query parameters (like GPTScript)
+		runnerID := r.URL.Query().Get("runnerid")
+		accessToken := r.URL.Query().Get("access_token")
+		concurrencyStr := r.URL.Query().Get("concurrency")
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_connection_attempt").
+			Str("path", path).
+			Str("remote_addr", r.RemoteAddr).
+			Str("runner_id", runnerID).
+			Msg("🔗 EXTERNAL_AGENT_DEBUG: External agent runner attempting WebSocket connection")
+
+		if runnerID == "" {
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "missing_runner_id").
+				Msg("❌ EXTERNAL_AGENT_DEBUG: runnerid is required")
+			http.Error(w, "runnerid is required", http.StatusBadRequest)
+			return
+		}
+		if accessToken == "" {
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "missing_access_token").
+				Msg("❌ EXTERNAL_AGENT_DEBUG: access_token is required")
+			http.Error(w, "access_token is required", http.StatusBadRequest)
 			return
 		}
 
-		if user == nil || !isRunner(user) {
-			log.Error().Msgf("Error authorizing external agent runner websocket")
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		// Validate the runner token (like GPTScript does)
+		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
+			log.Warn().
+				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").
+				Str("provided_token", accessToken).
+				Str("expected_token", apiServer.Cfg.WebServer.RunnerToken).
+				Str("runner_id", runnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Invalid runner token for external agent runner")
+			http.Error(w, "Invalid access token", http.StatusUnauthorized)
 			return
 		}
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "auth_success").
+			Str("runner_id", runnerID).
+			Msg("✅ EXTERNAL_AGENT_DEBUG: External agent runner authenticated successfully")
 
 		wsConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Error().Msgf("Error upgrading external agent runner websocket: %s", err.Error())
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "websocket_upgrade_error").
+				Err(err).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Error upgrading external agent runner websocket")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer wsConn.Close()
 
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_upgraded").
+			Msg("🔌 EXTERNAL_AGENT_DEBUG: WebSocket connection upgraded successfully")
+
+		concurrency := 1
+		if concurrencyStr != "" {
+			if c, err := strconv.Atoi(concurrencyStr); err == nil {
+				concurrency = c
+			} else {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "concurrency_parse_error").
+					Err(err).
+					Str("concurrency_str", concurrencyStr).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error parsing concurrency")
+			}
+		}
+
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
-		runnerID := r.URL.Query().Get("runnerid")
-		concurrencyStr := r.URL.Query().Get("concurrency")
-
-		concurrency, err := strconv.Atoi(concurrencyStr)
-		if err != nil {
-			log.Error().Msgf("Error parsing concurrency: %s", err.Error())
-			concurrency = 1
-		}
+		defer log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+			Str("runner_id", runnerID).
+			Msg("🟠 EXTERNAL_AGENT_DEBUG: External agent runner disconnected")
 
 		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "runner_connected").
 			Str("action", "🟢 External agent runner connected").
+			Str("runner_id", runnerID).
 			Int("concurrency", concurrency).
-			Msgf("connected external agent runner websocket: %s\n", runnerID)
+			Msg("🎉 EXTERNAL_AGENT_DEBUG: Connected external agent runner websocket")
 
 		// Subscribe to Zed agent tasks (using ZedAgentRunnerStream like GPTScript uses ScriptRunnerStream)
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "subscribing_to_stream").
+			Str("stream", pubsub.ZedAgentRunnerStream).
+			Str("queue", pubsub.ZedAgentQueue).
+			Str("runner_id", runnerID).
+			Msg("📡 EXTERNAL_AGENT_DEBUG: Subscribing to Zed agent stream")
+
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "message_from_stream").
+				Str("runner_id", runnerID).
+				Str("kind", msg.Header.Get("kind")).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: Received message from stream")
 			var messageType types.RunnerEventRequestType
 
 			switch msg.Header.Get("kind") {
@@ -1033,14 +1094,28 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				messageType = types.RunnerEventRequestZedAgent
 			}
 
-			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
+			envelope := &types.RunnerEventRequestEnvelope{
 				RequestID: system.GenerateRequestID(),
 				Reply:     msg.Reply, // Runner will need this inbox channel to send messages back to the requestor
 				Type:      messageType,
 				Payload:   msg.Data, // The actual payload (Zed agent request)
-			})
+			}
+
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "sending_to_runner").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Str("reply", envelope.Reply).
+				Str("type", string(envelope.Type)).
+				Msg("📤 EXTERNAL_AGENT_DEBUG: Sending message to external agent runner")
+
+			err := wsConn.WriteJSON(envelope)
 			if err != nil {
-				log.Error().Msgf("Error writing to external agent runner websocket: %s", err.Error())
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "websocket_write_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error writing to external agent runner websocket")
 				if nakErr := msg.Nak(); nakErr != nil {
 					return fmt.Errorf("error writing to external agent runner websocket: %v, failed to Nak the message: %v", err, nakErr)
 				}
@@ -1053,9 +1128,20 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			return nil
 		})
 		if err != nil {
-			log.Error().Msgf("Error subscribing to Zed agent queue: %s", err.Error())
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "stream_subscribe_error").
+				Err(err).
+				Str("stream", pubsub.ZedAgentRunnerStream).
+				Str("queue", pubsub.ZedAgentQueue).
+				Str("runner_id", runnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Error subscribing to Zed agent queue")
 			return
 		}
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "stream_subscribed").
+			Str("runner_id", runnerID).
+			Msg("✅ EXTERNAL_AGENT_DEBUG: Successfully subscribed to Zed agent stream")
 		defer func() {
 			if err := zedAgentSub.Unsubscribe(); err != nil {
 				log.Err(err).Msg("failed to unsubscribe from zed agent queue")
@@ -1063,15 +1149,35 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		}()
 
 		// Block reads in order to detect disconnects and handle responses
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "message_loop_start").
+			Str("runner_id", runnerID).
+			Msg("🔄 EXTERNAL_AGENT_DEBUG: Starting message read loop")
+
 		for {
 			messageType, messageBytes, err := wsConn.ReadMessage()
-			log.Trace().Msgf("External agent runner websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
 				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
 					Str("action", "🟠 External agent runner ws DISCONNECT").
-					Msgf("disconnected external agent runner websocket: %s\n", runnerID)
+					Str("runner_id", runnerID).
+					Err(err).
+					Msg("🟠 EXTERNAL_AGENT_DEBUG: Disconnected external agent runner websocket")
 				return
 			}
+
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "runner_response").
+				Str("runner_id", runnerID).
+				Int("message_type", int(messageType)).
+				Int("message_length", len(messageBytes)).
+				Str("message_preview", func() string {
+					if len(messageBytes) > 200 {
+						return string(messageBytes[:200]) + "..."
+					}
+					return string(messageBytes)
+				}()).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: External agent runner websocket response")
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -1079,13 +1185,36 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			var resp types.RunnerEventResponseEnvelope
 			err = json.Unmarshal(messageBytes, &resp)
 			if err != nil {
-				log.Error().Msgf("Error unmarshalling websocket event: %s", err.Error())
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "response_unmarshal_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("raw_message", string(messageBytes)).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error unmarshalling websocket event")
 				continue
 			}
 
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "response_parsed").
+				Str("runner_id", runnerID).
+				Str("request_id", resp.RequestID).
+				Str("reply", resp.Reply).
+				Msg("📋 EXTERNAL_AGENT_DEBUG: Parsed runner response envelope")
+
 			err = apiServer.pubsub.Publish(ctx, resp.Reply, resp.Payload)
 			if err != nil {
-				log.Error().Msgf("Error publishing external agent response: %s", err.Error())
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "publish_response_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("reply", resp.Reply).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error publishing external agent response")
+			} else {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "response_published").
+					Str("runner_id", runnerID).
+					Str("reply", resp.Reply).
+					Msg("✅ EXTERNAL_AGENT_DEBUG: External agent response published successfully")
 			}
 		}
 	})

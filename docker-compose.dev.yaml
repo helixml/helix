@@ -238,6 +238,7 @@ services:
             # Control plane connection
             - API_HOST=http://api:8080
             - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+            - LOG_LEVEL=debug
             
             # Zed runner configuration - one session per container, then exit
             - CONCURRENCY=1
@@ -248,6 +249,12 @@ services:
             - WORKSPACE_DIR=/tmp/workspace
             - DISPLAY=:1
             - RDP_PORT=5900
+        volumes:
+            # Mount source code for hot reloading during development
+            - .:/workspace/helix
+            # Go caches for faster development  
+            - go-pkg-mod:/go/pkg/mod
+            - go-build-cache:/root/.cache/go-build
         # No port mapping needed - RDP proxied over WebSocket connection
         restart: always
         depends_on:

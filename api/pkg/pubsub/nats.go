@@ -20,6 +20,8 @@ import (
 const (
 	scriptStreamName       = "SCRIPTS_STREAM"
 	scriptsSubject         = "SCRIPTS.*"
+	zedAgentStreamName     = "ZED_AGENTS_STREAM"
+	zedAgentSubject        = "ZED_AGENTS.*"
 	helixNatsReplyHeader   = "helix-reply"
 	helixNatsSubjectHeader = "helix-subject"
 )
@@ -233,6 +235,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	// Clean up old streams
 	gcJetStream(js)
 
+	// Create SCRIPTS stream for GPTScript runners
 	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
 		Name:      scriptStreamName,
 		Subjects:  []string{scriptsSubject},
@@ -248,7 +251,21 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		return nil, fmt.Errorf("failed to create internal jetstream stream: %w", err)
 	}
 
+	// Create ZED_AGENTS stream for external agent runners
+	zedAgentStream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
+		Name:      zedAgentStreamName,
+		Subjects:  []string{zedAgentSubject},
+		Retention: jetstream.WorkQueuePolicy,
+		Discard:   jetstream.DiscardOld,
+		MaxAge:    5 * time.Minute, // Discard messages older than 5 minutes
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zed agent jetstream stream: %w", err)
+	}
+
 	ctx := context.Background()
+
+	// Create consumer for SCRIPTS stream
 	c, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
@@ -259,6 +276,18 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	}
+
+	// Create consumer for ZED_AGENTS stream
+	_, err = zedAgentStream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		AckPolicy:      jetstream.AckExplicitPolicy,
+		FilterSubjects: []string{getStreamSub(ZedAgentRunnerStream, ZedAgentQueue)},
+		AckWait:        5 * time.Second,
+		BackOff:        []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second}, // Exponential backoff to prevent log spam
+		ReplayPolicy:   jetstream.ReplayInstantPolicy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zed agent consumer: %w", err)
 	}
 
 	// Basic monitoring of the stream
