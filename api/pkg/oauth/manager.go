@@ -57,6 +57,17 @@ func NewManager(store store.Store) *Manager {
 // Reloads configuration every 10 seconds
 // Refetches tokens for all connections every 1 minute
 func (m *Manager) Start(ctx context.Context) error {
+
+	err := m.LoadProviders(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load OAuth providers")
+	}
+
+	err = m.RefreshExpiredTokens(ctx, 5*time.Minute)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to refresh expired tokens")
+	}
+
 	go func() {
 		// Creating two tickers for each of the tasks, we don't
 		// want to run them at the same time
