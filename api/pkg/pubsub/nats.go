@@ -268,19 +268,68 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 	n.streams["ZED_AGENTS"] = stream
 
 	ctx := context.Background()
-	c, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Name:           "helix-zed-agent-consumer",
-		AckPolicy:      jetstream.AckExplicitPolicy,
-		FilterSubjects: []string{getStreamSub(ZedAgentRunnerStream, ZedAgentQueue)},
-		AckWait:        5 * time.Second,
-		BackOff:        []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second}, // Exponential backoff to prevent log spam
-		ReplayPolicy:   jetstream.ReplayInstantPolicy,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	consumerName := "helix-zed-agent-consumer"
+
+	log.Info().
+		Str("stream", zedAgentStreamName).
+		Str("consumer", consumerName).
+		Msg("initializing ZED_AGENTS consumer")
+
+	// First try to get existing consumer with the same name
+	var c jetstream.Consumer
+	if existingConsumer, err := stream.Consumer(ctx, consumerName); err == nil {
+		// Consumer already exists, check if configuration matches
+		info, err := existingConsumer.Info(ctx)
+		if err == nil {
+			expectedFilterSubject := getStreamSub(ZedAgentRunnerStream, ZedAgentQueue)
+			if len(info.Config.FilterSubjects) == 1 && info.Config.FilterSubjects[0] == expectedFilterSubject {
+				log.Info().
+					Str("consumer", consumerName).
+					Str("filter_subject", expectedFilterSubject).
+					Msg("reusing existing consumer with matching configuration")
+				c = existingConsumer
+			} else {
+				log.Warn().
+					Str("consumer", consumerName).
+					Strs("existing_filters", info.Config.FilterSubjects).
+					Str("expected_filter", expectedFilterSubject).
+					Msg("existing consumer has different configuration, deleting and recreating")
+				if err := js.DeleteConsumer(ctx, zedAgentStreamName, consumerName); err != nil {
+					log.Err(err).Str("consumer", consumerName).Msg("failed to delete existing consumer")
+				}
+				c = nil // Force recreation
+			}
+		} else {
+			log.Warn().Err(err).Str("consumer", consumerName).Msg("failed to get existing consumer info, will try to recreate")
+			c = nil // Force recreation
+		}
+	} else {
+		log.Info().Str("consumer", consumerName).Msg("consumer doesn't exist, creating new one")
+	}
+
+	// Create consumer if we don't have one yet
+	if c == nil {
+		var err error
+		c, err = stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+			Name:           consumerName,
+			AckPolicy:      jetstream.AckExplicitPolicy,
+			FilterSubjects: []string{getStreamSub(ZedAgentRunnerStream, ZedAgentQueue)},
+			AckWait:        5 * time.Second,
+			BackOff:        []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second}, // Exponential backoff to prevent log spam
+			ReplayPolicy:   jetstream.ReplayInstantPolicy,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create consumer: %w", err)
+		}
+
+		log.Info().
+			Str("consumer", consumerName).
+			Str("stream", zedAgentStreamName).
+			Str("filter_subject", getStreamSub(ZedAgentRunnerStream, ZedAgentQueue)).
+			Msg("successfully created ZED_AGENTS consumer")
 	}
 	n.consumer = c
-	n.consumers["helix-zed-agent-consumer"] = c
+	n.consumers[consumerName] = c
 
 	// Basic monitoring of the stream
 	go func() {
@@ -298,6 +347,11 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 					Time("oldest_message", info.State.FirstTime).
 					Time("newest_message", info.State.LastTime).
 					Msg("Stream info")
+			} else if info.State.Msgs > 100 {
+				log.Debug().
+					Int("messages", int(info.State.Msgs)).
+					Int("consumers", info.State.Consumers).
+					Msg("ZED_AGENTS stream has many pending messages")
 			}
 
 			time.Sleep(10 * time.Second)
@@ -686,9 +740,36 @@ func gcJetStream(js jetstream.JetStream) {
 			Str("name", s.Config.Name).
 			Strs("subjects", s.Config.Subjects).
 			Msg("checking stream for cleanup")
-		if s.Config.Subjects[0] == "SCRIPTS.*" {
+
+		// Clean up SCRIPTS.* streams (legacy cleanup)
+		if len(s.Config.Subjects) > 0 && s.Config.Subjects[0] == "SCRIPTS.*" {
 			if err := js.DeleteStream(context.Background(), s.Config.Name); err != nil {
 				log.Err(err).Str("name", s.Config.Name).Msg("failed to delete stream")
+			}
+		}
+
+		// Clean up ZED_AGENTS.* streams and their consumers to prevent conflicts
+		if len(s.Config.Subjects) > 0 && s.Config.Subjects[0] == "ZED_AGENTS.*" {
+			// First, get the stream to list its consumers
+			if stream, err := js.Stream(context.Background(), s.Config.Name); err == nil {
+				consumers := stream.ListConsumers(context.Background())
+				for c := range consumers.Info() {
+					log.Debug().
+						Str("stream", s.Config.Name).
+						Str("consumer", c.Name).
+						Msg("deleting consumer for cleanup")
+					if err := js.DeleteConsumer(context.Background(), s.Config.Name, c.Name); err != nil {
+						log.Err(err).
+							Str("stream", s.Config.Name).
+							Str("consumer", c.Name).
+							Msg("failed to delete consumer during cleanup")
+					}
+				}
+			}
+
+			// Then delete the stream
+			if err := js.DeleteStream(context.Background(), s.Config.Name); err != nil {
+				log.Err(err).Str("name", s.Config.Name).Msg("failed to delete ZED_AGENTS stream")
 			}
 		}
 	}

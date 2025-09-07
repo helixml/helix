@@ -242,7 +242,7 @@ services:
 
             # Zed runner configuration - one session per container, then exit
             - CONCURRENCY=1
-            - MAX_TASKS=1  # Exit after one task for clean restart
+            - MAX_TASKS=0  # 0 means unlimited tasks - stay alive for multiple requests
             - SESSION_TIMEOUT=3600
 
             # Container uses fixed settings since each container is isolated
