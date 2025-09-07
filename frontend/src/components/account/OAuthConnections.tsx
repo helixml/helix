@@ -21,12 +21,12 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material'
-import DeleteIcon from '@mui/icons-material/Delete'
-import RefreshIcon from '@mui/icons-material/Refresh'
+
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import LockIcon from '@mui/icons-material/Lock'
-import CodeIcon from '@mui/icons-material/Code'
+
+import { RefreshCcw, Trash, Info } from 'lucide-react'
+
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
@@ -605,7 +605,7 @@ const OAuthConnections: React.FC<{}> = () => {
                   size="small"
                   color="info"
                 >
-                  <CodeIcon />
+                  <Info size={16} />
                 </IconButton>
               </Tooltip>
             )}
@@ -618,7 +618,7 @@ const OAuthConnections: React.FC<{}> = () => {
                   size="small"
                   color="primary"
                 >
-                  <RefreshIcon />
+                  <RefreshCcw size={16} />
                 </IconButton>
               </Tooltip>
             )}
@@ -628,7 +628,7 @@ const OAuthConnections: React.FC<{}> = () => {
                 size="small"
                 color="primary"
               >
-                <DeleteIcon />
+                <Trash size={16} />
               </IconButton>
             </Tooltip>
           </Box>
