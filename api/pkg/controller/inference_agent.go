@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
@@ -121,18 +120,15 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
 
-		spew.Dump(assistantTool)
-
 		if assistantTool.ToolType == types.ToolTypeAPI {
 			// Use direct API skills instead of the skill context runner approach
 			// This allows the main agent to orchestrate API calls with other tools (Calculator, Currency_Exchange_Rates)
-			apiSkills := skill.NewDirectAPICallingSkills(c.ToolsPlanner, assistantTool)
+			apiSkills := skill.NewDirectAPICallingSkills(c.ToolsPlanner, c.Options.OAuthManager, assistantTool)
 			skills = append(skills, apiSkills...)
 		}
 
 		if assistantTool.ToolType == types.ToolTypeMCP {
-			fmt.Println("Adding MCP skills")
-			skills = append(skills, mcp.NewDirectMCPClientSkills(assistantTool)...)
+			skills = append(skills, mcp.NewDirectMCPClientSkills(c.Options.MCPClientGetter, c.Options.OAuthManager, assistantTool)...)
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
@@ -158,8 +154,6 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
 	}
-
-	spew.Dump(skills)
 
 	// Get assistant knowledge
 	knowledges, err := c.Options.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{

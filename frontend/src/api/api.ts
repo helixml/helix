@@ -859,6 +859,11 @@ export interface TypesAssistantMCP {
   description?: string;
   headers?: Record<string, string>;
   name?: string;
+  /** The name of the OAuth provider to use for authentication */
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
+  tools?: McpTool[];
   url?: string;
 }
 
@@ -1566,6 +1571,7 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeGitHub = "github",
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeHubSpot = "hubspot",
   OAuthProviderTypeCustom = "custom",
 }
 
@@ -2380,6 +2386,9 @@ export interface TypesToolMCPClientConfig {
   enabled?: boolean;
   headers?: Record<string, string>;
   name?: string;
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   tools?: McpTool[];
   url?: string;
 }
@@ -3027,6 +3036,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1AppsDuplicateCreate
+     * @request POST:/api/v1/apps/{id}/duplicate
+     * @secure
+     */
+    v1AppsDuplicateCreate: (
+      id: string,
+      query?: {
+        /** Optional new name for the app */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}/duplicate`,
+        method: "POST",
+        query: query,
+        secure: true,
         ...params,
       }),
 

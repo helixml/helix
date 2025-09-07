@@ -266,3 +266,19 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
   })
 }
 
+// useDuplicateApp returns a mutation for duplicating an app
+export function useDuplicateApp(orgId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ appId, name }: { appId: string; name?: string }) => 
+      apiClient.v1AppsDuplicateCreate(appId, { name }),
+    onSuccess: () => {
+      // Invalidate the apps list to refresh the UI
+      queryClient.invalidateQueries({ queryKey: appListQueryKey(orgId) })
+    }
+  })
+}
+
