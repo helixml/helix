@@ -15,11 +15,11 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-func NewDirectMCPClientSkills(oauthManager *oauth.Manager, tool *types.Tool) []agent.Skill {
+func NewDirectMCPClientSkills(clientGetter ClientGetter, oauthManager *oauth.Manager, tool *types.Tool) []agent.Skill {
 	var skills []agent.Skill
 
 	for _, mcpTool := range tool.Config.MCP.Tools {
-		tool, err := newMCPTool(oauthManager, tool.Config.MCP, mcpTool)
+		tool, err := newMCPTool(clientGetter, oauthManager, tool.Config.MCP, mcpTool)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create MCP tool")
 			continue
@@ -37,8 +37,9 @@ func NewDirectMCPClientSkills(oauthManager *oauth.Manager, tool *types.Tool) []a
 	return skills
 }
 
-func newMCPTool(oauthManager *oauth.Manager, cfg *types.ToolMCPClientConfig, mcpTool mcp.Tool) (*MCPClientTool, error) {
+func newMCPTool(clientGetter ClientGetter, oauthManager *oauth.Manager, cfg *types.ToolMCPClientConfig, mcpTool mcp.Tool) (*MCPClientTool, error) {
 	return &MCPClientTool{
+		clientGetter: clientGetter,
 		oauthManager: oauthManager,
 		cfg:          cfg,
 		mcpTool:      mcpTool,
@@ -46,6 +47,7 @@ func newMCPTool(oauthManager *oauth.Manager, cfg *types.ToolMCPClientConfig, mcp
 }
 
 type MCPClientTool struct { //nolint:revive
+	clientGetter ClientGetter
 	oauthManager *oauth.Manager
 	cfg          *types.ToolMCPClientConfig
 	mcpTool      mcp.Tool // Parsed configuration from the MCP server
@@ -60,7 +62,7 @@ func (t *MCPClientTool) Description() string {
 }
 
 func (t *MCPClientTool) Execute(ctx context.Context, meta agent.Meta, args map[string]any) (string, error) {
-	client, err := newMcpClient(ctx, meta, t.oauthManager, &types.AssistantMCP{
+	client, err := t.clientGetter.NewClient(ctx, meta, t.oauthManager, &types.AssistantMCP{
 		URL:           t.cfg.URL,
 		Headers:       t.cfg.Headers,
 		OAuthProvider: t.cfg.OAuthProvider,
