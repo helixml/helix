@@ -76,14 +76,12 @@ func GetSessionQueue(ownerID, sessionID string) string {
 }
 
 const (
-	ScriptRunnerStream        = "SCRIPTS"
-	ExternalAgentRunnerStream = "EXTERNAL_AGENTS"
-	ZedAgentRunnerStream      = "ZED_AGENTS"
-	AppQueue                  = "apps"
-	ExternalAgentQueue        = "external_agents"
-	ZedAgentQueue             = "zed_agents"
-	RunnerQueue               = "runner"
-	HelixNatsReplyHeader      = "helix-nats-reply"
+	ZedAgentRunnerStream = "ZED_AGENTS"
+	ZedAgentQueue        = "zed_agents"
+	ScriptRunnerStream   = "SCRIPT_RUNNERS"
+	AppQueue             = "app"
+	RunnerQueue          = "runner"
+	HelixNatsReplyHeader = "helix-nats-reply"
 )
 
 func getStreamSub(stream, sub string) string {
@@ -126,8 +124,8 @@ func GetExternalAgentResponseQueue() string {
 func GetExternalAgentStreamForMessageType(messageType string) string {
 	switch messageType {
 	case "agent.register", "agent.heartbeat", "agent.response":
-		return ExternalAgentRunnerStream
+		return ZedAgentRunnerStream
 	default:
-		return ExternalAgentRunnerStream
+		return ZedAgentRunnerStream
 	}
 }
