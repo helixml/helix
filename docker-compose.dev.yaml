@@ -121,7 +121,7 @@ services:
         restart: always
         command: ["--access-mode=unrestricted", "--transport=sse"]
         environment:
-            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres            
+            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
         ports:
         - 8000:8000
     # postgres 15 with pgvector installed
@@ -239,12 +239,12 @@ services:
             - API_HOST=http://api:8080
             - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
             - LOG_LEVEL=debug
-            
+
             # Zed runner configuration - one session per container, then exit
             - CONCURRENCY=1
             - MAX_TASKS=1  # Exit after one task for clean restart
             - SESSION_TIMEOUT=3600
-            
+
             # Container uses fixed settings since each container is isolated
             - WORKSPACE_DIR=/tmp/workspace
             - DISPLAY=:1
@@ -252,7 +252,7 @@ services:
         volumes:
             # Mount source code for hot reloading during development
             - .:/workspace/helix
-            # Go caches for faster development  
+            # Go caches for faster development
             - go-pkg-mod:/go/pkg/mod
             - go-build-cache:/root/.cache/go-build
         # No port mapping needed - RDP proxied over WebSocket connection
@@ -260,8 +260,8 @@ services:
         depends_on:
             - api
         deploy:
-            # Default to 3 runners, scale with --scale zed-runner=N
-            replicas: 3
+            # Default to 1 runner, scale with --scale zed-runner=N
+            replicas: 1
 
     # GPU-enabled runner (for LLM inference)
     runner_gpu:

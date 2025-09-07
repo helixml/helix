@@ -86,19 +86,19 @@ func (s *NATSExternalAgentService) Start(ctx context.Context) error {
 	log.Info().Msg("Starting NATS external agent service")
 
 	// Subscribe to agent registrations
-	_, err := s.pubsub.QueueSubscribe(ctx, pubsub.ExternalAgentRunnerStream, pubsub.GetExternalAgentRegistrationQueue(), s.handleAgentRegistration)
+	_, err := s.pubsub.QueueSubscribe(ctx, pubsub.ZedAgentRunnerStream, pubsub.GetExternalAgentRegistrationQueue(), s.handleAgentRegistration)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to agent registrations: %w", err)
 	}
 
 	// Subscribe to agent heartbeats
-	_, err = s.pubsub.QueueSubscribe(ctx, pubsub.ExternalAgentRunnerStream, pubsub.GetExternalAgentHeartbeatQueue(), s.handleAgentHeartbeat)
+	_, err = s.pubsub.QueueSubscribe(ctx, pubsub.ZedAgentRunnerStream, pubsub.GetExternalAgentHeartbeatQueue(), s.handleAgentHeartbeat)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to agent heartbeats: %w", err)
 	}
 
 	// Subscribe to agent task responses
-	_, err = s.pubsub.QueueSubscribe(ctx, pubsub.ExternalAgentRunnerStream, pubsub.GetExternalAgentResponseQueue(), s.handleAgentResponse)
+	_, err = s.pubsub.QueueSubscribe(ctx, pubsub.ZedAgentRunnerStream, pubsub.GetExternalAgentResponseQueue(), s.handleAgentResponse)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to agent responses: %w", err)
 	}
