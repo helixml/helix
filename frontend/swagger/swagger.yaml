@@ -1360,6 +1360,10 @@ definitions:
         items:
           type: string
         type: array
+      tools:
+        items:
+          $ref: '#/definitions/mcp.Tool'
+        type: array
       url:
         type: string
     type: object
