@@ -644,29 +644,34 @@ func (s *PostgresStore) GetAgentWorkQueueStats(ctx context.Context) (*types.Agen
 	stats.ActiveSessions = int(activeSessionCount)
 
 	// Calculate average wait time for pending items
-	var avgWaitMinutes *float64
+	var pendingCount int64
 	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
-		Select("AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/60) as avg_wait").
 		Where("status = ?", "pending").
-		Scan(&avgWaitMinutes).Error; err != nil {
+		Count(&pendingCount).Error; err != nil {
 		return nil, err
 	}
 
-	if avgWaitMinutes != nil {
-		stats.AverageWaitTime = *avgWaitMinutes
+	if pendingCount > 0 {
+		var avgWaitMinutes float64
+		if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+			Select("AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/60)").
+			Where("status = ?", "pending").
+			Scan(&avgWaitMinutes).Error; err != nil {
+			return nil, err
+		}
+		stats.AverageWaitTime = avgWaitMinutes
 	}
 
 	// Get oldest pending item
-	var oldestPending *time.Time
-	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
-		Select("MIN(created_at) as oldest").
-		Where("status = ?", "pending").
-		Scan(&oldestPending).Error; err != nil {
-		return nil, err
-	}
-
-	if oldestPending != nil {
-		stats.OldestPending = oldestPending
+	if pendingCount > 0 {
+		var oldestItem types.AgentWorkItem
+		if err := s.gdb.WithContext(ctx).
+			Where("status = ?", "pending").
+			Order("created_at ASC").
+			First(&oldestItem).Error; err != nil {
+			return nil, err
+		}
+		stats.OldestPending = &oldestItem.CreatedAt
 	}
 
 	return stats, nil
