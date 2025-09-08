@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -170,19 +171,26 @@ func (s *NATSExternalAgentService) AssignExternalAgent(ctx context.Context, requ
 	}
 	agent.LastSeen = time.Now()
 
+	// Create ZedAgent with RDP password for task assignment
+	agentWithPassword := &types.ZedAgent{
+		SessionID:   request.SessionID,
+		InstanceID:  request.InstanceID,
+		ThreadID:    request.ThreadID,
+		UserID:      request.UserID,
+		Input:       request.Input,
+		ProjectPath: request.ProjectPath,
+		WorkDir:     request.WorkDir,
+		Env:         request.Env,
+		RDPPassword: session.RDPPassword,
+		RDPPort:     request.RDPPort,
+		RDPUser:     request.RDPUser,
+	}
+
 	// Send task assignment to agent via NATS
-	taskMessage := map[string]interface{}{
-		"type":         "zed_task",
-		"session_id":   request.SessionID,
-		"instance_id":  request.InstanceID,
-		"thread_id":    request.ThreadID,
-		"user_id":      request.UserID,
-		"input":        request.Input,
-		"project_path": request.ProjectPath,
-		"work_dir":     request.WorkDir,
-		"env":          request.Env,
-		"rdp_password": session.RDPPassword,
-		"auth_token":   session.AuthToken,
+	taskMessage := &types.ZedTaskMessage{
+		Type:      "zed_task",
+		Agent:     *agentWithPassword,
+		AuthToken: session.AuthToken,
 	}
 
 	messageBytes, err := json.Marshal(taskMessage)
@@ -578,7 +586,25 @@ func (s *NATSExternalAgentService) cleanupStaleAgents() {
 }
 
 func (s *NATSExternalAgentService) generatePassword() string {
-	return fmt.Sprintf("zed_%d", time.Now().UnixNano())
+	// Generate a cryptographically secure random password for RDP access
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const length = 16
+
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fail securely - no fallback passwords
+		log.Error().Err(err).Msg("Failed to generate secure random password - cannot proceed")
+		panic(fmt.Sprintf("Failed to generate secure RDP password: %v", err))
+	}
+
+	// Convert random bytes to charset characters
+	password := make([]byte, length)
+	for i := 0; i < length; i++ {
+		password[i] = charset[b[i]%byte(len(charset))]
+	}
+
+	return fmt.Sprintf("zed_%s_%d", string(password), time.Now().Unix())
 }
 
 func (s *NATSExternalAgentService) generateAuthToken(sessionID string) string {

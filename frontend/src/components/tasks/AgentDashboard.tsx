@@ -63,7 +63,7 @@ import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
 import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
-import RDPViewer from '../external-agent/RDPViewer'
+import { useFloatingModal } from '../../contexts/floatingModal'
 
 // Using generated API types instead of local interfaces
 
@@ -85,6 +85,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const theme = useTheme()
   const api = useApi()
   const account = useAccount()
+  const floatingModal = useFloatingModal()
   
   const [dashboardData, setDashboardData] = useState<TypesAgentFleetSummary | null>(null)
   const [externalAgentConnections, setExternalAgentConnections] = useState<ExternalAgentConnection[]>([])
@@ -101,7 +102,6 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const [specReviewOpen, setSpecReviewOpen] = useState<TypesAgentWorkItem | null>(null)
   const [approvalComments, setApprovalComments] = useState('')
   const [approvalLoading, setApprovalLoading] = useState(false)
-  const [rdpSessionId, setRdpSessionId] = useState<string | null>(null)
   
   // Use ref to store API to prevent dependency issues
   const apiRef = useRef(api)
@@ -684,7 +684,16 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             <Tooltip title="Connect to Desktop">
                               <IconButton 
                                 size="small" 
-                                onClick={() => setRdpSessionId(connection.session_id)}
+                                onClick={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect()
+                                  floatingModal.showFloatingModal({
+                                    type: 'rdp',
+                                    sessionId: connection.session_id
+                                  }, {
+                                    x: rect.left,
+                                    y: rect.top
+                                  })
+                                }}
                                 sx={{ 
                                   backgroundColor: theme.palette.primary.light + '20',
                                   '&:hover': {
@@ -1204,15 +1213,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
         </DialogActions>
       </Dialog>
 
-      {/* RDP Viewer Modal */}
-      {rdpSessionId && (
-        <RDPViewer
-          sessionId={rdpSessionId}
-          onClose={() => setRdpSessionId(null)}
-          autoConnect={true}
-          connectionType="runner"
-        />
-      )}
+
 
       {/* Last updated indicator */}
       <Box sx={{ mt: 3, textAlign: 'center' }}>

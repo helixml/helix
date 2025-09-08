@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guacamole RDP Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #display {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #display canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        #status {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        #status.hidden {
+            display: none;
+        }
+
+        .loading {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #ff6b6b;
+        }
+
+        .success {
+            color: #51cf66;
+        }
+
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+            padding: 5px;
+            display: none;
+        }
+
+        #toolbar.visible {
+            display: block;
+        }
+
+        .toolbar-btn {
+            background: none;
+            border: none;
+            color: white;
+            padding: 8px;
+            margin: 2px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="display"></div>
+    
+    <div id="status">
+        <div class="loading"></div>
+        <div id="status-text">Initializing...</div>
+    </div>
+
+    <div id="toolbar">
+        <button class="toolbar-btn" onclick="sendCtrlAltDel()" title="Ctrl+Alt+Del">Ctrl+Alt+Del</button>
+        <button class="toolbar-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+        <button class="toolbar-btn" onclick="reconnect()" title="Reconnect">↻</button>
+    </div>
+
+    <!-- Load Guacamole from local file -->
+    <script src="/guacamole-common.min.js"></script>
+    <script>
+        // Verify Guacamole is available with detailed debug info
+        console.log('Guacamole loading check:', {
+            Guacamole: typeof window.Guacamole,
+            Client: window.Guacamole ? typeof window.Guacamole.Client : 'undefined',
+            WebSocketTunnel: window.Guacamole ? typeof window.Guacamole.WebSocketTunnel : 'undefined',
+            ChainedTunnel: window.Guacamole ? typeof window.Guacamole.ChainedTunnel : 'undefined'
+        });
+        
+        if (!window.Guacamole || !window.Guacamole.Client) {
+            console.error('Guacamole library failed to load or is incomplete');
+            updateStatus('Failed to load Guacamole library', 'error');
+        } else {
+            console.log('Guacamole library loaded successfully');
+        }
+        
+        // Simple function to check if ready
+        function isGuacamoleReady() {
+            return window.Guacamole && window.Guacamole.Client && window.Guacamole.WebSocketTunnel;
+        }
+
+        // Test WebSocket connection directly
+        function testWebSocketConnection(wsUrl) {
+            console.log('🧪 Testing WebSocket connection to:', wsUrl);
+            const testWs = new WebSocket(wsUrl.replace('http', 'ws'));
+            
+            testWs.onopen = function() {
+                console.log('✅ WebSocket connection successful');
+                testWs.close();
+            };
+            
+            testWs.onerror = function(error) {
+                console.error('❌ WebSocket connection failed:', error);
+            };
+            
+            testWs.onclose = function(event) {
+                console.log('🔐 WebSocket closed:', event.code, event.reason);
+            };
+        }
+    </script>
+    
+    <script>
+        let guacClient = null;
+        let tunnel = null;
+        let isConnected = false;
+        let connectionConfig = null;
+
+        // DOM elements
+        const display = document.getElementById('display');
+        const status = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+        const toolbar = document.getElementById('toolbar');
+
+        // Message parent window
+        function postMessage(type, data) {
+            window.parent.postMessage({ type, data }, '*');
+        }
+
+        // Update status display
+        function updateStatus(message, type = 'info') {
+            statusText.textContent = message;
+            status.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            
+            if (type === 'connected') {
+                status.classList.add('hidden');
+                toolbar.classList.add('visible');
+            } else {
+                status.classList.remove('hidden');
+                toolbar.classList.remove('visible');
+            }
+
+            // Notify parent
+            postMessage('status', { message, type });
+        }
+
+        // Initialize Guacamole client
+        function initializeConnection(config) {
+            connectionConfig = config;
+            updateStatus('Connecting to RDP server...');
+
+            if (!isGuacamoleReady()) {
+                updateStatus('Guacamole library not available', 'error');
+                return;
+            }
+            
+            try {
+                // Create WebSocket tunnel
+                const wsUrl = config.wsUrl || `/api/v1/sessions/${config.sessionId}/rdp/proxy`;
+                console.log('🔗 Creating WebSocket tunnel to:', wsUrl);
+                
+                // Test the WebSocket connection first
+                testWebSocketConnection(wsUrl);
+                
+                tunnel = new Guacamole.ChainedTunnel(
+                    new Guacamole.WebSocketTunnel(wsUrl.replace('http', 'ws'))
+                );
+
+                // Add tunnel event handlers for debugging
+                tunnel.oninstruction = function(opcode, args) {
+                    console.log('📨 Guacamole instruction received:', opcode, args);
+                };
+
+                tunnel.onerror = function(status) {
+                    console.error('❌ Guacamole tunnel error:', status);
+                    updateStatus(`Tunnel error: ${status.message || status.code}`, 'error');
+                };
+
+                // Create Guacamole client
+                guacClient = new Guacamole.Client(tunnel);
+
+                // Connection handlers
+                guacClient.onconnect = function() {
+                    updateStatus('Connected', 'connected');
+                    isConnected = true;
+                    postMessage('connected', true);
+                };
+
+                guacClient.ondisconnect = function() {
+                    updateStatus('Disconnected');
+                    isConnected = false;
+                    postMessage('connected', false);
+                };
+
+                guacClient.onerror = function(status) {
+                    const message = status.message || `Connection error (${status.code})`;
+                    updateStatus(message, 'error');
+                    postMessage('error', message);
+                };
+
+                // Handle display
+                const displayElement = guacClient.getDisplay().getElement();
+                display.appendChild(displayElement);
+
+                // Scale to fit
+                scaleDisplay();
+
+                // Setup input handling
+                setupInputHandling(displayElement);
+
+                // Handle clipboard
+                guacClient.onclipboard = function(stream, mimetype) {
+                    if (mimetype === 'text/plain') {
+                        const reader = new Guacamole.StringReader(stream);
+                        reader.ontext = function(text) {
+                            postMessage('clipboard', text);
+                        };
+                    }
+                };
+
+                // Build connection string
+                const params = [
+                    `hostname=${config.hostname || 'localhost'}`,
+                    `port=${config.port || 3389}`,
+                    `username=${config.username || 'zed'}`,
+                    `password=${config.password || ''}`,
+                    `width=${config.width || 1024}`,
+                    `height=${config.height || 768}`,
+                    'dpi=96',
+                    'color-depth=32'
+                ];
+
+                if (config.audioEnabled) {
+                    params.push('enable-audio=true');
+                }
+
+                // Connect
+                guacClient.connect(params.join('&'));
+
+            } catch (error) {
+                updateStatus(`Failed to initialize: ${error.message}`, 'error');
+            }
+        }
+
+        // Setup input handling
+        function setupInputHandling(element) {
+            // Mouse
+            const mouse = new Guacamole.Mouse(element);
+            mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = function(mouseState) {
+                if (guacClient && isConnected) {
+                    guacClient.sendMouseState(mouseState);
+                }
+            };
+
+            // Keyboard
+            const keyboard = new Guacamole.Keyboard(document);
+            keyboard.onkeydown = function(keysym) {
+                if (guacClient && isConnected) {
+                    guacClient.sendKeyEvent(1, keysym);
+                }
+            };
+            keyboard.onkeyup = function(keysym) {
+                if (guacClient && isConnected) {
+                    guacClient.sendKeyEvent(0, keysym);
+                }
+            };
+
+            // Prevent context menu
+            element.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            });
+        }
+
+        // Scale display to fit container
+        function scaleDisplay() {
+            if (!guacClient) return;
+
+            const displayElement = guacClient.getDisplay().getElement();
+            const containerWidth = display.clientWidth;
+            const containerHeight = display.clientHeight;
+            
+            // Let CSS handle the scaling with object-fit: contain
+            displayElement.style.width = '100%';
+            displayElement.style.height = '100%';
+        }
+
+        // Toolbar functions
+        function sendCtrlAltDel() {
+            if (guacClient && isConnected) {
+                guacClient.sendKeyEvent(1, 0xFFE3); // Ctrl
+                guacClient.sendKeyEvent(1, 0xFFE9); // Alt  
+                guacClient.sendKeyEvent(1, 0xFFFF); // Delete
+                guacClient.sendKeyEvent(0, 0xFFFF); // Delete up
+                guacClient.sendKeyEvent(0, 0xFFE9); // Alt up
+                guacClient.sendKeyEvent(0, 0xFFE3); // Ctrl up
+            }
+        }
+
+        function toggleFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                document.documentElement.requestFullscreen();
+            }
+        }
+
+        function reconnect() {
+            disconnect();
+            setTimeout(() => {
+                if (connectionConfig) {
+                    initializeClient(connectionConfig);
+                }
+            }, 1000);
+        }
+
+        function disconnect() {
+            if (guacClient) {
+                guacClient.disconnect();
+                guacClient = null;
+            }
+            if (tunnel) {
+                tunnel.disconnect();
+                tunnel = null;
+            }
+            
+            // Clear display
+            const canvas = display.querySelector('canvas');
+            if (canvas) {
+                canvas.remove();
+            }
+            
+            isConnected = false;
+            updateStatus('Disconnected');
+        }
+
+        // Send clipboard to remote
+        function sendClipboard(text) {
+            if (guacClient && isConnected) {
+                const stream = guacClient.createClipboardStream('text/plain');
+                const writer = new Guacamole.StringWriter(stream);
+                writer.sendText(text);
+                writer.sendEnd();
+            }
+        }
+
+        // Handle messages from parent window
+        window.addEventListener('message', function(event) {
+            // Filter out noise messages from extensions/other sources
+            if (!event.data || typeof event.data !== 'object') return;
+            if (!event.data.type) return;
+            if (event.data.msgId || event.data.source) return; // Extension messages
+            
+            const { type, data } = event.data;
+
+            switch (type) {
+                case 'connect':
+                    initializeClient(data);
+                    break;
+                case 'disconnect':
+                    disconnect();
+                    break;
+                case 'sendClipboard':
+                    sendClipboard(data);
+                    break;
+                case 'sendKeys':
+                    if (guacClient && isConnected && data.keys) {
+                        data.keys.forEach(key => {
+                            guacClient.sendKeyEvent(key.pressed ? 1 : 0, key.keysym);
+                        });
+                    }
+                    break;
+                default:
+                    // Ignore unknown message types silently
+                    break;
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', scaleDisplay);
+
+        // Handle fullscreen changes
+        document.addEventListener('fullscreenchange', function() {
+            setTimeout(scaleDisplay, 100);
+        });
+
+        // Ready message
+        window.addEventListener('load', function() {
+            // Final check and report status
+            console.log('Page loaded, final Guacamole status:', {
+                ready: isGuacamoleReady(),
+                Guacamole: typeof window.Guacamole
+            });
+            
+            postMessage('ready', true);
+            updateStatus('Ready to connect');
+        });
+
+        // Handle unload
+        window.addEventListener('beforeunload', function() {
+            disconnect();
+        });
+    </script>
+</body>
+</html>

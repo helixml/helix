@@ -100,7 +100,19 @@ func (manager *ExternalAgentRunnerManager) updatePing(runnerID string) {
 	defer manager.mu.Unlock()
 
 	if conn, exists := manager.connections[runnerID]; exists {
+		oldPing := conn.LastPing
 		conn.LastPing = time.Now()
+
+		log.Info().
+			Str("runner_id", runnerID).
+			Time("old_ping", oldPing).
+			Time("new_ping", conn.LastPing).
+			Dur("ping_interval", conn.LastPing.Sub(oldPing)).
+			Msg("🏓 External agent runner ping timestamp updated")
+	} else {
+		log.Warn().
+			Str("runner_id", runnerID).
+			Msg("⚠️ Attempted to update ping for non-existent runner connection")
 	}
 }
 
