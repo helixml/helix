@@ -254,12 +254,12 @@ func NewServer(
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		rdpProxyManager: NewRDPProxyManager(
-			"http://guacamole-client:8080/guacamole",
-			"guacadmin",
-			"guacadmin",
+			cfg.Guacamole.ServerURL+"/guacamole",
+			cfg.Guacamole.Username,
+			cfg.Guacamole.Password,
 			ps,
 		),
-		guacamoleProxy: NewGuacamoleProxy("http://guacamole-client:8080"),
+		guacamoleProxy: NewGuacamoleProxy(cfg.Guacamole.ServerURL, cfg.Guacamole.Username, cfg.Guacamole.Password),
 	}
 
 	// Initialize Guacamole lifecycle manager
@@ -267,6 +267,8 @@ func NewServer(
 		apiServer.guacamoleProxy,
 		store,
 		apiServer.rdpProxyManager,
+		controller.Options.RunnerController,
+		ps,
 	)
 
 	// Initialize Git Repository Service using filestore mount
@@ -1431,6 +1433,12 @@ func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWrite
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	// Handle WebSocket upgrades for Guacamole tunnels
+	if websocket.IsWebSocketUpgrade(r) {
+		apiServer.handleGuacamoleWebSocket(w, r, target)
+		return
+	}
+
 	// Modify the request to handle path correctly
 	originalPath := r.URL.Path
 	r.URL.Path = originalPath // Guacamole expects /guacamole prefix
@@ -1443,9 +1451,103 @@ func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWrite
 		Str("original_path", originalPath).
 		Str("target_url", target.String()).
 		Str("user_id", user.ID).
+		Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).
 		Msg("Proxying request to Guacamole web interface")
 
 	proxy.ServeHTTP(w, r)
+}
+
+// handleGuacamoleWebSocket handles WebSocket upgrades for Guacamole tunnels
+func (apiServer *HelixAPIServer) handleGuacamoleWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL) {
+	// Build WebSocket URL for Guacamole
+	wsScheme := "ws"
+	if target.Scheme == "https" {
+		wsScheme = "wss"
+	}
+
+	wsURL := fmt.Sprintf("%s://%s%s", wsScheme, target.Host, r.URL.Path)
+	if r.URL.RawQuery != "" {
+		wsURL += "?" + r.URL.RawQuery
+	}
+
+	log.Debug().
+		Str("ws_url", wsURL).
+		Msg("Proxying WebSocket connection to Guacamole")
+
+	// Connect to Guacamole WebSocket
+	guacConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		log.Error().Err(err).Str("ws_url", wsURL).Msg("Failed to connect to Guacamole WebSocket")
+		http.Error(w, "failed to connect to Guacamole WebSocket", http.StatusBadGateway)
+		return
+	}
+	defer guacConn.Close()
+
+	// Upgrade client connection
+	clientConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade client WebSocket")
+		return
+	}
+	defer clientConn.Close()
+
+	// Bidirectional proxy
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// Client -> Guacamole
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			msgType, data, err := clientConn.ReadMessage()
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					log.Debug().Err(err).Msg("Client WebSocket read error")
+				}
+				return
+			}
+
+			if err := guacConn.WriteMessage(msgType, data); err != nil {
+				log.Debug().Err(err).Msg("Guacamole WebSocket write error")
+				return
+			}
+		}
+	}()
+
+	// Guacamole -> Client
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			msgType, data, err := guacConn.ReadMessage()
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					log.Debug().Err(err).Msg("Guacamole WebSocket read error")
+				}
+				return
+			}
+
+			if err := clientConn.WriteMessage(msgType, data); err != nil {
+				log.Debug().Err(err).Msg("Client WebSocket write error")
+				return
+			}
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	log.Debug().Msg("Guacamole WebSocket proxy connection closed")
 }
 
 // Helper function to get WebSocket message type names for logging

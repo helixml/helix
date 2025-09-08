@@ -46,8 +46,8 @@ type GuacamoleAuthResponse struct {
 	AvailableDataSources []string `json:"availableDataSources"`
 }
 
-// GuacamoleConnection represents a connection in Guacamole
-type GuacamoleConnection struct {
+// GuacamoleConnectionConfig represents a connection configuration in Guacamole
+type GuacamoleConnectionConfig struct {
 	Name             string            `json:"name"`
 	ParentIdentifier string            `json:"parentIdentifier"`
 	Protocol         string            `json:"protocol"`
@@ -131,7 +131,7 @@ func (gc *GuacamoleClient) createRDPConnection(sessionID, hostname string, port 
 		}
 	}
 
-	connection := GuacamoleConnection{
+	connection := GuacamoleConnectionConfig{
 		Name:             fmt.Sprintf("Helix-Session-%s", sessionID),
 		ParentIdentifier: "ROOT",
 		Protocol:         "rdp",

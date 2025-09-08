@@ -36,7 +36,6 @@ services:
         environment:
             - SERVER_PORT=8080
             - LOG_LEVEL=${LOG_LEVEL:-debug}
-            - APP_URL=${SERVER_URL:-http://localhost:8080}
             - POSTGRES_HOST=postgres
             - POSTGRES_DATABASE=postgres
             - POSTGRES_USER=postgres
@@ -89,6 +88,10 @@ services:
             - RAG_PGVECTOR_PROVIDER=helix
             # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+            # Guacamole configuration
+            - GUACAMOLE_SERVER_URL=${GUACAMOLE_SERVER_URL:-http://guacamole-client:8080}
+            - GUACAMOLE_USERNAME=${GUACAMOLE_USERNAME:-guacadmin}
+            - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
@@ -110,11 +113,14 @@ services:
             - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
             - ./scripts/postgres:/docker-entrypoint-initdb.d
             - ./scripts/guacamole-initdb.sql:/docker-entrypoint-initdb.d/guacamole-initdb.sql
+            - ./scripts/guacamole-init.sh:/docker-entrypoint-initdb.d/99-guacamole-init.sh
         environment:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - POSTGRES_DATABASES=keycloak,guacamole_db
+            - GUACAMOLE_USERNAME=${GUACAMOLE_USERNAME:-guacadmin}
+            - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
     # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
@@ -249,6 +255,10 @@ services:
             - WORKSPACE_DIR=/tmp/workspace
             - DISPLAY=:1
             - RDP_PORT=5900
+            # Initial RDP password (will be rotated dynamically by control plane)
+            # WARNING: Development default used if RDP_PASSWORD not set in .env
+            # PRODUCTION: Always set RDP_PASSWORD to a unique secure value!
+            - RDP_PASSWORD=${RDP_PASSWORD:-dev-insecure-change-me-in-production}
         volumes:
             # Mount source code for hot reloading during development
             - .:/workspace/helix
@@ -390,6 +400,7 @@ services:
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - JAVA_OPTS=-Djava.awt.headless=true -Dcom.sun.management.jmxremote=false -XX:+UseContainerSupport -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap
+            - GUACAMOLE_ADMIN_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
         depends_on:
             - postgres
             - guacamole
