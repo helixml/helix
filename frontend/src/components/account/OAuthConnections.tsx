@@ -21,12 +21,12 @@ import {
   DialogContentText,
   DialogActions,
 } from '@mui/material'
-import DeleteIcon from '@mui/icons-material/Delete'
-import RefreshIcon from '@mui/icons-material/Refresh'
+
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import LockIcon from '@mui/icons-material/Lock'
-import CodeIcon from '@mui/icons-material/Code'
+
+import { RefreshCcw, Trash, Info } from 'lucide-react'
+
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
 import { formatDate } from '../../utils/format'
@@ -503,13 +503,9 @@ const OAuthConnections: React.FC<{}> = () => {
     }
   }
   
-  const renderConnectionCard = (connection: OAuthConnection) => {
-    // Log the raw connection data for debugging
-    console.log('🍅 TOMATO: Raw connection data:', JSON.stringify(connection, null, 2))
-    
+  const renderConnectionCard = (connection: OAuthConnection) => {        
     // Look up the provider directly from the providers list
-    const providerFromList = providers.find(p => p.id === connection.providerId);
-    console.log('🍅 TOMATO: Found provider from list:', providerFromList);
+    const providerFromList = providers.find(p => p.id === connection.providerId);    
     
     // Get the provider type from the list or fall back to a default
     const providerType = providerFromList?.type || 'custom';
@@ -554,15 +550,6 @@ const OAuthConnections: React.FC<{}> = () => {
           title={providerName}
           titleTypographyProps={{ variant: 'h6' }}
           subheader={profileName}
-          action={
-            <Chip 
-              color={expired ? 'error' : 'success'} 
-              label={expired ? 'Expired' : 'Active'} 
-              size="small"
-              sx={{ mt: 1 }}
-              icon={expired ? undefined : <CheckCircleIcon />}
-            />
-          }
         />
         <CardContent sx={{ flexGrow: 1 }}>
           {connection.createdAt ? (
@@ -586,41 +573,65 @@ const OAuthConnections: React.FC<{}> = () => {
             </Typography>
           )}
         </CardContent>
-        <CardActions sx={{ justifyContent: 'flex-end' }}>
-          {/* Add test button for GitHub connections */}
-          {isGitHub && (
-            <Tooltip title="Test GitHub API access">
-              <IconButton 
-                onClick={() => testGitHubConnection(connection)}
-                size="small"
-                color="info"
-              >
-                <CodeIcon />
-              </IconButton>
-            </Tooltip>
-          )}
+        <CardActions sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Online status indicator on the left */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 0.5,
+            ml: 1,
+          }}>
+            <Box sx={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              backgroundColor: expired ? '#f44336' : '#4caf50',
+              flexShrink: 0,
+              mr: 0.5,
+              mt: 0.2
+            }} />
+            <Typography variant="body2" fontSize="11px">
+              {expired ? 'Expired' : 'Connected'}
+            </Typography>
+          </Box>
           
-          {connection.expiresAt && (
-            <Tooltip title="Refresh token">
+          {/* Action buttons on the right */}
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            {/* Add test button for GitHub connections */}
+            {isGitHub && (
+              <Tooltip title="Test GitHub API access">
+                <IconButton 
+                  onClick={() => testGitHubConnection(connection)}
+                  size="small"
+                  color="info"
+                >
+                  <Info size={16} />
+                </IconButton>
+              </Tooltip>
+            )}
+            
+            {connection.expiresAt && (
+              <Tooltip title="Refresh token">
+                <IconButton 
+                  onClick={() => handleRefreshConnection(connection.id)} 
+                  disabled={!connection.expiresAt}
+                  size="small"
+                  color="primary"
+                >
+                  <RefreshCcw size={16} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="Remove connection">
               <IconButton 
-                onClick={() => handleRefreshConnection(connection.id)} 
-                disabled={!connection.expiresAt}
+                onClick={() => confirmDeleteConnection(connection.id)} 
                 size="small"
                 color="primary"
               >
-                <RefreshIcon />
+                <Trash size={16} />
               </IconButton>
             </Tooltip>
-          )}
-          <Tooltip title="Remove connection">
-            <IconButton 
-              onClick={() => confirmDeleteConnection(connection.id)} 
-              size="small"
-              color="primary"
-            >
-              <DeleteIcon />
-            </IconButton>
-          </Tooltip>
+          </Box>
         </CardActions>
       </Card>
     );
@@ -740,10 +751,7 @@ const OAuthConnections: React.FC<{}> = () => {
         <>
           {/* Connected Services Section */}
           {connections.length > 0 && (
-            <Box sx={{ mb: 6 }}>
-              <Typography variant="h5" sx={{ mb: 2 }}>
-                Connected
-              </Typography>
+            <Box sx={{ mb: 6 }}>              
               
               <Grid container spacing={3}>
                 {connections.map((connection) => (
