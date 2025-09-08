@@ -1766,14 +1766,17 @@ type ZedAgent struct {
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
 	// RDP connection settings
-	RDPPort int    `json:"rdp_port"`
-	RDPUser string `json:"rdp_user"`
+	RDPPort     int    `json:"rdp_port"`
+	RDPUser     string `json:"rdp_user"`
+	RDPPassword string `json:"rdp_password,omitempty"`
 }
 
 // ZedAgentResponse represents the response from a Zed agent execution
 type ZedAgentResponse struct {
 	// Session ID of the Zed instance
 	SessionID string `json:"session_id"`
+	// Runner ID that handled this request
+	RunnerID string `json:"runner_id"`
 	// RDP connection URL
 	RDPURL string `json:"rdp_url"`
 	// Secure RDP password for authentication
@@ -1795,6 +1798,13 @@ type ZedAgentResponse struct {
 // ZedAgentRequest represents a request to execute a Zed agent
 type ZedAgentRequest struct {
 	Agent ZedAgent `json:"agent"`
+}
+
+// ZedTaskMessage represents a task message sent via NATS to external agent runners
+type ZedTaskMessage struct {
+	Type      string   `json:"type"`       // "zed_task"
+	Agent     ZedAgent `json:"agent"`      // Agent configuration including RDP password
+	AuthToken string   `json:"auth_token"` // Authentication token for WebSocket
 }
 
 // ZedAgentRDPData represents RDP data being proxied over WebSocket/NATS connection

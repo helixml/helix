@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -397,8 +398,25 @@ func (pe *PoolExecutor) createThreadInInstance(instanceID, threadID string, conf
 }
 
 func generatePassword() string {
-	// Generate a secure random password for RDP access
-	return fmt.Sprintf("zed_%d", time.Now().Unix())
+	// Generate a cryptographically secure random password for RDP access
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const length = 16
+
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fail securely - no fallback passwords
+		log.Error().Err(err).Msg("Failed to generate secure random password - cannot proceed")
+		panic(fmt.Sprintf("Failed to generate secure RDP password: %v", err))
+	}
+
+	// Convert random bytes to charset characters
+	password := make([]byte, length)
+	for i := 0; i < length; i++ {
+		password[i] = charset[b[i]%byte(len(charset))]
+	}
+
+	return fmt.Sprintf("zed_%s_%d", string(password), time.Now().Unix())
 }
 
 func containsDangerousPath(path string) bool {

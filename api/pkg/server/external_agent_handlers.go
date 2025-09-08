@@ -1,15 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -516,12 +522,20 @@ func (apiServer *HelixAPIServer) getExternalAgentRunnerRDP(res http.ResponseWrit
 	}
 
 	// Return RDP connection details for the runner
+	// Get the actual RDP password from the store
+	rdpPassword, err := apiServer.getRunnerRDPPassword(req.Context(), runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to get runner RDP password")
+		http.Error(res, fmt.Sprintf("RDP password not available for runner %s", runnerID), http.StatusServiceUnavailable)
+		return
+	}
+
 	rdpInfo := map[string]interface{}{
 		"runner_id":         runnerID,
 		"rdp_url":           fmt.Sprintf("rdp://localhost:%d", proxy.LocalPort), // Use proxy port
 		"rdp_port":          proxy.LocalPort,
-		"rdp_password":      "zed123", // Default password from config
-		"display":           ":1",     // Default display
+		"rdp_password":      rdpPassword, // Use actual configured password
+		"display":           ":1",        // Default display
 		"status":            "connected",
 		"username":          "zed", // Default RDP username
 		"host":              "localhost",
@@ -537,6 +551,316 @@ func (apiServer *HelixAPIServer) getExternalAgentRunnerRDP(res http.ResponseWrit
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(rdpInfo)
+}
+
+// startRunnerRDPProxy handles WebSocket connections for runner RDP proxy
+func (apiServer *HelixAPIServer) startRunnerRDPProxy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	runnerID := vars["runnerID"]
+	if runnerID == "" {
+		http.Error(w, "runner ID is required", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("user_id", user.ID).
+		Msg("Starting RDP proxy WebSocket for runner")
+
+	// Verify runner exists and get proxy connection
+	if apiServer.rdpProxyManager == nil {
+		http.Error(w, "RDP proxy manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get or create proxy connection for this runner
+	proxy, err := apiServer.rdpProxyManager.CreateRunnerRDPProxy(ctx, runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to create runner RDP proxy")
+		http.Error(w, fmt.Sprintf("failed to create RDP proxy: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Upgrade to WebSocket connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket for runner RDP")
+		return
+	}
+	defer conn.Close()
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Msg("WebSocket upgraded for runner RDP proxy")
+
+	// Proxy WebSocket traffic to the TCP RDP proxy
+	apiServer.proxyWebSocketToTCPForRunner(ctx, conn, proxy, runnerID)
+}
+
+// proxyWebSocketToTCPForRunner proxies WebSocket traffic to TCP RDP proxy for runners
+func (apiServer *HelixAPIServer) proxyWebSocketToTCPForRunner(ctx context.Context, wsConn *websocket.Conn, proxy *RDPProxyConnection, runnerID string) {
+	// Connect to the local TCP proxy
+	tcpConn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", proxy.LocalPort))
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Int("port", proxy.LocalPort).Msg("Failed to connect to RDP TCP proxy for runner")
+		wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Failed to connect to RDP server"))
+		return
+	}
+	defer tcpConn.Close()
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Int("port", proxy.LocalPort).
+		Msg("Connected to TCP RDP proxy for runner")
+
+	// Create context for cancellation
+	proxyCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Proxy WebSocket -> TCP
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-proxyCtx.Done():
+				return
+			default:
+				_, data, err := wsConn.ReadMessage()
+				if err != nil {
+					if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						log.Error().Err(err).Str("runner_id", runnerID).Msg("Error reading from WebSocket for runner")
+					}
+					return
+				}
+
+				if _, err := tcpConn.Write(data); err != nil {
+					log.Error().Err(err).Str("runner_id", runnerID).Msg("Error writing to TCP connection for runner")
+					return
+				}
+			}
+		}
+	}()
+
+	// Proxy TCP -> WebSocket
+	buffer := make([]byte, 4096)
+	for {
+		select {
+		case <-proxyCtx.Done():
+			return
+		default:
+			tcpConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, err := tcpConn.Read(buffer)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				log.Debug().Err(err).Str("runner_id", runnerID).Msg("TCP connection closed for runner")
+				return
+			}
+
+			if err := wsConn.WriteMessage(websocket.BinaryMessage, buffer[:n]); err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Msg("Error writing to WebSocket for runner")
+				return
+			}
+		}
+	}
+}
+
+// getRunnerRDPPassword retrieves the RDP password for a runner from the store
+func (apiServer *HelixAPIServer) getRunnerRDPPassword(ctx context.Context, runnerID string) (string, error) {
+	// Try to get the runner from the store first
+	runner, err := apiServer.Store.GetAgentRunner(ctx, runnerID)
+	if err != nil {
+		// If runner doesn't exist in store, create it with a new password
+		if errors.Is(err, store.ErrNotFound) {
+			log.Info().
+				Str("runner_id", runnerID).
+				Msg("Agent runner not found in store, creating new one with generated password")
+
+			newRunner, createErr := apiServer.Store.CreateAgentRunner(ctx, runnerID)
+			if createErr != nil {
+				return "", fmt.Errorf("failed to create agent runner %s: %w", runnerID, createErr)
+			}
+			return newRunner.RDPPassword, nil
+		}
+		return "", fmt.Errorf("failed to get agent runner %s: %w", runnerID, err)
+	}
+
+	// Update heartbeat to show runner is active
+	if heartbeatErr := apiServer.Store.UpdateAgentRunnerHeartbeat(ctx, runnerID); heartbeatErr != nil {
+		log.Warn().Err(heartbeatErr).Str("runner_id", runnerID).Msg("Failed to update runner heartbeat")
+	}
+
+	return runner.RDPPassword, nil
+}
+
+// startSessionRDPProxy handles WebSocket connections for session RDP proxy
+func (apiServer *HelixAPIServer) startSessionRDPProxy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	sessionID := vars["sessionID"]
+	if sessionID == "" {
+		http.Error(w, "sessionID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify user owns the session
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		return
+	}
+
+	if session.Owner != user.ID {
+		http.Error(w, "you are not allowed to access this session", http.StatusForbidden)
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("Starting session RDP proxy WebSocket")
+
+	// Verify RDP proxy manager is available
+	if apiServer.rdpProxyManager == nil {
+		http.Error(w, "RDP proxy manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get the proxy connection for this session (should already be created by getSessionRDPConnection)
+	proxy, exists := apiServer.rdpProxyManager.GetSessionProxy(sessionID)
+	if !exists {
+		http.Error(w, fmt.Sprintf("RDP proxy not found for session %s", sessionID), http.StatusNotFound)
+		return
+	}
+
+	// Upgrade connection to WebSocket
+	conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to upgrade WebSocket for session RDP")
+		return
+	}
+	defer conn.Close()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", proxy.RunnerID).
+		Msg("WebSocket upgraded for session RDP proxy")
+
+	// Proxy WebSocket traffic to the TCP RDP proxy
+	apiServer.proxyWebSocketToTCPForSession(ctx, conn, proxy, sessionID)
+}
+
+// proxyWebSocketToTCPForSession proxies WebSocket traffic to TCP RDP proxy for sessions
+func (apiServer *HelixAPIServer) proxyWebSocketToTCPForSession(ctx context.Context, wsConn *websocket.Conn, proxy *RDPProxyConnection, sessionID string) {
+	// Connect to the local TCP proxy
+	tcpConn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", proxy.LocalPort))
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", sessionID).
+			Str("runner_id", proxy.RunnerID).
+			Int("port", proxy.LocalPort).
+			Msg("Failed to connect to session RDP TCP proxy")
+		wsConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Failed to connect to RDP server"))
+		return
+	}
+	defer tcpConn.Close()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", proxy.RunnerID).
+		Int("port", proxy.LocalPort).
+		Msg("Connected to session RDP TCP proxy")
+
+	// Bidirectional proxy between WebSocket and TCP
+	done := make(chan struct{})
+
+	// WebSocket -> TCP
+	go func() {
+		defer func() {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}()
+
+		for {
+			_, message, err := wsConn.ReadMessage()
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					log.Debug().Err(err).
+						Str("session_id", sessionID).
+						Msg("WebSocket read error for session RDP")
+				}
+				return
+			}
+
+			_, err = tcpConn.Write(message)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to write to TCP connection for session RDP")
+				return
+			}
+		}
+	}()
+
+	// TCP -> WebSocket
+	go func() {
+		defer func() {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}()
+
+		buffer := make([]byte, 4096)
+		for {
+			n, err := tcpConn.Read(buffer)
+			if err != nil {
+				if err != io.EOF {
+					log.Debug().Err(err).
+						Str("session_id", sessionID).
+						Msg("TCP read error for session RDP")
+				}
+				return
+			}
+
+			err = wsConn.WriteMessage(websocket.BinaryMessage, buffer[:n])
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to write to WebSocket for session RDP")
+				return
+			}
+		}
+	}()
+
+	// Wait for either direction to close
+	<-done
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", proxy.RunnerID).
+		Msg("Session RDP WebSocket proxy connection closed")
 }
 
 // sendCommandToExternalAgentHandler allows manual command sending for testing
