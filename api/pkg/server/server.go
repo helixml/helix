@@ -22,6 +22,7 @@ import (
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
@@ -79,6 +80,7 @@ type HelixAPIServer struct {
 	Janitor                    *janitor.Janitor
 	authMiddleware             *authMiddleware
 	pubsub                     pubsub.PubSub
+	connman                    *connman.ConnectionManager
 	providerManager            manager.ProviderManager
 	modelInfoProvider          model.ModelInfoProvider
 	externalAgentExecutor      external_agent.Executor
@@ -209,6 +211,9 @@ func NewServer(
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
 
+	// Initialize connection manager for reverse dial
+	connectionManager := connman.New()
+
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
 	apiServer := &HelixAPIServer{
@@ -253,11 +258,12 @@ func NewServer(
 			ps,                         // PubSub for Zed integration
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
+		connman:                  connectionManager,
 		rdpProxyManager: NewRDPProxyManager(
 			cfg.Guacamole.ServerURL+"/guacamole",
 			cfg.Guacamole.Username,
 			cfg.Guacamole.Password,
-			ps,
+			connectionManager,
 		),
 		guacamoleProxy: NewGuacamoleProxy(cfg.Guacamole.ServerURL, cfg.Guacamole.Username, cfg.Guacamole.Password),
 	}
@@ -541,6 +547,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// External agent WebSocket sync endpoint
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
+
+	// Reverse dial endpoint for external agent runners (requires runner token authentication)
+	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented
@@ -1616,4 +1625,58 @@ func getWebSocketMessageTypeName(messageType int) string {
 	default:
 		return fmt.Sprintf("Unknown(%d)", messageType)
 	}
+}
+
+// handleRevDial handles reverse dial connections from external agent runners
+func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get authenticated user from middleware (runner token authentication)
+		user := getRequestUser(r)
+		if user == nil || user.TokenType != types.TokenTypeRunner {
+			log.Error().Msg("Unauthorized reverse dial request - runner token required")
+			http.Error(w, "runner token required", http.StatusUnauthorized)
+			return
+		}
+
+		// Extract runner ID from query parameter
+		runnerID := r.URL.Query().Get("runnerid")
+		if runnerID == "" {
+			log.Error().Msg("Missing runnerid in reverse dial request")
+			http.Error(w, "runnerid is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info().
+			Str("remote_addr", r.RemoteAddr).
+			Str("runner_id", runnerID).
+			Str("token_type", string(user.TokenType)).
+			Msg("Authenticated external agent runner establishing reverse dial connection")
+
+		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
+
+		// Hijack the HTTP connection to get raw TCP connection
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			log.Error().Msg("HTTP hijacking not supported")
+			http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
+			return
+		}
+
+		// Send HTTP 200 response before hijacking
+		w.WriteHeader(http.StatusOK)
+
+		// Hijack the connection to get raw TCP
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
+			return
+		}
+
+		// Register the reverse dial connection in connman
+		apiServer.connman.Set(runnerID, conn)
+		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
+
+		// The connection is now managed by connman
+		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
+	})
 }
