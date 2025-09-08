@@ -120,8 +120,54 @@
         <button class="toolbar-btn" onclick="reconnect()" title="Reconnect">↻</button>
     </div>
 
+    <!-- Shim for CommonJS modules in browser environment -->
+    <script>
+        // Store original values if they exist
+        window._originalModule = window.module;
+        window._originalExports = window.exports;
+        window._originalRequire = window.require;
+        
+        // Define CommonJS globals that guacamole-common.min.js expects
+        window.module = { exports: {} };
+        window.exports = window.module.exports;
+        window.require = function(name) {
+            // Return empty object for any require calls
+            return {};
+        };
+    </script>
+    
     <!-- Load Guacamole from local file -->
     <script src="/guacamole-common.min.js"></script>
+    
+    <!-- After loading, extract Guacamole from module.exports and clean up -->
+    <script>
+        // The file ends with module.exports=Guacamole, so extract it
+        if (window.module && window.module.exports) {
+            window.Guacamole = window.module.exports;
+        }
+        
+        // Restore original values or delete if they didn't exist
+        if (window._originalModule !== undefined) {
+            window.module = window._originalModule;
+            delete window._originalModule;
+        } else {
+            delete window.module;
+        }
+        
+        if (window._originalExports !== undefined) {
+            window.exports = window._originalExports;
+            delete window._originalExports;
+        } else {
+            delete window.exports;
+        }
+        
+        if (window._originalRequire !== undefined) {
+            window.require = window._originalRequire;
+            delete window._originalRequire;
+        } else {
+            delete window.require;
+        }
+    </script>
     <script>
         // Verify Guacamole is available with detailed debug info
         console.log('Guacamole loading check:', {
