@@ -44,92 +44,169 @@ func NewExternalAgentWSManager() *ExternalAgentWSManager {
 
 // External agent runner connection manager (tracks /ws/external-agent-runner connections)
 type ExternalAgentRunnerManager struct {
-	connections map[string]*ExternalAgentRunnerConnection
-	mu          sync.RWMutex
+	runnerConnections map[string][]*ExternalAgentRunnerConnection // map[runnerID][]connections
+	mu                sync.RWMutex
 }
 
 type ExternalAgentRunnerConnection struct {
-	RunnerID    string
-	ConnectedAt time.Time
-	LastPing    time.Time
-	Concurrency int
-	Status      string
+	ConnectionID string
+	RunnerID     string
+	ConnectedAt  time.Time
+	LastPing     time.Time
+	Concurrency  int
+	Status       string
 }
 
 func NewExternalAgentRunnerManager() *ExternalAgentRunnerManager {
 	return &ExternalAgentRunnerManager{
-		connections: make(map[string]*ExternalAgentRunnerConnection),
+		runnerConnections: make(map[string][]*ExternalAgentRunnerConnection),
 	}
 }
 
-// addConnection adds a runner connection
-func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concurrency int) {
+// addConnection adds a runner connection with unique connection ID
+func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concurrency int) string {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
 	now := time.Now()
-	manager.connections[runnerID] = &ExternalAgentRunnerConnection{
-		RunnerID:    runnerID,
-		ConnectedAt: now,
-		LastPing:    now,
-		Concurrency: concurrency,
-		Status:      "connected",
+	// Generate unique connection ID: runnerID + timestamp + microseconds
+	connectionID := fmt.Sprintf("%s-%d-%d", runnerID, now.Unix(), now.Nanosecond()/1000)
+	
+	newConnection := &ExternalAgentRunnerConnection{
+		ConnectionID: connectionID,
+		RunnerID:     runnerID,
+		ConnectedAt:  now,
+		LastPing:     now,
+		Concurrency:  concurrency,
+		Status:       "connected",
 	}
 
+	// Add to runner's connection array
+	manager.runnerConnections[runnerID] = append(manager.runnerConnections[runnerID], newConnection)
+
 	log.Info().
 		Str("runner_id", runnerID).
+		Str("connection_id", connectionID).
 		Int("concurrency", concurrency).
+		Int("total_connections", len(manager.runnerConnections[runnerID])).
 		Msg("🔗 External agent runner connection added to manager")
+	
+	return connectionID
 }
 
-// removeConnection removes a runner connection
-func (manager *ExternalAgentRunnerManager) removeConnection(runnerID string) {
+// removeConnection removes a specific connection by runner ID and connection ID
+func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connectionID string) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
-	delete(manager.connections, runnerID)
-
-	log.Info().
-		Str("runner_id", runnerID).
-		Msg("🔌 External agent runner connection removed from manager")
-}
-
-// updatePing updates the last ping time for a runner
-func (manager *ExternalAgentRunnerManager) updatePing(runnerID string) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-
-	if conn, exists := manager.connections[runnerID]; exists {
-		oldPing := conn.LastPing
-		conn.LastPing = time.Now()
-
-		log.Info().
+	// Find and remove the connection from the specific runner's array
+	connections, exists := manager.runnerConnections[runnerID]
+	if !exists {
+		log.Warn().
 			Str("runner_id", runnerID).
-			Time("old_ping", oldPing).
-			Time("new_ping", conn.LastPing).
-			Dur("ping_interval", conn.LastPing.Sub(oldPing)).
-			Msg("🏓 External agent runner ping timestamp updated")
-	} else {
+			Str("connection_id", connectionID).
+			Msg("⚠️ Attempted to remove connection from non-existent runner")
+		return
+	}
+	
+	for i, conn := range connections {
+		if conn.ConnectionID == connectionID {
+			// Remove this connection from the slice
+			manager.runnerConnections[runnerID] = append(connections[:i], connections[i+1:]...)
+			
+			// If no connections left for this runner, remove the runner entry
+			if len(manager.runnerConnections[runnerID]) == 0 {
+				delete(manager.runnerConnections, runnerID)
+			}
+			
+			log.Info().
+				Str("runner_id", runnerID).
+				Str("connection_id", connectionID).
+				Int("remaining_connections", len(manager.runnerConnections[runnerID])).
+				Msg("🔌 External agent runner connection removed from manager")
+			return
+		}
+	}
+	
+	log.Warn().
+		Str("runner_id", runnerID).
+		Str("connection_id", connectionID).
+		Msg("⚠️ Attempted to remove non-existent connection")
+}
+
+// updatePingByRunner updates the last ping time for the most recent connection of a runner
+func (manager *ExternalAgentRunnerManager) updatePingByRunner(runnerID string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	connections, exists := manager.runnerConnections[runnerID]
+	if !exists || len(connections) == 0 {
 		log.Warn().
 			Str("runner_id", runnerID).
 			Msg("⚠️ Attempted to update ping for non-existent runner connection")
+		return
+	}
+
+	// Find the most recent connection for this runner
+	var mostRecentConn *ExternalAgentRunnerConnection
+	var mostRecentTime time.Time
+	
+	for _, conn := range connections {
+		if conn.ConnectedAt.After(mostRecentTime) {
+			mostRecentConn = conn
+			mostRecentTime = conn.ConnectedAt
+		}
+	}
+	
+	if mostRecentConn != nil {
+		oldPing := mostRecentConn.LastPing
+		mostRecentConn.LastPing = time.Now()
+
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("connection_id", mostRecentConn.ConnectionID).
+			Time("old_ping", oldPing).
+			Time("new_ping", mostRecentConn.LastPing).
+			Dur("ping_interval", mostRecentConn.LastPing.Sub(oldPing)).
+			Int("total_connections", len(connections)).
+			Msg("🏓 External agent runner ping timestamp updated")
 	}
 }
 
-// listConnections returns all active runner connections
+// listConnections returns all active runner connections, one per runner (most recent per runner)
 func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAgentConnection {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 
-	connections := make([]types.ExternalAgentConnection, 0, len(manager.connections))
-	for _, conn := range manager.connections {
-		connections = append(connections, types.ExternalAgentConnection{
-			SessionID:   conn.RunnerID, // Use RunnerID as SessionID for consistency
-			ConnectedAt: conn.ConnectedAt,
-			LastPing:    conn.LastPing,
-			Status:      conn.Status,
-		})
+	connections := make([]types.ExternalAgentConnection, 0, len(manager.runnerConnections))
+	
+	// For each runner, find the most recent connection and include it in the list
+	for runnerID, runnerConns := range manager.runnerConnections {
+		if len(runnerConns) == 0 {
+			continue
+		}
+		
+		// Find the most recent connection for this runner
+		var mostRecentConn *ExternalAgentRunnerConnection
+		var mostRecentTime time.Time
+		
+		for _, conn := range runnerConns {
+			if conn.ConnectedAt.After(mostRecentTime) {
+				mostRecentConn = conn
+				mostRecentTime = conn.ConnectedAt
+			}
+		}
+		
+		if mostRecentConn != nil {
+			connections = append(connections, types.ExternalAgentConnection{
+				SessionID:   runnerID, // Use RunnerID as SessionID for consistency
+				ConnectedAt: mostRecentConn.ConnectedAt,
+				LastPing:    mostRecentConn.LastPing,
+				Status:      mostRecentConn.Status,
+			})
+		}
 	}
+	
 	return connections
 }
 

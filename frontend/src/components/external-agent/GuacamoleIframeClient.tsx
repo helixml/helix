@@ -32,7 +32,6 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  const [isReady, setIsReady] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,30 +48,26 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
     clearError: clearConnectionError
   } = useRDPConnection();
 
-  // Send message to iframe
-  const sendMessage = useCallback((type: string, data?: any) => {
-    if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage({ type, data }, '*');
-    }
-  }, []);
-
-  // Handle messages from iframe
+  // Handle messages from iframe (simplified for status updates only)
   const handleMessage = useCallback((event: MessageEvent<GuacamoleMessage>) => {
-    if (event.source !== iframeRef.current?.contentWindow) return;
+    console.log('GuacamoleIframeClient received message:', event.data);
+    
+    if (event.source !== iframeRef.current?.contentWindow) {
+      return;
+    }
 
     // Filter out noise messages from extensions/other sources
-    if (!event.data || typeof event.data !== 'object') return;
-    if (!event.data.type) return;
-    if (event.data.msgId || event.data.source) return; // Extension messages
+    if (!event.data || typeof event.data !== 'object' || !event.data.type) {
+      return;
+    }
+    if (event.data.msgId || event.data.source) {
+      return;
+    }
 
     const { type, data } = event.data;
+    console.log(`Processing iframe message: ${type}`, data);
 
     switch (type) {
-      case 'ready':
-        setIsReady(true);
-        setStatus('Ready to connect');
-        break;
-
       case 'status':
         setStatus(data.message);
         if (data.type === 'error') {
@@ -118,15 +113,18 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
 
   // Connect to RDP
   const connect = useCallback(async () => {
-    if (!isReady) return;
-
+    console.log('🔗 connect() called with:', { sessionId, isRunner });
+    
+    console.log('🔄 Setting connecting state and fetching connection info...');
     setIsConnecting(true);
     setError(null);
     clearConnectionError();
 
     try {
       // Fetch connection info from API
+      console.log('📡 Calling fetchConnectionInfo with:', { sessionId, isRunner });
       const connInfo = await fetchConnectionInfo(sessionId, isRunner);
+      console.log('📡 fetchConnectionInfo returned:', connInfo);
       
       if (!connInfo) {
         throw new Error('Failed to fetch RDP connection information');
@@ -146,21 +144,45 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
           : `/api/v1/external-agents/${sessionId}/rdp/proxy`)
       };
 
-      sendMessage('connect', config);
+      console.log('📤 Reloading iframe with connection config in URL parameters');
+      
+      // Build URL with connection parameters
+      const params = new URLSearchParams({
+        sessionId: config.sessionId,
+        hostname: config.hostname,
+        port: config.port.toString(),
+        username: config.username,
+        password: config.password,
+        width: config.width.toString(),
+        height: config.height.toString(),
+        audioEnabled: config.audioEnabled.toString(),
+        wsUrl: config.wsUrl,
+        autoConnect: 'true',
+        isRunner: isRunner.toString()  // Pass isRunner flag to iframe
+      });
+      
+      // Reload iframe with new URL containing connection parameters
+      if (iframeRef.current) {
+        iframeRef.current.src = `/rdp-client.html?${params.toString()}`;
+        console.log('✅ Iframe reloaded with connection parameters');
+      }
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to connect to RDP';
       setError(errorMsg);
       onError?.(errorMsg);
       setIsConnecting(false);
     }
-  }, [isReady, sessionId, isRunner, fetchConnectionInfo, clearConnectionError, width, height, sendMessage, onError]);
+  }, [sessionId, isRunner, fetchConnectionInfo, clearConnectionError, width, height]);
 
   // Disconnect
   const disconnect = useCallback(() => {
-    sendMessage('disconnect');
+    // Reset iframe to initial state
+    if (iframeRef.current) {
+      iframeRef.current.src = '/rdp-client.html';
+    }
     setIsConnected(false);
     setIsConnecting(false);
-  }, [sendMessage]);
+  }, []);
 
   // Reconnect
   const reconnect = useCallback(() => {
@@ -174,11 +196,14 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
 
     try {
       const text = await navigator.clipboard.readText();
-      sendMessage('sendClipboard', text);
+      // Send clipboard data directly to iframe if possible
+      if (iframeRef.current?.contentWindow) {
+        iframeRef.current.contentWindow.postMessage({ type: 'sendClipboard', data: text }, '*');
+      }
     } catch (err) {
       console.warn('Failed to read clipboard:', err);
     }
-  }, [isConnected, sendMessage]);
+  }, [isConnected]);
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
@@ -207,12 +232,29 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Auto-connect when ready
+  // Auto-connect when component mounts (no longer dependent on isReady from iframe)
   useEffect(() => {
-    if (isReady && !isConnecting && !isConnected && !isLoadingConnection) {
+    console.log('🔄 Auto-connect effect triggered:', {
+      isConnecting,
+      isConnected,
+      isLoadingConnection,
+      sessionId,
+      isRunner,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (!isConnecting && !isConnected && !isLoadingConnection) {
+      console.log('✅ Conditions met - Auto-connecting...');
       connect();
+    } else {
+      console.log('❌ Auto-connect blocked:', {
+        alreadyConnecting: isConnecting,
+        alreadyConnected: isConnected,
+        stillLoading: isLoadingConnection,
+        canConnect: !isConnecting && !isConnected && !isLoadingConnection
+      });
     }
-  }, [isReady, isConnecting, isConnected, isLoadingConnection, connect]);
+  }, [isConnecting, isConnected, isLoadingConnection, connect]);
 
   // Handle connection errors
   useEffect(() => {
@@ -243,22 +285,28 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
       // Ctrl+Alt+Del equivalent (Ctrl+Alt+End)
       if (e.ctrlKey && e.altKey && e.key === 'End') {
         e.preventDefault();
-        sendMessage('sendKeys', {
-          keys: [
-            { keysym: 0xFFE3, pressed: true },  // Ctrl down
-            { keysym: 0xFFE9, pressed: true },  // Alt down
-            { keysym: 0xFFFF, pressed: true },  // Del down
-            { keysym: 0xFFFF, pressed: false }, // Del up
-            { keysym: 0xFFE9, pressed: false }, // Alt up
-            { keysym: 0xFFE3, pressed: false }  // Ctrl up
-          ]
-        });
+        // Send key combination directly to iframe if possible
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ 
+            type: 'sendKeys', 
+            data: {
+              keys: [
+                { keysym: 0xFFE3, pressed: true },  // Ctrl down
+                { keysym: 0xFFE9, pressed: true },  // Alt down
+                { keysym: 0xFFFF, pressed: true },  // Del down
+                { keysym: 0xFFFF, pressed: false }, // Del up
+                { keysym: 0xFFE9, pressed: false }, // Alt up
+                { keysym: 0xFFE3, pressed: false }  // Ctrl up
+              ]
+            }
+          }, '*');
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isConnected, sendClipboard, sendMessage]);
+  }, [isConnected, sendClipboard]);
 
   return (
     <Box 
@@ -358,7 +406,10 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
         }}
         title="Guacamole RDP Client"
         allow="clipboard-read; clipboard-write; fullscreen"
-        sandbox="allow-same-origin allow-scripts allow-forms"
+        // sandbox="allow-same-origin allow-scripts allow-forms allow-top-navigation allow-modals" // Temporarily disabled for debugging
+        onLoad={() => {
+          console.log('🔄 Iframe loaded');
+        }}
       />
 
       {/* Connection Info */}

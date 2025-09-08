@@ -1069,6 +1069,10 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			Str("EXTERNAL_AGENT_DEBUG", "websocket_upgraded").
 			Msg("🔌 EXTERNAL_AGENT_DEBUG: WebSocket connection upgraded successfully")
 
+		// Set initial read deadline to prevent hanging connections
+		const readTimeout = 60 * time.Second
+		wsConn.SetReadDeadline(time.Now().Add(readTimeout))
+
 		// Set up ping handler to track when runner sends pings to us
 		wsConn.SetPingHandler(func(appData string) error {
 			log.Info().
@@ -1079,7 +1083,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 			// Update last ping time in connection manager
 			if apiServer.externalAgentRunnerManager != nil {
-				apiServer.externalAgentRunnerManager.updatePing(runnerID)
+				apiServer.externalAgentRunnerManager.updatePingByRunner(runnerID)
 				log.Info().
 					Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
 					Str("runner_id", runnerID).
@@ -1090,6 +1094,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 					Str("runner_id", runnerID).
 					Msg("❌ EXTERNAL_AGENT_DEBUG: No external agent runner manager available to update ping")
 			}
+
+			// Refresh read deadline on ping to keep connection alive
+			wsConn.SetReadDeadline(time.Now().Add(readTimeout))
 
 			// Send pong response back to runner (this is what the default ping handler does)
 			err := wsConn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
@@ -1125,6 +1132,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 
+		// Declare connectionID before defer so it's in scope
+		var connectionID string
+
 		defer func() {
 			// Update runner status to offline in store
 			if updateErr := apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "offline"); updateErr != nil {
@@ -1139,7 +1149,9 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			}
 
 			// Remove the connection from the runner manager
-			apiServer.externalAgentRunnerManager.removeConnection(runnerID)
+			if connectionID != "" {
+				apiServer.externalAgentRunnerManager.removeConnection(runnerID, connectionID)
+			}
 
 			log.Info().
 				Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
@@ -1155,7 +1167,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			Msg("🎉 EXTERNAL_AGENT_DEBUG: Connected external agent runner websocket")
 
 		// Track the connection in the runner manager
-		apiServer.externalAgentRunnerManager.addConnection(runnerID, concurrency)
+		connectionID = apiServer.externalAgentRunnerManager.addConnection(runnerID, concurrency)
 
 		// Create or update agent runner in store with new RDP password
 		log.Info().
@@ -1199,6 +1211,10 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			Str("runner_id", runnerID).
 			Msg("📡 ZED_FLOW_DEBUG: [STEP 2.5] WebSocket server about to subscribe to NATS stream")
 
+		// Track consecutive WebSocket write failures for circuit breaker pattern
+		var consecutiveFailures int
+		const maxConsecutiveFailures = 3
+		
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
 			log.Info().
 				Str("ZED_FLOW_DEBUG", "message_from_nats_stream").
@@ -1250,17 +1266,45 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 			err := wsConn.WriteJSON(envelope)
 			if err != nil {
+				consecutiveFailures++
 				log.Error().
 					Str("ZED_FLOW_DEBUG", "websocket_write_error").
 					Err(err).
 					Str("runner_id", runnerID).
 					Str("request_id", envelope.RequestID).
-					Msg("❌ ZED_FLOW_DEBUG: [STEP 4 FAILED] Error writing envelope to WebSocket")
+					Int("consecutive_failures", consecutiveFailures).
+					Msg("❌ ZED_FLOW_DEBUG: [STEP 4 FAILED] Error writing envelope to WebSocket - NAK'ing message but continuing subscription")
+				
+				// NAK the message so it can be redelivered to another runner
 				if nakErr := msg.Nak(); nakErr != nil {
-					return fmt.Errorf("error writing to external agent runner websocket: %v, failed to Nak the message: %v", err, nakErr)
+					log.Error().
+						Str("ZED_FLOW_DEBUG", "nats_nak_error").
+						Err(nakErr).
+						Str("runner_id", runnerID).
+						Str("request_id", envelope.RequestID).
+						Msg("❌ ZED_FLOW_DEBUG: Failed to NAK message after WebSocket write error")
 				}
-				return err
+				
+				// Circuit breaker: if too many consecutive failures, break the subscription
+				// This allows the WebSocket to close cleanly and the runner to reconnect
+				if consecutiveFailures >= maxConsecutiveFailures {
+					log.Error().
+						Str("ZED_FLOW_DEBUG", "circuit_breaker_triggered").
+						Str("runner_id", runnerID).
+						Int("consecutive_failures", consecutiveFailures).
+						Int("max_failures", maxConsecutiveFailures).
+						Msg("🔥 ZED_FLOW_DEBUG: Circuit breaker triggered - too many consecutive WebSocket failures, closing connection to allow reconnect")
+					return fmt.Errorf("circuit breaker: %d consecutive WebSocket write failures", consecutiveFailures)
+				}
+				
+				// Don't return error for isolated failures - this would break the entire NATS subscription
+				// Instead, let the WebSocket connection detection handle the cleanup
+				// The message will be redelivered to another healthy runner
+				return nil
 			}
+			
+			// Reset failure counter on successful write
+			consecutiveFailures = 0
 
 			log.Info().
 				Str("ZED_FLOW_DEBUG", "websocket_write_success").
@@ -1319,14 +1363,27 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		for {
 			messageType, messageBytes, err := wsConn.ReadMessage()
 			if err != nil || messageType == websocket.CloseMessage {
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
-					Str("action", "🟠 External agent runner ws DISCONNECT").
-					Str("runner_id", runnerID).
-					Err(err).
-					Msg("🟠 EXTERNAL_AGENT_DEBUG: Disconnected external agent runner websocket")
+				// Only log as error if it's an unexpected close
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+						Str("action", "🟠 External agent runner ws DISCONNECT").
+						Str("runner_id", runnerID).
+						Err(err).
+						Msg("🟠 EXTERNAL_AGENT_DEBUG: Unexpected close error from external agent runner websocket")
+				} else {
+					log.Info().
+						Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+						Str("action", "🟠 External agent runner ws DISCONNECT").
+						Str("runner_id", runnerID).
+						Err(err).
+						Msg("🟠 EXTERNAL_AGENT_DEBUG: Disconnected external agent runner websocket")
+				}
 				return
 			}
+
+			// Refresh read deadline on any message to keep connection alive
+			wsConn.SetReadDeadline(time.Now().Add(readTimeout))
 
 			// Log all incoming WebSocket messages with their types
 			log.Info().
