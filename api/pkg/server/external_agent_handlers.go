@@ -747,8 +747,8 @@ func (apiServer *HelixAPIServer) startSessionRDPProxy(w http.ResponseWriter, r *
 	}
 
 	// Get the proxy connection for this session (should already be created by getSessionRDPConnection)
-	proxy, exists := apiServer.rdpProxyManager.GetSessionProxy(sessionID)
-	if !exists {
+	proxy, err := apiServer.rdpProxyManager.GetSessionProxy(sessionID)
+	if err != nil {
 		http.Error(w, fmt.Sprintf("RDP proxy not found for session %s", sessionID), http.StatusNotFound)
 		return
 	}

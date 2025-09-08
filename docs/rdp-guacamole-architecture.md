@@ -1,8 +1,8 @@
-# RDP over NATS with Guacamole Architecture
+# RDP over Reverse Dial with Guacamole Architecture
 
 ## Overview
 
-This document describes the architecture for providing RDP access to external agent runners through a Guacamole-based remote desktop solution that uses NATS for communication.
+This document describes the architecture for providing RDP access to external agent runners through a Guacamole-based remote desktop solution that uses reverse dial connections for NAT traversal.
 
 ## Architecture Flow
 
@@ -15,9 +15,9 @@ guacamole-client:8080 (Guacamole Web App) <-(Guacamole Protocol)->
     ↓
 guacamole:4822 (guacd daemon) <-(RDP)->
     ↓
-API RDP TCP Proxy <-(RDP over NATS)->
+API RDP TCP Proxy <-(TCP over Reverse Dial)->
     ↓
-Agent Runner Server <-(RDP)->
+Agent Runner Reverse Dial Listener <-(TCP)->
     ↓
 XRDP Server (localhost:3389)
 ```
@@ -59,18 +59,19 @@ XRDP Server (localhost:3389)
 - **Function**: Handles actual remote desktop protocol communication
 - **Connects to**: API RDP TCP Proxy
 
-### 5. API RDP TCP Proxy
-- **Location**: `api/pkg/server/rdp_proxy_handlers.go`
-- **Purpose**: TCP proxy that forwards RDP traffic via NATS
-- **Protocol**: RDP over NATS
+### 5. API RDP TCP Proxy (UPDATED)
+- **Location**: `api/pkg/server/rdp_proxy_handlers.go` (to be simplified)
+- **Purpose**: TCP proxy that forwards RDP traffic via reverse dial connections
+- **Protocol**: Raw TCP over reverse dial
 - **Ports**: Dynamic allocation (15900+)
-- **Connects to**: Agent Runner via NATS
+- **Connects to**: Agent Runner via reverse dial connection from connman
+- **Key Change**: Uses `connman.Dial()` instead of NATS messaging
 
-### 6. Agent Runner Server
-- **Location**: `api/pkg/external-agent/runner.go`
-- **Purpose**: NATS ↔ local XRDP bridge
-- **Protocol**: RDP
-- **Connects to**: Local XRDP server
+### 6. Agent Runner Reverse Dial Listener (NEW)
+- **Location**: `api/pkg/external-agent/runner.go` (to be updated)
+- **Purpose**: Creates reverse dial listener and forwards TCP to local XRDP
+- **Protocol**: TCP forwarding (no protocol conversion)
+- **Connects to**: Local XRDP server via standard TCP
 
 ### 7. XRDP Server
 - **Location**: Agent runner container
@@ -119,80 +120,156 @@ XRDP Server (localhost:3389)
 9. **Frontend authenticates** with API and validates permissions
 10. **Connection established** with current password (either runner or session password)
 
+## Reverse Dial Architecture Details
+
+### Key Components Integration
+
+1. **Existing revdial/connman** (NO CHANGES)
+   - `api/pkg/revdial/revdial.go` - Handles reverse dial connections
+   - `api/pkg/connman/connman.go` - Manages connection mapping
+   - These components are proven and will be used exactly as-is
+
+2. **Connection Establishment Flow**
+   - Agent runner establishes WebSocket connection (existing)
+   - Agent runner establishes additional reverse dial connection to control plane
+   - Control plane registers reverse dial connection in connman: `connman.Set(runnerID, conn)`
+   - When RDP access needed: `deviceConn, err := connman.Dial(ctx, runnerID)`
+
+3. **RDP Traffic Flow**
+   - guacd connects to API RDP proxy on localhost:15900+
+   - API RDP proxy calls `connman.Dial(ctx, runnerID)` to get connection to runner  
+   - TCP traffic flows directly through reverse dial connection (no protocol conversion)
+   - Agent runner forwards TCP traffic to localhost:3389 (XRDP)
+
 ## Implementation Status
 
 ### ✅ Completed
-- API RDP TCP Proxy with NATS communication
-- Agent Runner RDP forwarding to XRDP
 - Agent Runner database table and password management
 - **Runner password synchronization** - Control plane sends passwords to runners via ZedAgent WebSocket
-- **Connection lifecycle management** - Create/update Guacamole connections when runners connect
-- Frontend Guacamole JavaScript client
-- Session and runner API endpoints
+- Frontend Guacamole JavaScript client (with URL parameter approach)
+- Session and runner API endpoints  
 - Guacamole server containers (guacd + guacamole-client)
+- **Simplified XRDP configuration** - Direct X11 sessions without session manager
+- **Existing revdial/connman infrastructure** - Ready to use without modification
+- **✅ NEW: API RDP TCP Proxy** - COMPLETED reverse dial implementation using connman.Dial()
+- **✅ NEW: Reverse Dial Connection Management** - COMPLETED `/revdial` endpoint and connection registration
+- **✅ NEW: Simplified TCP Forwarding** - COMPLETED direct TCP proxy using io.Copy() instead of NATS
 
-### ❌ Missing (Priority Order)
-1. **API Guacamole Proxy** - WebSocket proxy to guacamole-client container
-2. **Guacamole REST API Integration** - Dynamic connection creation/management via API  
-3. **Guacamole Web Interface Proxy** - Expose guacamole-client web UI for debugging
+### 🔄 Remaining Tasks (Priority Order)
+1. **Agent Runner RDP Handler** - Update runner to establish reverse dial connections + TCP forwarding
+2. **API Guacamole Proxy** - WebSocket proxy to guacamole-client container (unchanged)
+3. **Guacamole REST API Integration** - Dynamic connection creation/management via API
+4. **End-to-End Testing** - Test complete flow with new reverse dial architecture
 
-## Next Steps
+## Implementation Steps (Reverse Dial Approach)
 
-### Phase 1: API Guacamole Proxy
+### ✅ Phase 1: Simplify API RDP TCP Proxy (COMPLETED)
+**File**: `api/pkg/server/rdp_proxy_handlers.go`
+**Changes COMPLETED**:
+1. ✅ Removed all NATS-related code (`pubsub`, `types.ZedAgentRDPData`, etc.)
+2. ✅ Replaced complex TCP proxy with simple `connman.Dial()` approach
+3. ✅ Implemented direct TCP forwarding when guacd connects to localhost:15900+:
+   ```go
+   // Get reverse dial connection to runner
+   deviceConn, err := rpm.connman.Dial(ctx, proxy.RunnerID)
+   if err != nil { return err }
+   
+   // Simple bidirectional TCP proxy (no protocol conversion)
+   go io.Copy(guacdConn, deviceConn)
+   go io.Copy(deviceConn, guacdConn)
+   ```
+4. ✅ Removed complex `handleTCPConnection*`, `runTCPProxy*` functions (600+ lines → 50 lines)
+5. ✅ Added connman integration and `/revdial` endpoint
+6. ✅ Maintained backward compatibility with legacy method signatures
+
+### Phase 2: Simplify Agent Runner RDP Handler  
+**File**: `api/pkg/external-agent/runner.go`
+**Changes**:
+1. Remove all NATS RDP message handling
+2. Add reverse dial connection establishment:
+   ```go
+   // Establish reverse dial connection in addition to WebSocket
+   revDialConn, err := establishReverseDialConnection(controlPlaneURL)
+   listener := revdial.NewListener(revDialConn, dialServer)
+   ```
+3. Add simple TCP forwarding to localhost:3389:
+   ```go
+   for {
+       conn, err := listener.Accept()
+       if err != nil { break }
+       go func() {
+           rdpConn, err := net.Dial("tcp", "localhost:3389")
+           if err != nil { return }
+           defer rdpConn.Close()
+           defer conn.Close()
+           
+           go io.Copy(conn, rdpConn)
+           go io.Copy(rdpConn, conn)
+       }()
+   }
+   ```
+
+### ✅ Phase 3: Update Connection Management (COMPLETED)
+**File**: `api/pkg/server/server.go`
+**Changes COMPLETED**:
+1. ✅ Initialized connman: `connectionManager := connman.New()`
+2. ✅ Added `/revdial` endpoint with connection registration:
+   ```go
+   // Hijack HTTP connection to get raw TCP
+   conn, _, err := hijacker.Hijack()
+   // Register reverse dial connection in connman
+   apiServer.connman.Set(runnerID, conn)
+   ```
+3. ✅ Integrated connman with RDPProxyManager
+4. ✅ Added proper error handling and logging
+
+### Phase 4: API Guacamole Proxy (UNCHANGED)
 Create WebSocket proxy in API server that:
-- Accepts Guacamole protocol WebSocket connections from frontend
+- Accepts Guacamole protocol WebSocket connections from frontend  
 - Forwards to guacamole-client:8080 WebSocket tunnel
 - Handles bidirectional Guacamole protocol traffic
 - Manages connection lifecycle and authentication
 
-### Phase 2: Guacamole REST API Integration
+### Phase 5: Guacamole REST API Integration (UNCHANGED)
 Implement dynamic connection management:
 - Authenticate with guacamole-client REST API
 - Create RDP connections programmatically via `/api/session/data/postgresql/connections`
 - Update connection parameters when passwords rotate
 - Clean up connections when sessions end
 
-### Phase 3: Guacamole Web Interface Proxy
-Expose guacamole-client web interface:
-- Proxy `/guacamole/*` routes to guacamole-client:8080
-- Enable debugging and connection management via web UI
-- Maintain authentication and access control
-
-### Phase 4: Connection Lifecycle Management
-Integrate with session/runner lifecycle:
-- Create Guacamole connections when runners come online
-- Update passwords when sessions start (password rotation)
-- Clean up stale connections
-- Handle runner reconnection scenarios
-
-### Phase 5: End-to-End Testing
-- Test complete flow from frontend to XRDP
-- Verify password rotation and security
-- Test both session and runner connection types
+### Phase 6: End-to-End Testing
+- Test complete flow from frontend to XRDP with new reverse dial approach
+- Verify password rotation and security still work
+- Test both session and runner connection types  
 - Debug via Guacamole web interface
-- Performance and reliability testing
+- Performance testing (should be faster with direct TCP)
 
 ## Configuration
 
-### Environment Variables
+### Environment Variables (SIMPLIFIED)
 ```bash
-# Guacamole Configuration
+# Guacamole Configuration (UNCHANGED)
 GUACAMOLE_SERVER_URL=http://guacamole-client:8080  # Internal container URL
 GUACAMOLE_USERNAME=guacadmin                       # Admin username for API access
 GUACAMOLE_PASSWORD=your-secure-password-here       # Admin password - CHANGE IN PRODUCTION!
 GUACAMOLE_PORT=8090                                # External port for web UI debugging
 
-# RDP Proxy
-RDP_PROXY_START_PORT=15900
-RDP_PROXY_MAX_CONNECTIONS=100
+# RDP Proxy (SIMPLIFIED)
+RDP_PROXY_START_PORT=15900                         # Start port for local TCP proxies
+# Removed: RDP_PROXY_MAX_CONNECTIONS (managed by connman instead)
+# Removed: NATS configuration variables
 
-# Agent Runner
-RDP_START_PORT=3389
-RDP_USER=zed
+# Agent Runner (SIMPLIFIED)  
+RDP_USER=zed                                       # XRDP username
 RDP_PASSWORD=YOUR_SECURE_INITIAL_RDP_PASSWORD_HERE  # REQUIRED - Generate a unique password
+# Removed: RDP_START_PORT (always 3389 locally)
+# Removed: NATS configuration variables
 
 # Database (for Guacamole connections)
 POSTGRES_ADMIN_PASSWORD=your-postgres-password-here
+
+# Reverse Dial (NEW)
+REVDIAL_PATH=/revdial                              # Path for reverse dial endpoint
 ```
 
 ### Required .env Configuration
@@ -236,40 +313,169 @@ The `docker-compose.dev.yaml` automatically configures:
 
 ## Key Architecture Insights
 
-### Guacamole Component Separation
+### Reverse Dial Advantages
+- **NAT Traversal**: Agents behind NAT/firewall can accept connections from control plane
+- **Proven Technology**: revdial/connman code is well-tested and battle-proven
+- **Simplified Protocol**: Direct TCP forwarding eliminates NATS message overhead
+- **Lower Latency**: Fewer network hops and protocol conversions
+- **Easier Debugging**: Standard TCP connections instead of custom NATS messaging
+
+### Guacamole Component Separation (UNCHANGED)
 - **Frontend JavaScript**: Browser rendering and user interaction
 - **guacamole-client**: Server-side web app providing REST API and WebSocket tunnels  
 - **guacd**: Protocol conversion daemon (Guacamole ↔ RDP/VNC/SSH)
 
 ### Dynamic Connection Management
-- Guacamole supports REST API for creating connections programmatically
-- No need to pre-configure connections - create them on-demand
-- Connection parameters include hostname, port, credentials
-- Connections stored in PostgreSQL database
-- **WebSocket Support**: API proxy handles WebSocket upgrades for tunnel connections
+- **Admin API Access**: Helix API authenticates as `guacadmin` to access Guacamole REST API
+- **On-Demand Creation**: Connections created programmatically per session/runner
+- **Embedded Credentials**: RDP username/password stored in Guacamole connection definition
+- **PostgreSQL Storage**: Connection metadata stored in Guacamole's database
+- **WebSocket Tunneling**: Frontend connects via admin token + connection ID
+- **Automatic Cleanup**: Connections removed when sessions end
 
-### Session vs Runner Connection Handling
+### Session vs Runner Connection Handling (UNCHANGED)
 - **Session RDP**: `/api/v1/sessions/{sessionID}/guac/proxy` - User workspace access
 - **Runner RDP**: `/api/v1/external-agents/runners/{runnerID}/guac/proxy` - Admin debugging
 - Both map to the same runner but with different connection contexts
 
 ### Security Configuration
 - **Configurable Credentials**: No hardcoded passwords - all via environment variables
+- **Runner Authentication**: Static runner token authentication via existing auth middleware
 - **Admin Access**: Guacamole web interface requires authentication
 - **Password Rotation**: RDP passwords change per session automatically
 - **Database Security**: PostgreSQL credentials configurable via environment
+- **Reverse Dial Security**: Authenticated endpoint prevents unauthorized connection establishment
+
+### Reverse Dial Connection Flow
+1. **Agent Runner Startup**: Establishes WebSocket + reverse dial connections to control plane
+2. **Authentication**: Runner authenticates using static runner token via Authorization header or Bearer token
+3. **Control Plane Registration**: Registers reverse dial connection in connman with runnerID
+4. **RDP Request**: guacd connects to API TCP proxy on localhost:15900+
+5. **Connection Lookup**: API proxy calls `connman.Dial(ctx, runnerID)` to get runner connection
+6. **TCP Forwarding**: Direct bidirectional TCP copy between guacd and agent runner  
+7. **XRDP Forward**: Agent runner forwards TCP to localhost:3389 (XRDP server)
+
+## Authentication & Security
+
+### Guacamole Authentication Strategy
+
+Guacamole authentication follows a **privileged proxy pattern** where the Helix API server acts as an administrative client:
+
+**Architecture**: Helix API ↔ Guacamole Admin ↔ Dynamic RDP Connections
+
+**Flow**:
+1. **API Admin Login**: Helix API authenticates once as Guacamole admin (`guacadmin`)
+2. **Token Acquisition**: Gets admin `authToken` for programmatic access
+3. **Dynamic Connection Creation**: Uses admin token to create RDP connections per session
+4. **Frontend Proxy**: Frontend connects via admin token + specific connection ID
+5. **RDP Credentials**: Actual RDP username/password embedded in connection definition
+
+**Benefits**:
+- **No per-user Guacamole accounts** - Helix users never see Guacamole login
+- **Centralized management** - API controls all Guacamole interactions
+- **Session isolation** - Each session gets unique RDP connection
+- **Dynamic provisioning** - Connections created/destroyed on demand
+
+**Security Model** (RBAC Compliant):
+```
+Helix User → Helix Auth → API Server (as guacadmin) → Guacamole → RDP Server
+     ↑              ↑                    ↑                ↑
+  User Auth    Admin Token + Scoped     Connection ID    RDP Creds
+               Connection ID            (Session Specific)
+```
+
+**RBAC Security Guarantees**:
+1. **Frontend Never Gets Admin Token** - API server proxies all Guacamole connections
+2. **Session Authorization** - `session.Owner != user.ID` check before connection creation
+3. **Connection Scoping** - Each Guacamole connection tied to specific session via `GUAC_ID`
+4. **Token + Connection ID** - Admin token provides access capability, connection ID provides scope
+5. **No Cross-Session Access** - Users cannot access other users' connection IDs
+
+**Critical Security Properties**:
+- Admin token never exposed to frontend
+- Connection IDs are session-specific and non-guessable
+- Helix RBAC enforced at API layer before Guacamole interaction
+- Each user can only access connections they own
+
+### Addressing RBAC Security Concerns
+
+**Q: Does the admin token allow access to all sessions?**
+
+**A: No, due to connection scoping and API-level authorization:**
+
+1. **Frontend Isolation**: Frontend never receives the admin token - only connects to Helix API
+2. **API Authorization**: Helix API verifies `session.Owner == user.ID` before creating connections
+3. **Connection Scoping**: Guacamole WebSocket URL includes specific `GUAC_ID` parameter
+4. **Non-Guessable IDs**: Connection IDs are generated by Guacamole and non-predictable
+5. **Proxy Pattern**: API server acts as trusted proxy, not token delegator
+
+**Security Verification**:
+```go
+// 1. User must be authenticated
+user := getRequestUser(r)
+if user == nil { return unauthorized }
+
+// 2. User must own the session
+if session.Owner != user.ID { return forbidden }
+
+// 3. Connection created with session-specific credentials
+connectionID := createConnection(sessionID, rdpUsername, rdpPassword)
+
+// 4. WebSocket proxied with scoped connection
+ws://guacamole/websocket-tunnel?token=ADMIN&GUAC_ID=SESSION_SPECIFIC_ID
+```
+
+**Result**: Users can only access their own sessions, even though API uses admin token internally.
+
+### Runner Authentication Strategy
+
+The reverse dial endpoint uses the existing Helix authentication middleware with the static runner token:
+
+**Endpoint**: `GET /api/v1/revdial?runnerid=<runner-id>`
+
+**Authentication Methods**:
+1. **Authorization Header**: `Authorization: Bearer <runner-token>`
+2. **Query Parameter**: `?access_token=<runner-token>` (fallback for compatibility)
+
+**Authentication Flow**:
+1. Runner sends request to `/revdial` endpoint with runner token
+2. Auth middleware validates token against `cfg.WebServer.RunnerToken`
+3. If valid, creates user object with `TokenTypeRunner`
+4. Handler verifies user has runner token type
+5. Connection is established and registered in connman
+
+**Security Benefits**:
+- **Reuses existing auth infrastructure** - No duplicate authentication logic
+- **Centralized token management** - Same runner token used for WebSocket and reverse dial
+- **Proper authorization** - Only authenticated runners can establish reverse dial connections
+- **Audit logging** - All connection attempts are logged with authentication status
+- **Token rotation support** - Can be updated via configuration without code changes
+
+**Configuration**:
+```bash
+# Set the runner token in environment or config
+WEBSERVER_RUNNER_TOKEN=your-secure-runner-token-here
+```
+
+**Runner Usage Example**:
+```bash
+# Establish reverse dial connection
+curl -X GET "https://api.helix.ml/api/v1/revdial?runnerid=runner-123" \
+     -H "Authorization: Bearer your-secure-runner-token-here" \
+     --http1.1 --no-buffer
+```
 
 ## Error Handling
 
-### Connection Failures
+### Connection Failures (SIMPLIFIED)
 - Graceful degradation when guacamole-client unavailable
-- Retry logic for NATS communication  
-- Timeout handling at each layer
+- **Reverse Dial Timeout**: Handle `connman.Dial()` timeouts gracefully
+- Timeout handling at each layer (shorter timeouts with direct TCP)
 - User-friendly error messages
-- Fallback to direct RDP proxy if needed
+- **No Complex Fallbacks**: Direct TCP connection or failure (no NATS fallback needed)
 - **WebSocket Proxy Failures**: Automatic failover if WebSocket upgrade fails
 
-### Security Failures
+### Security Failures (UNCHANGED)
 - Immediate connection termination on authentication failure
 - Password rotation on security events
 - Audit logging of access attempts

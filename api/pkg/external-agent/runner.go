@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -33,28 +34,15 @@ const (
 
 // ExternalAgentRunner connects using a WebSocket to the Control Plane
 // and listens for external agent tasks to run (follows GPTScript runner pattern)
+// Also establishes reverse dial connection for RDP proxy
 type ExternalAgentRunner struct {
-	cfg            *config.ExternalAgentRunnerConfig
-	rdpConnections map[string]*RDPConnection // connectionKey -> RDP connection (supports both runnerID and sessionID keys)
-	rdpMutex       sync.RWMutex
-}
-
-// RDPConnection represents a connection to local XRDP server
-type RDPConnection struct {
-	connectionKey  string // Either sessionID or runnerID
-	connectionType string // "session" or "runner"
-	runnerID       string // Always set to identify which runner this is
-	conn           net.Conn
-	replyTopic     string
-	websocketConn  *websocket.Conn
-	ctx            context.Context
-	cancel         context.CancelFunc
+	cfg      *config.ExternalAgentRunnerConfig
+	revDialConn net.Conn // Reverse dial connection to control plane for RDP
 }
 
 func NewExternalAgentRunner(cfg *config.ExternalAgentRunnerConfig) *ExternalAgentRunner {
 	return &ExternalAgentRunner{
-		cfg:            cfg,
-		rdpConnections: make(map[string]*RDPConnection),
+		cfg: cfg,
 	}
 }
 
@@ -96,6 +84,27 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 	}
 
 	defer conn.Close()
+
+	// Establish reverse dial connection for RDP proxy
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "establishing_reverse_dial").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🔗 EXTERNAL_AGENT_DEBUG: Establishing reverse dial connection for RDP proxy")
+	
+	err = r.establishReverseDialConnection(ctx)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to establish reverse dial connection")
+		return fmt.Errorf("failed to establish reverse dial connection: %w", err)
+	}
+	
+	defer func() {
+		if r.revDialConn != nil {
+			r.revDialConn.Close()
+		}
+	}()
 
 	done := make(chan struct{})
 
@@ -296,11 +305,12 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 			Msg("🎯 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 		return r.processZedAgentRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestRDPData:
-		log.Debug().
-			Str("EXTERNAL_AGENT_DEBUG", "processing_rdp_data").
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "rdp_data_ignored").
 			Str("request_id", envelope.RequestID).
-			Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data")
-		return r.processRDPDataRequest(ctx, conn, &envelope)
+			Msg("🖥️ EXTERNAL_AGENT_DEBUG: RDP data request ignored - using reverse dial instead")
+		// RDP is now handled via reverse dial, not via WebSocket messages
+		return nil
 	default:
 		log.Error().
 			Str("EXTERNAL_AGENT_DEBUG", "unknown_message_type").
@@ -571,264 +581,6 @@ func (r *ExternalAgentRunner) configureRDPServer(ctx context.Context, password, 
 	return nil
 }
 
-// processRDPDataRequest handles RDP data forwarding to the local RDP server
-func (r *ExternalAgentRunner) processRDPDataRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
-	logger := log.With().
-		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_request").
-		Str("request_id", req.RequestID).
-		Logger()
-
-	logger.Debug().
-		Str("reply", req.Reply).
-		Int("payload_length", len(req.Payload)).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data request")
-
-	// Unmarshal RDP data payload
-	var rdpData types.ZedAgentRDPData
-	if err := json.Unmarshal(req.Payload, &rdpData); err != nil {
-		logger.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "rdp_unmarshal_error").
-			Err(err).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal RDP data")
-		return r.respond(conn, req.RequestID, req.Reply, map[string]interface{}{
-			"error": fmt.Sprintf("failed to unmarshal RDP data: %v", err),
-		})
-	}
-
-	logger.Debug().
-		Str("rdp_type", rdpData.Type).
-		Int("data_length", len(rdpData.Data)).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: RDP data unmarshalled")
-
-	// Forward RDP data to local XRDP server
-	err := r.forwardRDPDataToXRDP(ctx, conn, &rdpData, req.Reply)
-	if err != nil {
-		logger.Error().
-			Err(err).
-			Str("session_id", rdpData.SessionID).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to forward RDP data to XRDP")
-		return r.respond(conn, req.RequestID, req.Reply, map[string]interface{}{
-			"error": fmt.Sprintf("failed to forward RDP data: %v", err),
-		})
-	}
-
-	logger.Debug().
-		Str("session_id", rdpData.SessionID).
-		Int("data_length", len(rdpData.Data)).
-		Msg("✅ EXTERNAL_AGENT_DEBUG: RDP data forwarded to XRDP")
-
-	// Don't respond immediately - response will come from XRDP data flow
-	return nil
-}
-
-// forwardRDPDataToXRDP forwards RDP data to the local XRDP server and sets up response handling
-func (r *ExternalAgentRunner) forwardRDPDataToXRDP(ctx context.Context, wsConn *websocket.Conn, rdpData *types.ZedAgentRDPData, replyTopic string) error {
-	// Determine connection type and key
-	// If SessionID matches RunnerID, it's a runner connection; otherwise it's a session connection
-	connectionKey := rdpData.SessionID
-	var connectionType string
-	if connectionKey == r.cfg.RunnerID {
-		connectionType = "runner"
-	} else {
-		connectionType = "session"
-	}
-
-	logger := log.With().
-		Str("connection_key", connectionKey).
-		Str("connection_type", connectionType).
-		Logger()
-
-	r.rdpMutex.Lock()
-	rdpConn, exists := r.rdpConnections[connectionKey]
-	r.rdpMutex.Unlock()
-
-	if !exists {
-		// Create new connection to local XRDP server
-		var err error
-		rdpConn, err = r.createRDPConnection(ctx, wsConn, connectionKey, connectionType, replyTopic)
-		if err != nil {
-			return fmt.Errorf("failed to create RDP connection: %w", err)
-		}
-
-		logger.Info().
-			Str("connection_type", connectionType).
-			Msg("Created new RDP connection to local XRDP server")
-	}
-
-	// Forward the RDP data to XRDP
-	_, err := rdpConn.conn.Write(rdpData.Data)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to write RDP data to XRDP server")
-
-		// Clean up failed connection
-		r.cleanupRDPConnection(connectionKey)
-		return fmt.Errorf("failed to write to XRDP: %w", err)
-	}
-
-	logger.Debug().
-		Int("bytes_written", len(rdpData.Data)).
-		Msg("RDP data written to XRDP server")
-
-	return nil
-}
-
-// createRDPConnection establishes a connection to the local XRDP server
-func (r *ExternalAgentRunner) createRDPConnection(ctx context.Context, wsConn *websocket.Conn, connectionKey, connectionType, replyTopic string) (*RDPConnection, error) {
-	logger := log.With().
-		Str("connection_key", connectionKey).
-		Str("connection_type", connectionType).
-		Logger()
-
-	// Connect to local XRDP server (typically on port 3389)
-	rdpAddr := fmt.Sprintf("localhost:%d", r.cfg.RDPStartPort)
-	conn, err := net.Dial("tcp", rdpAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to XRDP at %s: %w", rdpAddr, err)
-	}
-
-	logger.Info().
-		Str("xrdp_addr", rdpAddr).
-		Str("connection_type", connectionType).
-		Msg("Connected to local XRDP server")
-
-	// Create RDP connection context
-	rdpCtx, cancel := context.WithCancel(ctx)
-
-	rdpConnection := &RDPConnection{
-		connectionKey:  connectionKey,
-		connectionType: connectionType,
-		runnerID:       r.cfg.RunnerID,
-		conn:           conn,
-		replyTopic:     replyTopic,
-		websocketConn:  wsConn,
-		ctx:            rdpCtx,
-		cancel:         cancel,
-	}
-
-	// Store the connection
-	r.rdpMutex.Lock()
-	r.rdpConnections[connectionKey] = rdpConnection
-	r.rdpMutex.Unlock()
-
-	// Start goroutine to handle responses from XRDP back to control plane
-	go r.handleRDPResponses(rdpConnection)
-
-	return rdpConnection, nil
-}
-
-// handleRDPResponses handles data coming back from XRDP server and forwards it via NATS
-func (r *ExternalAgentRunner) handleRDPResponses(rdpConn *RDPConnection) {
-	logger := log.With().
-		Str("connection_key", rdpConn.connectionKey).
-		Str("connection_type", rdpConn.connectionType).
-		Logger()
-
-	defer func() {
-		rdpConn.cancel()
-		rdpConn.conn.Close()
-		r.cleanupRDPConnection(rdpConn.connectionKey)
-		logger.Info().Msg("RDP response handler cleaned up")
-	}()
-
-	buffer := make([]byte, 4096)
-
-	for {
-		select {
-		case <-rdpConn.ctx.Done():
-			logger.Debug().Msg("RDP response handler context cancelled")
-			return
-		default:
-		}
-
-		// Set read timeout to allow context cancellation
-		rdpConn.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := rdpConn.conn.Read(buffer)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout, check context and continue
-				continue
-			}
-			logger.Debug().Err(err).Msg("RDP connection closed by XRDP server")
-			return
-		}
-
-		// Forward response data back to control plane via WebSocket response
-		responseData := types.ZedAgentRDPData{
-			SessionID: rdpConn.connectionKey, // Use the original connection key (could be sessionID or runnerID)
-			Type:      "rdp_response",
-			Data:      buffer[:n],
-			Timestamp: time.Now().Unix(),
-		}
-
-		// Send response back to control plane via NATS reply topic
-		responsePayload, err := json.Marshal(responseData)
-		if err != nil {
-			logger.Error().
-				Err(err).
-				Msg("Failed to marshal RDP response data")
-			continue
-		}
-
-		// Send the response directly via WebSocket as a reply message
-		replyMessage := types.RunnerEventResponseEnvelope{
-			RequestID: fmt.Sprintf("rdp-response-%d", time.Now().UnixNano()),
-			Reply:     rdpConn.replyTopic,
-			Payload:   responsePayload,
-		}
-
-		err = rdpConn.websocketConn.WriteJSON(replyMessage)
-		if err != nil {
-			logger.Error().
-				Err(err).
-				Msg("Failed to send RDP response back to control plane")
-			return
-		}
-
-		logger.Debug().
-			Int("bytes_sent", n).
-			Msg("RDP response data sent back to control plane")
-	}
-}
-
-// cleanupRDPConnection removes and cleans up an RDP connection
-func (r *ExternalAgentRunner) cleanupRDPConnection(connectionKey string) {
-	r.rdpMutex.Lock()
-	defer r.rdpMutex.Unlock()
-
-	if rdpConn, exists := r.rdpConnections[connectionKey]; exists {
-		rdpConn.cancel()
-		rdpConn.conn.Close()
-		delete(r.rdpConnections, connectionKey)
-
-		log.Info().
-			Str("connection_key", connectionKey).
-			Msg("Cleaned up RDP connection")
-	}
-}
-
-// cleanupAllRDPConnections cleans up all RDP connections when runner stops
-func (r *ExternalAgentRunner) cleanupAllRDPConnections() {
-	r.rdpMutex.Lock()
-	defer r.rdpMutex.Unlock()
-
-	log.Info().
-		Int("connection_count", len(r.rdpConnections)).
-		Msg("Cleaning up all RDP connections")
-
-	for connectionKey, rdpConn := range r.rdpConnections {
-		rdpConn.cancel()
-		rdpConn.conn.Close()
-		log.Debug().
-			Str("connection_key", connectionKey).
-			Msg("Closed RDP connection")
-	}
-
-	// Clear the map
-	r.rdpConnections = make(map[string]*RDPConnection)
-
-	log.Info().Msg("All RDP connections cleaned up")
-}
-
 func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {
 	log.Debug().
 		Str("EXTERNAL_AGENT_DEBUG", "marshalling_response").
@@ -886,3 +638,165 @@ func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string,
 
 	return nil
 }
+
+// establishReverseDialConnection establishes reverse dial connection to control plane for RDP proxy
+func (r *ExternalAgentRunner) establishReverseDialConnection(ctx context.Context) error {
+	// Build reverse dial URL 
+	var apiHost string
+	if strings.HasPrefix(r.cfg.APIHost, "https://") {
+		apiHost = strings.Replace(r.cfg.APIHost, "https", "http", 1)
+	} else if strings.HasPrefix(r.cfg.APIHost, "http://") {
+		apiHost = r.cfg.APIHost
+	} else {
+		apiHost = "http://" + r.cfg.APIHost
+	}
+	
+	revDialURL := fmt.Sprintf("%s%s?runnerid=%s",
+		apiHost,
+		system.GetAPIPath("/revdial"),
+		url.QueryEscape(r.cfg.RunnerID),
+	)
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connecting").
+		Str("url", revDialURL).
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🔗 EXTERNAL_AGENT_DEBUG: Establishing reverse dial connection")
+	
+	// Create HTTP request with runner token authentication
+	req, err := http.NewRequestWithContext(ctx, "GET", revDialURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create reverse dial request: %w", err)
+	}
+	
+	// Add Authorization header with runner token
+	req.Header.Set("Authorization", "Bearer "+r.cfg.APIToken)
+	
+	// Use a custom transport to get access to the underlying connection
+	// We need to hijack the connection like the control plane does
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	
+	// Parse URL to get host:port
+	u, err := url.Parse(revDialURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse reverse dial URL: %w", err)
+	}
+	
+	host := u.Host
+	if u.Port() == "" {
+		if u.Scheme == "https" {
+			host = host + ":443"
+		} else {
+			host = host + ":80"
+		}
+	}
+	
+	// Establish raw TCP connection
+	conn, err := dialer.DialContext(ctx, "tcp", host)
+	if err != nil {
+		return fmt.Errorf("failed to dial control plane: %w", err)
+	}
+	
+	// Send HTTP request over the connection
+	reqLine := fmt.Sprintf("GET %s HTTP/1.1\r\n", u.RequestURI())
+	hostHeader := fmt.Sprintf("Host: %s\r\n", u.Host)
+	authHeader := fmt.Sprintf("Authorization: Bearer %s\r\n", r.cfg.APIToken)
+	httpRequest := reqLine + hostHeader + authHeader + "\r\n"
+	
+	if _, err := conn.Write([]byte(httpRequest)); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to send HTTP request: %w", err)
+	}
+	
+	// Read HTTP response to confirm connection was hijacked
+	respBytes := make([]byte, 1024)
+	n, err := conn.Read(respBytes)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to read HTTP response: %w", err)
+	}
+	
+	response := string(respBytes[:n])
+	if !strings.Contains(response, "200 OK") {
+		conn.Close()
+		return fmt.Errorf("reverse dial endpoint returned non-200 response: %s", response)
+	}
+	
+	// Connection is now hijacked and registered in connman on control plane side
+	r.revDialConn = conn
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_established").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: Reverse dial connection established")
+	
+	// Start handling reverse dial connections in background
+	go r.handleReverseDialForwarding(ctx)
+	
+	return nil
+}
+
+// handleReverseDialForwarding handles the reverse dial connection and forwards to XRDP
+func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
+	defer r.revDialConn.Close()
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_forwarding_start").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting reverse dial forwarding to XRDP")
+	
+	// Connect to local XRDP server
+	xrdpConn, err := net.Dial("tcp", "localhost:3389")
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("EXTERNAL_AGENT_DEBUG", "xrdp_dial_failed").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to connect to local XRDP")
+		return
+	}
+	defer xrdpConn.Close()
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "xrdp_connected").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: Connected to local XRDP server")
+	
+	// Simple bidirectional TCP proxy (no protocol conversion, no WebSockets)
+	done := make(chan struct{}, 2)
+	
+	// Forward control plane → XRDP
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bytes, err := io.Copy(xrdpConn, r.revDialConn)
+		log.Debug().
+			Err(err).
+			Int64("bytes", bytes).
+			Str("direction", "control_plane->xrdp").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
+	}()
+	
+	// Forward XRDP → control plane  
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bytes, err := io.Copy(r.revDialConn, xrdpConn)
+		log.Debug().
+			Err(err).
+			Int64("bytes", bytes).
+			Str("direction", "xrdp->control_plane").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
+	}()
+	
+	// Wait for either direction to complete
+	<-done
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connection_closed").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🟠 EXTERNAL_AGENT_DEBUG: Reverse dial TCP connection closed")
+}
+
+
+
