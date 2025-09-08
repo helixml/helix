@@ -275,9 +275,12 @@ COPY <<EOF /setup-rdp-user.sh
 #!/bin/bash
 set -e
 
-# Set up RDP user with password
+# Set up RDP user with password (required for runner access)
 RDP_USER="\${RDP_USER:-zed}"
-RDP_PASSWORD="\${RDP_PASSWORD:-zed123}"
+if [ -z "\$RDP_PASSWORD" ]; then
+    echo "ERROR: RDP_PASSWORD environment variable is required for runner access"
+    exit 1
+fi
 
 # Create or update user password
 echo "\$RDP_USER:\$RDP_PASSWORD" | chpasswd
@@ -402,15 +405,9 @@ chmod 1777 /tmp/.X11-unix
 # Generate machine ID if it doesn't exist
 dbus-uuidgen --ensure=/etc/machine-id || echo "dbus-uuidgen failed, continuing..."
 
-# Setup RDP with environment variables
-if [ -n "\$RDP_PASSWORD" ]; then
-    echo "Setting up RDP authentication..."
-    /setup-rdp-user.sh
-else
-    echo "WARNING: No RDP_PASSWORD provided, using default"
-    export RDP_PASSWORD=zed123
-    /setup-rdp-user.sh
-fi
+# Setup RDP user (password will be set dynamically when sessions are created)
+echo "Setting up RDP user (password will be configured at runtime)..."
+/setup-rdp-user.sh
 
 echo "Starting supervisor with display :$DISPLAY_NUM (\${DISPLAY_WIDTH}x\${DISPLAY_HEIGHT})"
 
@@ -427,7 +424,6 @@ ENV DISPLAY=:1 \
     MAX_TASKS=0 \
     RDP_START_PORT=5900 \
     RDP_USER=zed \
-    RDP_PASSWORD=zed123 \
     WORKSPACE_DIR=/tmp/zed-workspaces \
     ZED_BINARY=/usr/local/bin/zed \
     DISPLAY_NUM=1 \

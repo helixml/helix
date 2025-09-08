@@ -57,6 +57,21 @@ func (mr *MockStoreMockRecorder) CleanupExpiredSessions(ctx, timeout any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupExpiredSessions", reflect.TypeOf((*MockStore)(nil).CleanupExpiredSessions), ctx, timeout)
 }
 
+// CleanupStaleAgentRunners mocks base method.
+func (m *MockStore) CleanupStaleAgentRunners(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CleanupStaleAgentRunners", ctx, staleThreshold)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CleanupStaleAgentRunners indicates an expected call of CleanupStaleAgentRunners.
+func (mr *MockStoreMockRecorder) CleanupStaleAgentRunners(ctx, staleThreshold any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleAgentRunners", reflect.TypeOf((*MockStore)(nil).CleanupStaleAgentRunners), ctx, staleThreshold)
+}
+
 // CountUsers mocks base method.
 func (m *MockStore) CountUsers(ctx context.Context) (int64, error) {
 	m.ctrl.T.Helper()
@@ -115,6 +130,21 @@ func (m *MockStore) CreateAccessGrantRoleBinding(ctx context.Context, binding *t
 func (mr *MockStoreMockRecorder) CreateAccessGrantRoleBinding(ctx, binding any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAccessGrantRoleBinding", reflect.TypeOf((*MockStore)(nil).CreateAccessGrantRoleBinding), ctx, binding)
+}
+
+// CreateAgentRunner mocks base method.
+func (m *MockStore) CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateAgentRunner", ctx, runnerID)
+	ret0, _ := ret[0].(*types.AgentRunner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateAgentRunner indicates an expected call of CreateAgentRunner.
+func (mr *MockStoreMockRecorder) CreateAgentRunner(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAgentRunner", reflect.TypeOf((*MockStore)(nil).CreateAgentRunner), ctx, runnerID)
 }
 
 // CreateAgentSession mocks base method.
@@ -754,6 +784,20 @@ func (mr *MockStoreMockRecorder) DeleteAccessGrantRoleBinding(ctx, accessGrantID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAccessGrantRoleBinding", reflect.TypeOf((*MockStore)(nil).DeleteAccessGrantRoleBinding), ctx, accessGrantID, roleID)
 }
 
+// DeleteAgentRunner mocks base method.
+func (m *MockStore) DeleteAgentRunner(ctx context.Context, runnerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAgentRunner", ctx, runnerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAgentRunner indicates an expected call of DeleteAgentRunner.
+func (mr *MockStoreMockRecorder) DeleteAgentRunner(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAgentRunner", reflect.TypeOf((*MockStore)(nil).DeleteAgentRunner), ctx, runnerID)
+}
+
 // DeleteApp mocks base method.
 func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1207,6 +1251,36 @@ func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
 }
 
+// GetAgentRunner mocks base method.
+func (m *MockStore) GetAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentRunner", ctx, runnerID)
+	ret0, _ := ret[0].(*types.AgentRunner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentRunner indicates an expected call of GetAgentRunner.
+func (mr *MockStoreMockRecorder) GetAgentRunner(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentRunner", reflect.TypeOf((*MockStore)(nil).GetAgentRunner), ctx, runnerID)
+}
+
+// GetAgentRunnerRDPPassword mocks base method.
+func (m *MockStore) GetAgentRunnerRDPPassword(ctx context.Context, runnerID string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAgentRunnerRDPPassword", ctx, runnerID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAgentRunnerRDPPassword indicates an expected call of GetAgentRunnerRDPPassword.
+func (mr *MockStoreMockRecorder) GetAgentRunnerRDPPassword(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).GetAgentRunnerRDPPassword), ctx, runnerID)
+}
+
 // GetAgentSession mocks base method.
 func (m *MockStore) GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error) {
 	m.ctrl.T.Helper()
@@ -1595,6 +1669,21 @@ func (m *MockStore) GetOAuthRequestTokenByState(ctx context.Context, state strin
 func (mr *MockStoreMockRecorder) GetOAuthRequestTokenByState(ctx, state any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthRequestTokenByState", reflect.TypeOf((*MockStore)(nil).GetOAuthRequestTokenByState), ctx, state)
+}
+
+// GetOrCreateAgentRunner mocks base method.
+func (m *MockStore) GetOrCreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrCreateAgentRunner", ctx, runnerID)
+	ret0, _ := ret[0].(*types.AgentRunner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrCreateAgentRunner indicates an expected call of GetOrCreateAgentRunner.
+func (mr *MockStoreMockRecorder) GetOrCreateAgentRunner(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateAgentRunner", reflect.TypeOf((*MockStore)(nil).GetOrCreateAgentRunner), ctx, runnerID)
 }
 
 // GetOrganization mocks base method.
@@ -2120,6 +2209,22 @@ func (m *MockStore) ListActiveHelpRequests(ctx context.Context) ([]*types.HelpRe
 func (mr *MockStoreMockRecorder) ListActiveHelpRequests(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveHelpRequests", reflect.TypeOf((*MockStore)(nil).ListActiveHelpRequests), ctx)
+}
+
+// ListAgentRunners mocks base method.
+func (m *MockStore) ListAgentRunners(ctx context.Context, query types.ListAgentRunnersQuery) ([]*types.AgentRunner, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAgentRunners", ctx, query)
+	ret0, _ := ret[0].([]*types.AgentRunner)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListAgentRunners indicates an expected call of ListAgentRunners.
+func (mr *MockStoreMockRecorder) ListAgentRunners(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentRunners", reflect.TypeOf((*MockStore)(nil).ListAgentRunners), ctx, query)
 }
 
 // ListAgentSessionStatus mocks base method.
@@ -2736,6 +2841,21 @@ func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
 }
 
+// RotateAgentRunnerRDPPassword mocks base method.
+func (m *MockStore) RotateAgentRunnerRDPPassword(ctx context.Context, runnerID string) (*types.AgentRunner, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RotateAgentRunnerRDPPassword", ctx, runnerID)
+	ret0, _ := ret[0].(*types.AgentRunner)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RotateAgentRunnerRDPPassword indicates an expected call of RotateAgentRunnerRDPPassword.
+func (mr *MockStoreMockRecorder) RotateAgentRunnerRDPPassword(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).RotateAgentRunnerRDPPassword), ctx, runnerID)
+}
+
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
@@ -2793,6 +2913,62 @@ func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string
 func (mr *MockStoreMockRecorder) SpawnWorkSession(ctx, parentSessionID, config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpawnWorkSession", reflect.TypeOf((*MockStore)(nil).SpawnWorkSession), ctx, parentSessionID, config)
+}
+
+// UpdateAgentRunner mocks base method.
+func (m *MockStore) UpdateAgentRunner(ctx context.Context, runner *types.AgentRunner) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAgentRunner", ctx, runner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAgentRunner indicates an expected call of UpdateAgentRunner.
+func (mr *MockStoreMockRecorder) UpdateAgentRunner(ctx, runner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunner", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunner), ctx, runner)
+}
+
+// UpdateAgentRunnerHeartbeat mocks base method.
+func (m *MockStore) UpdateAgentRunnerHeartbeat(ctx context.Context, runnerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAgentRunnerHeartbeat", ctx, runnerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAgentRunnerHeartbeat indicates an expected call of UpdateAgentRunnerHeartbeat.
+func (mr *MockStoreMockRecorder) UpdateAgentRunnerHeartbeat(ctx, runnerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunnerHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunnerHeartbeat), ctx, runnerID)
+}
+
+// UpdateAgentRunnerRDPPassword mocks base method.
+func (m *MockStore) UpdateAgentRunnerRDPPassword(ctx context.Context, runnerID, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAgentRunnerRDPPassword", ctx, runnerID, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAgentRunnerRDPPassword indicates an expected call of UpdateAgentRunnerRDPPassword.
+func (mr *MockStoreMockRecorder) UpdateAgentRunnerRDPPassword(ctx, runnerID, newPassword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunnerRDPPassword), ctx, runnerID, newPassword)
+}
+
+// UpdateAgentRunnerStatus mocks base method.
+func (m *MockStore) UpdateAgentRunnerStatus(ctx context.Context, runnerID, status string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAgentRunnerStatus", ctx, runnerID, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateAgentRunnerStatus indicates an expected call of UpdateAgentRunnerStatus.
+func (mr *MockStoreMockRecorder) UpdateAgentRunnerStatus(ctx, runnerID, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunnerStatus", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunnerStatus), ctx, runnerID, status)
 }
 
 // UpdateAgentSession mocks base method.

@@ -101,6 +101,8 @@ type HelixAPIServer struct {
 	gitRepositoryService       *services.GitRepositoryService
 	zedPlanningService         *services.ZedPlanningService
 	rdpProxyManager            *RDPProxyManager
+	guacamoleProxy             *GuacamoleProxy
+	guacamoleLifecycle         *GuacamoleLifecycleManager
 }
 
 func NewServer(
@@ -257,7 +259,15 @@ func NewServer(
 			"guacadmin",
 			ps,
 		),
+		guacamoleProxy: NewGuacamoleProxy("http://guacamole-client:8080"),
 	}
+
+	// Initialize Guacamole lifecycle manager
+	apiServer.guacamoleLifecycle = NewGuacamoleLifecycleManager(
+		apiServer.guacamoleProxy,
+		store,
+		apiServer.rdpProxyManager,
+	)
 
 	// Initialize Git Repository Service using filestore mount
 	apiServer.gitRepositoryService = services.NewGitRepositoryService(
@@ -452,6 +462,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}", system.Wrapper(apiServer.getInteraction)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods(http.MethodPost)
@@ -522,6 +533,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{session_id}/rdp/proxy", apiServer.startRDPProxy).Methods("GET")
+	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp/proxy", apiServer.startRunnerRDPProxy).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
@@ -533,6 +545,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// External agent WebSocket runner endpoint
 	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
+
+	// Session RDP WebSocket proxy endpoint
+	authRouter.HandleFunc("/sessions/{sessionID}/rdp/proxy", apiServer.startSessionRDPProxy).Methods(http.MethodGet)
+
+	// Guacamole proxy routes
+	apiServer.registerGuacamoleProxyRoutes(authRouter)
+
+	// Guacamole web interface proxy for debugging
+	authRouter.PathPrefix("/guacamole/").HandlerFunc(apiServer.proxyGuacamoleWebInterface).Methods("GET", "POST", "PUT", "DELETE", "PATCH")
 
 	// Agent dashboard and management routes
 	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
@@ -1046,6 +1067,46 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			Str("EXTERNAL_AGENT_DEBUG", "websocket_upgraded").
 			Msg("🔌 EXTERNAL_AGENT_DEBUG: WebSocket connection upgraded successfully")
 
+		// Set up ping handler to track when runner sends pings to us
+		wsConn.SetPingHandler(func(appData string) error {
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "ping_received").
+				Str("runner_id", runnerID).
+				Str("app_data", appData).
+				Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
+
+			// Update last ping time in connection manager
+			if apiServer.externalAgentRunnerManager != nil {
+				apiServer.externalAgentRunnerManager.updatePing(runnerID)
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
+			} else {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "no_connection_manager").
+					Str("runner_id", runnerID).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: No external agent runner manager available to update ping")
+			}
+
+			// Send pong response back to runner (this is what the default ping handler does)
+			err := wsConn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+			if err != nil {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_send_error").
+					Str("runner_id", runnerID).
+					Err(err).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send pong response")
+			} else {
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_sent").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sent pong response to external agent runner")
+			}
+
+			return nil
+		})
+
 		concurrency := 1
 		if concurrencyStr != "" {
 			if c, err := strconv.Atoi(concurrencyStr); err == nil {
@@ -1063,6 +1124,18 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		defer cancel()
 
 		defer func() {
+			// Update runner status to offline in store
+			if updateErr := apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "offline"); updateErr != nil {
+				log.Warn().Err(updateErr).Str("runner_id", runnerID).Msg("Failed to update runner status to offline")
+			}
+
+			// Cleanup Guacamole connection for disconnected runner
+			if apiServer.guacamoleLifecycle != nil {
+				if lifecycleErr := apiServer.guacamoleLifecycle.OnRunnerDisconnect(ctx, runnerID); lifecycleErr != nil {
+					log.Warn().Err(lifecycleErr).Str("runner_id", runnerID).Msg("Failed to cleanup Guacamole connection")
+				}
+			}
+
 			// Remove the connection from the runner manager
 			apiServer.externalAgentRunnerManager.removeConnection(runnerID)
 
@@ -1081,6 +1154,40 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 		// Track the connection in the runner manager
 		apiServer.externalAgentRunnerManager.addConnection(runnerID, concurrency)
+
+		// Create or update agent runner in store with new RDP password
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "creating_or_updating_runner_in_store").
+			Str("runner_id", runnerID).
+			Msg("💾 EXTERNAL_AGENT_DEBUG: Creating or updating agent runner in store")
+
+		agentRunner, err := apiServer.Store.GetOrCreateAgentRunner(ctx, runnerID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", runnerID).
+				Msg("Failed to create or update agent runner in store")
+			// Continue anyway - don't fail the connection for this
+		} else {
+			log.Info().
+				Str("runner_id", runnerID).
+				Str("status", agentRunner.Status).
+				Time("password_rotated", agentRunner.PasswordRotated).
+				Msg("✅ Agent runner created/updated in store with secure RDP password")
+
+			// Update runner status to online
+			err = apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "online")
+			if err != nil {
+				log.Warn().Err(err).Str("runner_id", runnerID).Msg("Failed to update runner status to online")
+			}
+
+			// Create Guacamole connection for newly connected runner
+			if apiServer.guacamoleLifecycle != nil {
+				if lifecycleErr := apiServer.guacamoleLifecycle.OnRunnerConnect(ctx, runnerID); lifecycleErr != nil {
+					log.Warn().Err(lifecycleErr).Str("runner_id", runnerID).Msg("Failed to create Guacamole connection")
+				}
+			}
+		}
 
 		// Subscribe to Zed agent tasks (using ZedAgentRunnerStream like GPTScript uses ScriptRunnerStream)
 		log.Info().
@@ -1228,52 +1335,15 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				Int("message_length", len(messageBytes)).
 				Msg("📨 EXTERNAL_AGENT_DEBUG: WebSocket message received from external agent runner")
 
-			// Handle ping messages
-			if messageType == websocket.PingMessage {
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "ping_received").
-					Str("runner_id", runnerID).
-					Int("ping_data_length", len(messageBytes)).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
+			// Note: Ping messages are now handled automatically by the WebSocket library
+			// and our SetPongHandler above will track the ping timestamps
 
-				// Update last ping time in connection manager
-				if apiServer.externalAgentRunnerManager != nil {
-					apiServer.externalAgentRunnerManager.updatePing(runnerID)
-					log.Info().
-						Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
-						Str("runner_id", runnerID).
-						Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
-				} else {
-					log.Error().
-						Str("EXTERNAL_AGENT_DEBUG", "no_connection_manager").
-						Str("runner_id", runnerID).
-						Msg("❌ EXTERNAL_AGENT_DEBUG: No external agent runner manager available to update ping")
-				}
-
-				// Send pong response
-				err := wsConn.WriteMessage(websocket.PongMessage, messageBytes)
-				if err != nil {
-					log.Error().
-						Str("EXTERNAL_AGENT_DEBUG", "pong_send_error").
-						Str("runner_id", runnerID).
-						Err(err).
-						Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send pong response")
-					return
-				}
-
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "pong_sent").
-					Str("runner_id", runnerID).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sent pong response to external agent runner")
-				continue
-			}
-
-			// Handle pong messages (if any)
+			// Handle pong messages (if any - though these should be handled by SetPongHandler)
 			if messageType == websocket.PongMessage {
 				log.Debug().
-					Str("EXTERNAL_AGENT_DEBUG", "pong_received").
+					Str("EXTERNAL_AGENT_DEBUG", "pong_received_in_readloop").
 					Str("runner_id", runnerID).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received pong from external agent runner")
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received pong in read message loop (unexpected)")
 				continue
 			}
 
@@ -1339,6 +1409,43 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			}
 		}
 	})
+}
+
+// proxyGuacamoleWebInterface proxies requests to the Guacamole web interface for debugging
+func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// TODO: Add admin permission check for production
+	// For now, allow any authenticated user to access for debugging
+
+	// Create reverse proxy to guacamole-client:8080
+	target, err := url.Parse("http://guacamole-client:8080")
+	if err != nil {
+		http.Error(w, "failed to parse guacamole URL", http.StatusInternalServerError)
+		return
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// Modify the request to handle path correctly
+	originalPath := r.URL.Path
+	r.URL.Path = originalPath // Guacamole expects /guacamole prefix
+	r.URL.Host = target.Host
+	r.URL.Scheme = target.Scheme
+	r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
+	r.Header.Set("X-Forwarded-Proto", "http")
+
+	log.Debug().
+		Str("original_path", originalPath).
+		Str("target_url", target.String()).
+		Str("user_id", user.ID).
+		Msg("Proxying request to Guacamole web interface")
+
+	proxy.ServeHTTP(w, r)
 }
 
 // Helper function to get WebSocket message type names for logging

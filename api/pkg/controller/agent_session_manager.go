@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -278,6 +279,24 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		Interface("zed_agent", zedAgent).
 		Msg("📡 EXTERNAL_AGENT_DEBUG: About to dispatch to Zed runner pool")
 
+	// Generate a new RDP password for this session and store it
+	// The runner that picks up this task will use this password
+	newRDPPassword, err := generateSecurePassword()
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to generate RDP password for session")
+		return fmt.Errorf("failed to generate RDP password: %w", err)
+	}
+
+	// Set the RDP password in the agent request
+	zedAgent.RDPPassword = newRDPPassword
+
+	log.Info().
+		Str("session_id", sessionID).
+		Msg("Generated new RDP password for session")
+
 	// Dispatch to Zed runner pool via pub/sub (following GPTScript pattern)
 	data, err := json.Marshal(zedAgent)
 	if err != nil {
@@ -307,13 +326,11 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 	}
 
 	log.Info().
-		Str("ZED_FLOW_DEBUG", "api_publishing_to_nats").
+		Str("EXTERNAL_AGENT_DEBUG", "stream_request_start").
 		Str("stream", pubsub.ZedAgentRunnerStream).
 		Str("queue", pubsub.ZedAgentQueue).
 		Interface("header", header).
-		Int("data_length", len(data)).
-		Str("session_id", sessionID).
-		Msg("🚀 ZED_FLOW_DEBUG: [STEP 1] API about to publish Zed agent task to NATS stream")
+		Msg("📤 EXTERNAL_AGENT_DEBUG: Sending StreamRequest to NATS")
 
 	// Send to runner pool (runners will compete for the task) - same pattern as GPTScript
 	response, err := c.Options.PubSub.StreamRequest(
@@ -326,21 +343,44 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 	)
 	if err != nil {
 		log.Error().
-			Str("ZED_FLOW_DEBUG", "nats_publish_failed").
+			Str("EXTERNAL_AGENT_DEBUG", "stream_request_error").
 			Err(err).
 			Str("session_id", sessionID).
 			Str("user_id", session.Owner).
 			Str("stream", pubsub.ZedAgentRunnerStream).
 			Str("queue", pubsub.ZedAgentQueue).
-			Msg("❌ ZED_FLOW_DEBUG: [STEP 2 FAILED] Failed to publish to NATS - no WebSocket runner will receive this")
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dispatch Zed agent to runner pool")
 		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
 	}
 
 	log.Info().
-		Str("ZED_FLOW_DEBUG", "nats_publish_success").
+		Str("EXTERNAL_AGENT_DEBUG", "stream_request_success").
 		Str("response_length", fmt.Sprintf("%d", len(response))).
-		Str("session_id", sessionID).
-		Msg("✅ ZED_FLOW_DEBUG: [STEP 2] NATS publish successful - message should reach WebSocket server")
+		Msg("✅ EXTERNAL_AGENT_DEBUG: StreamRequest completed successfully")
+
+	// Parse the response to get the runner ID and update its password in the store
+	var zedResponse types.ZedAgentResponse
+	if err := json.Unmarshal(response, &zedResponse); err != nil {
+		log.Warn().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to parse ZedAgentResponse")
+	} else if zedResponse.RunnerID != "" && zedResponse.Status == "running" {
+		// Update the agent runner's RDP password in the store with the new password we generated
+		err = c.Options.Store.UpdateAgentRunnerRDPPassword(ctx, zedResponse.RunnerID, newRDPPassword)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("runner_id", zedResponse.RunnerID).
+				Msg("Failed to update agent runner RDP password in store")
+		} else {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("runner_id", zedResponse.RunnerID).
+				Msg("Successfully stored rotated RDP password for agent runner")
+		}
+	}
 
 	// Update Zed thread status if this is a multi-session work session
 	if isMultiSession && workSessionContext != nil {
@@ -369,6 +409,25 @@ func (c *Controller) getAPIKeyForUser(userID string) string {
 	// 2. Return the first active key
 	// 3. Or create a temporary git-scoped key
 	return ""
+}
+
+// generateSecurePassword generates a cryptographically secure random password
+func generateSecurePassword() (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const length = 16
+
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+
+	password := make([]byte, length)
+	for i := 0; i < length; i++ {
+		password[i] = charset[b[i]%byte(len(charset))]
+	}
+
+	return string(password), nil
 }
 
 // updateZedThreadStatus updates the status of a Zed thread for a work session

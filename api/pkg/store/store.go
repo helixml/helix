@@ -444,6 +444,20 @@ type Store interface {
 	// Additional session management methods
 	MarkSessionAsActive(ctx context.Context, sessionID string, task string) error
 
+	// Agent runner methods
+	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	GetAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	UpdateAgentRunner(ctx context.Context, runner *types.AgentRunner) error
+	UpdateAgentRunnerStatus(ctx context.Context, runnerID, status string) error
+	UpdateAgentRunnerHeartbeat(ctx context.Context, runnerID string) error
+	RotateAgentRunnerRDPPassword(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	GetAgentRunnerRDPPassword(ctx context.Context, runnerID string) (string, error)
+	ListAgentRunners(ctx context.Context, query types.ListAgentRunnersQuery) ([]*types.AgentRunner, int64, error)
+	DeleteAgentRunner(ctx context.Context, runnerID string) error
+	CleanupStaleAgentRunners(ctx context.Context, staleThreshold time.Duration) (int64, error)
+	GetOrCreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	UpdateAgentRunnerRDPPassword(ctx context.Context, runnerID, newPassword string) error
+
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 }

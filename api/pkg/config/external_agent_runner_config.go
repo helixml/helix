@@ -20,7 +20,7 @@ type ExternalAgentRunnerConfig struct {
 	// RDP server settings
 	RDPStartPort int    `envconfig:"RDP_START_PORT" default:"3389"`
 	RDPUser      string `envconfig:"RDP_USER" default:"zed"`
-	RDPPassword  string `envconfig:"RDP_PASSWORD" default:"zed123"`
+	RDPPassword  string `envconfig:"RDP_PASSWORD" required:"true"`
 
 	// Zed editor settings
 	ZedBinary  string `envconfig:"ZED_BINARY" default:"zed"`
