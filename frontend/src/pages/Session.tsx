@@ -49,7 +49,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
-import EmbeddedRDPViewer from '../components/session/EmbeddedRDPViewer'
+import GuacamoleIframeClient from '../components/external-agent/GuacamoleIframeClient'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -1315,12 +1315,17 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
-            <Box sx={{ px: 2, pb: 2 }}>
-              <EmbeddedRDPViewer
+            <Box sx={{ px: 2, pb: 2, height: 400 }}>
+              <GuacamoleIframeClient
                 sessionId={sessionID}
+                isRunner={false}
+                onConnectionChange={(connected) => {
+                  console.log('RDP connection status:', connected);
+                }}
+                onError={(error) => {
+                  console.error('RDP error:', error);
+                }}
                 height={400}
-                onClose={() => setShowRDPViewer(false)}
-                autoConnect={true}
               />
             </Box>
           )}

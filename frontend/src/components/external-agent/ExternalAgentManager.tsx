@@ -36,8 +36,9 @@ import {
   Computer,
   Settings,
   Info,
+  ArrowBack,
 } from '@mui/icons-material';
-import RDPViewer from './RDPViewer';
+import GuacamoleIframeClient from './GuacamoleIframeClient';
 
 interface ExternalAgent {
   session_id: string;
@@ -72,7 +73,7 @@ const ExternalAgentManager: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [viewerSessionId, setViewerSessionId] = useState<string | null>(null);
+  const [viewerRunnerId, setViewerRunnerId] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<ExternalAgent | null>(null);
   const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [statsDialogOpen, setStatsDialogOpen] = useState(false);
@@ -151,8 +152,8 @@ const ExternalAgentManager: React.FC = () => {
       setAgents(prev => prev.filter(agent => agent.session_id !== sessionId));
       
       // Close viewer if it was open for this agent
-      if (viewerSessionId === sessionId) {
-        setViewerSessionId(null);
+      if (viewerRunnerId === sessionId) {
+        setViewerRunnerId(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to stop external agent');
@@ -200,13 +201,38 @@ const ExternalAgentManager: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  if (viewerSessionId) {
+  if (viewerRunnerId) {
     return (
-      <RDPViewer
-        sessionId={viewerSessionId}
-        onClose={() => setViewerSessionId(null)}
-        autoConnect={true}
-      />
+      <Box sx={{ position: 'relative', width: '100%', height: '100vh' }}>
+        {/* Close button */}
+        <IconButton
+          onClick={() => setViewerRunnerId(null)}
+          sx={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            zIndex: 1000,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            color: 'white',
+            '&:hover': {
+              backgroundColor: 'rgba(0,0,0,0.9)',
+            }
+          }}
+        >
+          <ArrowBack />
+        </IconButton>
+        
+        <GuacamoleIframeClient
+          sessionId={viewerRunnerId}
+          isRunner={true}
+          onConnectionChange={(connected) => {
+            console.log('Runner RDP connection status:', connected);
+          }}
+          onError={(error) => {
+            console.error('Runner RDP error:', error);
+          }}
+        />
+      </Box>
     );
   }
 
@@ -297,7 +323,7 @@ const ExternalAgentManager: React.FC = () => {
                   <Tooltip title="Open RDP Viewer">
                     <IconButton
                       size="small"
-                      onClick={() => setViewerSessionId(agent.session_id)}
+                      onClick={() => setViewerRunnerId(agent.session_id)}
                       disabled={agent.status !== 'running'}
                     >
                       <Visibility />

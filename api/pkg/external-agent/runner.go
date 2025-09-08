@@ -2,13 +2,16 @@ package external_agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,12 +34,27 @@ const (
 // ExternalAgentRunner connects using a WebSocket to the Control Plane
 // and listens for external agent tasks to run (follows GPTScript runner pattern)
 type ExternalAgentRunner struct {
-	cfg *config.ExternalAgentRunnerConfig
+	cfg            *config.ExternalAgentRunnerConfig
+	rdpConnections map[string]*RDPConnection // connectionKey -> RDP connection (supports both runnerID and sessionID keys)
+	rdpMutex       sync.RWMutex
+}
+
+// RDPConnection represents a connection to local XRDP server
+type RDPConnection struct {
+	connectionKey  string // Either sessionID or runnerID
+	connectionType string // "session" or "runner"
+	runnerID       string // Always set to identify which runner this is
+	conn           net.Conn
+	replyTopic     string
+	websocketConn  *websocket.Conn
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 func NewExternalAgentRunner(cfg *config.ExternalAgentRunnerConfig) *ExternalAgentRunner {
 	return &ExternalAgentRunner{
-		cfg: cfg,
+		cfg:            cfg,
+		rdpConnections: make(map[string]*RDPConnection),
 	}
 }
 
@@ -92,15 +110,8 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 		Int("max_tasks", r.cfg.MaxTasks).
 		Msg("🟢 EXTERNAL_AGENT_DEBUG: Starting external agent task processing")
 
-	// Start message processing goroutine
 	go func() {
 		defer close(done)
-
-		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "message_processing_goroutine_started").
-			Str("runner_id", r.cfg.RunnerID).
-			Msg("🔄 EXTERNAL_AGENT_DEBUG: Message processing goroutine has started - about to enter ReadMessage loop")
-
 		for {
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
@@ -168,81 +179,48 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 					cancel()
 				}
 			})
+
 		}
 	}()
 
-	// Start ping goroutine
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "ping_loop_start").
-			Str("runner_id", r.cfg.RunnerID).
-			Msg("🏓 EXTERNAL_AGENT_DEBUG: Starting ping loop - will send ping every 5 seconds")
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		// ping every 5 seconds to keep the connection alive
+		case <-ticker.C:
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "sending_ping").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("🏓 EXTERNAL_AGENT_DEBUG: Sending ping to control plane")
 
-		for {
-			select {
-			case <-ctx.Done():
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "ping_loop_context_done").
-					Str("runner_id", r.cfg.RunnerID).
-					Msg("🟠 EXTERNAL_AGENT_DEBUG: Ping loop stopping due to context cancellation")
-				return
-			case <-ticker.C:
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "sending_ping").
-					Str("runner_id", r.cfg.RunnerID).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sending ping to control plane")
-
-				err := conn.WriteMessage(websocket.PingMessage, []byte{})
-				if err != nil {
-					if strings.Contains(err.Error(), "broken pipe") {
-						log.Error().
-							Str("EXTERNAL_AGENT_DEBUG", "ping_broken_pipe").
-							Str("runner_id", r.cfg.RunnerID).
-							Err(err).
-							Msg("❌ EXTERNAL_AGENT_DEBUG: Ping failed - control plane closed connection")
-						cancel() // Cancel context to stop all goroutines
-						return
-					}
-
+			err := conn.WriteMessage(websocket.PingMessage, []byte{})
+			if err != nil {
+				if strings.Contains(err.Error(), "broken pipe") {
 					log.Error().
-						Str("EXTERNAL_AGENT_DEBUG", "ping_send_error").
+						Str("EXTERNAL_AGENT_DEBUG", "ping_broken_pipe").
 						Str("runner_id", r.cfg.RunnerID).
 						Err(err).
-						Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to write ping message, closing connection")
-					cancel() // Cancel context to stop all goroutines
-					return
+						Msg("❌ EXTERNAL_AGENT_DEBUG: Broken pipe when sending ping - control plane closed connection")
+					return fmt.Errorf("Helix control-plane has closed connection, restarting (%s)", err)
 				}
 
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "ping_sent_successfully").
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "ping_send_error").
 					Str("runner_id", r.cfg.RunnerID).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Ping sent successfully to control plane")
+					Err(err).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send ping message, closing connection")
+				return fmt.Errorf("failed to write ping message (%w), closing connection", err)
 			}
+
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "ping_sent_successfully").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("🏓 EXTERNAL_AGENT_DEBUG: Ping sent successfully to control plane")
 		}
-	}()
-
-	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "goroutines_started_waiting").
-		Str("runner_id", r.cfg.RunnerID).
-		Msg("🔄 EXTERNAL_AGENT_DEBUG: Both message processing and ping goroutines started, waiting for completion")
-
-	// Wait for either goroutine to exit or context cancellation
-	select {
-	case <-ctx.Done():
-		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "context_done_main").
-			Str("runner_id", r.cfg.RunnerID).
-			Msg("🟠 EXTERNAL_AGENT_DEBUG: Context cancelled, stopping runner")
-		return ctx.Err()
-	case <-done:
-		log.Info().
-			Str("EXTERNAL_AGENT_DEBUG", "message_processing_done").
-			Str("runner_id", r.cfg.RunnerID).
-			Msg("🟠 EXTERNAL_AGENT_DEBUG: Message processing goroutine exited, stopping runner")
-		return fmt.Errorf("message processing goroutine exited")
 	}
 }
 
@@ -306,7 +284,7 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 		Str("EXTERNAL_AGENT_DEBUG", "message_envelope_parsed").
 		Str("request_id", envelope.RequestID).
 		Str("reply", envelope.Reply).
-		Str("type", envelope.Type.String()).
+		Str("type", string(envelope.Type)).
 		Int("payload_length", len(envelope.Payload)).
 		Msg("📦 EXTERNAL_AGENT_DEBUG: Message envelope parsed successfully")
 
@@ -318,15 +296,15 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 			Msg("🎯 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 		return r.processZedAgentRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestRDPData:
-		log.Info().
+		log.Debug().
 			Str("EXTERNAL_AGENT_DEBUG", "processing_rdp_data").
 			Str("request_id", envelope.RequestID).
-			Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data request")
-		return r.processRDPData(ctx, conn, &envelope)
+			Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data")
+		return r.processRDPDataRequest(ctx, conn, &envelope)
 	default:
 		log.Error().
 			Str("EXTERNAL_AGENT_DEBUG", "unknown_message_type").
-			Str("type", envelope.Type.String()).
+			Str("type", string(envelope.Type)).
 			Str("request_id", envelope.RequestID).
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Unknown message type")
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
@@ -344,15 +322,18 @@ func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *
 		Int("payload_length", len(req.Payload)).
 		Msg("🔄 EXTERNAL_AGENT_DEBUG: Processing Zed agent request")
 
-	var agent types.ZedAgent
-	if err := json.Unmarshal(req.Payload, &agent); err != nil {
+	var taskMessage types.ZedTaskMessage
+	if err := json.Unmarshal(req.Payload, &taskMessage); err != nil {
 		logger.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "zed_agent_unmarshal_error").
+			Str("EXTERNAL_AGENT_DEBUG", "task_message_unmarshal_error").
 			Err(err).
 			Str("payload", string(req.Payload)).
-			Msgf("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal Zed agent (%s)", string(req.Payload))
-		return fmt.Errorf("failed to unmarshal Zed agent (%s): %w", string(req.Payload), err)
+			Msgf("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal task message (%s)", string(req.Payload))
+		return fmt.Errorf("failed to unmarshal task message (%s): %w", string(req.Payload), err)
 	}
+
+	// Extract the agent from the task message
+	agent := taskMessage.Agent
 
 	logger.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "zed_agent_request_details").
@@ -392,64 +373,8 @@ func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *
 	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
 
-func (r *ExternalAgentRunner) processRDPData(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
-	logger := log.With().
-		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_processing").
-		Str("request_id", req.RequestID).
-		Logger()
-
-	logger.Debug().
-		Str("reply", req.Reply).
-		Int("payload_length", len(req.Payload)).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data")
-
-	var rdpData types.ZedAgentRDPData
-	if err := json.Unmarshal(req.Payload, &rdpData); err != nil {
-		logger.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "rdp_data_unmarshal_error").
-			Err(err).
-			Str("payload", string(req.Payload)).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal RDP data")
-		return fmt.Errorf("failed to unmarshal RDP data: %w", err)
-	}
-
-	logger.Debug().
-		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_details").
-		Str("session_id", rdpData.SessionID).
-		Str("type", rdpData.Type).
-		Int("data_length", len(rdpData.Data)).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: RDP data details")
-
-	// Forward RDP data to local RDP server (port 3389)
-	// For now, we'll just log that we received the data
-	// In a full implementation, this would forward to the local RDP server
-	logger.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_received").
-		Int("bytes", len(rdpData.Data)).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Received RDP data - would forward to local RDP server")
-
-	// TODO: Implement actual RDP forwarding to localhost:3389
-	// This would involve:
-	// 1. Opening a connection to localhost:3389
-	// 2. Writing the RDP data to that connection
-	// 3. Reading the response from the RDP server
-	// 4. Sending the response back via WebSocket
-
-	// For now, send a simple acknowledgment
-	resp := map[string]interface{}{
-		"status": "received",
-		"bytes":  len(rdpData.Data),
-	}
-
-	return r.respond(conn, req.RequestID, req.Reply, resp)
-}
-
 // startZedAgent starts a Zed agent in a container with RDP access
 func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
-	// Generate RDP credentials
-	rdpPassword := r.generatePassword()
-	rdpPort := 5900 // Fixed RDP port inside container
-
 	logger := log.With().Str("session_id", agent.SessionID).Logger()
 
 	// Set up workspace directory
@@ -464,14 +389,36 @@ func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.Ze
 		projectPath = workspaceDir
 	}
 
+	// Use RDP password provided by control plane (control plane rotates passwords)
+	rdpPassword := agent.RDPPassword
+	if rdpPassword == "" {
+		logger.Error().Msg("No RDP password provided by control plane - failing securely")
+		return nil, fmt.Errorf("RDP password not provided by control plane")
+	}
+	logger.Info().
+		Str("session_id", agent.SessionID).
+		Msg("Using RDP password provided by control plane (password rotated per session)")
+	rdpPort := 5900 // Fixed RDP port inside container
+	if agent.RDPPort != 0 {
+		rdpPort = agent.RDPPort
+	}
+
 	logger.Info().
 		Str("workspace_dir", workspaceDir).
 		Str("project_path", projectPath).
 		Int("rdp_port", rdpPort).
-		Msg("initializing Zed agent environment")
+		Bool("password_from_control_plane", true).
+		Msg("initializing Zed agent environment with RDP configuration")
+
+	// Configure RDP server with the generated password
+	err := r.configureRDPServer(ctx, rdpPassword, agent.SessionID)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to configure RDP server")
+		return nil, fmt.Errorf("failed to configure RDP server: %w", err)
+	}
 
 	// Actually start Zed binary with the workspace
-	err := r.startZedBinary(ctx, workspaceDir, projectPath, agent)
+	err = r.startZedBinary(ctx, workspaceDir, projectPath, agent)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to start Zed binary")
 		return nil, fmt.Errorf("failed to start Zed binary: %w", err)
@@ -479,12 +426,12 @@ func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.Ze
 
 	logger.Info().Msg("Zed binary started successfully")
 
-	// Return successful response with RDP info
+	// Return successful response with runner ID (control plane already has RDP password)
 	response := &types.ZedAgentResponse{
-		SessionID:   agent.SessionID,
-		Status:      "running",
-		RDPURL:      fmt.Sprintf("rdp://localhost:%d", rdpPort),
-		RDPPassword: rdpPassword,
+		SessionID: agent.SessionID,
+		RunnerID:  r.cfg.RunnerID,
+		Status:    "running",
+		RDPURL:    fmt.Sprintf("rdp://localhost:%d", rdpPort),
 	}
 
 	logger.Info().
@@ -562,8 +509,324 @@ func (r *ExternalAgentRunner) startZedBinary(ctx context.Context, workspaceDir, 
 }
 
 func (r *ExternalAgentRunner) generatePassword() string {
-	// Simple password generation - use crypto/rand in production
-	return fmt.Sprintf("zed_%d", time.Now().Unix())
+	// Generate a cryptographically secure random password for RDP access
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const length = 16
+
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fail securely - no fallback passwords
+		log.Error().Err(err).Msg("Failed to generate secure random password - cannot proceed")
+		panic(fmt.Sprintf("Failed to generate secure RDP password: %v", err))
+	}
+
+	// Convert random bytes to charset characters
+	password := make([]byte, length)
+	for i := 0; i < length; i++ {
+		password[i] = charset[b[i]%byte(len(charset))]
+	}
+
+	return fmt.Sprintf("zed_%s_%d", string(password), time.Now().Unix())
+}
+
+// configureRDPServer configures the actual RDP server with the generated password
+func (r *ExternalAgentRunner) configureRDPServer(ctx context.Context, password, sessionID string) error {
+	logger := log.With().
+		Str("session_id", sessionID).
+		Logger()
+
+	logger.Info().Msg("Configuring RDP server with generated password")
+
+	// Set the RDP password for the zed user using chpasswd
+	cmd := exec.CommandContext(ctx, "chpasswd")
+	cmd.Stdin = strings.NewReader(fmt.Sprintf("zed:%s", password))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("output", string(output)).
+			Msg("Failed to set RDP password with chpasswd")
+		return fmt.Errorf("failed to set RDP password: %w", err)
+	}
+
+	logger.Info().Msg("RDP password configured successfully")
+
+	// Verify the user account is properly configured
+	cmd = exec.CommandContext(ctx, "id", "zed")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		logger.Warn().
+			Err(err).
+			Str("output", string(output)).
+			Msg("Failed to verify zed user account")
+		// Don't fail here, just log the warning
+	} else {
+		logger.Info().
+			Str("user_info", string(output)).
+			Msg("Verified zed user account exists")
+	}
+
+	return nil
+}
+
+// processRDPDataRequest handles RDP data forwarding to the local RDP server
+func (r *ExternalAgentRunner) processRDPDataRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().
+		Str("EXTERNAL_AGENT_DEBUG", "rdp_data_request").
+		Str("request_id", req.RequestID).
+		Logger()
+
+	logger.Debug().
+		Str("reply", req.Reply).
+		Int("payload_length", len(req.Payload)).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Processing RDP data request")
+
+	// Unmarshal RDP data payload
+	var rdpData types.ZedAgentRDPData
+	if err := json.Unmarshal(req.Payload, &rdpData); err != nil {
+		logger.Error().
+			Str("EXTERNAL_AGENT_DEBUG", "rdp_unmarshal_error").
+			Err(err).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to unmarshal RDP data")
+		return r.respond(conn, req.RequestID, req.Reply, map[string]interface{}{
+			"error": fmt.Sprintf("failed to unmarshal RDP data: %v", err),
+		})
+	}
+
+	logger.Debug().
+		Str("rdp_type", rdpData.Type).
+		Int("data_length", len(rdpData.Data)).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: RDP data unmarshalled")
+
+	// Forward RDP data to local XRDP server
+	err := r.forwardRDPDataToXRDP(ctx, conn, &rdpData, req.Reply)
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("session_id", rdpData.SessionID).
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to forward RDP data to XRDP")
+		return r.respond(conn, req.RequestID, req.Reply, map[string]interface{}{
+			"error": fmt.Sprintf("failed to forward RDP data: %v", err),
+		})
+	}
+
+	logger.Debug().
+		Str("session_id", rdpData.SessionID).
+		Int("data_length", len(rdpData.Data)).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: RDP data forwarded to XRDP")
+
+	// Don't respond immediately - response will come from XRDP data flow
+	return nil
+}
+
+// forwardRDPDataToXRDP forwards RDP data to the local XRDP server and sets up response handling
+func (r *ExternalAgentRunner) forwardRDPDataToXRDP(ctx context.Context, wsConn *websocket.Conn, rdpData *types.ZedAgentRDPData, replyTopic string) error {
+	// Determine connection type and key
+	// If SessionID matches RunnerID, it's a runner connection; otherwise it's a session connection
+	connectionKey := rdpData.SessionID
+	var connectionType string
+	if connectionKey == r.cfg.RunnerID {
+		connectionType = "runner"
+	} else {
+		connectionType = "session"
+	}
+
+	logger := log.With().
+		Str("connection_key", connectionKey).
+		Str("connection_type", connectionType).
+		Logger()
+
+	r.rdpMutex.Lock()
+	rdpConn, exists := r.rdpConnections[connectionKey]
+	r.rdpMutex.Unlock()
+
+	if !exists {
+		// Create new connection to local XRDP server
+		var err error
+		rdpConn, err = r.createRDPConnection(ctx, wsConn, connectionKey, connectionType, replyTopic)
+		if err != nil {
+			return fmt.Errorf("failed to create RDP connection: %w", err)
+		}
+
+		logger.Info().
+			Str("connection_type", connectionType).
+			Msg("Created new RDP connection to local XRDP server")
+	}
+
+	// Forward the RDP data to XRDP
+	_, err := rdpConn.conn.Write(rdpData.Data)
+	if err != nil {
+		logger.Error().Err(err).Msg("Failed to write RDP data to XRDP server")
+
+		// Clean up failed connection
+		r.cleanupRDPConnection(connectionKey)
+		return fmt.Errorf("failed to write to XRDP: %w", err)
+	}
+
+	logger.Debug().
+		Int("bytes_written", len(rdpData.Data)).
+		Msg("RDP data written to XRDP server")
+
+	return nil
+}
+
+// createRDPConnection establishes a connection to the local XRDP server
+func (r *ExternalAgentRunner) createRDPConnection(ctx context.Context, wsConn *websocket.Conn, connectionKey, connectionType, replyTopic string) (*RDPConnection, error) {
+	logger := log.With().
+		Str("connection_key", connectionKey).
+		Str("connection_type", connectionType).
+		Logger()
+
+	// Connect to local XRDP server (typically on port 3389)
+	rdpAddr := fmt.Sprintf("localhost:%d", r.cfg.RDPStartPort)
+	conn, err := net.Dial("tcp", rdpAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to XRDP at %s: %w", rdpAddr, err)
+	}
+
+	logger.Info().
+		Str("xrdp_addr", rdpAddr).
+		Str("connection_type", connectionType).
+		Msg("Connected to local XRDP server")
+
+	// Create RDP connection context
+	rdpCtx, cancel := context.WithCancel(ctx)
+
+	rdpConnection := &RDPConnection{
+		connectionKey:  connectionKey,
+		connectionType: connectionType,
+		runnerID:       r.cfg.RunnerID,
+		conn:           conn,
+		replyTopic:     replyTopic,
+		websocketConn:  wsConn,
+		ctx:            rdpCtx,
+		cancel:         cancel,
+	}
+
+	// Store the connection
+	r.rdpMutex.Lock()
+	r.rdpConnections[connectionKey] = rdpConnection
+	r.rdpMutex.Unlock()
+
+	// Start goroutine to handle responses from XRDP back to control plane
+	go r.handleRDPResponses(rdpConnection)
+
+	return rdpConnection, nil
+}
+
+// handleRDPResponses handles data coming back from XRDP server and forwards it via NATS
+func (r *ExternalAgentRunner) handleRDPResponses(rdpConn *RDPConnection) {
+	logger := log.With().
+		Str("connection_key", rdpConn.connectionKey).
+		Str("connection_type", rdpConn.connectionType).
+		Logger()
+
+	defer func() {
+		rdpConn.cancel()
+		rdpConn.conn.Close()
+		r.cleanupRDPConnection(rdpConn.connectionKey)
+		logger.Info().Msg("RDP response handler cleaned up")
+	}()
+
+	buffer := make([]byte, 4096)
+
+	for {
+		select {
+		case <-rdpConn.ctx.Done():
+			logger.Debug().Msg("RDP response handler context cancelled")
+			return
+		default:
+		}
+
+		// Set read timeout to allow context cancellation
+		rdpConn.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := rdpConn.conn.Read(buffer)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout, check context and continue
+				continue
+			}
+			logger.Debug().Err(err).Msg("RDP connection closed by XRDP server")
+			return
+		}
+
+		// Forward response data back to control plane via WebSocket response
+		responseData := types.ZedAgentRDPData{
+			SessionID: rdpConn.connectionKey, // Use the original connection key (could be sessionID or runnerID)
+			Type:      "rdp_response",
+			Data:      buffer[:n],
+			Timestamp: time.Now().Unix(),
+		}
+
+		// Send response back to control plane via NATS reply topic
+		responsePayload, err := json.Marshal(responseData)
+		if err != nil {
+			logger.Error().
+				Err(err).
+				Msg("Failed to marshal RDP response data")
+			continue
+		}
+
+		// Send the response directly via WebSocket as a reply message
+		replyMessage := types.RunnerEventResponseEnvelope{
+			RequestID: fmt.Sprintf("rdp-response-%d", time.Now().UnixNano()),
+			Reply:     rdpConn.replyTopic,
+			Payload:   responsePayload,
+		}
+
+		err = rdpConn.websocketConn.WriteJSON(replyMessage)
+		if err != nil {
+			logger.Error().
+				Err(err).
+				Msg("Failed to send RDP response back to control plane")
+			return
+		}
+
+		logger.Debug().
+			Int("bytes_sent", n).
+			Msg("RDP response data sent back to control plane")
+	}
+}
+
+// cleanupRDPConnection removes and cleans up an RDP connection
+func (r *ExternalAgentRunner) cleanupRDPConnection(connectionKey string) {
+	r.rdpMutex.Lock()
+	defer r.rdpMutex.Unlock()
+
+	if rdpConn, exists := r.rdpConnections[connectionKey]; exists {
+		rdpConn.cancel()
+		rdpConn.conn.Close()
+		delete(r.rdpConnections, connectionKey)
+
+		log.Info().
+			Str("connection_key", connectionKey).
+			Msg("Cleaned up RDP connection")
+	}
+}
+
+// cleanupAllRDPConnections cleans up all RDP connections when runner stops
+func (r *ExternalAgentRunner) cleanupAllRDPConnections() {
+	r.rdpMutex.Lock()
+	defer r.rdpMutex.Unlock()
+
+	log.Info().
+		Int("connection_count", len(r.rdpConnections)).
+		Msg("Cleaning up all RDP connections")
+
+	for connectionKey, rdpConn := range r.rdpConnections {
+		rdpConn.cancel()
+		rdpConn.conn.Close()
+		log.Debug().
+			Str("connection_key", connectionKey).
+			Msg("Closed RDP connection")
+	}
+
+	// Clear the map
+	r.rdpConnections = make(map[string]*RDPConnection)
+
+	log.Info().Msg("All RDP connections cleaned up")
 }
 
 func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {

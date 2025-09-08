@@ -1,2 +1,2 @@
-export { default as RDPViewer } from './RDPViewer';
+export { default as GuacamoleIframeClient } from './GuacamoleIframeClient';
 export { default as ExternalAgentManager } from './ExternalAgentManager';

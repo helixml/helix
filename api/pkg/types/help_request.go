@@ -43,16 +43,23 @@ type HelpRequest struct {
 
 // AgentSession represents an active agent session with enhanced tracking
 type AgentSession struct {
-	ID           string         `json:"id" gorm:"primaryKey"`
-	SessionID    string         `json:"session_id" gorm:"uniqueIndex"` // Maps to Helix session ID
-	AgentType    string         `json:"agent_type"`                    // "zed", "helix", etc.
-	Status       string         `json:"status"`                        // "starting", "active", "waiting_for_help", "paused", "completed", "failed"
-	CurrentTask  string         `json:"current_task"`                  // Description of what the agent is currently doing
-	WorkItemID   string         `json:"work_item_id"`                  // Associated work item if any
-	UserID       string         `json:"user_id" gorm:"index"`
-	AppID        string         `json:"app_id" gorm:"index"`
-	Config       datatypes.JSON `json:"config"` // Agent configuration
-	State        datatypes.JSON `json:"state"`  // Current agent state/context
+	ID          string         `json:"id" gorm:"primaryKey"`
+	SessionID   string         `json:"session_id" gorm:"uniqueIndex"` // Maps to Helix session ID
+	AgentType   string         `json:"agent_type"`                    // "zed", "helix", etc.
+	Status      string         `json:"status"`                        // "starting", "active", "waiting_for_help", "paused", "completed", "failed"
+	CurrentTask string         `json:"current_task"`                  // Description of what the agent is currently doing
+	WorkItemID  string         `json:"work_item_id"`                  // Associated work item if any
+	UserID      string         `json:"user_id" gorm:"index"`
+	AppID       string         `json:"app_id" gorm:"index"`
+	Config      datatypes.JSON `json:"config"` // Agent configuration
+	State       datatypes.JSON `json:"state"`  // Current agent state/context
+
+	// RDP connection fields for secure session access
+	RDPURL      string `json:"rdp_url,omitempty"`      // RDP connection URL
+	RDPPassword string `json:"rdp_password,omitempty"` // Session-specific secure RDP password
+	RDPPort     int    `json:"rdp_port,omitempty"`     // RDP port number
+	RDPUsername string `json:"rdp_username,omitempty"` // RDP username (typically "zed")
+
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	LastActivity time.Time      `json:"last_activity"` // Last time the agent was active
