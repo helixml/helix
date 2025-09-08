@@ -112,15 +112,12 @@ services:
         volumes:
             - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
             - ./scripts/postgres:/docker-entrypoint-initdb.d
-            - ./scripts/guacamole-initdb.sql:/docker-entrypoint-initdb.d/guacamole-initdb.sql
-            - ./scripts/guacamole-init.sh:/docker-entrypoint-initdb.d/99-guacamole-init.sh
+
         environment:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - POSTGRES_DATABASES=keycloak,guacamole_db
-            - GUACAMOLE_USERNAME=${GUACAMOLE_USERNAME:-guacadmin}
-            - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
     # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
@@ -386,6 +383,10 @@ services:
         # ports:
         #   - 4822:4822
 
+
+
+
+
     guacamole-client:
         image: guacamole/guacamole:1.5.5
         restart: always
@@ -400,7 +401,6 @@ services:
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - JAVA_OPTS=-Djava.awt.headless=true -Dcom.sun.management.jmxremote=false -XX:+UseContainerSupport -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap
-            - GUACAMOLE_ADMIN_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
         depends_on:
             - postgres
             - guacamole
@@ -415,6 +415,7 @@ volumes:
     helix-filestore:
     helix-typesense-db:
     helix-socket:
+
     go-pkg-mod: # Go module cache
     go-build-cache: # Go build cache
     go-sdk-cache: # Go toolchain/SDK cache
