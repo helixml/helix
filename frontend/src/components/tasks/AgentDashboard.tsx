@@ -54,7 +54,6 @@ import {
   Timeline as TimelineIcon,
   Edit as EditIcon,
   Visibility as VisibilityIcon,
-  DesktopWindows as DesktopWindowsIcon
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
 // Removed date-fns dependency - using native JavaScript instead
@@ -64,6 +63,7 @@ import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
 import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
 import { useFloatingModal } from '../../contexts/floatingModal'
+import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
 
 // Using generated API types instead of local interfaces
 
@@ -101,6 +101,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const [createTaskLoading, setCreateTaskLoading] = useState(false)
   const [specReviewOpen, setSpecReviewOpen] = useState<TypesAgentWorkItem | null>(null)
   const [approvalComments, setApprovalComments] = useState('')
+  const [runnerRDPViewerOpen, setRunnerRDPViewerOpen] = useState<string | null>(null) // runner ID
   const [approvalLoading, setApprovalLoading] = useState(false)
   
   // Use ref to store API to prevent dependency issues
@@ -267,6 +268,10 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       const rdpUrl = `rdp://localhost:${session.rdp_port}`
       window.open(rdpUrl, '_blank')
     }
+  }
+
+  const openRunnerWebRDP = (runnerId: string) => {
+    setRunnerRDPViewerOpen(runnerId)
   }
 
   const resolveHelpRequest = async (requestId: string, resolution: string) => {
@@ -680,31 +685,20 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               </Box>
                             }
                           />
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                            <Tooltip title="Connect to Desktop">
-                              <IconButton 
-                                size="small" 
-                                onClick={(e) => {
-                                  const rect = e.currentTarget.getBoundingClientRect()
-                                  floatingModal.showFloatingModal({
-                                    type: 'rdp',
-                                    sessionId: connection.session_id
-                                  }, {
-                                    x: rect.left,
-                                    y: rect.top
-                                  })
-                                }}
-                                sx={{ 
-                                  backgroundColor: theme.palette.primary.light + '20',
-                                  '&:hover': {
-                                    backgroundColor: theme.palette.primary.light + '40'
-                                  }
-                                }}
-                              >
-                                <DesktopWindowsIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
+                          <Tooltip title="Web RDP Viewer">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => openRunnerWebRDP(connection.session_id)}
+                              sx={{ 
+                                backgroundColor: theme.palette.success.light + '20',
+                                '&:hover': {
+                                  backgroundColor: theme.palette.success.light + '40'
+                                }
+                              }}
+                            >
+                              <VisibilityIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </ListItem>
                       ))}
                     </List>
@@ -1214,6 +1208,44 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       </Dialog>
 
 
+
+      {/* Web RDP Viewer Modal */}
+      <Dialog
+        open={!!runnerRDPViewerOpen}
+        onClose={() => setRunnerRDPViewerOpen(null)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: { height: '80vh' }
+        }}
+      >
+        <DialogTitle>
+          External Agent Runner - Web RDP
+          <Button
+            onClick={() => setRunnerRDPViewerOpen(null)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            ✕
+          </Button>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, height: '100%' }}>
+          {runnerRDPViewerOpen && (
+            <GuacamoleIframeClient
+              sessionId={runnerRDPViewerOpen}
+              isRunner={true}
+              onConnectionChange={(connected) => {
+                console.log('Runner RDP connection status:', connected);
+              }}
+              onError={(error) => {
+                console.error('Runner RDP error:', error);
+              }}
+              width={1024}
+              height={768}
+              className="web-rdp-viewer"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Last updated indicator */}
       <Box sx={{ mt: 3, textAlign: 'center' }}>
