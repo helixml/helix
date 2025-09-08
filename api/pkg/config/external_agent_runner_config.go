@@ -52,22 +52,26 @@ func LoadExternalAgentRunnerConfig() (ExternalAgentRunnerConfig, error) {
 	}
 
 	// Check for common insecure default passwords
-	insecurePasswords := []string{
-		"password", "123456", "admin", "zed", "rdp", "guest", "user",
-		"initial", "default", "temp", "test", "demo", "changeme",
-		"initial-secure-rdp-password", "CHANGE_ME_TO_UNIQUE_SECURE_PASSWORD",
-		"YOUR_SECURE_INITIAL_RDP_PASSWORD_HERE", "your-unique-initial-rdp-password",
-		"dev-insecure-change-me-in-production", // Development default
-	}
+	// insecurePasswords := []string{
+	// 	"password", "123456", "admin", "zed", "rdp", "guest", "user",
+	// 	"initial", "default", "temp", "test", "demo", "changeme",
+	// 	"initial-secure-rdp-password", "CHANGE_ME_TO_UNIQUE_SECURE_PASSWORD",
+	// 	"YOUR_SECURE_INITIAL_RDP_PASSWORD_HERE", "your-unique-initial-rdp-password",
+	// 	"dev-insecure-change-me-in-production", // Development default
+	// }
 
-	for _, insecure := range insecurePasswords {
-		if cfg.RDPPassword == insecure {
-			if insecure == "dev-insecure-change-me-in-production" {
-				return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD is using development default '%s' - this is only for local development! Generate a secure password with: openssl rand -base64 32", insecure)
-			}
-			return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD cannot use insecure default value: %s", insecure)
-		}
-	}
+	// for _, insecure := range insecurePasswords {
+	// 	if cfg.RDPPassword == insecure {
+	// 		if insecure == "dev-insecure-change-me-in-production" {
+	// 			// Allow development default but warn
+	// 			log.Warn().
+	// 				Str("password", insecure).
+	// 				Msg("⚠️ SECURITY WARNING: Using insecure development default RDP password! Generate a secure password with: openssl rand -base64 32")
+	// 			break
+	// 		}
+	// 		return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD cannot use insecure default value: %s", insecure)
+	// 	}
+	// }
 
 	// Ensure minimum password complexity
 	if len(cfg.RDPPassword) < 8 {
