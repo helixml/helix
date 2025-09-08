@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/kelseyhightower/envconfig"
@@ -20,7 +21,7 @@ type ExternalAgentRunnerConfig struct {
 	// RDP server settings
 	RDPStartPort int    `envconfig:"RDP_START_PORT" default:"3389"`
 	RDPUser      string `envconfig:"RDP_USER" default:"zed"`
-	RDPPassword  string `envconfig:"RDP_PASSWORD" required:"true"`
+	RDPPassword  string `envconfig:"RDP_PASSWORD"` // Optional - used for initial setup only
 
 	// Zed editor settings
 	ZedBinary  string `envconfig:"ZED_BINARY" default:"zed"`
@@ -43,6 +44,34 @@ func LoadExternalAgentRunnerConfig() (ExternalAgentRunnerConfig, error) {
 	// If runner ID is not provided, use the hostname
 	if cfg.RunnerID == "" {
 		cfg.RunnerID, _ = os.Hostname()
+	}
+
+	// Security validation for RDP_PASSWORD
+	if cfg.RDPPassword == "" {
+		return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD is required for secure container initialization")
+	}
+
+	// Check for common insecure default passwords
+	insecurePasswords := []string{
+		"password", "123456", "admin", "zed", "rdp", "guest", "user",
+		"initial", "default", "temp", "test", "demo", "changeme",
+		"initial-secure-rdp-password", "CHANGE_ME_TO_UNIQUE_SECURE_PASSWORD",
+		"YOUR_SECURE_INITIAL_RDP_PASSWORD_HERE", "your-unique-initial-rdp-password",
+		"dev-insecure-change-me-in-production", // Development default
+	}
+
+	for _, insecure := range insecurePasswords {
+		if cfg.RDPPassword == insecure {
+			if insecure == "dev-insecure-change-me-in-production" {
+				return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD is using development default '%s' - this is only for local development! Generate a secure password with: openssl rand -base64 32", insecure)
+			}
+			return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD cannot use insecure default value: %s", insecure)
+		}
+	}
+
+	// Ensure minimum password complexity
+	if len(cfg.RDPPassword) < 8 {
+		return ExternalAgentRunnerConfig{}, fmt.Errorf("RDP_PASSWORD must be at least 8 characters long")
 	}
 
 	return cfg, nil

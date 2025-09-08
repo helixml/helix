@@ -43,11 +43,11 @@ type GuacamoleConnection struct {
 }
 
 // NewGuacamoleProxy creates a new Guacamole proxy
-func NewGuacamoleProxy(guacamoleServerURL string) *GuacamoleProxy {
+func NewGuacamoleProxy(guacamoleServerURL, username, password string) *GuacamoleProxy {
 	return &GuacamoleProxy{
 		guacamoleServerURL: guacamoleServerURL,
-		guacamoleUsername:  "guacadmin",
-		guacamolePassword:  "guacadmin",
+		guacamoleUsername:  username,
+		guacamolePassword:  password,
 		connections:        make(map[string]*GuacamoleConnection),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -532,8 +532,8 @@ func (apiServer *HelixAPIServer) authenticateWithGuacamole() (string, error) {
 
 	// Use form data for authentication
 	authData := url.Values{}
-	authData.Set("username", "guacadmin")
-	authData.Set("password", "guacadmin")
+	authData.Set("username", apiServer.guacamoleProxy.guacamoleUsername)
+	authData.Set("password", apiServer.guacamoleProxy.guacamolePassword)
 
 	resp, err := http.PostForm(authURL, authData)
 	if err != nil {
