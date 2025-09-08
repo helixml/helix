@@ -554,8 +554,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Guacamole proxy routes
 	apiServer.registerGuacamoleProxyRoutes(authRouter)
 
-	// Guacamole web interface proxy for debugging
-	authRouter.PathPrefix("/guacamole/").HandlerFunc(apiServer.proxyGuacamoleWebInterface).Methods("GET", "POST", "PUT", "DELETE", "PATCH")
+	// Guacamole web interface proxy for debugging - no auth required since Guacamole handles its own auth
+	router.PathPrefix("/guacamole/").HandlerFunc(apiServer.proxyGuacamoleWebInterface).Methods("GET", "POST", "PUT", "DELETE", "PATCH")
 
 	// Agent dashboard and management routes
 	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
@@ -1415,14 +1415,8 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 // proxyGuacamoleWebInterface proxies requests to the Guacamole web interface for debugging
 func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWriter, r *http.Request) {
-	user := getRequestUser(r)
-	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	// TODO: Add admin permission check for production
-	// For now, allow any authenticated user to access for debugging
+	// No authentication required here - Guacamole handles its own authentication
+	// This allows direct access to Guacamole's login page and web interface
 
 	// Create reverse proxy to guacamole-client:8080
 	target, err := url.Parse("http://guacamole-client:8080")
@@ -1450,7 +1444,6 @@ func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWrite
 	log.Debug().
 		Str("original_path", originalPath).
 		Str("target_url", target.String()).
-		Str("user_id", user.ID).
 		Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).
 		Msg("Proxying request to Guacamole web interface")
 
