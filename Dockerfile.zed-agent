@@ -275,10 +275,10 @@ COPY <<EOF /setup-rdp-user.sh
 #!/bin/bash
 set -e
 
-# Set up RDP user with password (required for runner access)
+# Set up RDP user with initial password (will be rotated dynamically by control plane)
 RDP_USER="\${RDP_USER:-zed}"
 if [ -z "\$RDP_PASSWORD" ]; then
-    echo "ERROR: RDP_PASSWORD environment variable is required for runner access"
+    echo "ERROR: RDP_PASSWORD environment variable is required for initial container setup"
     exit 1
 fi
 
@@ -405,8 +405,19 @@ chmod 1777 /tmp/.X11-unix
 # Generate machine ID if it doesn't exist
 dbus-uuidgen --ensure=/etc/machine-id || echo "dbus-uuidgen failed, continuing..."
 
-# Setup RDP user (password will be set dynamically when sessions are created)
-echo "Setting up RDP user (password will be configured at runtime)..."
+# Check for insecure development default password
+if [ "\$RDP_PASSWORD" = "dev-insecure-change-me-in-production" ]; then
+    echo "============================================================================="
+    echo "⚠️  SECURITY WARNING: Using insecure development default RDP password!"
+    echo "⚠️  This is only acceptable for local development."
+    echo "⚠️  PRODUCTION DEPLOYMENTS: Set a unique RDP_PASSWORD in your .env file!"
+    echo "⚠️  Generate with: openssl rand -base64 32"
+    echo "============================================================================="
+fi
+
+# Setup RDP user with initial password from environment variable
+# The control plane will rotate this password dynamically when sessions are created
+echo "Setting up RDP user with initial password (will be rotated by control plane)..."
 /setup-rdp-user.sh
 
 echo "Starting supervisor with display :$DISPLAY_NUM (\${DISPLAY_WIDTH}x\${DISPLAY_HEIGHT})"

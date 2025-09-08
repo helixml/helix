@@ -7,24 +7,32 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 // GuacamoleLifecycleManager manages Guacamole connections throughout their lifecycle
 type GuacamoleLifecycleManager struct {
-	guacamoleProxy  *GuacamoleProxy
-	store           store.Store
-	rdpProxyManager *RDPProxyManager
+	guacamoleProxy   *GuacamoleProxy
+	store            store.Store
+	rdpProxyManager  *RDPProxyManager
+	runnerController *scheduler.RunnerController
+	pubsub           pubsub.PubSub
 }
 
 // NewGuacamoleLifecycleManager creates a new lifecycle manager
-func NewGuacamoleLifecycleManager(proxy *GuacamoleProxy, store store.Store, rdpProxy *RDPProxyManager) *GuacamoleLifecycleManager {
+func NewGuacamoleLifecycleManager(proxy *GuacamoleProxy, store store.Store, rdpProxy *RDPProxyManager, runnerController *scheduler.RunnerController, ps pubsub.PubSub) *GuacamoleLifecycleManager {
 	return &GuacamoleLifecycleManager{
-		guacamoleProxy:  proxy,
-		store:           store,
-		rdpProxyManager: rdpProxy,
+		guacamoleProxy:   proxy,
+		store:            store,
+		rdpProxyManager:  rdpProxy,
+		runnerController: runnerController,
+		pubsub:           ps,
 	}
 }
 
@@ -38,6 +46,17 @@ func (glm *GuacamoleLifecycleManager) OnRunnerConnect(ctx context.Context, runne
 	runner, err := glm.store.GetOrCreateAgentRunner(ctx, runnerID)
 	if err != nil {
 		return fmt.Errorf("failed to get/create agent runner: %w", err)
+	}
+
+	// Send the generated RDP password to the runner via ZedAgent WebSocket message
+	// This ensures the runner uses the database password instead of the initial env password
+	err = glm.sendPasswordConfigurationToRunner(ctx, runnerID, runner.RDPPassword)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("runner_id", runnerID).
+			Msg("Failed to send password configuration to runner - runner will use initial password")
+		// Don't fail the runner connection for this, but warn since it's a security issue
 	}
 
 	// Create RDP proxy for this runner
@@ -418,8 +437,8 @@ func (glm *GuacamoleLifecycleManager) authenticateWithGuacamole() (string, error
 
 	// Use form data for authentication
 	authData := url.Values{}
-	authData.Set("username", "guacadmin")
-	authData.Set("password", "guacadmin")
+	authData.Set("username", glm.guacamoleProxy.guacamoleUsername)
+	authData.Set("password", glm.guacamoleProxy.guacamolePassword)
 
 	resp, err := http.PostForm(authURL, authData)
 	if err != nil {
@@ -494,6 +513,50 @@ func (glm *GuacamoleLifecycleManager) CleanupStaleConnections(ctx context.Contex
 			}
 		}
 	}
+
+	return nil
+}
+
+// sendPasswordConfigurationToRunner sends the RDP password to a specific runner via ZedAgent WebSocket message
+func (glm *GuacamoleLifecycleManager) sendPasswordConfigurationToRunner(ctx context.Context, runnerID, rdpPassword string) error {
+	log.Info().
+		Str("runner_id", runnerID).
+		Msg("Sending RDP password configuration to runner via ZedAgent WebSocket")
+
+	// Create a password configuration ZedAgent task
+	// This will be sent via the existing WebSocket connection and processed by the runner
+	passwordConfigAgent := &types.ZedAgent{
+		SessionID:   fmt.Sprintf("password-config-%s", runnerID),
+		UserID:      "system",
+		Input:       "Configure initial RDP password for runner",
+		RDPPassword: rdpPassword,
+		RDPUser:     "zed",
+		RDPPort:     5900,
+	}
+
+	// Marshal the ZedAgent task
+	data, err := json.Marshal(passwordConfigAgent)
+	if err != nil {
+		return fmt.Errorf("failed to marshal password config task: %w", err)
+	}
+
+	// Send via the ZedAgent NATS stream - this will be picked up by the runner's WebSocket connection
+	// The runner will process this like any other ZedAgent task and call configureRDPServer
+	_, err = glm.pubsub.StreamRequest(
+		ctx,
+		pubsub.ZedAgentRunnerStream,
+		pubsub.ZedAgentQueue,
+		data,
+		map[string]string{"kind": "zed_agent"},
+		30*time.Second,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send password config via ZedAgent stream: %w", err)
+	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Msg("Successfully sent RDP password configuration to runner via ZedAgent WebSocket")
 
 	return nil
 }
