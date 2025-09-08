@@ -349,7 +349,7 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
       {/* Guacamole RDP Client Iframe */}
       <iframe
         ref={iframeRef}
-        src="/guacamole-client.html"
+        src="/rdp-client.html"
         style={{
           width: '100%',
           height: '100%',

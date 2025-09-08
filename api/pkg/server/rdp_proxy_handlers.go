@@ -643,7 +643,7 @@ func (rpm *RDPProxyManager) handleTCPConnection(ctx context.Context, proxy *RDPP
 // runTCPProxyForSession runs a TCP proxy that forwards RDP traffic via NATS for sessions
 func (rpm *RDPProxyManager) runTCPProxyForSession(ctx context.Context, proxy *RDPProxyConnection) {
 	// Listen on the allocated local port
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", proxy.LocalPort))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", proxy.SessionID).
@@ -956,7 +956,7 @@ func (rpm *RDPProxyManager) GetSessionProxy(sessionID string) (*RDPProxyConnecti
 // runTCPProxyForRunner runs a TCP proxy that forwards RDP traffic via NATS for runners
 func (rpm *RDPProxyManager) runTCPProxyForRunner(ctx context.Context, proxy *RDPProxyConnection) {
 	// Listen on the allocated local port
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", proxy.LocalPort))
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
 	if err != nil {
 		log.Error().Err(err).
 			Str("runner_id", proxy.RunnerID).
