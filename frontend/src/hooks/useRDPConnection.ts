@@ -74,9 +74,9 @@ export const useRDPConnection = (): UseRDPConnectionResult => {
         rdp_port: data.rdp_port || 3389,
         username: data.username || 'zed',
         rdp_password: data.rdp_password || '',
-        proxy_url: isRunner 
-          ? `/api/v1/external-agents/runners/${sessionId}/guac/proxy`  // sessionId is actually runnerID when isRunner=true
-          : `/api/v1/sessions/${sessionId}/guac/proxy`,               // sessionId is actual sessionID when isRunner=false
+        proxy_url: data.proxy_url || (isRunner 
+          ? `/api/v1/external-agents/runners/${sessionId}/rdp/proxy`  // sessionId is actually runnerID when isRunner=true
+          : `/api/v1/sessions/${sessionId}/rdp/proxy`),               // sessionId is actual sessionID when isRunner=false
         session_id: data.session_id || sessionId,
         status: data.status || 'unknown'
       };
