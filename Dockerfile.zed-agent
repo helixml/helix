@@ -204,14 +204,7 @@ priority=450
 stdout_logfile=/var/log/xrdp.log
 redirect_stderr=true
 
-[program:xrdp-sesman]
-command=/usr/sbin/xrdp-sesman --nodaemon
-autostart=true
-autorestart=true
-user=root
-priority=460
-stdout_logfile=/var/log/xrdp-sesman.log
-redirect_stderr=true
+# No xrdp-sesman needed - using direct connection mode
 
 [program:helix-external-agent-runner]
 command=/start-external-agent-runner.sh
@@ -301,7 +294,7 @@ XSESSION_EOF
 chmod +x /home/\$RDP_USER/.xsession
 chown \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.xsession
 
-# Create basic XRDP configuration
+# Create simplified XRDP configuration - direct connection to existing X session
 mkdir -p /etc/xrdp
 cat > /etc/xrdp/xrdp.ini << 'XRDP_EOF'
 [Globals]
@@ -310,13 +303,13 @@ use_vsock=false
 tcp_nodelay=true
 tcp_keepalive=true
 security_layer=rdp
-autorun=
+autorun=DirectX11
 allow_channels=true
 max_bpp=32
 new_cursors=true
 
-[Xvfb]
-name=Xvfb Session
+[DirectX11]
+name=Direct X11 Session
 lib=libxup.so
 username=ask
 password=ask
@@ -325,28 +318,36 @@ port=-1
 code=20
 XRDP_EOF
 
-# Create basic sesman configuration
-cat > /etc/xrdp/sesman.ini << 'SESMAN_EOF'
-[Globals]
-ListenAddress=127.0.0.1
-ListenPort=3350
-EnableUserWindowManager=true
-UserWindowManager=openbox-session
-DefaultWindowManager=openbox-session
+# No sesman configuration needed - direct connection mode
 
-[Sessions]
-X11DisplayOffset=10
-MaxSessions=50
+# Create Openbox menu and autostart configuration
+mkdir -p /home/\$RDP_USER/.config/openbox
+cat > /home/\$RDP_USER/.config/openbox/menu.xml << 'MENU_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+  <menu id="root-menu" label="Zed Desktop">
+    <item label="Terminal">
+      <action name="Execute"><execute>xterm</execute></action>
+    </item>
+    <item label="Zed Editor">
+      <action name="Execute"><execute>/usr/local/bin/zed</execute></action>
+    </item>
+    <separator />
+    <item label="Exit Session">
+      <action name="Exit" />
+    </item>
+  </menu>
+</openbox_menu>
+MENU_EOF
 
-[Security]
-AllowRootLogin=true
-MaxLoginRetry=4
+cat > /home/\$RDP_USER/.config/openbox/autostart << 'AUTOSTART_EOF'
+#!/bin/bash
+# Auto-start a terminal when desktop session begins
+xterm &
+AUTOSTART_EOF
 
-[Xrdp]
-port=3389
-crypt_level=high
-channel_code=1
-SESMAN_EOF
+chmod +x /home/\$RDP_USER/.config/openbox/autostart
+chown -R \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.config
 
 echo "RDP user setup completed for \$RDP_USER"
 EOF

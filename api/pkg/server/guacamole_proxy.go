@@ -334,7 +334,7 @@ func (apiServer *HelixAPIServer) connectToGuacamoleWebSocket(guacConnectionID st
 		wsScheme = "wss"
 	}
 
-	wsURL := fmt.Sprintf("%s://%s/websocket-tunnel?token=%s", wsScheme, u.Host, guacConnectionID)
+	wsURL := fmt.Sprintf("%s://%s/guacamole/websocket-tunnel?token=%s", wsScheme, u.Host, guacConnectionID)
 
 	log.Debug().
 		Str("guac_connection_id", guacConnectionID).

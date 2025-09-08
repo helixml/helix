@@ -237,6 +237,8 @@ services:
             dockerfile: Dockerfile.zed-agent
             args:
                 - BUILD_TYPE=release
+        ports:
+            - "13389:3389"  # Expose XRDP for direct testing
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
