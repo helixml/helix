@@ -17,7 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -227,10 +227,10 @@ func (gc *GuacamoleClient) deleteConnection(connectionID string) error {
 	return nil
 }
 
-// RDPProxyManager manages RDP proxy connections via Guacamole
+// RDPProxyManager manages RDP proxy connections via reverse dial
 type RDPProxyManager struct {
 	guacamoleClient *GuacamoleClient
-	pubsub          pubsub.PubSub
+	connman         *connman.ConnectionManager
 	connections     map[string]*RDPProxyConnection
 	mu              sync.RWMutex
 }
@@ -240,9 +240,7 @@ type RDPProxyConnection struct {
 	SessionID      string
 	RunnerID       string // For external agent runner connections
 	ConnectionID   string
-	GuacamoleToken string
 	LocalPort      int              // Local TCP port for this proxy
-	ZedSession     *ZedAgentSession // Zed session info
 	ConnectionType string           // "session" or "runner"
 	CreatedAt      time.Time
 	LastActivity   time.Time
@@ -251,15 +249,15 @@ type RDPProxyConnection struct {
 }
 
 // NewRDPProxyManager creates a new RDP proxy manager
-func NewRDPProxyManager(guacamoleURL, guacamoleUser, guacamolePass string, pubsub pubsub.PubSub) *RDPProxyManager {
+func NewRDPProxyManager(guacamoleURL, guacamoleUser, guacamolePass string, connman *connman.ConnectionManager) *RDPProxyManager {
 	return &RDPProxyManager{
 		guacamoleClient: NewGuacamoleClient(guacamoleURL, guacamoleUser, guacamolePass),
-		pubsub:          pubsub,
+		connman:         connman,
 		connections:     make(map[string]*RDPProxyConnection),
 	}
 }
 
-// startRDPProxy handles RDP proxy WebSocket connections (now via local RDP proxy ports)
+// startRDPProxy handles RDP proxy WebSocket connections using reverse dial
 func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -294,16 +292,30 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get Zed agent session info
-	zedSession, err := s.getZedSessionInfo(ctx, sessionID)
+	// Get session info to find the runnerID
+	sessionInfo, err := s.getZedSessionInfo(ctx, sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get Zed session info")
-		http.Error(w, "Zed session not found", http.StatusNotFound)
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session info")
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Get runnerID from external agent runner manager
+	runnerID := ""
+	if s.externalAgentRunnerManager != nil {
+		connections := s.externalAgentRunnerManager.listConnections()
+		if len(connections) > 0 {
+			runnerID = connections[0].SessionID // Use first available runner for now
+		}
+	}
+	if runnerID == "" {
+		log.Error().Str("session_id", sessionID).Msg("No runners available for session")
+		http.Error(w, "no runners available for session", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Start local RDP proxy for this session (if not already running)
-	proxyPort, err := s.rdpProxyManager.startRDPProxy(sessionID, zedSession)
+	proxyPort, err := s.rdpProxyManager.startRDPProxy(sessionID, runnerID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to start RDP proxy")
 		http.Error(w, "failed to start RDP proxy", http.StatusInternalServerError)
@@ -311,7 +323,7 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create or get Guacamole connection pointing to our API container proxy
-	connectionID, err := s.rdpProxyManager.createOrGetConnection(sessionID, "api", proxyPort, s)
+	connectionID, err := s.rdpProxyManager.createOrGetConnection(sessionID, "api", proxyPort, sessionInfo)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to create Guacamole connection")
 		http.Error(w, "failed to create RDP connection", http.StatusInternalServerError)
@@ -336,8 +348,8 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 	s.proxyWebSocketToGuacamole(ctx, conn, connectionID, sessionID)
 }
 
-// startRDPProxy starts a local TCP RDP proxy for a Zed session
-func (rpm *RDPProxyManager) startRDPProxy(sessionID string, zedSession *ZedAgentSession) (int, error) {
+// startRDPProxy starts a local TCP RDP proxy for a session using reverse dial
+func (rpm *RDPProxyManager) startRDPProxy(sessionID, runnerID string) (int, error) {
 	rpm.mu.Lock()
 	defer rpm.mu.Unlock()
 
@@ -353,36 +365,32 @@ func (rpm *RDPProxyManager) startRDPProxy(sessionID string, zedSession *ZedAgent
 	// Start TCP proxy server
 	ctx, cancel := context.WithCancel(context.Background())
 	proxy := &RDPProxyConnection{
-		SessionID:    sessionID,
-		LocalPort:    proxyPort,
-		ZedSession:   zedSession,
-		CreatedAt:    time.Now(),
-		LastActivity: time.Now(),
-		cancel:       cancel,
+		SessionID:      sessionID,
+		RunnerID:       runnerID,
+		LocalPort:      proxyPort,
+		ConnectionType: "session",
+		CreatedAt:      time.Now(),
+		LastActivity:   time.Now(),
+		cancel:         cancel,
 	}
 
 	// Start the TCP server in a goroutine
-	go rpm.runTCPProxy(ctx, proxy)
+	go rpm.runSimpleTCPProxy(ctx, proxy)
 
 	// Store connection info
 	rpm.connections[sessionID] = proxy
 
 	log.Info().
 		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
 		Int("local_port", proxyPort).
-		Msg("Started RDP TCP proxy")
+		Msg("Started RDP TCP proxy using reverse dial")
 
 	return proxyPort, nil
 }
 
 // createOrGetConnection creates or retrieves a Guacamole connection
-func (rpm *RDPProxyManager) createOrGetConnection(sessionID, hostname string, port int, server *HelixAPIServer) (string, error) {
-	// Get the actual RDP password from the session via server
-	sessionInfo, err := server.getZedSessionInfo(context.Background(), sessionID)
-	if err != nil {
-		return "", fmt.Errorf("failed to get session RDP info: %w", err)
-	}
-
+func (rpm *RDPProxyManager) createOrGetConnection(sessionID, hostname string, port int, sessionInfo *ZedAgentSession) (string, error) {
 	connectionID, err := rpm.guacamoleClient.createRDPConnection(
 		sessionID,
 		hostname,
@@ -496,12 +504,13 @@ type ZedAgentSession struct {
 	Status      string `json:"status"`
 }
 
-// runTCPProxy runs a TCP proxy that forwards RDP traffic via NATS
-func (rpm *RDPProxyManager) runTCPProxy(ctx context.Context, proxy *RDPProxyConnection) {
+// runSimpleTCPProxy runs a TCP proxy that forwards RDP traffic via reverse dial
+func (rpm *RDPProxyManager) runSimpleTCPProxy(ctx context.Context, proxy *RDPProxyConnection) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", proxy.SessionID).
+			Str("runner_id", proxy.RunnerID).
 			Int("port", proxy.LocalPort).
 			Msg("Failed to start TCP proxy listener")
 		return
@@ -513,14 +522,16 @@ func (rpm *RDPProxyManager) runTCPProxy(ctx context.Context, proxy *RDPProxyConn
 
 	log.Info().
 		Str("session_id", proxy.SessionID).
+		Str("runner_id", proxy.RunnerID).
 		Int("port", proxy.LocalPort).
-		Msg("RDP TCP proxy listening")
+		Msg("RDP TCP proxy listening (reverse dial)")
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Info().
 				Str("session_id", proxy.SessionID).
+				Str("runner_id", proxy.RunnerID).
 				Int("port", proxy.LocalPort).
 				Msg("RDP TCP proxy shutting down")
 			return
@@ -536,301 +547,92 @@ func (rpm *RDPProxyManager) runTCPProxy(ctx context.Context, proxy *RDPProxyConn
 			default:
 				log.Error().Err(err).
 					Str("session_id", proxy.SessionID).
+					Str("runner_id", proxy.RunnerID).
 					Msg("Failed to accept TCP connection")
 				continue
 			}
 		}
 
 		// Handle each connection in a goroutine
-		go rpm.handleTCPConnection(ctx, proxy, conn)
+		go rpm.handleSimpleTCPConnection(ctx, proxy, conn)
 	}
 }
 
-// handleTCPConnection handles a single TCP connection by proxying over NATS
-func (rpm *RDPProxyManager) handleTCPConnection(ctx context.Context, proxy *RDPProxyConnection, conn net.Conn) {
-	defer conn.Close()
-
-	log.Info().
-		Str("session_id", proxy.SessionID).
-		Str("remote_addr", conn.RemoteAddr().String()).
-		Msg("New RDP TCP connection")
-
-	// Set up NATS topics for this connection
-	rdpCommandTopic := fmt.Sprintf("rdp.commands.%s", proxy.SessionID)
-	rdpResponseTopic := fmt.Sprintf("rdp.responses.%s", proxy.SessionID)
-
-	// Subscribe to RDP responses from the Zed container
-	connCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Subscribe to NATS responses and forward to TCP connection
-	rdpSub, err := rpm.pubsub.Subscribe(connCtx, rdpResponseTopic, func(payload []byte) error {
-		var rdpData types.ZedAgentRDPData
-		if err := json.Unmarshal(payload, &rdpData); err != nil {
-			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to unmarshal RDP response")
-			return err
-		}
-
-		// Forward RDP data from Zed container to TCP connection
-		_, writeErr := conn.Write(rdpData.Data)
-		if writeErr != nil {
-			log.Error().Err(writeErr).Str("session_id", proxy.SessionID).Msg("Failed to write RDP data to TCP connection")
-			return writeErr
-		}
-
-		return nil
-	})
-	if err != nil {
-		log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to subscribe to RDP responses")
-		return
-	}
-	defer rdpSub.Unsubscribe()
-
-	// Handle the TCP connection lifecycle
-	buffer := make([]byte, 4096)
-	for {
-		select {
-		case <-connCtx.Done():
-			log.Debug().
-				Str("session_id", proxy.SessionID).
-				Msg("TCP connection context cancelled")
-			return
-		default:
-		}
-
-		// Set read timeout to allow context cancellation
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buffer)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout, check context and continue
-				continue
-			}
-			log.Debug().Err(err).
-				Str("session_id", proxy.SessionID).
-				Msg("TCP connection closed")
-			break
-		}
-
-		// Forward RDP data to Zed container via NATS
-		rdpMessage := types.ZedAgentRDPData{
-			SessionID: proxy.SessionID,
-			Type:      "rdp_data",
-			Data:      buffer[:n],
-			Timestamp: time.Now().Unix(),
-		}
-
-		// Publish RDP data to NATS for forwarding to Zed container
-		messageData, err := json.Marshal(rdpMessage)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to marshal RDP message")
-			continue
-		}
-
-		err = rpm.pubsub.Publish(connCtx, rdpCommandTopic, messageData)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to publish RDP data to NATS")
-			continue
-		}
-
-		log.Debug().
-			Str("session_id", proxy.SessionID).
-			Int("bytes", n).
-			Msg("Forwarded RDP data to NATS")
-	}
-}
-
-// runTCPProxyForSession runs a TCP proxy that forwards RDP traffic via NATS for sessions
-func (rpm *RDPProxyManager) runTCPProxyForSession(ctx context.Context, proxy *RDPProxyConnection) {
-	// Listen on the allocated local port
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
-	if err != nil {
-		log.Error().Err(err).
-			Str("session_id", proxy.SessionID).
-			Str("runner_id", proxy.RunnerID).
-			Int("port", proxy.LocalPort).
-			Msg("Failed to create TCP listener for session RDP proxy")
-		return
-	}
-
-	proxy.listener = listener
+// handleSimpleTCPConnection handles a single TCP connection by proxying over reverse dial
+func (rpm *RDPProxyManager) handleSimpleTCPConnection(ctx context.Context, proxy *RDPProxyConnection, guacdConn net.Conn) {
+	defer guacdConn.Close()
 
 	log.Info().
 		Str("session_id", proxy.SessionID).
 		Str("runner_id", proxy.RunnerID).
-		Int("port", proxy.LocalPort).
-		Msg("RDP TCP proxy listening for session connections")
+		Str("remote_addr", guacdConn.RemoteAddr().String()).
+		Msg("New RDP TCP connection (reverse dial)")
 
-	defer func() {
-		listener.Close()
-		// Clean up connection from map
-		rpm.mu.Lock()
-		delete(rpm.connections, proxy.SessionID)
-		rpm.mu.Unlock()
-		log.Info().
-			Str("session_id", proxy.SessionID).
-			Str("runner_id", proxy.RunnerID).
-			Msg("RDP TCP proxy stopped for session")
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		// Accept incoming connections
-		conn, err := listener.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				// Context cancelled, expected
-				return
-			}
-			log.Error().Err(err).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to accept RDP connection for session")
-			continue
-		}
-
-		// Handle the connection in a goroutine
-		go rpm.handleTCPConnectionForSession(ctx, proxy, conn)
-	}
-}
-
-// handleTCPConnectionForSession handles a single TCP connection by proxying over NATS for sessions
-func (rpm *RDPProxyManager) handleTCPConnectionForSession(ctx context.Context, proxy *RDPProxyConnection, conn net.Conn) {
-	defer conn.Close()
-
-	log.Info().
-		Str("session_id", proxy.SessionID).
-		Str("runner_id", proxy.RunnerID).
-		Str("remote_addr", conn.RemoteAddr().String()).
-		Msg("New RDP TCP connection for session")
-
-	// Set up NATS response topic for this session connection
-	rdpResponseTopic := fmt.Sprintf("rdp.responses.session.%s", proxy.SessionID)
-
-	// Subscribe to RDP responses from the external agent runner
-	connCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Subscribe to NATS responses and forward to TCP connection
-	rdpSub, err := rpm.pubsub.Subscribe(connCtx, rdpResponseTopic, func(payload []byte) error {
-		var rdpData types.ZedAgentRDPData
-		if err := json.Unmarshal(payload, &rdpData); err != nil {
-			log.Error().Err(err).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to unmarshal RDP response from runner for session")
-			return err
-		}
-
-		// Forward RDP data from external agent runner to TCP connection
-		_, writeErr := conn.Write(rdpData.Data)
-		if writeErr != nil {
-			log.Error().Err(writeErr).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to write RDP data to TCP connection for session")
-			return writeErr
-		}
-
-		return nil
-	})
+	// Get reverse dial connection to runner
+	deviceConn, err := rpm.connman.Dial(ctx, proxy.RunnerID)
 	if err != nil {
 		log.Error().Err(err).
 			Str("session_id", proxy.SessionID).
 			Str("runner_id", proxy.RunnerID).
-			Msg("Failed to subscribe to RDP responses from runner for session")
+			Msg("Failed to dial runner via reverse dial")
 		return
 	}
-	defer rdpSub.Unsubscribe()
+	defer deviceConn.Close()
 
-	// Handle the TCP connection lifecycle
-	buffer := make([]byte, 4096)
-	for {
-		select {
-		case <-connCtx.Done():
-			log.Debug().
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("TCP connection context cancelled for session")
-			return
-		default:
-		}
+	log.Info().
+		Str("session_id", proxy.SessionID).
+		Str("runner_id", proxy.RunnerID).
+		Msg("Established reverse dial connection to runner")
 
-		// Set read timeout to allow context cancellation
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buffer)
+	// Update last activity
+	proxy.LastActivity = time.Now()
+
+	// Simple bidirectional TCP proxy (no protocol conversion)
+	done := make(chan struct{}, 2)
+
+	// Forward guacd -> runner
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bytes, err := io.Copy(deviceConn, guacdConn)
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout, check context and continue
-				continue
-			}
 			log.Debug().Err(err).
 				Str("session_id", proxy.SessionID).
 				Str("runner_id", proxy.RunnerID).
-				Msg("TCP connection closed for session")
-			break
-		}
-
-		// Forward RDP data to external agent runner via NATS using existing stream infrastructure
-		// Use sessionID in the data but target the specific runner
-		rdpData := types.ZedAgentRDPData{
-			SessionID: proxy.SessionID, // Use actual sessionID
-			Type:      "rdp_data",
-			Data:      buffer[:n],
-			Timestamp: time.Now().Unix(),
-		}
-
-		// Create a RunnerEventRequest envelope for RDP data
-		rdpPayload, err := json.Marshal(rdpData)
-		if err != nil {
-			log.Error().Err(err).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to marshal RDP data payload for session")
-			continue
-		}
-
-		envelope := types.RunnerEventRequestEnvelope{
-			RequestID: fmt.Sprintf("rdp-session-%s-%d", proxy.SessionID, time.Now().UnixNano()),
-			Type:      types.RunnerEventRequestRDPData,
-			Payload:   rdpPayload,
-			Reply:     rdpResponseTopic,
-		}
-
-		// Marshal envelope to bytes for StreamRequest
-		envelopeBytes, err := json.Marshal(envelope)
-		if err != nil {
-			log.Error().Err(err).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to marshal RDP envelope for session")
-			continue
-		}
-
-		// Use StreamRequest to send RDP data via the existing NATS infrastructure
-		// This will be picked up by the specific runner handling this session
-		ctx, cancel := context.WithTimeout(connCtx, 5*time.Second)
-		_, err = rpm.pubsub.StreamRequest(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, envelopeBytes, nil, 5*time.Second)
-		cancel()
-
-		if err != nil {
-			log.Error().Err(err).
-				Str("session_id", proxy.SessionID).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to send RDP data to runner for session")
+				Msg("Forward guacd->runner ended")
 		} else {
 			log.Debug().
 				Str("session_id", proxy.SessionID).
 				Str("runner_id", proxy.RunnerID).
-				Int("bytes_sent", n).
-				Msg("RDP data sent to runner for session")
+				Int64("bytes", bytes).
+				Msg("Forward guacd->runner completed")
 		}
-	}
+	}()
+
+	// Forward runner -> guacd
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bytes, err := io.Copy(guacdConn, deviceConn)
+		if err != nil {
+			log.Debug().Err(err).
+				Str("session_id", proxy.SessionID).
+				Str("runner_id", proxy.RunnerID).
+				Msg("Forward runner->guacd ended")
+		} else {
+			log.Debug().
+				Str("session_id", proxy.SessionID).
+				Str("runner_id", proxy.RunnerID).
+				Int64("bytes", bytes).
+				Msg("Forward runner->guacd completed")
+		}
+	}()
+
+	// Wait for either direction to complete
+	<-done
+
+	log.Info().
+		Str("session_id", proxy.SessionID).
+		Str("runner_id", proxy.RunnerID).
+		Msg("RDP TCP connection closed (reverse dial)")
 }
 
 func (rpm *RDPProxyManager) allocatePort() int {
@@ -855,270 +657,7 @@ func (rpm *RDPProxyManager) allocatePort() int {
 	return basePort + len(rpm.connections)
 }
 
-// CreateRunnerRDPProxy creates an RDP proxy for an external agent runner
-func (rpm *RDPProxyManager) CreateRunnerRDPProxy(ctx context.Context, runnerID string) (*RDPProxyConnection, error) {
-	rpm.mu.Lock()
-	defer rpm.mu.Unlock()
-
-	// Check if proxy already exists for this runner
-	if existing, exists := rpm.connections[runnerID]; exists {
-		log.Info().
-			Str("runner_id", runnerID).
-			Int("local_port", existing.LocalPort).
-			Msg("RDP proxy already exists for runner")
-		return existing, nil
-	}
-
-	// Allocate a local port for the TCP proxy
-	localPort := rpm.allocatePort()
-
-	// Create the proxy connection
-	proxy := &RDPProxyConnection{
-		RunnerID:       runnerID,
-		ConnectionType: "runner",
-		LocalPort:      localPort,
-		CreatedAt:      time.Now(),
-		LastActivity:   time.Now(),
-	}
-
-	// Start TCP proxy that forwards to NATS
-	proxyCtx, cancel := context.WithCancel(ctx)
-	proxy.cancel = cancel
-
-	go rpm.runTCPProxyForRunner(proxyCtx, proxy)
-
-	// Store the connection
-	rpm.connections[runnerID] = proxy
-
-	log.Info().
-		Str("runner_id", runnerID).
-		Int("local_port", localPort).
-		Msg("Created RDP proxy for external agent runner")
-
-	return proxy, nil
-}
-
-// CreateSessionRDPProxy creates an RDP proxy for a session (maps to a specific runner)
-func (rpm *RDPProxyManager) CreateSessionRDPProxy(ctx context.Context, sessionID, runnerID string) (*RDPProxyConnection, error) {
-	rpm.mu.Lock()
-	defer rpm.mu.Unlock()
-
-	// Check if proxy already exists for this session
-	if existing, exists := rpm.connections[sessionID]; exists {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("runner_id", runnerID).
-			Int("local_port", existing.LocalPort).
-			Msg("RDP proxy already exists for session")
-		return existing, nil
-	}
-
-	// Allocate a local port for the TCP proxy
-	localPort := rpm.allocatePort()
-
-	// Create the proxy connection for session (maps to runner)
-	proxy := &RDPProxyConnection{
-		SessionID:      sessionID,
-		RunnerID:       runnerID,
-		ConnectionType: "session",
-		LocalPort:      localPort,
-		CreatedAt:      time.Now(),
-		LastActivity:   time.Now(),
-	}
-
-	// Start TCP proxy that forwards to NATS targeting the specific runner
-	proxyCtx, cancel := context.WithCancel(ctx)
-	proxy.cancel = cancel
-
-	go rpm.runTCPProxyForSession(proxyCtx, proxy)
-
-	// Store the connection using sessionID as key
-	rpm.connections[sessionID] = proxy
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("runner_id", runnerID).
-		Int("local_port", localPort).
-		Msg("Created RDP proxy for session mapping to runner")
-
-	return proxy, nil
-}
-
-// GetSessionProxy retrieves an existing session proxy connection
-func (rpm *RDPProxyManager) GetSessionProxy(sessionID string) (*RDPProxyConnection, bool) {
-	rpm.mu.RLock()
-	defer rpm.mu.RUnlock()
-
-	proxy, exists := rpm.connections[sessionID]
-	return proxy, exists
-}
-
-// runTCPProxyForRunner runs a TCP proxy that forwards RDP traffic via NATS for runners
-func (rpm *RDPProxyManager) runTCPProxyForRunner(ctx context.Context, proxy *RDPProxyConnection) {
-	// Listen on the allocated local port
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
-	if err != nil {
-		log.Error().Err(err).
-			Str("runner_id", proxy.RunnerID).
-			Int("port", proxy.LocalPort).
-			Msg("Failed to create TCP listener for runner RDP proxy")
-		return
-	}
-
-	proxy.listener = listener
-
-	log.Info().
-		Str("runner_id", proxy.RunnerID).
-		Int("port", proxy.LocalPort).
-		Msg("RDP TCP proxy listening for runner connections")
-
-	defer func() {
-		listener.Close()
-		// Clean up connection from map
-		rpm.mu.Lock()
-		delete(rpm.connections, proxy.RunnerID)
-		rpm.mu.Unlock()
-		log.Info().
-			Str("runner_id", proxy.RunnerID).
-			Msg("RDP TCP proxy stopped for runner")
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		// Accept incoming connections
-		conn, err := listener.Accept()
-		if err != nil {
-			if ctx.Err() != nil {
-				// Context cancelled, expected
-				return
-			}
-			log.Error().Err(err).
-				Str("runner_id", proxy.RunnerID).
-				Msg("Failed to accept RDP connection for runner")
-			continue
-		}
-
-		// Handle the connection in a goroutine
-		go rpm.handleTCPConnectionForRunner(ctx, proxy, conn)
-	}
-}
-
-// handleTCPConnectionForRunner handles a single TCP connection by proxying over NATS for runners
-func (rpm *RDPProxyManager) handleTCPConnectionForRunner(ctx context.Context, proxy *RDPProxyConnection, conn net.Conn) {
-	defer conn.Close()
-
-	log.Info().
-		Str("runner_id", proxy.RunnerID).
-		Str("remote_addr", conn.RemoteAddr().String()).
-		Msg("New RDP TCP connection for runner")
-
-	// Set up NATS response topic for this runner connection
-	rdpResponseTopic := fmt.Sprintf("rdp.responses.runner.%s", proxy.RunnerID)
-
-	// Subscribe to RDP responses from the external agent runner
-	connCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Subscribe to NATS responses and forward to TCP connection
-	rdpSub, err := rpm.pubsub.Subscribe(connCtx, rdpResponseTopic, func(payload []byte) error {
-		var rdpData types.ZedAgentRDPData
-		if err := json.Unmarshal(payload, &rdpData); err != nil {
-			log.Error().Err(err).Str("runner_id", proxy.RunnerID).Msg("Failed to unmarshal RDP response from runner")
-			return err
-		}
-
-		// Forward RDP data from external agent runner to TCP connection
-		_, writeErr := conn.Write(rdpData.Data)
-		if writeErr != nil {
-			log.Error().Err(writeErr).Str("runner_id", proxy.RunnerID).Msg("Failed to write RDP data to TCP connection")
-			return writeErr
-		}
-
-		return nil
-	})
-	if err != nil {
-		log.Error().Err(err).Str("runner_id", proxy.RunnerID).Msg("Failed to subscribe to RDP responses from runner")
-		return
-	}
-	defer rdpSub.Unsubscribe()
-
-	// Handle the TCP connection lifecycle
-	buffer := make([]byte, 4096)
-	for {
-		select {
-		case <-connCtx.Done():
-			log.Debug().
-				Str("runner_id", proxy.RunnerID).
-				Msg("TCP connection context cancelled for runner")
-			return
-		default:
-		}
-
-		// Set read timeout to allow context cancellation
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buffer)
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout, check context and continue
-				continue
-			}
-			log.Debug().Err(err).
-				Str("runner_id", proxy.RunnerID).
-				Msg("TCP connection closed for runner")
-			break
-		}
-
-		// Forward RDP data to external agent runner via NATS using existing stream infrastructure
-		rdpData := types.ZedAgentRDPData{
-			SessionID: proxy.RunnerID, // Use RunnerID as SessionID for runner connections
-			Type:      "rdp_data",
-			Data:      buffer[:n],
-			Timestamp: time.Now().Unix(),
-		}
-
-		// Create a RunnerEventRequest envelope for RDP data
-		rdpPayload, err := json.Marshal(rdpData)
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", proxy.RunnerID).Msg("Failed to marshal RDP data payload for runner")
-			continue
-		}
-
-		envelope := types.RunnerEventRequestEnvelope{
-			RequestID: fmt.Sprintf("rdp-%s-%d", proxy.RunnerID, time.Now().UnixNano()),
-			Type:      types.RunnerEventRequestRDPData,
-			Payload:   rdpPayload,
-			Reply:     rdpResponseTopic,
-		}
-
-		// Marshal envelope to bytes for StreamRequest
-		envelopeBytes, err := json.Marshal(envelope)
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", proxy.RunnerID).Msg("Failed to marshal RDP envelope for runner")
-			continue
-		}
-
-		// Use StreamRequest to send RDP data via the existing NATS infrastructure
-		ctx, cancel := context.WithTimeout(connCtx, 5*time.Second)
-		_, err = rpm.pubsub.StreamRequest(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, envelopeBytes, nil, 5*time.Second)
-		cancel()
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", proxy.RunnerID).Msg("Failed to send RDP data via NATS stream for runner")
-			continue
-		}
-
-		log.Debug().
-			Str("runner_id", proxy.RunnerID).
-			Int("bytes", n).
-			Msg("Forwarded RDP data to NATS for runner")
-	}
-}
-
-// getZedSessionInfo retrieves Zed session information (placeholder implementation)
+// getZedSessionInfo retrieves Zed session information
 func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string) (*ZedAgentSession, error) {
 	// Try to get actual session info from external agent executor
 	if s.externalAgentExecutor != nil {
@@ -1195,38 +734,81 @@ func (rpm *RDPProxyManager) cleanupConnection(sessionID string) {
 	}
 }
 
-// cleanupExpiredConnections removes connections that haven't been used recently
-func (rpm *RDPProxyManager) cleanupExpiredConnections(maxAge time.Duration) {
-	rpm.mu.Lock()
-	defer rpm.mu.Unlock()
+// Legacy compatibility methods for other parts of the codebase
 
-	now := time.Now()
-	for sessionID, conn := range rpm.connections {
-		if now.Sub(conn.LastActivity) > maxAge {
-			// Stop the RDP proxy first
-			if conn.cancel != nil {
-				conn.cancel()
-			}
-			if conn.listener != nil {
-				conn.listener.Close()
-			}
-
-			// Delete from Guacamole
-			if err := rpm.guacamoleClient.deleteConnection(conn.ConnectionID); err != nil {
-				log.Error().Err(err).
-					Str("session_id", sessionID).
-					Str("connection_id", conn.ConnectionID).
-					Msg("Failed to delete expired Guacamole connection")
-			}
-
-			// Remove from local cache
-			delete(rpm.connections, sessionID)
-
-			log.Info().
-				Str("session_id", sessionID).
-				Str("connection_id", conn.ConnectionID).
-				Dur("age", now.Sub(conn.LastActivity)).
-				Msg("Cleaned up expired RDP proxy connection")
-		}
+// CreateRunnerRDPProxy creates an RDP proxy for a runner (legacy method)
+func (rpm *RDPProxyManager) CreateRunnerRDPProxy(ctx context.Context, runnerID string) (*RDPProxyConnection, error) {
+	// Create a basic proxy connection using reverse dial approach
+	proxyPort := rpm.allocatePort()
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	proxy := &RDPProxyConnection{
+		RunnerID:       runnerID,
+		LocalPort:      proxyPort,
+		ConnectionType: "runner",
+		CreatedAt:      time.Now(),
+		LastActivity:   time.Now(),
+		cancel:         cancel,
 	}
+
+	// Start the TCP server in a goroutine
+	go rpm.runSimpleTCPProxy(ctx, proxy)
+
+	// Store connection info
+	rpm.mu.Lock()
+	rpm.connections[runnerID] = proxy
+	rpm.mu.Unlock()
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Int("local_port", proxyPort).
+		Msg("Created RDP proxy for runner using reverse dial")
+
+	return proxy, nil
+}
+
+// CreateSessionRDPProxy creates an RDP proxy for a session (legacy method)
+func (rpm *RDPProxyManager) CreateSessionRDPProxy(ctx context.Context, sessionID, runnerID string) (*RDPProxyConnection, error) {
+	// Use the provided runnerID
+	
+	proxyPort := rpm.allocatePort()
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	proxy := &RDPProxyConnection{
+		SessionID:      sessionID,
+		RunnerID:       runnerID,
+		LocalPort:      proxyPort,
+		ConnectionType: "session",
+		CreatedAt:      time.Now(),
+		LastActivity:   time.Now(),
+		cancel:         cancel,
+	}
+
+	// Start the TCP server in a goroutine
+	go rpm.runSimpleTCPProxy(ctx, proxy)
+
+	// Store connection info
+	rpm.mu.Lock()
+	rpm.connections[sessionID] = proxy
+	rpm.mu.Unlock()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Int("local_port", proxyPort).
+		Msg("Created RDP proxy for session using reverse dial")
+
+	return proxy, nil
+}
+
+
+// GetSessionProxy gets session proxy info (legacy method)
+func (rpm *RDPProxyManager) GetSessionProxy(sessionID string) (*RDPProxyConnection, error) {
+	rpm.mu.RLock()
+	defer rpm.mu.RUnlock()
+	
+	if conn, exists := rpm.connections[sessionID]; exists {
+		return conn, nil
+	}
+	return nil, fmt.Errorf("no proxy found for session %s", sessionID)
 }
