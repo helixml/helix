@@ -162,86 +162,13 @@ WESTONCONF
         # Setup illogical-impulse Hyprland configuration with GPU acceleration
         mkdir -p /home/ubuntu/.config/hypr
         
-        # Copy the illogical-impulse config structure
+        # Use bind-mounted clean config instead of copying illogical-impulse dotfiles
         if [ -d "/home/ubuntu/.config/hypr-dots-backup" ]; then
-            echo "Copying illogical-impulse Hyprland configuration..."
-            cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
+            echo "Skipping illogical-impulse copy - using bind-mounted clean config..."
+            # cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
             
-            # Create custom directory for our GPU optimizations
-            mkdir -p /home/ubuntu/.config/hypr/custom
-            
-            # Create custom environment file with GPU settings
-            cat > /home/ubuntu/.config/hypr/custom/env.conf << 'GPUENV'
-# Critical NVIDIA environment variables for container GPU acceleration
-env = NVIDIA_VISIBLE_DEVICES,all
-env = NVIDIA_DRIVER_CAPABILITIES,all
-env = GBM_BACKEND,nvidia-drm
-env = __GLX_VENDOR_LIBRARY_NAME,nvidia
-env = WLR_NO_HARDWARE_CURSORS,1
-env = WLR_DRM_NO_ATOMIC,1
-env = WLR_RENDERER,gles2
-env = WLR_BACKENDS,headless
-env = GST_GL_API,gles2
-env = GST_GL_WINDOW,surfaceless
-env = LIBGL_ALWAYS_SOFTWARE,0
-env = EGL_PLATFORM,drm
-env = WLR_DRM_DEVICES,/dev/dri/card0
-
-# Terminal override for Ghostty
-env = TERMINAL,ghostty || foot || kitty
-GPUENV
-
-            # Create custom general config with monitor and GPU optimizations
-            cat > /home/ubuntu/.config/hypr/custom/general.conf << 'GPUGENERAL'
-# Monitor configuration for 4K VNC
-monitor = WL-1,3840x2160@120,0x0,1
-
-# GPU and container optimizations
-misc {
-    disable_hyprland_logo = true
-    disable_splash_rendering = true
-    vfr = 1
-    vrr = 1
-    no_direct_scanout = true
-    force_default_wallpaper = 0
-    suppress_portal_warnings = true
-}
-
-# Render settings for NVIDIA GPU acceleration
-render {
-    explicit_sync = 0
-    explicit_sync_kms = 0
-    direct_scanout = false
-}
-
-# OpenGL settings for NVIDIA
-opengl {
-    nvidia_anti_flicker = false
-    force_introspection = 2
-}
-
-# XWayland disabled for container stability
-xwayland {
-    force_zero_scaling = true
-    enabled = false
-}
-GPUGENERAL
-
-            # Create custom execs for our tools
-            cat > /home/ubuntu/.config/hypr/custom/execs.conf << 'GPUEXECS'
-# Install and setup tools on first run
-exec-once = /install-ghostty.sh
-exec-once = /setup-illogical-impulse.sh
-
-# Auto-start terminal for testing
-exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
-GPUEXECS
-
-            # Create empty custom files for other configs
-            touch /home/ubuntu/.config/hypr/custom/rules.conf
-            touch /home/ubuntu/.config/hypr/custom/keybinds.conf
-            
-            echo "illogical-impulse Hyprland config setup complete with GPU acceleration"
+            # Skip custom config creation - using bind-mounted clean config
+            echo "Using bind-mounted clean Hyprland configuration with GPU acceleration"
         else
             echo "illogical-impulse dotfiles not found, creating basic GPU-optimized config..."
             # Fallback to basic config if dotfiles aren't available
