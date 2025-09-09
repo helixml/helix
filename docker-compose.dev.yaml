@@ -234,7 +234,7 @@ services:
     zed-runner:
         build:
             context: .
-            dockerfile: Dockerfile.zed-agent
+            dockerfile: Dockerfile.zed-agent-simple-v2
             args:
                 - BUILD_TYPE=release
         ports:
@@ -252,19 +252,26 @@ services:
 
             # Container uses fixed settings since each container is isolated
             - WORKSPACE_DIR=/tmp/workspace
-            - DISPLAY=:1
+            - DISPLAY=:0
             - RDP_PORT=5900
-            # Initial RDP password (will be rotated dynamically by control plane)
-            # WARNING: Development default used if RDP_PASSWORD not set in .env
-            # PRODUCTION: Always set RDP_PASSWORD to a unique secure value!
-            - RDP_PASSWORD=${RDP_PASSWORD:-dev-insecure-change-me-in-production}
+            # Use scottyhardy image's PASSWORD environment variable  
+            - PASSWORD=${RDP_PASSWORD:-helix123}
+            # Also set RDP_PASSWORD for Helix agent
+            - RDP_PASSWORD=${RDP_PASSWORD:-helix123}
         volumes:
             # Mount source code for hot reloading during development
             - .:/workspace/helix
             # Go caches for faster development
             - go-pkg-mod:/go/pkg/mod
             - go-build-cache:/root/.cache/go-build
-        # No port mapping needed - RDP proxied over WebSocket connection
+            # Mount Zed launcher script for easy iteration
+            - ./zed.sh:/usr/local/bin/zed.sh
+            # Mount zed-build directory for live binary updates
+            - ./zed-build:/zed-build
+        # Add GPU access for Zed (fallback to software rendering if no GPU)
+        devices:
+            - "/dev/dri:/dev/dri"
+        # No port mapping needed - RDP proxied over WebSocket connection  
         restart: always
         depends_on:
             - api
