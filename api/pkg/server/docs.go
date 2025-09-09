@@ -5885,6 +5885,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.AssistantMCP"
                     }
                 },
+                "memory": {
+                    "description": "Enable/disable user based memory for the agent",
+                    "type": "boolean"
+                },
                 "model": {
                     "type": "string"
                 },
