@@ -280,6 +280,8 @@ services:
             - ./zed-build:/zed-build
             # Mount startup script for fast iteration without rebuilds
             - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
+            # Mount Hyprland config for fast iteration
+            - ./hypr-config:/home/ubuntu/.config/hypr
         # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
         devices:
             - "/dev/dri:/dev/dri"
