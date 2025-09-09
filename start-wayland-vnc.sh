@@ -34,15 +34,15 @@ port=3389
 width=3840
 height=2160
 refresh-rate=60
-force-no-compression=true
+# force-no-compression=true
 cursor=client
 
-[libinput]
-enable-tap=true
+[output]
+scale=2
 
 [shell]
-background-color=0xff1a1a1a
-panel-color=0x90ffffff
+background-color=0xff1b1b26
+panel-color=0xff241c2e
 locking=false
 WESTONCONF
 
@@ -86,7 +86,7 @@ sleep 8
 
 echo \"Weston started, launching terminal...\"
 
-# Start Ghostty terminal in Weston 
+# Start Ghostty terminal in Weston
 WAYLAND_DISPLAY=wayland-0 ghostty &
 
 # Wait for compositor
