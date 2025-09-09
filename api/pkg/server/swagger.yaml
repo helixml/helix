@@ -1213,6 +1213,9 @@ definitions:
         items:
           $ref: '#/definitions/types.AssistantMCP'
         type: array
+      memory:
+        description: Enable/disable user based memory for the agent
+        type: boolean
       model:
         type: string
       name:
