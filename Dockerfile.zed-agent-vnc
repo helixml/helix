@@ -137,68 +137,19 @@ RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install 
 # Create workspace directory
 RUN mkdir -p /workspace && chmod 755 /workspace
 
-# Create Ghostty installation script
-COPY <<EOF /install-ghostty.sh
-#!/bin/bash
-set -e
-
-# Only install once
-if command -v ghostty >/dev/null 2>&1; then
-    echo "Ghostty already installed"
-    exit 0
-fi
-
-echo "Installing Ghostty terminal..."
-
-# Try to install from GitHub releases
-cd /tmp
-GHOSTTY_INSTALLED=false
-
-# Try Ubuntu package from mkasberg/ghostty-ubuntu (official Ubuntu builds)
-echo "Trying official Ubuntu package from mkasberg/ghostty-ubuntu..."
-LATEST_DEB_URL=\$(curl -s https://api.github.com/repos/mkasberg/ghostty-ubuntu/releases/latest | grep "browser_download_url.*\.deb" | grep -E "(24\.04|25\.04|ubuntu)" | cut -d '"' -f 4 | head -1)
-
-if [ -n "\$LATEST_DEB_URL" ]; then
-    echo "Downloading Ghostty Ubuntu package from: \$LATEST_DEB_URL"
-    if wget -q "\$LATEST_DEB_URL" -O ghostty.deb; then
-        if apt install -y ./ghostty.deb; then
-            GHOSTTY_INSTALLED=true
-            echo "Ghostty installed successfully from Ubuntu package"
-        fi
-    fi
-else
-    # Fallback to specific versions if API fails
-    for version in "1.0.1" "1.0.0"; do
-        echo "Trying Ghostty Ubuntu package version \$version..."
-        if wget -q "https://github.com/mkasberg/ghostty-ubuntu/releases/download/v\$version/ghostty_\${version}-1_amd64.deb" -O ghostty.deb 2>/dev/null; then
-            if apt install -y ./ghostty.deb 2>/dev/null; then
-                GHOSTTY_INSTALLED=true
-                echo "Ghostty v\$version installed successfully from Ubuntu package"
-                break
-            fi
-        fi
-    done
-fi
-
-# Alternative: try snap installation
-if [ "\$GHOSTTY_INSTALLED" = "false" ]; then
-    echo "Trying snap installation..."
-    if command -v snap >/dev/null 2>&1; then
-        snap install ghostty --edge 2>/dev/null && GHOSTTY_INSTALLED=true && echo "Ghostty installed via snap"
-    fi
-fi
-
-# Final fallback message
-if [ "\$GHOSTTY_INSTALLED" = "false" ]; then
-    echo "Ghostty installation failed. Using foot and kitty as alternatives."
-    echo "Ghostty may not have public releases yet - it's still in development"
-fi
-
-# Cleanup
-rm -f /tmp/ghostty.deb
-
-EOF
-RUN chmod +x /install-ghostty.sh
+# Install Ghostty terminal at build time (moved from runtime for efficiency)
+RUN apt-get update && apt-get install -y curl \
+    # GTK and GUI dependencies for Ghostty
+    libgtk-4-dev libgtk-4-1 libadwaita-1-0 \
+    libgraphene-1.0-0 libcairo2 libcairo-gobject2 \
+    libgdk-pixbuf-2.0-0 libpango-1.0-0 libpangocairo-1.0-0 \
+    libfontconfig1 libfreetype6 libharfbuzz0b \
+    libglib2.0-0 libgobject-2.0-0 libgio-2.0-0 \
+    # Additional runtime dependencies
+    libegl1 libgl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+    libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 \
+    && /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" || echo "Ghostty installation failed, continuing with alternatives" && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create illogical-impulse setup script
 COPY <<EOF /setup-illogical-impulse.sh
