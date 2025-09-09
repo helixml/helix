@@ -146,7 +146,8 @@ WESTONCONF
         
         # Check if weston is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-            echo "Weston failed to start, falling back to cage..."
+            echo "Weston failed to start, falling back to cage with 4K..."
+            export WLR_HEADLESS_OUTPUTS="1:3840x2160"
             cage -- sleep infinity &
             COMPOSITOR_PID=$!
             sleep 5
@@ -158,29 +159,20 @@ WESTONCONF
         mkdir -p /home/ubuntu/.cache/hyprland
         chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
         
-        # Create optimized Hyprland config for NVIDIA GPU acceleration
+        # Setup illogical-impulse Hyprland configuration with GPU acceleration
         mkdir -p /home/ubuntu/.config/hypr
-        cat > /home/ubuntu/.config/hypr/hyprland.conf << 'HYPRCONF'
-# Hyprland configuration optimized for NVIDIA GPU acceleration in containers
-# Following Wolf's GPU patterns and Hyprland NVIDIA best practices
-
-# Monitor configuration for headless VNC - 4K @ 120Hz
-monitor = WL-1,3840x2160@120,0x0,1
-
-# Container and headless optimizations
-misc {
-    disable_hyprland_logo = true
-    disable_splash_rendering = true
-    vfr = false
-    vrr = 0
-    no_direct_scanout = true
-    force_default_wallpaper = 0
-    animate_manual_resizes = false
-    animate_mouse_windowdragging = false
-    suppress_portal_warnings = true
-}
-
-# Critical NVIDIA environment variables (matching our detection)
+        
+        # Copy the illogical-impulse config structure
+        if [ -d "/home/ubuntu/.config/hypr-dots-backup" ]; then
+            echo "Copying illogical-impulse Hyprland configuration..."
+            cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
+            
+            # Create custom directory for our GPU optimizations
+            mkdir -p /home/ubuntu/.config/hypr/custom
+            
+            # Create custom environment file with GPU settings
+            cat > /home/ubuntu/.config/hypr/custom/env.conf << 'GPUENV'
+# Critical NVIDIA environment variables for container GPU acceleration
 env = NVIDIA_VISIBLE_DEVICES,all
 env = NVIDIA_DRIVER_CAPABILITIES,all
 env = GBM_BACKEND,nvidia-drm
@@ -191,11 +183,29 @@ env = WLR_RENDERER,gles2
 env = WLR_BACKENDS,headless
 env = GST_GL_API,gles2
 env = GST_GL_WINDOW,surfaceless
-# Additional container environment fixes
 env = LIBGL_ALWAYS_SOFTWARE,0
-env = MESA_LOADER_DRIVER_OVERRIDE,
 env = EGL_PLATFORM,drm
-env = WLR_DRM_DEVICES,/dev/dri/card1
+env = WLR_DRM_DEVICES,/dev/dri/card0
+
+# Terminal override for Ghostty
+env = TERMINAL,ghostty || foot || kitty
+GPUENV
+
+            # Create custom general config with monitor and GPU optimizations
+            cat > /home/ubuntu/.config/hypr/custom/general.conf << 'GPUGENERAL'
+# Monitor configuration for 4K VNC
+monitor = WL-1,3840x2160@120,0x0,1
+
+# GPU and container optimizations
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    vfr = 1
+    vrr = 1
+    no_direct_scanout = true
+    force_default_wallpaper = 0
+    suppress_portal_warnings = true
+}
 
 # Render settings for NVIDIA GPU acceleration
 render {
@@ -210,77 +220,63 @@ opengl {
     force_introspection = 2
 }
 
-# Input configuration
+# XWayland disabled for container stability
+xwayland {
+    force_zero_scaling = true
+    enabled = false
+}
+GPUGENERAL
+
+            # Create custom execs for our tools
+            cat > /home/ubuntu/.config/hypr/custom/execs.conf << 'GPUEXECS'
+# Install and setup tools on first run
+exec-once = /install-ghostty.sh
+exec-once = /setup-illogical-impulse.sh
+
+# Auto-start terminal for testing
+exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
+GPUEXECS
+
+            # Create empty custom files for other configs
+            touch /home/ubuntu/.config/hypr/custom/rules.conf
+            touch /home/ubuntu/.config/hypr/custom/keybinds.conf
+            
+            echo "illogical-impulse Hyprland config setup complete with GPU acceleration"
+        else
+            echo "illogical-impulse dotfiles not found, creating basic GPU-optimized config..."
+            # Fallback to basic config if dotfiles aren't available
+            cat > /home/ubuntu/.config/hypr/hyprland.conf << 'BASICCONF'
+# Basic GPU-optimized Hyprland config
+monitor = WL-1,3840x2160@120,0x0,1
+
+# GPU environment
+env = NVIDIA_VISIBLE_DEVICES,all
+env = NVIDIA_DRIVER_CAPABILITIES,all
+env = GBM_BACKEND,nvidia-drm
+env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+
+general {
+    gaps_in = 4
+    gaps_out = 5
+    border_size = 2
+    col.active_border = rgba(0DB7D4FF)
+    col.inactive_border = rgba(31313600)
+}
+
 input {
     kb_layout = us
     follow_mouse = 1
-    repeat_rate = 25
-    repeat_delay = 600
-    accel_profile = flat
-    force_no_accel = false
 }
 
-# General settings optimized for performance
-general {
-    gaps_in = 0
-    gaps_out = 0
-    border_size = 2
-    col.active_border = rgba(33ccffee)
-    col.inactive_border = rgba(595959aa)
-    layout = dwindle
-    no_focus_fallback = true
-    allow_tearing = false
-    resize_on_border = true
-    extend_border_grab_area = 10
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
 }
 
-# Disable all animations for maximum performance
-animations {
-    enabled = false
-}
-
-# Minimal decoration for performance
-decoration {
-    rounding = 0
-    drop_shadow = false
-    blur {
-        enabled = false
-    }
-}
-
-# Layout settings
-dwindle {
-    pseudotile = false
-    preserve_split = true
-    smart_split = false
-    smart_resizing = false
-}
-
-# Gestures (disabled for headless)
-gestures {
-    workspace_swipe = false
-}
-
-# XWayland settings - disabled for container environment stability
-xwayland {
-    force_zero_scaling = true
-    # Disable XWayland to avoid EGL context issues in containers
-    # Can be re-enabled later once core Wayland functionality is stable
-    enabled = false
-}
-
-# Window rules for better compatibility
-windowrulev2 = immediate, class:.*
-windowrulev2 = noanim, class:.*
-
-# Workspace configuration
-workspace = 1, monitor:WL-1, default:true
-
-# Auto-start terminal for testing (Ghostty with fallback to foot)
-exec-once = bash -c 'ghostty || foot'
-# Setup illogical-impulse dotfiles on first run
-exec-once = /setup-illogical-impulse.sh
-HYPRCONF
+exec-once = /install-ghostty.sh
+exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
+BASICCONF
+        fi
         
         # Enhanced Hyprland startup with NVIDIA GPU acceleration
         echo "Attempting to start Hyprland with NVIDIA RTX 4090 GPU acceleration..."
@@ -333,7 +329,8 @@ HYPRCONF
                 echo "❌ Hyprland failed on second attempt, falling back to cage..."
                 pkill -f Hyprland 2>/dev/null || true
                 sleep 2
-                echo "Starting cage as fallback..."
+                echo "Starting cage as fallback with 4K..."
+                export WLR_HEADLESS_OUTPUTS="1:3840x2160"
                 cage -- sleep infinity &
                 COMPOSITOR_PID=$!
                 sleep 5
@@ -346,7 +343,8 @@ HYPRCONF
         fi
     else
         # Try cage with hardware acceleration first
-        echo "Attempting to start cage with hardware acceleration..."
+        echo "Attempting to start cage with 4K hardware acceleration..."
+        export WLR_HEADLESS_OUTPUTS="1:3840x2160"
         cage -- sleep infinity &
         COMPOSITOR_PID=$!
         sleep 8
@@ -357,6 +355,7 @@ HYPRCONF
             export WLR_RENDERER=pixman
             export LIBGL_ALWAYS_SOFTWARE=1
             export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+            export WLR_HEADLESS_OUTPUTS="1:3840x2160"
             cage -- sleep infinity &
             COMPOSITOR_PID=$!
             sleep 5
@@ -422,8 +421,9 @@ elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
     export WAYLAND_DISPLAY=wayland-0
 fi
 echo \"Using Wayland display: \$WAYLAND_DISPLAY\"
-# Start wayvnc with input disabled for better compatibility
-wayvnc --disable-input 0.0.0.0 5901 &
+# Start wayvnc with input enabled and cursor optimizations for VNC
+# --render-cursor enables server-side cursor, auto-detect output
+wayvnc --render-cursor 0.0.0.0 5901 &
 WAYVNC_PID=\$!
 
 # Wait for both processes
