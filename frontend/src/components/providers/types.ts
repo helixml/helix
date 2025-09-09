@@ -8,6 +8,7 @@ import AWSLogo from './logos/aws';
 // Direct image imports
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg';
+import { OllamaIcon } from "../icons/ProviderIcons";
 
 export interface Provider {
   id: string;
@@ -15,7 +16,12 @@ export interface Provider {
   name: string;
   description: string;
   logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
+  
   base_url: string;
+  configurable_base_url?: boolean;
+
+  optional_api_key?: boolean; // If provider doesn't need an API key 
+
   setup_instructions: string;
 }
 
@@ -83,5 +89,16 @@ export const PROVIDERS: Provider[] = [
     logo: togetheraiLogo, 
     base_url: "https://api.together.xyz/v1",
     setup_instructions: "Get your API key from https://api.together.xyz/"
+  },
+  {
+    id: 'user/ollama',
+    alias: ['ollama', 'ollama-api'],
+    name: 'Ollama',
+    description: 'Integrate with Ollama which is running on your local machine or server.',
+    logo: OllamaIcon, 
+    base_url: "http://host.docker.internal:11434/v1",
+    configurable_base_url: true,
+    optional_api_key: true,
+    setup_instructions: "Open Ollama settings and turn on 'Expose Ollama to the network'"
   }
 ];
