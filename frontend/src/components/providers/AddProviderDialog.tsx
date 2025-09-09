@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DialogContent,
   DialogActions,
@@ -32,6 +32,8 @@ interface AddProviderDialogProps {
     name: string;
     description: string;
     base_url: string;
+    configurable_base_url?: boolean;
+    optional_api_key?: boolean; // If provider doesn't need an API key 
     setup_instructions: string;
   };
   // Only set if we are editing an existing provider
@@ -69,7 +71,10 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
+  const [baseUrlError, setBaseUrlError] = useState<string | null>(null);
+
   const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const { mutate: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
@@ -80,6 +85,10 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
 
   const isEditing = !!existingProvider;
   const isPending = isCreating || isUpdating || isDeleting;
+
+  useEffect(() => {
+    setBaseUrl(provider.base_url)
+  }, [provider])
 
   // Generate masked API key for display
   const getMaskedApiKey = () => {
@@ -122,15 +131,20 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       // For editing, if no new API key is provided, use the existing one
       const apiKeyToUse = isEditing && !apiKey.trim() ? existingProvider?.api_key || '' : apiKey;
       
-      if (!apiKeyToUse.trim()) {
+      if (!apiKeyToUse.trim() && !provider.optional_api_key) {
         setError('API key is required');
         return;
       }
 
+      if (!baseUrl.trim()) {
+        setBaseUrlError('Base URL is required');
+        return;
+      }      
+
       if (isEditing && existingProvider) {
         // Update existing provider
         await updateProviderEndpoint({
-          base_url: provider.base_url,
+          base_url: baseUrl,
           api_key: apiKeyToUse,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
@@ -140,7 +154,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         // Create new provider
         await createProviderEndpoint({
           name: provider.id,
-          base_url: provider.base_url,
+          base_url: baseUrl,
           api_key: apiKey,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
@@ -195,6 +209,23 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           </DescriptionTypography>
 
           <SectionCard>
+            { provider.configurable_base_url ? ( <>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
+                Base URL
+              </Typography>
+              <TextField
+                fullWidth
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                type="test"
+                autoComplete="base-url"
+                error={!!baseUrlError}
+                helperText={baseUrlError}
+                sx={{ flex: 1 }}
+              />
+            </Box>
+            </>) : (<></>)}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="body2" sx={{ minWidth: 80, mr: 2, color: 'text.primary', fontWeight: 500 }}>
                 API Key
@@ -281,7 +312,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             size="small"
             variant="outlined"
             color="secondary"
-            disabled={isPending || (!apiKey.trim() && !isEditing)}
+            disabled={isPending || ((!apiKey.trim() && !provider.optional_api_key) && !isEditing)}
           >
             {isEditing ? 'Update' : 'Connect'}
           </Button>
