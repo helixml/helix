@@ -4,13 +4,17 @@
 
 This document describes the architecture for providing RDP access to external agent runners through a Guacamole-based remote desktop solution that uses reverse dial connections for NAT traversal.
 
+Goal: Provide a top-of-the-range AI coding experience with GPU accelerated remote desktop as well as secure agent sandboxes.
+
+In the future, we may need to use Zed SSH remote support (once AI agent support works there) to properly isolate the agents from the GUI environments (which are probably ok to run in containers, rather than trying to get OpenGL working in VMs!).
+
 ## Architecture Flow
 
 ```
 Frontend Guacamole Client (JavaScript) <-(Guacamole Protocol over WebSocket)->
     ↓
 API Guacamole Proxy <-(REST API + WebSocket)->
-    ↓  
+    ↓
 guacamole-client:8080 (Guacamole Web App) <-(Guacamole Protocol)->
     ↓
 guacamole:4822 (guacd daemon) <-(RDP)->
@@ -44,7 +48,7 @@ XRDP Server (localhost:3389)
 - **Location**: Docker container (`guacamole/guacamole:1.5.5`)
 - **Port**: 8080 (exposed as ${GUACAMOLE_PORT:-8090}:8080)
 - **Purpose**: Provides REST API, WebSocket tunnels, and web interface
-- **Features**: 
+- **Features**:
   - Dynamic connection creation via REST API
   - Authentication and session management
   - Connection management interface (useful for debugging)
@@ -88,7 +92,7 @@ XRDP Server (localhost:3389)
 - **Password**: Runner's current RDP password
 - **Isolation**: Session ID used to isolate desktop context
 
-### Runner-specific RDP  
+### Runner-specific RDP
 - **Use Case**: Admin/debugging direct runner access
 - **URL**: `/api/v1/external-agents/runners/{runnerID}/rdp`
 - **Authentication**: Admin privileges required
@@ -137,7 +141,7 @@ XRDP Server (localhost:3389)
 
 3. **RDP Traffic Flow**
    - guacd connects to API RDP proxy on localhost:15900+
-   - API RDP proxy calls `connman.Dial(ctx, runnerID)` to get connection to runner  
+   - API RDP proxy calls `connman.Dial(ctx, runnerID)` to get connection to runner
    - TCP traffic flows directly through reverse dial connection (no protocol conversion)
    - Agent runner forwards TCP traffic to localhost:3389 (XRDP)
 
@@ -147,7 +151,7 @@ XRDP Server (localhost:3389)
 - Agent Runner database table and password management
 - **Runner password synchronization** - Control plane sends passwords to runners via ZedAgent WebSocket
 - Frontend Guacamole JavaScript client (with URL parameter approach)
-- Session and runner API endpoints  
+- Session and runner API endpoints
 - Guacamole server containers (guacd + guacamole-client)
 - **Simplified XRDP configuration** - Direct X11 sessions without session manager
 - **Existing revdial/connman infrastructure** - Ready to use without modification
@@ -173,7 +177,7 @@ XRDP Server (localhost:3389)
    // Get reverse dial connection to runner
    deviceConn, err := rpm.connman.Dial(ctx, proxy.RunnerID)
    if err != nil { return err }
-   
+
    // Simple bidirectional TCP proxy (no protocol conversion)
    go io.Copy(guacdConn, deviceConn)
    go io.Copy(deviceConn, guacdConn)
@@ -182,7 +186,7 @@ XRDP Server (localhost:3389)
 5. ✅ Added connman integration and `/revdial` endpoint
 6. ✅ Maintained backward compatibility with legacy method signatures
 
-### Phase 2: Simplify Agent Runner RDP Handler  
+### Phase 2: Simplify Agent Runner RDP Handler
 **File**: `api/pkg/external-agent/runner.go`
 **Changes**:
 1. Remove all NATS RDP message handling
@@ -202,7 +206,7 @@ XRDP Server (localhost:3389)
            if err != nil { return }
            defer rdpConn.Close()
            defer conn.Close()
-           
+
            go io.Copy(conn, rdpConn)
            go io.Copy(rdpConn, conn)
        }()
@@ -225,7 +229,7 @@ XRDP Server (localhost:3389)
 
 ### Phase 4: API Guacamole Proxy (UNCHANGED)
 Create WebSocket proxy in API server that:
-- Accepts Guacamole protocol WebSocket connections from frontend  
+- Accepts Guacamole protocol WebSocket connections from frontend
 - Forwards to guacamole-client:8080 WebSocket tunnel
 - Handles bidirectional Guacamole protocol traffic
 - Manages connection lifecycle and authentication
@@ -240,7 +244,7 @@ Implement dynamic connection management:
 ### Phase 6: End-to-End Testing
 - Test complete flow from frontend to XRDP with new reverse dial approach
 - Verify password rotation and security still work
-- Test both session and runner connection types  
+- Test both session and runner connection types
 - Debug via Guacamole web interface
 - Performance testing (should be faster with direct TCP)
 
@@ -259,7 +263,7 @@ RDP_PROXY_START_PORT=15900                         # Start port for local TCP pr
 # Removed: RDP_PROXY_MAX_CONNECTIONS (managed by connman instead)
 # Removed: NATS configuration variables
 
-# Agent Runner (SIMPLIFIED)  
+# Agent Runner (SIMPLIFIED)
 RDP_USER=zed                                       # XRDP username
 RDP_PASSWORD=YOUR_SECURE_INITIAL_RDP_PASSWORD_HERE  # REQUIRED - Generate a unique password
 # Removed: RDP_START_PORT (always 3389 locally)
@@ -300,7 +304,7 @@ head -c 12 /dev/urandom | base64
 
 # Generate all passwords at once
 echo "RDP_PASSWORD=$(openssl rand -base64 32)"
-echo "GUACAMOLE_PASSWORD=$(openssl rand -base64 32)" 
+echo "GUACAMOLE_PASSWORD=$(openssl rand -base64 32)"
 echo "POSTGRES_ADMIN_PASSWORD=$(openssl rand -base64 32)"
 ```
 
@@ -322,7 +326,7 @@ The `docker-compose.dev.yaml` automatically configures:
 
 ### Guacamole Component Separation (UNCHANGED)
 - **Frontend JavaScript**: Browser rendering and user interaction
-- **guacamole-client**: Server-side web app providing REST API and WebSocket tunnels  
+- **guacamole-client**: Server-side web app providing REST API and WebSocket tunnels
 - **guacd**: Protocol conversion daemon (Guacamole ↔ RDP/VNC/SSH)
 
 ### Dynamic Connection Management
@@ -352,7 +356,7 @@ The `docker-compose.dev.yaml` automatically configures:
 3. **Control Plane Registration**: Registers reverse dial connection in connman with runnerID
 4. **RDP Request**: guacd connects to API TCP proxy on localhost:15900+
 5. **Connection Lookup**: API proxy calls `connman.Dial(ctx, runnerID)` to get runner connection
-6. **TCP Forwarding**: Direct bidirectional TCP copy between guacd and agent runner  
+6. **TCP Forwarding**: Direct bidirectional TCP copy between guacd and agent runner
 7. **XRDP Forward**: Agent runner forwards TCP to localhost:3389 (XRDP server)
 
 ## Authentication & Security
@@ -508,7 +512,7 @@ curl -X GET "https://api.helix.ml/api/v1/revdial?runnerid=runner-123" \
    cat .env
    # Should show:
    # RDP_PASSWORD=<generated-secure-password>
-   # GUACAMOLE_PASSWORD=<generated-secure-password>  
+   # GUACAMOLE_PASSWORD=<generated-secure-password>
    # POSTGRES_ADMIN_PASSWORD=<generated-secure-password>
    # GUACAMOLE_USERNAME=guacadmin
    ```
