@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     wget curl ca-certificates gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Wayland compositor and VNC server for GPU-accelerated remote desktop
+# Install Wayland compositor and VNC server with Games on Whales inspired GPU support
 RUN apt-get update && apt-get install -y \
     # Wayland VNC server and compositors
     wayvnc cage sway-backgrounds weston \
@@ -30,15 +30,18 @@ RUN apt-get update && apt-get install -y \
     wget git unzip curl sqlite3 ca-certificates \
     build-essential cmake \
     nodejs npm python3 python3-pip \
-    # GPU libraries and detection tools for Wayland
+    # Intel/Mesa GPU drivers (following Wolf's proven pattern)
+    va-driver-all intel-media-va-driver-non-free \
+    libva-drm2 libva-x11-2 libvpl2 \
+    # Core Mesa/OpenGL libraries for GPU acceleration
     mesa-utils mesa-utils-extra \
     libgl1-mesa-dri libglx-mesa0 \
     libegl-mesa0 libgles2-mesa-dev \
     libgbm1 libdrm2 \
-    # Hardware detection tools
+    # Hardware detection tools and kernel module support  
     pciutils lshw usbutils kmod libkmod2 \
-    # Additional GPU support
-    va-driver-all vdpau-driver-all \
+    # Wayland display protocol libraries (Wolf dependencies)
+    libwayland-dev libwayland-server0 libinput-dev libxkbcommon-dev \
     # Zed runtime dependencies
     libfontconfig1 libfreetype6 libxcb1 libxcb-render0 libxcb-shape0 \
     libxcb-xfixes0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 \
@@ -49,17 +52,35 @@ RUN apt-get update && apt-get install -y \
     xwayland \
     # Additional tools
     supervisor nano vim \
-    && rm -rf /var/lib/apt/lists/* \
-    # Install NVIDIA EGL and container libraries for proper GPU access
-    && (apt-get update && apt-get install -y \
-        libnvidia-egl-wayland1 \
-        libnvidia-egl-gbm1 \
-        libegl-nvidia0 \
-        libgl1-nvidia-glvnd-glx \
-        libnvidia-gl-545 \
-        nvidia-utils-545 \
-        || echo "Some NVIDIA packages not available") \
     && rm -rf /var/lib/apt/lists/*
+
+# Add NVIDIA CUDA runtime libraries (following Wolf's proven approach)
+RUN <<_ADD_NVRTC
+    #!/bin/bash
+    set -e
+
+    # Extra deps for NVIDIA CUDA runtime
+    apt-get update -y
+    apt-get install -y unzip curl
+
+    cd /tmp
+    curl -fsSL -o nvidia_cuda_nvrtc_linux_x86_64.whl "https://developer.download.nvidia.com/compute/redist/nvidia-cuda-nvrtc/nvidia_cuda_nvrtc-11.0.221-cp36-cp36m-linux_x86_64.whl"
+    unzip -joq -d ./nvrtc nvidia_cuda_nvrtc_linux_x86_64.whl
+    cd nvrtc
+    chmod 755 libnvrtc*
+    find . -maxdepth 1 -type f -name "*libnvrtc.so.*" -exec sh -c 'ln -snf $(basename {}) libnvrtc.so' \;
+    mkdir -p /usr/local/nvidia/lib
+    mv -f libnvrtc* /usr/local/nvidia/lib
+    rm -rf /tmp/*
+
+    echo "/usr/local/nvidia/lib" >> /etc/ld.so.conf.d/nvidia.conf
+    echo "/usr/local/nvidia/lib64" >> /etc/ld.so.conf.d/nvidia.conf
+    ldconfig
+
+    # Cleanup
+    apt-get remove -y --purge unzip curl
+    rm -rf /var/lib/apt/lists/*
+_ADD_NVRTC
 
 # Copy Go from build stage for air hot reloading
 COPY --from=go-build-env /usr/local/go /usr/local/go

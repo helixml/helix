@@ -260,6 +260,12 @@ services:
             - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
+            
+            # Wolf-style GPU configuration for container runtime
+            - NVIDIA_VISIBLE_DEVICES=all
+            - NVIDIA_DRIVER_CAPABILITIES=all
+            - WOLF_RENDER_NODE=/dev/dri/renderD128
+            - GST_GL_DRM_DEVICE=/dev/dri/renderD128
         volumes:
             # Mount source code for hot reloading during development
             - .:/workspace/helix
@@ -274,7 +280,7 @@ services:
             - ./zed-build:/zed-build
             # Mount startup script for fast iteration without rebuilds
             - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
-        # Add comprehensive GPU access via DRI and NVIDIA devices
+        # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
         devices:
             - "/dev/dri:/dev/dri"
             - "/dev/nvidia0:/dev/nvidia0"
