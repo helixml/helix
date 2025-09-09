@@ -61,7 +61,7 @@ RUN apt-get update && apt-get install -y \
     # XWayland for X11 app compatibility
     xwayland \
     # Additional tools and FreeRDP for RDP key generation
-    supervisor nano vim openssl freerdp2 \
+    supervisor nano vim openssl freerdp2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Add NVIDIA CUDA runtime libraries (following Wolf's proven approach)

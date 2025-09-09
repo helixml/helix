@@ -21,12 +21,12 @@ export NVIDIA_DRIVER_CAPABILITIES=all
 export GBM_BACKEND=nvidia-drm
 export __GLX_VENDOR_LIBRARY_NAME=nvidia
 
-# Weston configuration for RDP backend with 4K support
+# Weston configuration for RDP backend with only real documented options
 mkdir -p /home/ubuntu/.config
 cat > /home/ubuntu/.config/weston.ini << 'WESTONCONF'
 [core]
 backend=rdp-backend.so
-require-input=false
+renderer=gl
 
 [rdp]
 bind-address=0.0.0.0
@@ -34,6 +34,11 @@ port=3389
 width=3840
 height=2160
 refresh-rate=60
+force-no-compression=true
+cursor=client
+
+[libinput]
+enable-tap=true
 
 [shell]
 background-color=0xff1a1a1a
@@ -48,23 +53,32 @@ fi
 
 echo \"Starting Weston with 4K@60Hz RDP support...\"
 
-# Generate temporary RDP keys for Weston
+# Generate TLS key and certificate for Weston RDP backend
 mkdir -p /tmp/rdp-keys
 cd /tmp/rdp-keys
 
-# Try winpr-makecert first, fallback to openssl if not available
-if command -v winpr-makecert >/dev/null 2>&1; then
-    echo \"Using winpr-makecert for RDP key generation\"
-    winpr-makecert -rdp -silent -n rdp-security 2>/dev/null || echo \"winpr-makecert failed\"
-    KEY_FILE=\"/tmp/rdp-keys/rdp-security.key\"
-else
-    echo \"Using openssl for RDP key generation\"
-    openssl genrsa -out rdp.key 2048 2>/dev/null || echo \"OpenSSL key generation failed\"
-    KEY_FILE=\"/tmp/rdp-keys/rdp.key\"
+echo \"Generating TLS key and certificate for RDP backend...\"
+
+# Generate RSA private key
+openssl genrsa -out tls.key 2048
+
+# Generate certificate signing request (non-interactive)
+openssl req -new -key tls.key -out tls.csr -subj \"/C=US/ST=CA/L=SF/O=Helix/CN=localhost\"
+
+# Generate self-signed certificate
+openssl x509 -req -days 365 -signkey tls.key -in tls.csr -out tls.crt
+
+# Verify files were created
+if [ ! -f \"tls.key\" ] || [ ! -f \"tls.crt\" ]; then
+    echo \"ERROR: Failed to generate TLS key or certificate\"
+    exit 1
 fi
 
-# Start Weston with RDP backend for 4K@60Hz
-weston --backend=rdp-backend.so --rdp4-key=\$KEY_FILE &
+echo \"TLS files generated successfully:\"
+ls -la tls.key tls.crt
+
+# Start Weston with RDP backend for 4K@60Hz using TLS
+weston --backend=rdp-backend.so --rdp-tls-key=/tmp/rdp-keys/tls.key --rdp-tls-cert=/tmp/rdp-keys/tls.crt &
 COMPOSITOR_PID=\$!
 
 # Wait for Weston to start
