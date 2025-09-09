@@ -1,7 +1,7 @@
 #!/bin/bash
 # Zed launcher script with VirtualGL GPU acceleration
 
-# Set up VirtualGL environment
+# Set up VirtualGL environment with safe display isolation
 export DISPLAY=:1
 export VGL_DISPLAY=:0
 
@@ -17,10 +17,17 @@ if [ ! -f "/zed-build/zed" ]; then
     exit 1
 fi
 
-# Check VirtualGL status
+# Check VirtualGL status (works great with TigerVNC)
 echo "VirtualGL status:"
-/opt/VirtualGL/bin/vglconnect -s 2>/dev/null || echo "VirtualGL connection check failed"
+/opt/VirtualGL/bin/vglconnect -s 2>/dev/null || echo "VirtualGL connection check failed (normal in containers)"
 
-# Run Zed with VirtualGL acceleration
-echo "Launching Zed with vglrun..."
-exec /opt/VirtualGL/bin/vglrun /usr/local/bin/zed "$@"
+# Allow Zed to use software GPU rendering (recommended for VNC/remote desktop)
+export ZED_ALLOW_EMULATED_GPU=1
+
+# Set up Vulkan software rendering (works better in VirtualGL containers)
+export VK_ICD_FILENAMES="/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+
+# Run Zed with software Vulkan (which still uses VirtualGL for OpenGL acceleration)
+echo "Launching Zed with software Vulkan rendering (optimized for remote desktop)..."
+exec /opt/VirtualGL/bin/vglrun -d :0 /usr/local/bin/zed "$@"

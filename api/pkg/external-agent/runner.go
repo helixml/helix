@@ -732,48 +732,48 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_forwarding_start").
 		Str("runner_id", r.cfg.RunnerID).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting reverse dial forwarding to XRDP")
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting reverse dial forwarding to VNC")
 	
-	// Connect to local XRDP server
-	xrdpConn, err := net.Dial("tcp", "localhost:3389")
+	// Connect to local VNC server
+	vncConn, err := net.Dial("tcp", "localhost:5901")
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("EXTERNAL_AGENT_DEBUG", "xrdp_dial_failed").
+			Str("EXTERNAL_AGENT_DEBUG", "vnc_dial_failed").
 			Str("runner_id", r.cfg.RunnerID).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to connect to local XRDP")
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to connect to local VNC")
 		return
 	}
-	defer xrdpConn.Close()
+	defer vncConn.Close()
 	
 	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "xrdp_connected").
+		Str("EXTERNAL_AGENT_DEBUG", "vnc_connected").
 		Str("runner_id", r.cfg.RunnerID).
-		Msg("✅ EXTERNAL_AGENT_DEBUG: Connected to local XRDP server")
+		Msg("✅ EXTERNAL_AGENT_DEBUG: Connected to local VNC server")
 	
 	// Simple bidirectional TCP proxy (no protocol conversion, no WebSockets)
 	done := make(chan struct{}, 2)
 	
-	// Forward control plane → XRDP
+	// Forward control plane → VNC
 	go func() {
 		defer func() { done <- struct{}{} }()
-		bytes, err := io.Copy(xrdpConn, r.revDialConn)
+		bytes, err := io.Copy(vncConn, r.revDialConn)
 		log.Debug().
 			Err(err).
 			Int64("bytes", bytes).
-			Str("direction", "control_plane->xrdp").
+			Str("direction", "control_plane->vnc").
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
 	}()
 	
-	// Forward XRDP → control plane  
+	// Forward VNC → control plane  
 	go func() {
 		defer func() { done <- struct{}{} }()
-		bytes, err := io.Copy(r.revDialConn, xrdpConn)
+		bytes, err := io.Copy(r.revDialConn, vncConn)
 		log.Debug().
 			Err(err).
 			Int64("bytes", bytes).
-			Str("direction", "xrdp->control_plane").
+			Str("direction", "vnc->control_plane").
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
 	}()

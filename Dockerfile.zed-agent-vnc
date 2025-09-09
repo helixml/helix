@@ -12,39 +12,53 @@ RUN go install github.com/air-verse/air@v1.52.3
 RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
 
 # VNC + VirtualGL stage for GPU-accelerated remote desktop
-FROM ubuntu:24.04
+FROM ubuntu:25.04
 
 # Install base packages
 RUN apt-get update && apt-get install -y \
     wget curl ca-certificates gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Install VirtualGL and TurboVNC from latest releases
-RUN wget -O virtualgl.deb https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb \
-    && wget -O turbovnc.deb https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb \
-    && apt-get update \
-    && dpkg -i virtualgl.deb turbovnc.deb || apt-get install -f -y \
-    && rm virtualgl.deb turbovnc.deb
-
-# Install minimal desktop environment and dependencies  
+# Install Wayland compositor and VNC server for GPU-accelerated remote desktop
 RUN apt-get update && apt-get install -y \
-    # Minimal desktop environment (skip ubuntu-desktop-minimal to speed up)
-    gnome-session gnome-shell ubuntu-session \
+    # Wayland VNC server and compositors
+    wayvnc cage sway-backgrounds weston \
+    # Try to install Hyprland (ignore failure)
+    && (apt-get install -y hyprland || echo "Hyprland not available, using fallback") \
     # Development tools and dependencies for Zed
+    && apt-get install -y \
     wget git unzip curl sqlite3 ca-certificates \
     build-essential cmake \
     nodejs npm python3 python3-pip \
-    # X11 and GPU libraries
-    xorg xserver-xorg-video-all \
+    # GPU libraries and detection tools for Wayland
     mesa-utils mesa-utils-extra \
     libgl1-mesa-dri libglx-mesa0 \
     libegl-mesa0 libgles2-mesa-dev \
+    libgbm1 libdrm2 \
+    # Hardware detection tools
+    pciutils lshw usbutils kmod libkmod2 \
+    # Additional GPU support
+    va-driver-all vdpau-driver-all \
     # Zed runtime dependencies
     libfontconfig1 libfreetype6 libxcb1 libxcb-render0 libxcb-shape0 \
     libxcb-xfixes0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 \
     libasound2t64 libssl3 libgtk-3-0 libgdk-pixbuf2.0-0 libpango-1.0-0 libcairo2 \
+    # DBus and session management
+    dbus-x11 dbus \
+    # XWayland for X11 app compatibility
+    xwayland \
     # Additional tools
     supervisor nano vim \
+    && rm -rf /var/lib/apt/lists/* \
+    # Install NVIDIA EGL and container libraries for proper GPU access
+    && (apt-get update && apt-get install -y \
+        libnvidia-egl-wayland1 \
+        libnvidia-egl-gbm1 \
+        libegl-nvidia0 \
+        libgl1-nvidia-glvnd-glx \
+        libnvidia-gl-545 \
+        nvidia-utils-545 \
+        || echo "Some NVIDIA packages not available") \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Go from build stage for air hot reloading
@@ -56,7 +70,7 @@ ENV GOPATH="/go"
 ENV GOMODCACHE="/go/pkg/mod"
 ENV GOCACHE="/root/.cache/go-build"
 
-# Fix git ownership issue for mounted source code
+# Fix git ownership issue for mounted source code (git is installed in the previous step)
 RUN git config --global --add safe.directory /workspace/helix
 
 # Create symlink to mounted zed-build directory
@@ -66,12 +80,12 @@ RUN ln -sf /zed-build/zed /usr/local/bin/zed
 COPY --from=go-build-env /helix /usr/local/bin/helix
 COPY --from=go-build-env /go/bin/air /usr/local/bin/air
 
-# Configure ubuntu user for VNC sessions (user may already exist)
+# Configure ubuntu user for Wayland sessions (user may already exist)
 RUN echo 'ubuntu:helix123' | chpasswd && \
     usermod -aG sudo ubuntu 2>/dev/null || useradd -m -s /bin/bash ubuntu && echo 'ubuntu:helix123' | chpasswd && usermod -aG sudo ubuntu
 
-# Configure VirtualGL for the system
-RUN /opt/VirtualGL/bin/vglserver_config -config +s +f -t
+# Add ubuntu user to video and render groups for GPU access
+RUN groupadd -f -g 992 render && usermod -aG video,render ubuntu
 
 # Install MCP filesystem server
 RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install failed, continuing..."
@@ -95,60 +109,23 @@ EOF
 
 RUN chmod +x /start-helix-agent.sh
 
-# Create VNC startup script with VirtualGL
-COPY <<EOF /start-vnc.sh
-#!/bin/bash
-set -e
+# Copy Wayland VNC startup script
+COPY start-wayland-vnc.sh /start-wayland-vnc.sh
+RUN chmod +x /start-wayland-vnc.sh
 
-# Start X server for VirtualGL (headless)
-Xorg :0 -seat seat0 -auth /tmp/xauth -nolisten tcp -noreset +extension GLX +extension RANDR +extension RENDER &
-export VGL_DISPLAY=:0
-
-# Wait for X server to start
-sleep 2
-
-# Start VNC server as ubuntu user
-su ubuntu -c "
-export USER=ubuntu
-export HOME=/home/ubuntu
-cd /home/ubuntu
-/opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24 -pixelformat rgb888 
-"
-
-# Start Helix agent in background
-/start-helix-agent.sh &
-
-# Keep container running
-tail -f /dev/null
-EOF
-
-RUN chmod +x /start-vnc.sh
-
-# Create VNC password for ubuntu user
-RUN su ubuntu -c "mkdir -p /home/ubuntu/.vnc && echo 'helix123' | /opt/TurboVNC/bin/vncpasswd -f > /home/ubuntu/.vnc/passwd && chmod 600 /home/ubuntu/.vnc/passwd"
-
-# Create xstartup script for ubuntu user
-COPY <<EOF /home/ubuntu/.vnc/xstartup
-#!/bin/bash
-# Start desktop environment
-export DISPLAY=:1
-export VGL_DISPLAY=:0
-gnome-session &
-EOF
-
-RUN chmod +x /home/ubuntu/.vnc/xstartup && chown ubuntu:ubuntu /home/ubuntu/.vnc/xstartup
-
-# Environment variables
-ENV DISPLAY=:1 \
-    VGL_DISPLAY=:0 \
+# Environment variables for Wayland
+ENV WAYLAND_DISPLAY=wayland-0 \
+    XDG_RUNTIME_DIR=/tmp/runtime-ubuntu \
+    WLR_RENDERER=gles2 \
+    WLR_BACKENDS=headless \
     API_HOST=http://api:8080 \
     CONCURRENCY=5 \
     MAX_TASKS=0 \
     WORKSPACE_DIR=/tmp/workspace \
-    RDP_PASSWORD=helix123
+    VNC_PASSWORD=helix123
 
 # Expose VNC port
 EXPOSE 5901 3030
 
-# Start VNC with VirtualGL
-ENTRYPOINT ["/start-vnc.sh"]
+# Start Wayland VNC
+ENTRYPOINT ["/start-wayland-vnc.sh"]
