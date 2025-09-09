@@ -238,7 +238,14 @@ services:
             args:
                 - BUILD_TYPE=release
         ports:
-            - "5901:5901"  # Expose VNC for direct testing
+            - "5901:5901"    # VNC for compatibility testing
+            - "3389:3389"    # RDP for Windows integration
+            - "47984:47984"  # Moonlight HTTPS
+            - "47989:47989"  # Moonlight HTTP (pairing)
+            - "47999:47999/udp"  # Moonlight Control
+            - "48010:48010"  # Moonlight RTSP
+            - "48100:48100/udp"  # Moonlight Video
+            - "48200:48200/udp"  # Moonlight Audio
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
@@ -261,6 +268,16 @@ services:
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
             
+            # Multi-protocol configuration
+            - REMOTE_PROTOCOL=${REMOTE_PROTOCOL:-all}  # all, vnc, rdp, moonlight
+            
+            # Wolf/Moonlight specific environment
+            - WOLF_CFG_FOLDER=/etc/wolf/cfg
+            - WOLF_LOG_LEVEL=INFO
+            - WOLF_USE_ZERO_COPY=TRUE
+            - RUST_BACKTRACE=full
+            - RUST_LOG=WARN
+            
             # Wolf-style GPU configuration for container runtime
             - NVIDIA_VISIBLE_DEVICES=all
             - NVIDIA_DRIVER_CAPABILITIES=all
@@ -278,7 +295,8 @@ services:
             - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
             # Mount zed-build directory for live binary updates
             - ./zed-build:/zed-build
-            # Mount startup script for fast iteration without rebuilds
+            # Mount startup scripts for fast iteration without rebuilds
+            - ./start-multi-protocol.sh:/start-multi-protocol.sh
             - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
             # Mount Hyprland config for fast iteration
             - ./hypr-config:/home/ubuntu/.config/hypr

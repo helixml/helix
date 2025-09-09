@@ -1,10 +1,27 @@
 #!/bin/bash
 set -e
 
-# Prioritize Hyprland for GPU acceleration with NVIDIA
-if command -v Hyprland >/dev/null 2>&1; then
+# Fix library paths for custom-built libraries
+ldconfig
+
+# Enable passwordless sudo for ubuntu user
+echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Fix ownership of bind-mounted .config directory (chown as root before switching to ubuntu)
+if [ -d "/home/ubuntu/.config" ]; then
+    echo "Fixing ownership of bind-mounted .config directory..."
+    chown -R ubuntu:ubuntu /home/ubuntu/.config
+fi
+
+# Prioritize system Hyprland package (Ubuntu 25.04)
+if command -v hyprland >/dev/null 2>&1; then
     COMPOSITOR="hyprland"
-    echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
+    HYPRLAND_BIN="hyprland"
+    echo "Starting Ubuntu package Hyprland compositor..."
+elif command -v /usr/local/bin/Hyprland >/dev/null 2>&1; then
+    COMPOSITOR="hyprland"
+    HYPRLAND_BIN="/usr/local/bin/Hyprland"
+    echo "Starting custom-built Hyprland compositor..."
 elif command -v cage >/dev/null 2>&1; then
     COMPOSITOR="cage"
     echo "Starting cage compositor (fallback)..."
@@ -34,7 +51,7 @@ export LIBGL_ALWAYS_SOFTWARE=0
 export NVIDIA_VISIBLE_DEVICES=all
 export NVIDIA_DRIVER_CAPABILITIES=all
 
-# Standard DRI/Mesa configuration for container GPU access  
+# Standard DRI/Mesa configuration for container GPU access
 export LIBGL_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 
@@ -42,7 +59,7 @@ export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export EGL_PLATFORM=drm
 export GBM_BACKEND=mesa-drm
 
-# wlroots GPU configuration following Wolf's proven patterns  
+# wlroots GPU configuration following Wolf's proven patterns
 export WLR_DRM_DEVICES=/dev/dri/card0
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 
@@ -72,19 +89,19 @@ if ls /dev/dri/card* >/dev/null 2>&1; then
     export GPU_AVAILABLE=1
     # Update WLR_DRM_DEVICES to use the actual detected card
     export WLR_DRM_DEVICES=$DRI_CARD
-    
+
     # Check if lspci works and detects GPU
     if command -v lspci >/dev/null 2>&1 && lspci | grep -E "(VGA|3D|Display)" >/dev/null 2>&1; then
         echo "GPU detected via lspci:"
         lspci | grep -E "(VGA|3D|Display)" | head -1
-        
+
         # Configure for NVIDIA if detected (following Wolf's vendor detection)
         if lspci | grep -i nvidia >/dev/null 2>&1; then
             echo "NVIDIA GPU detected - configuring for nvidia-drm"
             export GBM_BACKEND=nvidia-drm
             export __GLX_VENDOR_LIBRARY_NAME=nvidia
             export WLR_DRM_NO_ATOMIC=1
-            
+
             # Wolf-style NVIDIA configuration for proper GPU acceleration
             export NVIDIA_VISIBLE_DEVICES=all
             export NVIDIA_DRIVER_CAPABILITIES=all
@@ -136,14 +153,14 @@ animation=none
 icon=/dev/null
 path=/bin/true
 WESTONCONF
-        
+
         chown ubuntu:ubuntu /home/ubuntu/.config/weston.ini
-        
+
         echo "Attempting to start weston with headless backend..."
         weston --backend=headless-backend.so --width=3840 --height=2160 &
         COMPOSITOR_PID=$!
         sleep 8
-        
+
         # Check if weston is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "Weston failed to start, falling back to cage with 4K..."
@@ -158,36 +175,33 @@ WESTONCONF
         # Create crash report directory for Hyprland
         mkdir -p /home/ubuntu/.cache/hyprland
         chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
-        
-        # Setup illogical-impulse Hyprland configuration with GPU acceleration
-        mkdir -p /home/ubuntu/.config/hypr
-        
-        # Use bind-mounted clean config instead of copying illogical-impulse dotfiles
-        if [ -d "/home/ubuntu/.config/hypr-dots-backup" ]; then
-            echo "Skipping illogical-impulse copy - using bind-mounted clean config..."
-            # cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
-            
-            # Skip custom config creation - using bind-mounted clean config
-            echo "Using bind-mounted clean Hyprland configuration with GPU acceleration"
-        else
-            echo "illogical-impulse dotfiles not found, creating basic GPU-optimized config..."
-            # Fallback to basic config if dotfiles aren't available
-            cat > /home/ubuntu/.config/hypr/hyprland.conf << 'BASICCONF'
-# Basic GPU-optimized Hyprland config
-monitor = WL-1,3840x2160@120,0x0,1
 
-# GPU environment
+        # Use minimal working configuration instead of illogical-impulse to fix window positioning
+        mkdir -p /home/ubuntu/.config/hypr
+        echo "🔧 Using minimal Hyprland configuration to fix window positioning issues..."
+        
+        # Copy minimal config that properly positions windows
+        if [ -f "/home/ubuntu/.config/hypr/hyprland.conf.minimal" ]; then
+            cp /home/ubuntu/.config/hypr/hyprland.conf.minimal /home/ubuntu/.config/hypr/hyprland.conf
+        else
+            # Create minimal config inline if not available (should not happen with bind-mounted config)
+            cat > /home/ubuntu/.config/hypr/hyprland.conf << 'MINIMALCONF'
+# Minimal working Hyprland configuration for VNC
+monitor = WL-1,3840x2160@60,0x0,1
+
+# GPU environment for NVIDIA acceleration
 env = NVIDIA_VISIBLE_DEVICES,all
 env = NVIDIA_DRIVER_CAPABILITIES,all
 env = GBM_BACKEND,nvidia-drm
 env = __GLX_VENDOR_LIBRARY_NAME,nvidia
 
 general {
-    gaps_in = 4
-    gaps_out = 5
+    gaps_in = 5
+    gaps_out = 10
     border_size = 2
     col.active_border = rgba(0DB7D4FF)
     col.inactive_border = rgba(31313600)
+    layout = dwindle
 }
 
 input {
@@ -195,63 +209,88 @@ input {
     follow_mouse = 1
 }
 
+decoration {
+    rounding = 10
+    shadow {
+        enabled = true
+        range = 4
+        render_power = 3
+        color = rgba(1a1a1aee)
+    }
+    blur {
+        enabled = true
+        size = 3
+        passes = 1
+    }
+}
+
 misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
+    force_default_wallpaper = 0
 }
 
-exec-once = /install-ghostty.sh
-exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
-BASICCONF
+# Window rules - NO FLOATING by default, place terminals properly
+windowrulev2 = size 1200 800, class:^(kitty)$
+windowrulev2 = center, class:^(kitty)$
+
+# Key bindings
+\$mainMod = SUPER
+bind = \$mainMod, Return, exec, kitty
+
+# Start terminals immediately
+exec-once = kitty
+exec-once = bash -c 'sleep 2 && kitty'
+MINIMALCONF
         fi
-        
+
         # Enhanced Hyprland startup with NVIDIA GPU acceleration
         echo "Attempting to start Hyprland with NVIDIA RTX 4090 GPU acceleration..."
-        
+
         # Set up comprehensive environment for Hyprland NVIDIA support
         export HYPRLAND_LOG_WLR=1
         export HYPRLAND_NO_RT=1
         export WLR_RENDERER_ALLOW_SOFTWARE=1
-        
+
         # Ensure ownership of config files
         chown -R ubuntu:ubuntu /home/ubuntu/.config/hypr /home/ubuntu/.cache/hyprland
-        
+
         # Pre-flight GPU check
         echo "Pre-flight GPU check:"
         echo "DRI devices: $(ls /dev/dri/)"
         echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
         echo "GBM_BACKEND: $GBM_BACKEND"
-        
+
         # Start Hyprland with comprehensive error capture
-        echo "Starting Hyprland..."
-        # Redirect both stdout and stderr to capture all output
-        (Hyprland 2>&1 | while read line; do echo "HYPRLAND: $line"; done) &
+        echo "Starting Hyprland as root (required for container DRM access)..."
+        # Run as root with security bypass for container compatibility, but use ubuntu user's config
+        $HYPRLAND_BIN --i-am-really-stupid --config /home/ubuntu/.config/hypr/hyprland.conf 2>&1 | while read line; do echo "HYPRLAND: $line"; done &
         COMPOSITOR_PID=$!
-        
+
         # Give Hyprland more time to initialize with GPU
         sleep 15
-        
+
         # Check if Hyprland is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "❌ Hyprland failed to start with NVIDIA GPU acceleration"
             echo "Checking for any error output..."
-            
+
             # Kill any remaining Hyprland processes
             pkill -f Hyprland 2>/dev/null || true
             sleep 3
-            
+
             # Try Hyprland with modified settings for container environment
             echo "🔄 Trying Hyprland with container-optimized settings..."
             export WLR_RENDERER=gles2
             export WLR_BACKENDS=headless
             export WLR_RENDERER_ALLOW_SOFTWARE=1
             export WLR_DRM_NO_MODIFIERS=1
-            
+
             # Second attempt with more conservative settings
-            (Hyprland 2>&1 | while read line; do echo "HYPRLAND-2: $line"; done) &
+            $HYPRLAND_BIN --i-am-really-stupid --config /home/ubuntu/.config/hypr/hyprland.conf 2>&1 | while read line; do echo "HYPRLAND-2: $line"; done &
             COMPOSITOR_PID=$!
             sleep 12
-            
+
             if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
                 echo "❌ Hyprland failed on second attempt, falling back to cage..."
                 pkill -f Hyprland 2>/dev/null || true
@@ -275,7 +314,7 @@ BASICCONF
         cage -- sleep infinity &
         COMPOSITOR_PID=$!
         sleep 8
-        
+
         # Check if cage is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "Cage failed with hardware acceleration, falling back to software rendering"
@@ -290,72 +329,70 @@ BASICCONF
             echo "Cage started successfully with hardware acceleration"
         fi
     fi
-    
+
     # Wait a bit more for compositor to fully initialize
     sleep 3
     return 0
 }
 
-# Start compositor in the background
-su ubuntu -c "
-export USER=ubuntu
-export HOME=/home/ubuntu
-export XDG_RUNTIME_DIR=/tmp/runtime-ubuntu
-mkdir -p /tmp/runtime-ubuntu
-chmod 700 /tmp/runtime-ubuntu
+# Start compositor in the background (Hyprland runs as root due to container DRM requirements)
+# Set up both root and ubuntu runtime directories
+export XDG_RUNTIME_DIR=/tmp/runtime-root
+mkdir -p /tmp/runtime-root /tmp/runtime-ubuntu
+chmod 700 /tmp/runtime-root /tmp/runtime-ubuntu
 
 # Export compositor choice and environment variables
-export COMPOSITOR=\"$COMPOSITOR\"
-export WLR_RENDERER=\"$WLR_RENDERER\"
-export WLR_BACKENDS=\"$WLR_BACKENDS\"
-export WLR_NO_HARDWARE_CURSORS=\"$WLR_NO_HARDWARE_CURSORS\"
-export WLR_HEADLESS_OUTPUTS=\"$WLR_HEADLESS_OUTPUTS\"
-export __GL_THREADED_OPTIMIZATIONS=\"$__GL_THREADED_OPTIMIZATIONS\"
-export __GL_SYNC_TO_VBLANK=\"$__GL_SYNC_TO_VBLANK\"
-export LIBGL_ALWAYS_SOFTWARE=\"$LIBGL_ALWAYS_SOFTWARE\"
-export GBM_BACKEND=\"$GBM_BACKEND\"
-export __GLX_VENDOR_LIBRARY_NAME=\"$__GLX_VENDOR_LIBRARY_NAME\"
-export WLR_DRM_NO_ATOMIC=\"$WLR_DRM_NO_ATOMIC\"
-export MESA_LOADER_DRIVER_OVERRIDE=\"$MESA_LOADER_DRIVER_OVERRIDE\"
-export GPU_AVAILABLE=\"$GPU_AVAILABLE\"
-export NVIDIA_VISIBLE_DEVICES=\"$NVIDIA_VISIBLE_DEVICES\"
-export NVIDIA_DRIVER_CAPABILITIES=\"$NVIDIA_DRIVER_CAPABILITIES\"
-export EGL_PLATFORM=\"$EGL_PLATFORM\"
-export WLR_DRM_DEVICES=\"$WLR_DRM_DEVICES\"
-export WLR_RENDERER_ALLOW_SOFTWARE=\"$WLR_RENDERER_ALLOW_SOFTWARE\"
-export LIBGL_DRIVERS_PATH=\"$LIBGL_DRIVERS_PATH\"
-export LIBVA_DRIVERS_PATH=\"$LIBVA_DRIVERS_PATH\"
-export WOLF_RENDER_NODE=\"$WOLF_RENDER_NODE\"
-export GST_GL_DRM_DEVICE=\"$GST_GL_DRM_DEVICE\"
+export COMPOSITOR="$COMPOSITOR"
+export WLR_RENDERER="$WLR_RENDERER"
+export WLR_BACKENDS="$WLR_BACKENDS"
+export WLR_NO_HARDWARE_CURSORS="$WLR_NO_HARDWARE_CURSORS"
+export WLR_HEADLESS_OUTPUTS="$WLR_HEADLESS_OUTPUTS"
+export __GL_THREADED_OPTIMIZATIONS="$__GL_THREADED_OPTIMIZATIONS"
+export __GL_SYNC_TO_VBLANK="$__GL_SYNC_TO_VBLANK"
+export LIBGL_ALWAYS_SOFTWARE="$LIBGL_ALWAYS_SOFTWARE"
+export GBM_BACKEND="$GBM_BACKEND"
+export __GLX_VENDOR_LIBRARY_NAME="$__GLX_VENDOR_LIBRARY_NAME"
+export WLR_DRM_NO_ATOMIC="$WLR_DRM_NO_ATOMIC"
+export MESA_LOADER_DRIVER_OVERRIDE="$MESA_LOADER_DRIVER_OVERRIDE"
+export GPU_AVAILABLE="$GPU_AVAILABLE"
+export NVIDIA_VISIBLE_DEVICES="$NVIDIA_VISIBLE_DEVICES"
+export NVIDIA_DRIVER_CAPABILITIES="$NVIDIA_DRIVER_CAPABILITIES"
+export EGL_PLATFORM="$EGL_PLATFORM"
+export WLR_DRM_DEVICES="$WLR_DRM_DEVICES"
+export WLR_RENDERER_ALLOW_SOFTWARE="$WLR_RENDERER_ALLOW_SOFTWARE"
+export LIBGL_DRIVERS_PATH="$LIBGL_DRIVERS_PATH"
+export LIBVA_DRIVERS_PATH="$LIBVA_DRIVERS_PATH"
+export WOLF_RENDER_NODE="$WOLF_RENDER_NODE"
+export GST_GL_DRM_DEVICE="$GST_GL_DRM_DEVICE"
 
 # Start dbus session
-if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
-    eval \$(dbus-launch --sh-syntax)
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    eval $(dbus-launch --sh-syntax)
 fi
 
 # Start compositor with fallback logic
-$(declare -f start_compositor_with_fallback)
 start_compositor_with_fallback
 
 # Start wayvnc VNC server on the Wayland display
-echo \"Starting wayvnc VNC server...\"
+echo "Starting wayvnc VNC server..."
 # Wait for Wayland display to be ready
 sleep 2
 # Find the actual Wayland display socket
-if [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
+if [ -S "$XDG_RUNTIME_DIR/wayland-1" ]; then
     export WAYLAND_DISPLAY=wayland-1
-elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
+elif [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
     export WAYLAND_DISPLAY=wayland-0
 fi
-echo \"Using Wayland display: \$WAYLAND_DISPLAY\"
+echo "Using Wayland display: $WAYLAND_DISPLAY"
 # Start wayvnc with input enabled and cursor optimizations for VNC
 # --render-cursor enables server-side cursor, auto-detect output
 wayvnc --render-cursor 0.0.0.0 5901 &
-WAYVNC_PID=\$!
+WAYVNC_PID=$!
+
+# VNC-only setup - RDP removed for simplicity
 
 # Wait for both processes
-wait \$COMPOSITOR_PID \$WAYVNC_PID
-" &
+wait $COMPOSITOR_PID $WAYVNC_PID &
 
 # Test GPU acceleration and OpenGL in background after startup delay
 sleep 30 && su ubuntu -c "
@@ -374,7 +411,7 @@ if command -v glxgears >/dev/null 2>&1; then
     echo 'Testing glxgears...'
     timeout 5 glxgears -info 2>&1 | head -5 || echo 'glxgears failed'
 else
-    echo 'glxgears not available'  
+    echo 'glxgears not available'
 fi
 
 echo 'GPU test completed'

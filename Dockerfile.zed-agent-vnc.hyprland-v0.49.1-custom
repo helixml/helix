@@ -19,14 +19,22 @@ RUN apt-get update && apt-get install -y \
     wget curl ca-certificates gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Install multi-protocol remote desktop support (VNC + RDP + Hyprland)
+# Install multi-protocol remote desktop support (VNC + RDP + Moonlight preparation)
 RUN apt-get update && apt-get install -y \
     # Wayland VNC server and compositors
     wayvnc cage sway-backgrounds weston \
     # RDP server for better Windows integration and audio support
     xrdp xorgxrdp openbox obconf \
-    # Hyprland from Ubuntu package (much simpler!)
-    hyprland \
+    # Hyprland build dependencies for v0.50.1
+    meson wget build-essential ninja-build cmake-extras cmake gettext gettext-base \
+    fontconfig libfontconfig-dev libffi-dev libxml2-dev libdrm-dev \
+    libxkbcommon-x11-dev libxkbregistry-dev libxkbcommon-dev libpixman-1-dev \
+    libudev-dev libseat-dev seatd libxcb-dri3-dev libegl-dev libgles2 \
+    libegl1-mesa-dev glslang-tools libinput-bin libinput-dev \
+    libxcb-composite0-dev libavutil-dev libavcodec-dev libavformat-dev \
+    libxcb-ewmh2 libxcb-ewmh-dev libxcb-present-dev libxcb-icccm4-dev \
+    libxcb-render-util0-dev libxcb-res0-dev libxcb-xinput-dev \
+    libtomlplusplus3 libre2-dev \
     # Illogical-impulse dotfiles dependencies (Ubuntu equivalents)
     # Basic utilities
     && apt-get install -y \
@@ -127,23 +135,156 @@ RUN apt-get update && apt-get install -y \
     # Cleanup package lists
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Additional dependencies for Hyprland v0.50.1 ecosystem
+RUN apt-get update && apt-get install -y \
+    # hyprwayland-scanner dependencies
+    libpugixml-dev \
+    # aquamarine dependencies
+    libdisplay-info-dev \
+    # hyprcursor dependencies
+    libzip-dev libcairo2-dev librsvg2-dev libtomlplusplus-dev \
+    # hyprgraphics dependencies
+    libmagic-dev libjpeg-dev libwebp-dev libpng-dev \
+    # Hyprland v0.50.1 dependencies
+    libxcb-errors-dev libxcursor-dev \
+    # libinput 1.28.0 dependencies
+    libgtk-3-dev \
+    # hwdata package required for libdisplay-info build
+    hwdata \
+    && rm -rf /var/lib/apt/lists/*
 
+# Build and install hyprwayland-scanner (required for aquamarine and Hyprland v0.50.1)
+RUN cd /tmp \
+    && git clone https://github.com/hyprwm/hyprwayland-scanner.git \
+    && cd hyprwayland-scanner \
+    && cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local -S . -B ./build \
+    && cmake --build ./build --config Release --target all -j$(nproc) \
+    && cmake --install ./build \
+    && cd / && rm -rf /tmp/hyprwayland-scanner \
+    && echo "hyprwayland-scanner installation completed successfully"
 
+# Build and install hyprutils (required for aquamarine and Hyprland v0.50.1)
+RUN cd /tmp \
+    && git clone https://github.com/hyprwm/hyprutils.git \
+    && cd hyprutils \
+    && cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local -S . -B ./build \
+    && cmake --build ./build --config Release --target all -j$(nproc) \
+    && cmake --install ./build \
+    && cd / && rm -rf /tmp/hyprutils \
+    && echo "hyprutils installation completed successfully"
 
 # Skip aquamarine for Hyprland v0.49.1 (only needed for v0.50.x with bugs)
 # Hyprland v0.49.1 should use wlroots instead of aquamarine
 
+# Build and install hyprlang (required for hyprcursor and Hyprland v0.50.1)
+RUN cd /tmp \
+    && git clone https://github.com/hyprwm/hyprlang.git \
+    && cd hyprlang \
+    && cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local -S . -B ./build \
+    && cmake --build ./build --config Release --target all -j$(nproc) \
+    && cmake --install ./build \
+    && cd / && rm -rf /tmp/hyprlang \
+    && echo "hyprlang installation completed successfully"
 
+# Build and install hyprcursor (required for Hyprland v0.50.1)
+RUN cd /tmp \
+    && git clone https://github.com/hyprwm/hyprcursor.git \
+    && cd hyprcursor \
+    && cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local -S . -B ./build \
+    && cmake --build ./build --config Release --target all -j$(nproc) \
+    && cmake --install ./build \
+    && cd / && rm -rf /tmp/hyprcursor \
+    && echo "hyprcursor installation completed successfully"
 
+# Build and install hyprgraphics (required for Hyprland v0.50.1)
+RUN cd /tmp \
+    && git clone https://github.com/hyprwm/hyprgraphics.git \
+    && cd hyprgraphics \
+    && cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr/local -S . -B ./build \
+    && cmake --build ./build --config Release --target all -j$(nproc) \
+    && cmake --install ./build \
+    && cd / && rm -rf /tmp/hyprgraphics \
+    && echo "hyprgraphics installation completed successfully"
 
+# Build and install wayland-protocols >=1.43 (required for Hyprland v0.50.1)
+RUN cd /tmp \
+    && wget https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.43/wayland-protocols-1.43.tar.gz \
+    && tar -xzf wayland-protocols-1.43.tar.gz \
+    && cd wayland-protocols-1.43 \
+    && meson setup build --prefix=/usr/local \
+    && ninja -C build \
+    && ninja -C build install \
+    && cd / && rm -rf /tmp/wayland-protocols-1.43 /tmp/wayland-protocols-1.43.tar.gz \
+    && echo "wayland-protocols 1.43 installation completed successfully"
 
+# Build and install libinput >=1.28 (required for Hyprland v0.50.1)
+RUN cd /tmp \
+    && wget https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.28.0/libinput-1.28.0.tar.gz \
+    && tar -xzf libinput-1.28.0.tar.gz \
+    && cd libinput-1.28.0 \
+    && meson setup build --prefix=/usr/local -Ddocumentation=false -Dtests=false \
+    && ninja -C build \
+    && ninja -C build install \
+    && cd / && rm -rf /tmp/libinput-1.28.0 /tmp/libinput-1.28.0.tar.gz \
+    && echo "libinput 1.28.0 installation completed successfully"
 
+# Update library paths and pkg-config cache after installing custom libraries  
+RUN ldconfig && pkg-config --list-all > /dev/null
 
+# Install bleeding-edge GCC 15 for C++26 support
+RUN add-apt-repository ppa:ubuntu-toolchain-r/test -y \
+    && apt-get update \
+    && apt-get install -y gcc-15 g++-15 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100 \
+    && rm -rf /var/lib/apt/lists/*
 
+# Build Hyprland v0.49.1 from source - still uses wlroots (avoids Aquamarine pixman bugs)
+RUN cd /tmp \
+    && wget https://github.com/hyprwm/Hyprland/releases/download/v0.49.1/source-v0.49.1.tar.gz \
+    && tar -xzf source-v0.49.1.tar.gz \
+    && cd hyprland-source \
+    && echo "=== Building Hyprland v0.49.1 with wlroots (no Aquamarine) ===" \
+    && CC=gcc-15 CXX=g++-15 meson setup build \
+        --buildtype=release \
+        --prefix=/usr/local \
+        -Ddefault_library=shared \
+        -Dxwayland=disabled \
+        -Dsystemd=disabled \
+        -Dhyprpm=disabled \
+        -Dcpp_std=c++26 \
+    && ninja -C build \
+    && ninja -C build install \
+    && cd / && rm -rf /tmp/hyprland-source /tmp/source-v0.49.1.tar.gz \
+    && echo "Hyprland v0.49.1 installation completed successfully"
 
+# Fix library path priority for custom-built libinput 1.28.0
+RUN echo '/usr/local/lib/x86_64-linux-gnu' > /etc/ld.so.conf.d/local-priority.conf && ldconfig
 
+# Build and install libdisplay-info 0.3.0 (latest stable, required for Hyprland v0.50.1 aquamarine backend)
+RUN cd /tmp \
+    && wget https://gitlab.freedesktop.org/emersion/libdisplay-info/-/archive/0.3.0/libdisplay-info-0.3.0.tar.gz \
+    && tar -xzf libdisplay-info-0.3.0.tar.gz \
+    && cd libdisplay-info-0.3.0 \
+    && meson setup build --prefix=/usr/local \
+    && ninja -C build \
+    && ninja -C build install \
+    && cd / && rm -rf /tmp/libdisplay-info-0.3.0 /tmp/libdisplay-info-0.3.0.tar.gz \
+    && echo "libdisplay-info 0.3.0 installation completed successfully"
 
+# Build and install wayland core 1.24.0 (latest stable, required for Hyprland v0.50.1)
+RUN cd /tmp \
+    && wget https://gitlab.freedesktop.org/wayland/wayland/-/archive/1.24.0/wayland-1.24.0.tar.gz \
+    && tar -xzf wayland-1.24.0.tar.gz \
+    && cd wayland-1.24.0 \
+    && meson setup build --prefix=/usr/local -Ddocumentation=false -Dtests=false \
+    && ninja -C build \
+    && ninja -C build install \
+    && cd / && rm -rf /tmp/wayland-1.24.0 /tmp/wayland-1.24.0.tar.gz \
+    && echo "wayland 1.24.0 installation completed successfully"
 
+# Update library paths after installing wayland and libdisplay-info
+RUN ldconfig && pkg-config --list-all > /dev/null
 
 # Build and install quickshell with proper Ubuntu configuration
 RUN (git clone https://github.com/outfoxxed/quickshell.git /tmp/quickshell || \
