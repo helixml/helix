@@ -252,8 +252,11 @@ services:
 
             # Container uses fixed settings since each container is isolated
             - WORKSPACE_DIR=/tmp/workspace
-            - DISPLAY=:1
-            - VGL_DISPLAY=:0
+            - WAYLAND_DISPLAY=wayland-0
+            - WLR_RENDERER=gles2
+            - WLR_BACKENDS=headless
+            - WLR_HEADLESS_OUTPUTS=1
+            - WLR_NO_HARDWARE_CURSORS=1
             - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
@@ -266,18 +269,36 @@ services:
             # Mount Zed launcher scripts for easy iteration
             - ./zed.sh:/usr/local/bin/zed.sh
             - ./zed-vgl.sh:/usr/local/bin/zed-vgl.sh
+            - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
             # Mount zed-build directory for live binary updates
             - ./zed-build:/zed-build
-        # Add GPU access for Zed (fallback to software rendering if no GPU)
+            # Mount startup script for fast iteration without rebuilds
+            - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
+        # Add comprehensive GPU access via DRI and NVIDIA devices
         devices:
             - "/dev/dri:/dev/dri"
-        # No port mapping needed - RDP proxied over WebSocket connection  
+            - "/dev/nvidia0:/dev/nvidia0"
+            - "/dev/nvidiactl:/dev/nvidiactl"
+            - "/dev/nvidia-modeset:/dev/nvidia-modeset"
+            - "/dev/nvidia-uvm:/dev/nvidia-uvm"
+            - "/dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools"
+        # Enable privileged mode for better GPU access
+        privileged: true
+        # Explicitly use nvidia runtime for full GPU support
+        runtime: nvidia
+        # No port mapping needed - RDP proxied over WebSocket connection
         restart: always
         depends_on:
             - api
         deploy:
             # Default to 1 runner, scale with --scale zed-runner=N
             replicas: 1
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: all
+                          capabilities: [gpu]
 
     # GPU-enabled runner (for LLM inference)
     runner_gpu:
@@ -349,7 +370,7 @@ services:
         environment:
             - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
             - LOG_LEVEL=INFO
-            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL} # Need to set this to an external VLLM server in development
+            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
             - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
             - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
             - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
