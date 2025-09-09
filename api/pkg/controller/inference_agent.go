@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/agent/skill/memory"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -50,7 +51,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Str("interaction_id", vals.InteractionID).
 		Msg("Running agent")
 
-	mem := agent.NewDefaultMemory()
+	// Default memory uses Postgres to load and persist memories
+	mem := agent.NewDefaultMemory(req.Assistant.Memory, c.Options.Store)
 
 	// Assemble clients and providers
 
@@ -116,6 +118,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	var skills []agent.Skill
+
+	if req.Assistant.Memory {
+		skills = append(skills, memory.NewAddMemorySkill(c.Options.Store))
+	}
 
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
