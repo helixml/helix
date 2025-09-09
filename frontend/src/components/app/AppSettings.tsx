@@ -202,6 +202,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
@@ -270,6 +271,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       agent_mode,
+      memory,
       reasoning_model,
       reasoning_model_provider,
       reasoning_model_effort,
@@ -302,13 +304,15 @@ const AppSettings: FC<AppSettingsProps> = ({
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
-  const handleCheckboxChange = (field: 'global' | 'agent_mode', value: boolean) => {
+  const handleCheckboxChange = (field: 'global' | 'agent_mode' | 'memory', value: boolean) => {
     if (field === 'global') {
       setGlobal(value)
     } else if (field === 'agent_mode') {
       setAgentMode(value)
+    } else if (field === 'memory') {
+      setMemory(value)
     }
-    
+        
     // Create updated state and call onUpdate immediately for checkboxes
     const updatedApp: IAppFlatState = {
       ...app,
@@ -322,8 +326,21 @@ const AppSettings: FC<AppSettingsProps> = ({
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
       temperature,
+      memory,
       top_p: topP,
       max_iterations: max_iterations
+    }
+    
+    onUpdate(updatedApp)
+  }
+
+  const handleMemoryCheckboxChange = (value: boolean) => {  
+    setMemory(value)
+        
+    // Create updated state and call onUpdate immediately for checkboxes
+    const updatedApp: IAppFlatState = {
+      ...app,
+      memory: value,      
     }
     
     onUpdate(updatedApp)
@@ -345,6 +362,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
       temperature,
+      memory,
       top_p: topP,
       max_iterations: max_iterations
     }
@@ -523,9 +541,28 @@ const AppSettings: FC<AppSettingsProps> = ({
           />
         </Stack>
 
-        {agent_mode && (
+        {agent_mode && (          
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
+
+            <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Allow agent to remember things between sessions
+                </Typography>
+              </Box>
+              <FormControlLabel
+                sx={{mr: 20}}
+                control={
+                  <Switch
+                    checked={memory}
+                    onChange={(e) => handleMemoryCheckboxChange(e.target.checked)}
+                    disabled={readOnly}
+                  />
+                }
+                label="Memory"
+              />
+            </Stack>
             
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
