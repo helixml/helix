@@ -21,20 +21,21 @@ export NVIDIA_DRIVER_CAPABILITIES=all
 export GBM_BACKEND=nvidia-drm
 export __GLX_VENDOR_LIBRARY_NAME=nvidia
 
-# Weston configuration for VNC backend without TLS for easier connection
+# Weston configuration for RDP backend with only real documented options
 mkdir -p /home/ubuntu/.config
 cat > /home/ubuntu/.config/weston.ini << 'WESTONCONF'
 [core]
-backend=vnc-backend.so
+backend=rdp-backend.so
 renderer=gl
 
-[vnc]
+[rdp]
+bind-address=0.0.0.0
+port=3389
+width=3840
+height=2160
 refresh-rate=60
-
-[output]
-name=vnc
-mode=3840x2160
-resizeable=false
+force-no-compression=true
+cursor=client
 
 [libinput]
 enable-tap=true
@@ -67,24 +68,17 @@ openssl req -new -key tls.key -out tls.csr -subj \"/C=US/ST=CA/L=SF/O=Helix/CN=l
 # Generate self-signed certificate
 openssl x509 -req -days 365 -signkey tls.key -in tls.csr -out tls.crt
 
-# Generate client certificate for Remmina
-echo \"Generating client certificate for VNC client...\"
-openssl genrsa -out client.key 2048
-openssl req -new -key client.key -out client.csr -subj \"/C=US/ST=CA/L=SF/O=Helix/CN=client\"
-openssl x509 -req -days 365 -signkey client.key -in client.csr -out client.crt
-
 # Verify files were created
-if [ ! -f \"tls.key\" ] || [ ! -f \"tls.crt\" ] || [ ! -f \"client.key\" ] || [ ! -f \"client.crt\" ]; then
-    echo \"ERROR: Failed to generate TLS certificates\"
+if [ ! -f \"tls.key\" ] || [ ! -f \"tls.crt\" ]; then
+    echo \"ERROR: Failed to generate TLS key or certificate\"
     exit 1
 fi
 
 echo \"TLS files generated successfully:\"
-ls -la tls.key tls.crt client.key client.crt
+ls -la tls.key tls.crt
 
-# Start Weston with VNC backend for 4K@60Hz using TLS
-#weston --backend=vnc-backend.so --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --vnc-tls-key=/tmp/rdp-keys/tls.key --vnc-tls-cert=/tmp/rdp-keys/tls.crt &
-weston --backend=vnc-backend.so --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --disable-transport-layer-security &
+# Start Weston with RDP backend for 4K@60Hz using TLS
+weston --backend=rdp-backend.so --rdp-tls-key=/tmp/rdp-keys/tls.key --rdp-tls-cert=/tmp/rdp-keys/tls.crt &
 COMPOSITOR_PID=\$!
 
 # Wait for Weston to start
@@ -92,17 +86,8 @@ sleep 8
 
 echo \"Weston started, launching terminal...\"
 
-# Start terminal - try multiple options for Wayland compatibility
-if command -v weston-terminal >/dev/null 2>&1; then
-    echo \"Starting weston-terminal...\"
-    WAYLAND_DISPLAY=wayland-1 weston-terminal &
-elif command -v kitty >/dev/null 2>&1; then
-    echo \"Starting kitty terminal...\"
-    WAYLAND_DISPLAY=wayland-1 kitty &
-else
-    echo \"Starting ghostty with explicit Wayland backend...\"
-    WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland ghostty &
-fi
+# Start Ghostty terminal in Weston 
+WAYLAND_DISPLAY=wayland-0 ghostty &
 
 # Wait for compositor
 wait \$COMPOSITOR_PID
