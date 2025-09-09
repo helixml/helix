@@ -362,6 +362,11 @@ type Store interface {
 
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error
+
+	CreateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	DeleteMemory(ctx context.Context, memory *types.Memory) error
+	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
 }
 
 type EmbeddingsStore interface {
