@@ -1,8 +1,11 @@
 #!/bin/bash
 set -e
 
-# Force weston for testing - disable Hyprland temporarily  
-if command -v weston >/dev/null 2>&1; then
+# Force cage for better VNC compatibility
+if command -v cage >/dev/null 2>&1; then
+    COMPOSITOR="cage"
+    echo "Starting cage compositor (better VNC support)..."
+elif command -v weston >/dev/null 2>&1; then
     COMPOSITOR="weston"
     echo "Starting weston compositor (reference implementation)..."
 elif false && command -v Hyprland >/dev/null 2>&1; then
@@ -39,9 +42,21 @@ export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export EGL_PLATFORM=drm
 export GBM_BACKEND=mesa-drm
 
-# wlroots-specific GPU configuration based on error patterns
+# wlroots GPU configuration following Wolf's proven patterns  
 export WLR_DRM_DEVICES=/dev/dri/card0
 export WLR_RENDERER_ALLOW_SOFTWARE=1
+
+# Wolf-style render node configuration for GPU acceleration
+export WOLF_RENDER_NODE=/dev/dri/renderD128
+export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_RENDER_NODE}
+
+# Critical Wolf GPU environment variables (following docker.cpp:114-129)
+export NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+export NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
+
+# Wolf's GST GPU configuration (following wolf.Dockerfile:112-114)
+export GST_GL_API=gles2
+export GST_GL_WINDOW=surfaceless
 
 # GPU detection and configuration
 echo "Detecting GPU configuration..."
@@ -51,21 +66,29 @@ modprobe -q nvidia 2>/dev/null || echo "nvidia module not available (normal in c
 modprobe -q nvidia_drm 2>/dev/null || echo "nvidia_drm module not available (normal in containers)"
 
 # Check for DRI devices (primary indicator of GPU access in containers)
-if [ -e /dev/dri/card0 ]; then
-    echo "DRI device /dev/dri/card0 detected, attempting hardware acceleration"
+if ls /dev/dri/card* >/dev/null 2>&1; then
+    DRI_CARD=$(ls /dev/dri/card* | head -1)
+    echo "DRI device $DRI_CARD detected, attempting hardware acceleration"
     export GPU_AVAILABLE=1
+    # Update WLR_DRM_DEVICES to use the actual detected card
+    export WLR_DRM_DEVICES=$DRI_CARD
     
     # Check if lspci works and detects GPU
     if command -v lspci >/dev/null 2>&1 && lspci | grep -E "(VGA|3D|Display)" >/dev/null 2>&1; then
         echo "GPU detected via lspci:"
         lspci | grep -E "(VGA|3D|Display)" | head -1
         
-        # Configure for NVIDIA if detected
+        # Configure for NVIDIA if detected (following Wolf's vendor detection)
         if lspci | grep -i nvidia >/dev/null 2>&1; then
             echo "NVIDIA GPU detected - configuring for nvidia-drm"
             export GBM_BACKEND=nvidia-drm
             export __GLX_VENDOR_LIBRARY_NAME=nvidia
             export WLR_DRM_NO_ATOMIC=1
+            
+            # Wolf-style NVIDIA configuration for proper GPU acceleration
+            export NVIDIA_VISIBLE_DEVICES=all
+            export NVIDIA_DRIVER_CAPABILITIES=all
+            echo "Set NVIDIA container runtime variables: NVIDIA_VISIBLE_DEVICES=all, NVIDIA_DRIVER_CAPABILITIES=all"
         fi
     else
         echo "lspci not available or no GPU detected - using Mesa drivers"
@@ -290,6 +313,8 @@ export WLR_DRM_DEVICES=\"$WLR_DRM_DEVICES\"
 export WLR_RENDERER_ALLOW_SOFTWARE=\"$WLR_RENDERER_ALLOW_SOFTWARE\"
 export LIBGL_DRIVERS_PATH=\"$LIBGL_DRIVERS_PATH\"
 export LIBVA_DRIVERS_PATH=\"$LIBVA_DRIVERS_PATH\"
+export WOLF_RENDER_NODE=\"$WOLF_RENDER_NODE\"
+export GST_GL_DRM_DEVICE=\"$GST_GL_DRM_DEVICE\"
 
 # Start dbus session
 if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
@@ -302,11 +327,44 @@ start_compositor_with_fallback
 
 # Start wayvnc VNC server on the Wayland display
 echo \"Starting wayvnc VNC server...\"
-wayvnc 0.0.0.0 5901 &
+# Wait for Wayland display to be ready
+sleep 2
+# Find the actual Wayland display socket
+if [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
+    export WAYLAND_DISPLAY=wayland-1
+elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
+    export WAYLAND_DISPLAY=wayland-0
+fi
+echo \"Using Wayland display: \$WAYLAND_DISPLAY\"
+# Start wayvnc with input disabled for better compatibility
+wayvnc --disable-input 0.0.0.0 5901 &
 WAYVNC_PID=\$!
 
 # Wait for both processes
 wait \$COMPOSITOR_PID \$WAYVNC_PID
+" &
+
+# Test GPU acceleration and OpenGL in background after startup delay
+sleep 30 && su ubuntu -c "
+echo '=== GPU ACCELERATION TEST ==='
+echo 'Testing GPU access...'
+ls -la /dev/dri* 2>/dev/null || echo 'No DRI devices found'
+
+if command -v glxinfo >/dev/null 2>&1; then
+    echo 'Running glxinfo...'
+    glxinfo | grep -E '(OpenGL|vendor|renderer|version)' | head -10 || echo 'glxinfo failed'
+else
+    echo 'glxinfo not available'
+fi
+
+if command -v glxgears >/dev/null 2>&1; then
+    echo 'Testing glxgears...'
+    timeout 5 glxgears -info 2>&1 | head -5 || echo 'glxgears failed'
+else
+    echo 'glxgears not available'  
+fi
+
+echo 'GPU test completed'
 " &
 
 # Start Helix agent in background
