@@ -19,12 +19,10 @@ RUN apt-get update && apt-get install -y \
     wget curl ca-certificates gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Wayland compositor and VNC server with Games on Whales inspired GPU support
+# Install Weston and VNC server
 RUN apt-get update && apt-get install -y \
-    # Wayland VNC server and compositors
-    wayvnc cage sway-backgrounds weston \
-    # Try to install Hyprland (ignore failure)
-    && (apt-get install -y hyprland || echo "Hyprland not available, using fallback") \
+    # Weston compositor and VNC server
+    weston wayvnc \
     # Illogical-impulse dotfiles dependencies (Ubuntu equivalents)
     # Basic utilities
     && apt-get install -y \
@@ -50,7 +48,7 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dri libglx-mesa0 \
     libegl-mesa0 libgles2-mesa-dev \
     libgbm1 libdrm2 \
-    # Hardware detection tools and kernel module support  
+    # Hardware detection tools and kernel module support
     pciutils lshw usbutils kmod libkmod2 \
     # Wayland display protocol libraries (Wolf dependencies)
     libwayland-dev libwayland-server0 libinput-dev libxkbcommon-dev \
@@ -62,8 +60,8 @@ RUN apt-get update && apt-get install -y \
     dbus-x11 dbus \
     # XWayland for X11 app compatibility
     xwayland \
-    # Additional tools
-    supervisor nano vim \
+    # Additional tools and FreeRDP for RDP key generation
+    supervisor nano vim openssl freerdp2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Add NVIDIA CUDA runtime libraries (following Wolf's proven approach)
@@ -93,17 +91,6 @@ RUN <<_ADD_NVRTC
     apt-get remove -y --purge unzip curl
     rm -rf /var/lib/apt/lists/*
 _ADD_NVRTC
-
-# Install illogical-impulse specific tools (fonts installation simplified for now)
-RUN apt-get update && apt-get install -y \
-    # Essential tools for illogical-impulse
-    fuzzel python3-pip \
-    # Try to install Hyprland tools if available
-    && (apt-get install -y hypridle hyprlock hyprpicker 2>/dev/null || echo "Some Hyprland tools not available") \
-    # Install matugen alternative
-    && python3 -m pip install --break-system-packages material-color-utilities || echo "matugen alternative install failed" \
-    # Cleanup
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy Go from build stage for air hot reloading
 COPY --from=go-build-env /usr/local/go /usr/local/go
@@ -151,64 +138,6 @@ RUN apt-get update && apt-get install -y curl \
     && /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" || echo "Ghostty installation failed, continuing with alternatives" && \
     rm -rf /var/lib/apt/lists/*
 
-# Create illogical-impulse setup script
-COPY <<EOF /setup-illogical-impulse.sh
-#!/bin/bash
-set -e
-
-# Only run once
-if [ -f "/home/ubuntu/.illogical-impulse-installed" ]; then
-    exit 0
-fi
-
-echo "Setting up illogical-impulse dotfiles..."
-
-# Switch to ubuntu user
-su ubuntu -c '
-export USER=ubuntu
-export HOME=/home/ubuntu
-
-# Clone the dotfiles if not already present
-if [ ! -d "/home/ubuntu/.config/hypr-dots" ]; then
-    cd /home/ubuntu
-    git clone https://github.com/end-4/dots-hyprland.git .config/hypr-dots
-fi
-
-# Copy key configuration files
-cd /home/ubuntu/.config/hypr-dots
-
-# Copy Hyprland config (backup existing)
-mkdir -p /home/ubuntu/.config/hypr
-if [ -f "/home/ubuntu/.config/hypr/hyprland.conf" ]; then
-    cp /home/ubuntu/.config/hypr/hyprland.conf /home/ubuntu/.config/hypr/hyprland.conf.backup
-fi
-
-# Copy illogical-impulse configs (selectively to avoid overwriting our working setup)
-cp -r .config/ags /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/gtk-3.0 /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/gtk-4.0 /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/kitty /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/fuzzel /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/fish /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/starship.toml /home/ubuntu/.config/ 2>/dev/null || true
-
-# Copy Hyprland configuration structure (do NOT copy hyprland.conf itself)
-cp -r .config/hypr /home/ubuntu/.config/hypr-dots-backup 2>/dev/null || true
-
-# Set up wallpapers
-mkdir -p /home/ubuntu/Pictures/wallpapers
-cp -r Pictures/* /home/ubuntu/Pictures/ 2>/dev/null || true
-cp -r wallpapers/* /home/ubuntu/Pictures/wallpapers/ 2>/dev/null || true
-
-# Create a flag file to indicate setup is complete
-touch /home/ubuntu/.illogical-impulse-installed
-
-echo "illogical-impulse dotfiles setup complete!"
-'
-
-EOF
-RUN chmod +x /setup-illogical-impulse.sh
-
 # Create startup script for Helix External Agent Runner
 COPY <<EOF /start-helix-agent.sh
 #!/bin/bash
@@ -240,8 +169,8 @@ ENV WAYLAND_DISPLAY=wayland-0 \
     WORKSPACE_DIR=/tmp/workspace \
     VNC_PASSWORD=helix123
 
-# Expose VNC port
-EXPOSE 5901 3030
+# Expose RDP port
+EXPOSE 3389 3030
 
-# Start Wayland VNC
+# Start Wayland RDP
 ENTRYPOINT ["/start-wayland-vnc.sh"]

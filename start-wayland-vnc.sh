@@ -1,305 +1,13 @@
 #!/bin/bash
 set -e
 
-# Prioritize Hyprland for GPU acceleration with NVIDIA
-if command -v Hyprland >/dev/null 2>&1; then
-    COMPOSITOR="hyprland"
-    echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
-elif command -v cage >/dev/null 2>&1; then
-    COMPOSITOR="cage"
-    echo "Starting cage compositor (fallback)..."
-elif command -v weston >/dev/null 2>&1; then
-    COMPOSITOR="weston"
-    echo "Starting weston compositor (fallback)..."
-else
-    COMPOSITOR="cage"
-    echo "Starting cage compositor (final fallback)..."
-fi
-
-# Set up environment for Wayland GPU acceleration
-export WLR_RENDERER=${WLR_RENDERER:-gles2}
-export WLR_BACKENDS=${WLR_BACKENDS:-headless}
-export WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS:-1}
-export WLR_HEADLESS_OUTPUTS=${WLR_HEADLESS_OUTPUTS:-1}
-
-# Set GPU acceleration settings
-export __GL_THREADED_OPTIMIZATIONS=1
-export __GL_SYNC_TO_VBLANK=1
-export LIBGL_ALWAYS_SOFTWARE=0
-
-# Evidence-based NVIDIA container configuration
-# Based on container GPU access patterns and wlroots requirements
-
-# Core NVIDIA environment variables for container runtime
-export NVIDIA_VISIBLE_DEVICES=all
-export NVIDIA_DRIVER_CAPABILITIES=all
-
-# Standard DRI/Mesa configuration for container GPU access
-export LIBGL_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
-export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
-
-# Minimal EGL configuration for container environments
-export EGL_PLATFORM=drm
-export GBM_BACKEND=mesa-drm
-
-# wlroots GPU configuration following Wolf's proven patterns
-export WLR_DRM_DEVICES=/dev/dri/card0
-export WLR_RENDERER_ALLOW_SOFTWARE=1
-
-# Wolf-style render node configuration for GPU acceleration
-export WOLF_RENDER_NODE=/dev/dri/renderD128
-export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_RENDER_NODE}
-
-# Critical Wolf GPU environment variables (following docker.cpp:114-129)
-export NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
-export NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
-
-# Wolf's GST GPU configuration (following wolf.Dockerfile:112-114)
-export GST_GL_API=gles2
-export GST_GL_WINDOW=surfaceless
-
-# GPU detection and configuration
-echo "Detecting GPU configuration..."
-
-# Load kernel modules if available (container may have limited access)
-modprobe -q nvidia 2>/dev/null || echo "nvidia module not available (normal in containers)"
-modprobe -q nvidia_drm 2>/dev/null || echo "nvidia_drm module not available (normal in containers)"
-
-# Check for DRI devices (primary indicator of GPU access in containers)
-if ls /dev/dri/card* >/dev/null 2>&1; then
-    DRI_CARD=$(ls /dev/dri/card* | head -1)
-    echo "DRI device $DRI_CARD detected, attempting hardware acceleration"
-    export GPU_AVAILABLE=1
-    # Update WLR_DRM_DEVICES to use the actual detected card
-    export WLR_DRM_DEVICES=$DRI_CARD
-
-    # Check if lspci works and detects GPU
-    if command -v lspci >/dev/null 2>&1 && lspci | grep -E "(VGA|3D|Display)" >/dev/null 2>&1; then
-        echo "GPU detected via lspci:"
-        lspci | grep -E "(VGA|3D|Display)" | head -1
-
-        # Configure for NVIDIA if detected (following Wolf's vendor detection)
-        if lspci | grep -i nvidia >/dev/null 2>&1; then
-            echo "NVIDIA GPU detected - configuring for nvidia-drm"
-            export GBM_BACKEND=nvidia-drm
-            export __GLX_VENDOR_LIBRARY_NAME=nvidia
-            export WLR_DRM_NO_ATOMIC=1
-
-            # Wolf-style NVIDIA configuration for proper GPU acceleration
-            export NVIDIA_VISIBLE_DEVICES=all
-            export NVIDIA_DRIVER_CAPABILITIES=all
-            echo "Set NVIDIA container runtime variables: NVIDIA_VISIBLE_DEVICES=all, NVIDIA_DRIVER_CAPABILITIES=all"
-        fi
-    else
-        echo "lspci not available or no GPU detected - using Mesa drivers"
-    fi
-else
-    echo "No DRI devices detected, forcing software rendering"
-    export WLR_RENDERER=pixman
-    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-    export LIBGL_ALWAYS_SOFTWARE=1
-    export GPU_AVAILABLE=0
-fi
-
-# Function to try starting a compositor with fallback
-start_compositor_with_fallback() {
-    if [ "$COMPOSITOR" = "weston" ]; then
-        # Create weston config optimized for NVIDIA GPU acceleration
-        mkdir -p /home/ubuntu/.config
-        cat > /home/ubuntu/.config/weston.ini << 'WESTONCONF'
-[core]
-# Use headless backend for VNC with GPU acceleration
-backend=headless-backend.so
-# Enable GPU renderer for NVIDIA
-renderer=gl
-# Disable input requirement for headless mode
-require-input=false
-
-[renderer]
-# Force OpenGL ES renderer for NVIDIA acceleration
-name=gl
-
-[output]
-# Create a 4K headless output with GPU acceleration
-name=headless
-mode=3840x2160
-# Enable hardware acceleration
-acceleration=true
-
-[shell]
-background-color=0xff002244
-# Disable animations for headless performance
-animation=none
-
-[launcher]
-# Disable launcher for headless mode
-icon=/dev/null
-path=/bin/true
-WESTONCONF
-
-        chown ubuntu:ubuntu /home/ubuntu/.config/weston.ini
-
-        echo "Attempting to start weston with headless backend..."
-        weston --backend=headless-backend.so --width=3840 --height=2160 &
-        COMPOSITOR_PID=$!
-        sleep 8
-
-        # Check if weston is still running
-        if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-            echo "Weston failed to start, falling back to cage with 4K..."
-            export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
-            cage -- sleep infinity &
-            COMPOSITOR_PID=$!
-            sleep 5
-        else
-            echo "Weston started successfully"
-        fi
-    elif [ "$COMPOSITOR" = "hyprland" ]; then
-        # Create crash report directory for Hyprland
-        mkdir -p /home/ubuntu/.cache/hyprland
-        chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
-
-        # Setup illogical-impulse Hyprland configuration with GPU acceleration
-        mkdir -p /home/ubuntu/.config/hypr
-
-        # Use bind-mounted clean config instead of copying illogical-impulse dotfiles
-        if [ -d "/home/ubuntu/.config/hypr-dots-backup" ]; then
-            echo "Skipping illogical-impulse copy - using bind-mounted clean config..."
-            # cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
-
-            # Skip custom config creation - using bind-mounted clean config
-            echo "Using bind-mounted clean Hyprland configuration with GPU acceleration"
-        else
-            echo "illogical-impulse dotfiles not found, creating basic GPU-optimized config..."
-            # Fallback to basic config if dotfiles aren't available
-            cat > /home/ubuntu/.config/hypr/hyprland.conf << 'BASICCONF'
-# Basic GPU-optimized Hyprland config
-monitor = WL-1,3840x2160@60,0x0,1
-
-# GPU environment
-env = NVIDIA_VISIBLE_DEVICES,all
-env = NVIDIA_DRIVER_CAPABILITIES,all
-env = GBM_BACKEND,nvidia-drm
-env = __GLX_VENDOR_LIBRARY_NAME,nvidia
-
-general {
-    gaps_in = 4
-    gaps_out = 5
-    border_size = 2
-    col.active_border = rgba(0DB7D4FF)
-    col.inactive_border = rgba(31313600)
-}
-
-input {
-    kb_layout = us
-    follow_mouse = 1
-}
-
-misc {
-    disable_hyprland_logo = true
-    disable_splash_rendering = true
-}
-
-exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
-BASICCONF
-        fi
-
-        # Enhanced Hyprland startup with NVIDIA GPU acceleration
-        echo "Attempting to start Hyprland with NVIDIA RTX 4090 GPU acceleration..."
-
-        # Set up comprehensive environment for Hyprland NVIDIA support
-        export HYPRLAND_LOG_WLR=1
-        export HYPRLAND_NO_RT=1
-        export WLR_RENDERER_ALLOW_SOFTWARE=1
-
-        # Ensure ownership of config files
-        chown -R ubuntu:ubuntu /home/ubuntu/.config/hypr /home/ubuntu/.cache/hyprland
-
-        # Pre-flight GPU check
-        echo "Pre-flight GPU check:"
-        echo "DRI devices: $(ls /dev/dri/)"
-        echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
-        echo "GBM_BACKEND: $GBM_BACKEND"
-
-        # Start Hyprland with comprehensive error capture
-        echo "Starting Hyprland..."
-        # Redirect both stdout and stderr to capture all output
-        (Hyprland 2>&1 | while read line; do echo "HYPRLAND: $line"; done) &
-        COMPOSITOR_PID=$!
-
-        # Give Hyprland more time to initialize with GPU
-        sleep 15
-
-        # Check if Hyprland is still running
-        if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-            echo "❌ Hyprland failed to start with NVIDIA GPU acceleration"
-            echo "Checking for any error output..."
-
-            # Kill any remaining Hyprland processes
-            pkill -f Hyprland 2>/dev/null || true
-            sleep 3
-
-            # Try Hyprland with modified settings for container environment
-            echo "🔄 Trying Hyprland with container-optimized settings..."
-            export WLR_RENDERER=gles2
-            export WLR_BACKENDS=headless
-            export WLR_RENDERER_ALLOW_SOFTWARE=1
-            export WLR_DRM_NO_MODIFIERS=1
-
-            # Second attempt with more conservative settings
-            (Hyprland 2>&1 | while read line; do echo "HYPRLAND-2: $line"; done) &
-            COMPOSITOR_PID=$!
-            sleep 12
-
-            if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-                echo "❌ Hyprland failed on second attempt, falling back to cage..."
-                pkill -f Hyprland 2>/dev/null || true
-                sleep 2
-                echo "Starting cage as fallback with 4K..."
-                export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
-                cage -- sleep infinity &
-                COMPOSITOR_PID=$!
-                sleep 5
-                echo "✅ Cage started as fallback compositor"
-            else
-                echo "✅ Hyprland started successfully with container-optimized settings"
-            fi
-        else
-            echo "✅ Hyprland started successfully with NVIDIA GPU acceleration!"
-        fi
-    else
-        # Try cage with hardware acceleration first
-        echo "Attempting to start cage with 4K hardware acceleration..."
-        export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
-        cage -- sleep infinity &
-        COMPOSITOR_PID=$!
-        sleep 8
-
-        # Check if cage is still running
-        if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-            echo "Cage failed with hardware acceleration, falling back to software rendering"
-            export WLR_RENDERER=pixman
-            export LIBGL_ALWAYS_SOFTWARE=1
-            export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-            export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
-            cage -- sleep infinity &
-            COMPOSITOR_PID=$!
-            sleep 5
-        else
-            echo "Cage started successfully with hardware acceleration"
-        fi
-    fi
-
-    # Wait a bit more for compositor to fully initialize
-    sleep 3
-    return 0
-}
+# Weston + VNC startup script for 4K@60Hz with proper input support
 
 # Ensure proper ownership of config directories (run as root before su)
 mkdir -p /home/ubuntu/.config
 chown -R ubuntu:ubuntu /home/ubuntu/.config
 
-# Start compositor in the background
+# Start Weston with proper VNC support
 su ubuntu -c "
 export USER=ubuntu
 export HOME=/home/ubuntu
@@ -307,61 +15,69 @@ export XDG_RUNTIME_DIR=/tmp/runtime-ubuntu
 mkdir -p /tmp/runtime-ubuntu
 chmod 700 /tmp/runtime-ubuntu
 
-# Export compositor choice and environment variables
-export COMPOSITOR=\"$COMPOSITOR\"
-export WLR_RENDERER=\"$WLR_RENDERER\"
-export WLR_BACKENDS=\"$WLR_BACKENDS\"
-export WLR_NO_HARDWARE_CURSORS=\"$WLR_NO_HARDWARE_CURSORS\"
-export WLR_HEADLESS_OUTPUTS=\"$WLR_HEADLESS_OUTPUTS\"
-export __GL_THREADED_OPTIMIZATIONS=\"$__GL_THREADED_OPTIMIZATIONS\"
-export __GL_SYNC_TO_VBLANK=\"$__GL_SYNC_TO_VBLANK\"
-export LIBGL_ALWAYS_SOFTWARE=\"$LIBGL_ALWAYS_SOFTWARE\"
-export GBM_BACKEND=\"$GBM_BACKEND\"
-export __GLX_VENDOR_LIBRARY_NAME=\"$__GLX_VENDOR_LIBRARY_NAME\"
-export WLR_DRM_NO_ATOMIC=\"$WLR_DRM_NO_ATOMIC\"
-export MESA_LOADER_DRIVER_OVERRIDE=\"$MESA_LOADER_DRIVER_OVERRIDE\"
-export GPU_AVAILABLE=\"$GPU_AVAILABLE\"
-export NVIDIA_VISIBLE_DEVICES=\"$NVIDIA_VISIBLE_DEVICES\"
-export NVIDIA_DRIVER_CAPABILITIES=\"$NVIDIA_DRIVER_CAPABILITIES\"
-export EGL_PLATFORM=\"$EGL_PLATFORM\"
-export WLR_DRM_DEVICES=\"$WLR_DRM_DEVICES\"
-export WLR_RENDERER_ALLOW_SOFTWARE=\"$WLR_RENDERER_ALLOW_SOFTWARE\"
-export LIBGL_DRIVERS_PATH=\"$LIBGL_DRIVERS_PATH\"
-export LIBVA_DRIVERS_PATH=\"$LIBVA_DRIVERS_PATH\"
-export WOLF_RENDER_NODE=\"$WOLF_RENDER_NODE\"
-export GST_GL_DRM_DEVICE=\"$GST_GL_DRM_DEVICE\"
+# GPU acceleration
+export NVIDIA_VISIBLE_DEVICES=all
+export NVIDIA_DRIVER_CAPABILITIES=all
+export GBM_BACKEND=nvidia-drm
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+
+# Weston configuration for RDP backend with 4K support
+mkdir -p /home/ubuntu/.config
+cat > /home/ubuntu/.config/weston.ini << 'WESTONCONF'
+[core]
+backend=rdp-backend.so
+require-input=false
+
+[rdp]
+bind-address=0.0.0.0
+port=3389
+width=3840
+height=2160
+refresh-rate=60
+
+[shell]
+background-color=0xff1a1a1a
+panel-color=0x90ffffff
+locking=false
+WESTONCONF
 
 # Start dbus session
 if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
     eval \$(dbus-launch --sh-syntax)
 fi
 
-# Start compositor with fallback logic
-$(declare -f start_compositor_with_fallback)
-start_compositor_with_fallback
+echo \"Starting Weston with 4K@60Hz RDP support...\"
 
-# Start wayvnc VNC server on the Wayland display
-echo \"Starting wayvnc VNC server...\"
-# Wait for Wayland display to be ready
-sleep 2
-# Find the actual Wayland display socket
-if [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
-    export WAYLAND_DISPLAY=wayland-1
-elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
-    export WAYLAND_DISPLAY=wayland-0
+# Generate temporary RDP keys for Weston
+mkdir -p /tmp/rdp-keys
+cd /tmp/rdp-keys
+
+# Try winpr-makecert first, fallback to openssl if not available
+if command -v winpr-makecert >/dev/null 2>&1; then
+    echo \"Using winpr-makecert for RDP key generation\"
+    winpr-makecert -rdp -silent -n rdp-security 2>/dev/null || echo \"winpr-makecert failed\"
+    KEY_FILE=\"/tmp/rdp-keys/rdp-security.key\"
+else
+    echo \"Using openssl for RDP key generation\"
+    openssl genrsa -out rdp.key 2048 2>/dev/null || echo \"OpenSSL key generation failed\"
+    KEY_FILE=\"/tmp/rdp-keys/rdp.key\"
 fi
-echo \"Using Wayland display: \$WAYLAND_DISPLAY\"
-# Start wayvnc with input enabled and cursor optimizations for VNC
-# --render-cursor enables server-side cursor, auto-detect output
-wayvnc --render-cursor 0.0.0.0 5901 &
-WAYVNC_PID=\$!
 
-# Wait for both processes
-wait \$COMPOSITOR_PID \$WAYVNC_PID
-" &
+# Start Weston with RDP backend for 4K@60Hz
+weston --backend=rdp-backend.so --rdp4-key=\$KEY_FILE &
+COMPOSITOR_PID=\$!
 
-# Start Helix agent in background
-/start-helix-agent.sh &
+# Wait for Weston to start
+sleep 8
 
-# Keep container running
-tail -f /dev/null
+echo \"Weston started, launching terminal...\"
+
+# Start Ghostty terminal in Weston 
+WAYLAND_DISPLAY=wayland-0 ghostty &
+
+# Wait for compositor
+wait \$COMPOSITOR_PID
+"
+
+# RDP is built into Weston, no separate server needed
+echo "RDP server started on port 3389"

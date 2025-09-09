@@ -238,7 +238,7 @@ services:
             args:
                 - BUILD_TYPE=release
         ports:
-            - "5901:5901"  # Expose VNC for direct testing
+            - "3389:3389"  # Expose RDP for direct testing
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
