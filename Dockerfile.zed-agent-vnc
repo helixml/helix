@@ -1,0 +1,154 @@
+# Build stage for Go application
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
+COPY api ./api
+COPY .git /.git
+WORKDIR /app/api
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
+RUN go install github.com/air-verse/air@v1.52.3
+RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
+
+# VNC + VirtualGL stage for GPU-accelerated remote desktop
+FROM ubuntu:24.04
+
+# Install base packages
+RUN apt-get update && apt-get install -y \
+    wget curl ca-certificates gnupg software-properties-common \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install VirtualGL and TurboVNC from latest releases
+RUN wget -O virtualgl.deb https://github.com/VirtualGL/virtualgl/releases/download/3.1.1/virtualgl_3.1.1_amd64.deb \
+    && wget -O turbovnc.deb https://github.com/TurboVNC/turbovnc/releases/download/3.1.2/turbovnc_3.1.2_amd64.deb \
+    && apt-get update \
+    && dpkg -i virtualgl.deb turbovnc.deb || apt-get install -f -y \
+    && rm virtualgl.deb turbovnc.deb
+
+# Install minimal desktop environment and dependencies  
+RUN apt-get update && apt-get install -y \
+    # Minimal desktop environment (skip ubuntu-desktop-minimal to speed up)
+    gnome-session gnome-shell ubuntu-session \
+    # Development tools and dependencies for Zed
+    wget git unzip curl sqlite3 ca-certificates \
+    build-essential cmake \
+    nodejs npm python3 python3-pip \
+    # X11 and GPU libraries
+    xorg xserver-xorg-video-all \
+    mesa-utils mesa-utils-extra \
+    libgl1-mesa-dri libglx-mesa0 \
+    libegl-mesa0 libgles2-mesa-dev \
+    # Zed runtime dependencies
+    libfontconfig1 libfreetype6 libxcb1 libxcb-render0 libxcb-shape0 \
+    libxcb-xfixes0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 \
+    libasound2t64 libssl3 libgtk-3-0 libgdk-pixbuf2.0-0 libpango-1.0-0 libcairo2 \
+    # Additional tools
+    supervisor nano vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Go from build stage for air hot reloading
+COPY --from=go-build-env /usr/local/go /usr/local/go
+
+# Add Go to PATH
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+ENV GOMODCACHE="/go/pkg/mod"
+ENV GOCACHE="/root/.cache/go-build"
+
+# Fix git ownership issue for mounted source code
+RUN git config --global --add safe.directory /workspace/helix
+
+# Create symlink to mounted zed-build directory
+RUN ln -sf /zed-build/zed /usr/local/bin/zed
+
+# Copy the compiled Helix binary and air
+COPY --from=go-build-env /helix /usr/local/bin/helix
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
+
+# Configure ubuntu user for VNC sessions (user may already exist)
+RUN echo 'ubuntu:helix123' | chpasswd && \
+    usermod -aG sudo ubuntu 2>/dev/null || useradd -m -s /bin/bash ubuntu && echo 'ubuntu:helix123' | chpasswd && usermod -aG sudo ubuntu
+
+# Configure VirtualGL for the system
+RUN /opt/VirtualGL/bin/vglserver_config -config +s +f -t
+
+# Install MCP filesystem server
+RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install failed, continuing..."
+
+# Create workspace directory
+RUN mkdir -p /workspace && chmod 755 /workspace
+
+# Create startup script for Helix External Agent Runner
+COPY <<EOF /start-helix-agent.sh
+#!/bin/bash
+set -e
+echo "Starting Helix External Agent Runner..."
+
+# Set up environment for GPU acceleration
+export DISPLAY=:1
+export VGL_DISPLAY=:0
+
+# Start the external agent runner with environment variables
+exec /usr/local/bin/helix external-agent-runner
+EOF
+
+RUN chmod +x /start-helix-agent.sh
+
+# Create VNC startup script with VirtualGL
+COPY <<EOF /start-vnc.sh
+#!/bin/bash
+set -e
+
+# Start X server for VirtualGL (headless)
+Xorg :0 -seat seat0 -auth /tmp/xauth -nolisten tcp -noreset +extension GLX +extension RANDR +extension RENDER &
+export VGL_DISPLAY=:0
+
+# Wait for X server to start
+sleep 2
+
+# Start VNC server as ubuntu user
+su ubuntu -c "
+export USER=ubuntu
+export HOME=/home/ubuntu
+cd /home/ubuntu
+/opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24 -pixelformat rgb888 
+"
+
+# Start Helix agent in background
+/start-helix-agent.sh &
+
+# Keep container running
+tail -f /dev/null
+EOF
+
+RUN chmod +x /start-vnc.sh
+
+# Create VNC password for ubuntu user
+RUN su ubuntu -c "mkdir -p /home/ubuntu/.vnc && echo 'helix123' | /opt/TurboVNC/bin/vncpasswd -f > /home/ubuntu/.vnc/passwd && chmod 600 /home/ubuntu/.vnc/passwd"
+
+# Create xstartup script for ubuntu user
+COPY <<EOF /home/ubuntu/.vnc/xstartup
+#!/bin/bash
+# Start desktop environment
+export DISPLAY=:1
+export VGL_DISPLAY=:0
+gnome-session &
+EOF
+
+RUN chmod +x /home/ubuntu/.vnc/xstartup && chown ubuntu:ubuntu /home/ubuntu/.vnc/xstartup
+
+# Environment variables
+ENV DISPLAY=:1 \
+    VGL_DISPLAY=:0 \
+    API_HOST=http://api:8080 \
+    CONCURRENCY=5 \
+    MAX_TASKS=0 \
+    WORKSPACE_DIR=/tmp/workspace \
+    RDP_PASSWORD=helix123
+
+# Expose VNC port
+EXPOSE 5901 3030
+
+# Start VNC with VirtualGL
+ENTRYPOINT ["/start-vnc.sh"]
