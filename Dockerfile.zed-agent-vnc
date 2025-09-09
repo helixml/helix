@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     # Illogical-impulse dotfiles dependencies (Ubuntu equivalents)
     # Basic utilities
     && apt-get install -y \
-    bc coreutils cmake curl rsync wget ripgrep jq meson xdg-user-dirs \
+    bc coreutils cmake curl rsync wget ripgrep jq meson xdg-user-dirs unzip \
     # Fonts and theming (Ubuntu equivalents where available)
     fontconfig eza fish kitty \
     # Widgets and tools
@@ -94,88 +94,16 @@ RUN <<_ADD_NVRTC
     rm -rf /var/lib/apt/lists/*
 _ADD_NVRTC
 
-# Install illogical-impulse specific tools and fonts
-RUN <<_INSTALL_ILLOGICAL_IMPULSE
-    #!/bin/bash
-    set -e
-    
-    # Install additional fonts from Google Fonts and other sources
-    mkdir -p /usr/share/fonts/truetype/custom
-    cd /tmp
-    
-    # Install JetBrains Mono Nerd Font
-    wget -q https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip
-    unzip -q JetBrainsMono.zip -d jetbrains-mono
-    cp jetbrains-mono/*.ttf /usr/share/fonts/truetype/custom/ 2>/dev/null || true
-    
-    # Install Material Symbols
-    wget -q https://github.com/google/material-design-icons/archive/master.zip
-    unzip -q master.zip
-    mkdir -p /usr/share/fonts/truetype/material-symbols
-    find material-design-icons-master -name "*.ttf" -exec cp {} /usr/share/fonts/truetype/material-symbols/ \; 2>/dev/null || true
-    
-    # Install Space Grotesk font
-    wget -q https://fonts.google.com/download?family=Space%20Grotesk -O space-grotesk.zip
-    unzip -q space-grotesk.zip -d space-grotesk 2>/dev/null || true
-    cp space-grotesk/*.ttf /usr/share/fonts/truetype/custom/ 2>/dev/null || true
-    
-    # Update font cache
-    fc-cache -fv
-    
-    # Install fuzzel (modern launcher) if available
-    apt-get update
-    apt-get install -y fuzzel || echo "fuzzel not available, will need manual install"
-    
-    # Install matugen for color generation (Python version)
-    python3 -m pip install --break-system-packages material-color-utilities || echo "matugen alternative install failed"
-    
-    # Install additional Hyprland tools (try from Ubuntu repos first)
-    apt-get install -y hypridle hyprlock hyprpicker || echo "Some Hyprland tools not available in repos"
-    
-    # Install Ghostty terminal (modern GPU-accelerated terminal)
-    cd /tmp
-    # Try to install Ghostty from various sources
-    
-    # Method 1: Try from GitHub releases (latest)
-    GHOSTTY_INSTALLED=false
-    
-    # Get latest release URL
-    LATEST_URL=$(curl -s https://api.github.com/repos/ghostty-org/ghostty/releases/latest | grep "browser_download_url.*\.deb" | cut -d '"' -f 4 | head -1) || true
-    
-    if [ -n "$LATEST_URL" ]; then
-        echo "Downloading Ghostty from: $LATEST_URL"
-        wget -q "$LATEST_URL" -O ghostty.deb && \
-        dpkg -i ghostty.deb && \
-        GHOSTTY_INSTALLED=true && \
-        echo "Ghostty installed successfully from GitHub releases"
-    fi
-    
-    # Method 2: Try building from source (fallback)
-    if [ "$GHOSTTY_INSTALLED" = "false" ]; then
-        echo "Attempting to build Ghostty from source..."
-        # Install build dependencies
-        apt-get install -y zig build-essential git pkg-config libgtk-4-dev || true
-        
-        # Clone and build (if zig is available)
-        if command -v zig >/dev/null 2>&1; then
-            git clone --depth 1 https://github.com/ghostty-org/ghostty.git && \
-            cd ghostty && \
-            zig build -Doptimize=ReleaseFast && \
-            cp zig-out/bin/ghostty /usr/local/bin/ && \
-            GHOSTTY_INSTALLED=true && \
-            echo "Ghostty built and installed from source"
-        fi
-    fi
-    
-    if [ "$GHOSTTY_INSTALLED" = "false" ]; then
-        echo "Ghostty installation failed, will use foot and kitty as alternatives"
-    fi
-    
+# Install illogical-impulse specific tools (fonts installation simplified for now)
+RUN apt-get update && apt-get install -y \
+    # Essential tools for illogical-impulse
+    fuzzel python3-pip \
+    # Try to install Hyprland tools if available
+    && (apt-get install -y hypridle hyprlock hyprpicker 2>/dev/null || echo "Some Hyprland tools not available") \
+    # Install matugen alternative
+    && python3 -m pip install --break-system-packages material-color-utilities || echo "matugen alternative install failed" \
     # Cleanup
-    rm -rf /tmp/*
-    apt-get clean
-    rm -rf /var/lib/apt/lists/*
-_INSTALL_ILLOGICAL_IMPULSE
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Copy Go from build stage for air hot reloading
 COPY --from=go-build-env /usr/local/go /usr/local/go
@@ -208,6 +136,69 @@ RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install 
 
 # Create workspace directory
 RUN mkdir -p /workspace && chmod 755 /workspace
+
+# Create Ghostty installation script
+COPY <<EOF /install-ghostty.sh
+#!/bin/bash
+set -e
+
+# Only install once
+if command -v ghostty >/dev/null 2>&1; then
+    echo "Ghostty already installed"
+    exit 0
+fi
+
+echo "Installing Ghostty terminal..."
+
+# Try to install from GitHub releases
+cd /tmp
+GHOSTTY_INSTALLED=false
+
+# Try Ubuntu package from mkasberg/ghostty-ubuntu (official Ubuntu builds)
+echo "Trying official Ubuntu package from mkasberg/ghostty-ubuntu..."
+LATEST_DEB_URL=\$(curl -s https://api.github.com/repos/mkasberg/ghostty-ubuntu/releases/latest | grep "browser_download_url.*\.deb" | grep -E "(24\.04|25\.04|ubuntu)" | cut -d '"' -f 4 | head -1)
+
+if [ -n "\$LATEST_DEB_URL" ]; then
+    echo "Downloading Ghostty Ubuntu package from: \$LATEST_DEB_URL"
+    if wget -q "\$LATEST_DEB_URL" -O ghostty.deb; then
+        if apt install -y ./ghostty.deb; then
+            GHOSTTY_INSTALLED=true
+            echo "Ghostty installed successfully from Ubuntu package"
+        fi
+    fi
+else
+    # Fallback to specific versions if API fails
+    for version in "1.0.1" "1.0.0"; do
+        echo "Trying Ghostty Ubuntu package version \$version..."
+        if wget -q "https://github.com/mkasberg/ghostty-ubuntu/releases/download/v\$version/ghostty_\${version}-1_amd64.deb" -O ghostty.deb 2>/dev/null; then
+            if apt install -y ./ghostty.deb 2>/dev/null; then
+                GHOSTTY_INSTALLED=true
+                echo "Ghostty v\$version installed successfully from Ubuntu package"
+                break
+            fi
+        fi
+    done
+fi
+
+# Alternative: try snap installation
+if [ "\$GHOSTTY_INSTALLED" = "false" ]; then
+    echo "Trying snap installation..."
+    if command -v snap >/dev/null 2>&1; then
+        snap install ghostty --edge 2>/dev/null && GHOSTTY_INSTALLED=true && echo "Ghostty installed via snap"
+    fi
+fi
+
+# Final fallback message
+if [ "\$GHOSTTY_INSTALLED" = "false" ]; then
+    echo "Ghostty installation failed. Using foot and kitty as alternatives."
+    echo "Ghostty may not have public releases yet - it's still in development"
+fi
+
+# Cleanup
+rm -f /tmp/ghostty.deb
+
+EOF
+RUN chmod +x /install-ghostty.sh
 
 # Create illogical-impulse setup script
 COPY <<EOF /setup-illogical-impulse.sh
@@ -249,6 +240,9 @@ cp -r .config/kitty /home/ubuntu/.config/ 2>/dev/null || true
 cp -r .config/fuzzel /home/ubuntu/.config/ 2>/dev/null || true
 cp -r .config/fish /home/ubuntu/.config/ 2>/dev/null || true
 cp -r .config/starship.toml /home/ubuntu/.config/ 2>/dev/null || true
+
+# Copy Hyprland configuration structure (do NOT copy hyprland.conf itself)
+cp -r .config/hypr /home/ubuntu/.config/hypr-dots-backup 2>/dev/null || true
 
 # Set up wallpapers
 mkdir -p /home/ubuntu/Pictures/wallpapers
