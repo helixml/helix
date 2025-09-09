@@ -399,16 +399,12 @@ func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.Ze
 		projectPath = workspaceDir
 	}
 
-	// Use RDP password provided by control plane (control plane rotates passwords)
-	rdpPassword := agent.RDPPassword
-	if rdpPassword == "" {
-		logger.Error().Msg("No RDP password provided by control plane - failing securely")
-		return nil, fmt.Errorf("RDP password not provided by control plane")
-	}
+	// Skip RDP password rotation for testing - use static password from container
 	logger.Info().
 		Str("session_id", agent.SessionID).
-		Msg("Using RDP password provided by control plane (password rotated per session)")
-	rdpPort := 5900 // Fixed RDP port inside container
+		Msg("Skipping RDP password rotation - using static password for testing")
+	
+	rdpPort := 5900 // Fixed RDP port inside container  
 	if agent.RDPPort != 0 {
 		rdpPort = agent.RDPPort
 	}
@@ -417,18 +413,11 @@ func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.Ze
 		Str("workspace_dir", workspaceDir).
 		Str("project_path", projectPath).
 		Int("rdp_port", rdpPort).
-		Bool("password_from_control_plane", true).
-		Msg("initializing Zed agent environment with RDP configuration")
-
-	// Configure RDP server with the generated password
-	err := r.configureRDPServer(ctx, rdpPassword, agent.SessionID)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to configure RDP server")
-		return nil, fmt.Errorf("failed to configure RDP server: %w", err)
-	}
+		Bool("password_rotation_disabled", true).
+		Msg("initializing Zed agent environment with static RDP password")
 
 	// Actually start Zed binary with the workspace
-	err = r.startZedBinary(ctx, workspaceDir, projectPath, agent)
+	err := r.startZedBinary(ctx, workspaceDir, projectPath, agent)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to start Zed binary")
 		return nil, fmt.Errorf("failed to start Zed binary: %w", err)

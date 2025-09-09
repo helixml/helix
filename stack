@@ -39,7 +39,7 @@ function setup_runner_profile() {
 function mock-runner() {
   echo "🔨 Building helix-runner binary for mock runner..."
   build-runner || return 1
-  
+
   echo "🚀 Starting mock runner..."
   ./helix-runner \
     --mock-runner \
@@ -105,7 +105,7 @@ function build-runner() {
   echo "🔨 Building helix-runner binary..."
   export CGO_ENABLED=1
   local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
-  
+
   if go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version='$APP_VERSION -o helix-runner ./runner-cmd/helix-runner; then
     echo "✅ Successfully built helix-runner binary"
   else
@@ -116,11 +116,11 @@ function build-runner() {
 
 function build-zed() {
   echo "🔨 Building Zed with External WebSocket Thread Sync..."
-  
+
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
   local BUILD_TYPE="${1:-release}"
-  
+
   # Check if Zed source directory exists
   if [ ! -d "$ZED_SOURCE_DIR" ]; then
     echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
@@ -129,31 +129,31 @@ function build-zed() {
     echo "  zed/                   (Zed fork with external_websocket_sync)"
     return 1
   fi
-  
+
   # Check if external_websocket_sync exists in Zed source
   if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
     echo "❌ external_websocket_sync crate not found in Zed source"
     echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
     return 1
   fi
-  
+
   # Check if Rust is installed
   if ! command -v cargo &> /dev/null; then
     echo "❌ Rust/Cargo not found. Please install Rust first."
     echo "Install Rust: https://rustup.rs/"
     return 1
   fi
-  
+
   # Create output directory
   mkdir -p "$ZED_OUTPUT_DIR"
-  
+
   # Change to Zed source directory
   cd "$ZED_SOURCE_DIR"
-  
+
   echo "🔨 Building Zed with External WebSocket Thread Sync..."
   echo "Source directory: $(pwd)"
   echo "Build type: $BUILD_TYPE"
-  
+
   # Build Zed
   if [ "$BUILD_TYPE" = "release" ]; then
     if RUST_LOG=info cargo build --release; then
@@ -172,34 +172,34 @@ function build-zed() {
       return 1
     fi
   fi
-  
+
   # Check if build was successful
   if [ ! -f "$BINARY_PATH" ]; then
     echo "❌ Build failed: Binary not found at $BINARY_PATH"
     cd - > /dev/null
     return 1
   fi
-  
+
   echo "✅ Zed compilation completed successfully"
-  
+
   # Copy binary to output directory
   cd - > /dev/null
   cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed"
   chmod +x "$ZED_OUTPUT_DIR/zed"
-  
+
   # Get binary info
   local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
-  
+
   echo "✅ Zed binary copied to: $ZED_OUTPUT_DIR/zed"
   echo "📦 Binary size: $BINARY_SIZE"
-  
+
   # Verify external WebSocket sync is included
   if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
     echo "✅ External WebSocket Thread Sync detected in binary"
   else
     echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
   fi
-  
+
   # Create test configuration
   cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
 {
@@ -219,7 +219,7 @@ function build-zed() {
   }
 }
 EOF
-  
+
   echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
   echo "🎉 Zed build completed successfully!"
   echo ""
@@ -318,49 +318,38 @@ function start() {
   # First create top and middle rows for logs
   tmux split-window -v -d
   tmux split-window -v -d
-  
+
   # Split the top row into 3 columns (Frontend, API, Haystack)
   tmux select-pane -t 0
   tmux split-window -h -d
   tmux select-pane -t 1
   tmux split-window -h -d
-  
+
   # Split the middle row into 3 columns (Zed Agent, Zed Process, GPU Runner)
   tmux select-pane -t 3
   tmux split-window -h -d
   tmux select-pane -t 4
   tmux split-window -h -d
-  
+
   # Bottom pane (6) stays full-width for hacking terminal
 
   # Set pane titles and start processes in 3x2 + full-width layout
   # Top row (0-2): Frontend, API, Haystack
   tmux select-pane -t 0 -T "Frontend Logs"
   tmux send-keys -t 0 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
-  
+
   tmux select-pane -t 1 -T "API Logs"
   tmux send-keys -t 1 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
-  
+
   tmux select-pane -t 2 -T "Haystack Logs"
   tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
   # Middle row (3-5): Zed Agent, Zed Process, GPU Runner/Demos
   tmux select-pane -t 3 -T "Zed Agent Runner"
   tmux send-keys -t 3 'echo "Monitoring Zed Agent Runner logs..." && sleep 2 && docker compose -f docker-compose.dev.yaml logs -f zed-runner' C-m
-  
-  tmux select-pane -t 4 -T "Supervisor/Zed Process"
-  tmux send-keys -t 4 'echo "Monitoring Supervisor logs for Zed process..." && sleep 5 && docker compose -f docker-compose.dev.yaml exec zed-runner bash -c "
-    echo \"Waiting for log files to be created...\"
-    while true; do
-      if [ -f /var/log/supervisor/supervisord.log ] || [ -f /var/log/helix-external-agent-runner.log ]; then
-        tail -F /var/log/supervisor/supervisord.log /var/log/helix-external-agent-runner.log 2>/dev/null
-        break
-      else
-        echo \"Log files not available yet, checking again in 5 seconds...\"
-        sleep 5
-      fi
-    done
-  "' C-m
+
+  tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+  tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
 
   # Middle right pane (5) - contextual based on enabled services
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -379,7 +368,7 @@ function start() {
 
   # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
   tmux select-pane -t 6 -T "🔨 HACKING TERMINAL"
-  tmux send-keys -t 6 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building" && cd /home/luke/pm/helix' C-m
+  tmux send-keys -t 6 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
 
   if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
     echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
@@ -388,17 +377,17 @@ function start() {
   # Enable pane titles display
   tmux set-option -g pane-border-status top
   tmux set-option -g pane-border-format "#{pane_index}: #{pane_title}"
-  
+
   # Make all panes equal size
   tmux select-layout even-horizontal
   tmux select-layout tiled
-  
+
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
   echo "🛑 Stopping docker containers and tmux session..."
-  
+
   # Build exclude pattern for services that should not be stopped
   local exclude_services=()
   [[ -z "$STOP_KEYCLOAK" ]] && exclude_services+=("keycloak")
@@ -453,7 +442,7 @@ function stop() {
       echo "🔄 Stopping all services (all profiles, except: $exclude_list)"
       local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
     fi
-    
+
     # Stop only the non-excluded services
     if [[ -n "$services" ]]; then
       echo "🗑️ Going to remove containers: $(echo $services | tr '\n' ' ')"
@@ -470,7 +459,7 @@ function stop() {
   else
     echo "📺 Tmux session $TMUX_SESSION not found"
   fi
-  
+
   echo "✨ Stop completed successfully!"
 }
 
@@ -480,21 +469,21 @@ function up() {
 
 function zed-agent-up() {
   echo "Starting Zed agent services..."
-  
+
   # Build Zed if binary doesn't exist
   if [ ! -f "./zed-build/zed" ]; then
     echo "Zed binary not found, building first..."
     build-zed || return 1
   fi
-  
+
   # Check if image doesn't exist
   if ! docker image inspect helix/zed-agent:latest &> /dev/null; then
     echo "Zed agent image not found, building first..."
     build-zed-agent || return 1
   fi
-  
+
   docker compose -f docker-compose.zed-agent.yaml up -d
-  
+
   echo "✅ Zed agent services started"
   echo "📋 Services running:"
   echo "  - Helix API: http://localhost:8080"
@@ -816,14 +805,14 @@ function test() {
 
 function zed-test() {
   echo "Testing Zed with External WebSocket Thread Sync..."
-  
+
   if [ ! -f "./zed-build/zed" ]; then
     echo "❌ Zed binary not found. Run: ./stack build-zed"
     return 1
   fi
-  
+
   echo "🧪 Running basic tests..."
-  
+
   # Test 1: Binary execution
   if ./zed-build/zed --version > /dev/null 2>&1; then
     echo "✅ Zed binary executes successfully"
@@ -831,14 +820,14 @@ function zed-test() {
     echo "❌ Zed binary failed to execute"
     return 1
   fi
-  
+
   # Test 2: Check for external sync feature
   if strings ./zed-build/zed | grep -q "external_websocket_sync"; then
     echo "✅ External WebSocket Thread Sync feature detected"
   else
     echo "⚠️  External WebSocket Thread Sync not clearly detectable"
   fi
-  
+
   echo "🎉 Basic Zed tests passed!"
   echo ""
   echo "For full integration testing:"

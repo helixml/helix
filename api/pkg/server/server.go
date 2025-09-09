@@ -549,7 +549,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 
 	// Reverse dial endpoint for external agent runners (requires runner token authentication)
-	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
+	runnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented
