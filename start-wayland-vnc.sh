@@ -34,7 +34,7 @@ export LIBGL_ALWAYS_SOFTWARE=0
 export NVIDIA_VISIBLE_DEVICES=all
 export NVIDIA_DRIVER_CAPABILITIES=all
 
-# Standard DRI/Mesa configuration for container GPU access  
+# Standard DRI/Mesa configuration for container GPU access
 export LIBGL_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 
@@ -42,7 +42,7 @@ export LIBVA_DRIVERS_PATH="/usr/lib/x86_64-linux-gnu/dri"
 export EGL_PLATFORM=drm
 export GBM_BACKEND=mesa-drm
 
-# wlroots GPU configuration following Wolf's proven patterns  
+# wlroots GPU configuration following Wolf's proven patterns
 export WLR_DRM_DEVICES=/dev/dri/card0
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 
@@ -72,19 +72,19 @@ if ls /dev/dri/card* >/dev/null 2>&1; then
     export GPU_AVAILABLE=1
     # Update WLR_DRM_DEVICES to use the actual detected card
     export WLR_DRM_DEVICES=$DRI_CARD
-    
+
     # Check if lspci works and detects GPU
     if command -v lspci >/dev/null 2>&1 && lspci | grep -E "(VGA|3D|Display)" >/dev/null 2>&1; then
         echo "GPU detected via lspci:"
         lspci | grep -E "(VGA|3D|Display)" | head -1
-        
+
         # Configure for NVIDIA if detected (following Wolf's vendor detection)
         if lspci | grep -i nvidia >/dev/null 2>&1; then
             echo "NVIDIA GPU detected - configuring for nvidia-drm"
             export GBM_BACKEND=nvidia-drm
             export __GLX_VENDOR_LIBRARY_NAME=nvidia
             export WLR_DRM_NO_ATOMIC=1
-            
+
             # Wolf-style NVIDIA configuration for proper GPU acceleration
             export NVIDIA_VISIBLE_DEVICES=all
             export NVIDIA_DRIVER_CAPABILITIES=all
@@ -136,18 +136,18 @@ animation=none
 icon=/dev/null
 path=/bin/true
 WESTONCONF
-        
+
         chown ubuntu:ubuntu /home/ubuntu/.config/weston.ini
-        
+
         echo "Attempting to start weston with headless backend..."
         weston --backend=headless-backend.so --width=3840 --height=2160 &
         COMPOSITOR_PID=$!
         sleep 8
-        
+
         # Check if weston is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "Weston failed to start, falling back to cage with 4K..."
-            export WLR_HEADLESS_OUTPUTS="1:3840x2160"
+            export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
             cage -- sleep infinity &
             COMPOSITOR_PID=$!
             sleep 5
@@ -158,15 +158,15 @@ WESTONCONF
         # Create crash report directory for Hyprland
         mkdir -p /home/ubuntu/.cache/hyprland
         chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
-        
+
         # Setup illogical-impulse Hyprland configuration with GPU acceleration
         mkdir -p /home/ubuntu/.config/hypr
-        
+
         # Use bind-mounted clean config instead of copying illogical-impulse dotfiles
         if [ -d "/home/ubuntu/.config/hypr-dots-backup" ]; then
             echo "Skipping illogical-impulse copy - using bind-mounted clean config..."
             # cp -r /home/ubuntu/.config/hypr-dots-backup/* /home/ubuntu/.config/hypr/
-            
+
             # Skip custom config creation - using bind-mounted clean config
             echo "Using bind-mounted clean Hyprland configuration with GPU acceleration"
         else
@@ -174,7 +174,7 @@ WESTONCONF
             # Fallback to basic config if dotfiles aren't available
             cat > /home/ubuntu/.config/hypr/hyprland.conf << 'BASICCONF'
 # Basic GPU-optimized Hyprland config
-monitor = WL-1,3840x2160@120,0x0,1
+monitor = WL-1,3840x2160@60,0x0,1
 
 # GPU environment
 env = NVIDIA_VISIBLE_DEVICES,all
@@ -200,64 +200,63 @@ misc {
     disable_splash_rendering = true
 }
 
-exec-once = /install-ghostty.sh
 exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'
 BASICCONF
         fi
-        
+
         # Enhanced Hyprland startup with NVIDIA GPU acceleration
         echo "Attempting to start Hyprland with NVIDIA RTX 4090 GPU acceleration..."
-        
+
         # Set up comprehensive environment for Hyprland NVIDIA support
         export HYPRLAND_LOG_WLR=1
         export HYPRLAND_NO_RT=1
         export WLR_RENDERER_ALLOW_SOFTWARE=1
-        
+
         # Ensure ownership of config files
         chown -R ubuntu:ubuntu /home/ubuntu/.config/hypr /home/ubuntu/.cache/hyprland
-        
+
         # Pre-flight GPU check
         echo "Pre-flight GPU check:"
         echo "DRI devices: $(ls /dev/dri/)"
         echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
         echo "GBM_BACKEND: $GBM_BACKEND"
-        
+
         # Start Hyprland with comprehensive error capture
         echo "Starting Hyprland..."
         # Redirect both stdout and stderr to capture all output
         (Hyprland 2>&1 | while read line; do echo "HYPRLAND: $line"; done) &
         COMPOSITOR_PID=$!
-        
+
         # Give Hyprland more time to initialize with GPU
         sleep 15
-        
+
         # Check if Hyprland is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "❌ Hyprland failed to start with NVIDIA GPU acceleration"
             echo "Checking for any error output..."
-            
+
             # Kill any remaining Hyprland processes
             pkill -f Hyprland 2>/dev/null || true
             sleep 3
-            
+
             # Try Hyprland with modified settings for container environment
             echo "🔄 Trying Hyprland with container-optimized settings..."
             export WLR_RENDERER=gles2
             export WLR_BACKENDS=headless
             export WLR_RENDERER_ALLOW_SOFTWARE=1
             export WLR_DRM_NO_MODIFIERS=1
-            
+
             # Second attempt with more conservative settings
             (Hyprland 2>&1 | while read line; do echo "HYPRLAND-2: $line"; done) &
             COMPOSITOR_PID=$!
             sleep 12
-            
+
             if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
                 echo "❌ Hyprland failed on second attempt, falling back to cage..."
                 pkill -f Hyprland 2>/dev/null || true
                 sleep 2
                 echo "Starting cage as fallback with 4K..."
-                export WLR_HEADLESS_OUTPUTS="1:3840x2160"
+                export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
                 cage -- sleep infinity &
                 COMPOSITOR_PID=$!
                 sleep 5
@@ -271,18 +270,18 @@ BASICCONF
     else
         # Try cage with hardware acceleration first
         echo "Attempting to start cage with 4K hardware acceleration..."
-        export WLR_HEADLESS_OUTPUTS="1:3840x2160"
+        export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
         cage -- sleep infinity &
         COMPOSITOR_PID=$!
         sleep 8
-        
+
         # Check if cage is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
             echo "Cage failed with hardware acceleration, falling back to software rendering"
             export WLR_RENDERER=pixman
             export LIBGL_ALWAYS_SOFTWARE=1
             export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-            export WLR_HEADLESS_OUTPUTS="1:3840x2160"
+            export WLR_HEADLESS_OUTPUTS="1:3840x2160@60"
             cage -- sleep infinity &
             COMPOSITOR_PID=$!
             sleep 5
@@ -290,11 +289,15 @@ BASICCONF
             echo "Cage started successfully with hardware acceleration"
         fi
     fi
-    
+
     # Wait a bit more for compositor to fully initialize
     sleep 3
     return 0
 }
+
+# Ensure proper ownership of config directories (run as root before su)
+mkdir -p /home/ubuntu/.config
+chown -R ubuntu:ubuntu /home/ubuntu/.config
 
 # Start compositor in the background
 su ubuntu -c "
@@ -355,29 +358,6 @@ WAYVNC_PID=\$!
 
 # Wait for both processes
 wait \$COMPOSITOR_PID \$WAYVNC_PID
-" &
-
-# Test GPU acceleration and OpenGL in background after startup delay
-sleep 30 && su ubuntu -c "
-echo '=== GPU ACCELERATION TEST ==='
-echo 'Testing GPU access...'
-ls -la /dev/dri* 2>/dev/null || echo 'No DRI devices found'
-
-if command -v glxinfo >/dev/null 2>&1; then
-    echo 'Running glxinfo...'
-    glxinfo | grep -E '(OpenGL|vendor|renderer|version)' | head -10 || echo 'glxinfo failed'
-else
-    echo 'glxinfo not available'
-fi
-
-if command -v glxgears >/dev/null 2>&1; then
-    echo 'Testing glxgears...'
-    timeout 5 glxgears -info 2>&1 | head -5 || echo 'glxgears failed'
-else
-    echo 'glxgears not available'  
-fi
-
-echo 'GPU test completed'
 " &
 
 # Start Helix agent in background
