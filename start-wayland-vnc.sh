@@ -120,9 +120,9 @@ require-input=false
 name=gl
 
 [output]
-# Create a 1920x1080 headless output with GPU acceleration
+# Create a 4K headless output with GPU acceleration
 name=headless
-mode=1920x1080
+mode=3840x2160
 # Enable hardware acceleration
 acceleration=true
 
@@ -140,7 +140,7 @@ WESTONCONF
         chown ubuntu:ubuntu /home/ubuntu/.config/weston.ini
         
         echo "Attempting to start weston with headless backend..."
-        weston --backend=headless-backend.so --width=1920 --height=1080 &
+        weston --backend=headless-backend.so --width=3840 --height=2160 &
         COMPOSITOR_PID=$!
         sleep 8
         
@@ -164,8 +164,8 @@ WESTONCONF
 # Hyprland configuration optimized for NVIDIA GPU acceleration in containers
 # Following Wolf's GPU patterns and Hyprland NVIDIA best practices
 
-# Monitor configuration for headless VNC
-monitor = WL-1,1920x1080@60,0x0,1
+# Monitor configuration for headless VNC - 4K @ 120Hz
+monitor = WL-1,3840x2160@120,0x0,1
 
 # Container and headless optimizations
 misc {
@@ -276,8 +276,10 @@ windowrulev2 = noanim, class:.*
 # Workspace configuration
 workspace = 1, monitor:WL-1, default:true
 
-# Auto-start terminal for testing
-exec-once = foot
+# Auto-start terminal for testing (Ghostty with fallback to foot)
+exec-once = bash -c 'ghostty || foot'
+# Setup illogical-impulse dotfiles on first run
+exec-once = /setup-illogical-impulse.sh
 HYPRCONF
         
         # Enhanced Hyprland startup with NVIDIA GPU acceleration
