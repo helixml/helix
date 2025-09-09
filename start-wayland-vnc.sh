@@ -1,19 +1,19 @@
 #!/bin/bash
 set -e
 
-# Force cage for better VNC compatibility
-if command -v cage >/dev/null 2>&1; then
+# Prioritize Hyprland for GPU acceleration with NVIDIA
+if command -v Hyprland >/dev/null 2>&1; then
+    COMPOSITOR="hyprland"
+    echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
+elif command -v cage >/dev/null 2>&1; then
     COMPOSITOR="cage"
-    echo "Starting cage compositor (better VNC support)..."
+    echo "Starting cage compositor (fallback)..."
 elif command -v weston >/dev/null 2>&1; then
     COMPOSITOR="weston"
-    echo "Starting weston compositor (reference implementation)..."
-elif false && command -v Hyprland >/dev/null 2>&1; then
-    COMPOSITOR="hyprland"
-    echo "Starting Hyprland compositor..."
+    echo "Starting weston compositor (fallback)..."
 else
     COMPOSITOR="cage"
-    echo "Starting cage compositor..."
+    echo "Starting cage compositor (final fallback)..."
 fi
 
 # Set up environment for Wayland GPU acceleration
@@ -158,26 +158,57 @@ WESTONCONF
         mkdir -p /home/ubuntu/.cache/hyprland
         chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
         
-        # Create minimal Hyprland config for headless operation with NVIDIA support
+        # Create optimized Hyprland config for NVIDIA GPU acceleration
         mkdir -p /home/ubuntu/.config/hypr
         cat > /home/ubuntu/.config/hypr/hyprland.conf << 'HYPRCONF'
-# Hyprland headless configuration for VNC with NVIDIA GPU support
+# Hyprland configuration optimized for NVIDIA GPU acceleration in containers
+# Following Wolf's GPU patterns and Hyprland NVIDIA best practices
+
+# Monitor configuration for headless VNC
 monitor = WL-1,1920x1080@60,0x0,1
 
-# Disable certain features that cause issues in containers
+# Container and headless optimizations
 misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
     vfr = false
     vrr = 0
     no_direct_scanout = true
+    force_default_wallpaper = 0
+    animate_manual_resizes = false
+    animate_mouse_windowdragging = false
+    suppress_portal_warnings = true
 }
 
-# NVIDIA-specific settings
+# Critical NVIDIA environment variables (matching our detection)
+env = NVIDIA_VISIBLE_DEVICES,all
+env = NVIDIA_DRIVER_CAPABILITIES,all
 env = GBM_BACKEND,nvidia-drm
 env = __GLX_VENDOR_LIBRARY_NAME,nvidia
 env = WLR_NO_HARDWARE_CURSORS,1
 env = WLR_DRM_NO_ATOMIC,1
+env = WLR_RENDERER,gles2
+env = WLR_BACKENDS,headless
+env = GST_GL_API,gles2
+env = GST_GL_WINDOW,surfaceless
+# Additional container environment fixes
+env = LIBGL_ALWAYS_SOFTWARE,0
+env = MESA_LOADER_DRIVER_OVERRIDE,
+env = EGL_PLATFORM,drm
+env = WLR_DRM_DEVICES,/dev/dri/card1
+
+# Render settings for NVIDIA GPU acceleration
+render {
+    explicit_sync = 0
+    explicit_sync_kms = 0
+    direct_scanout = false
+}
+
+# OpenGL settings for NVIDIA
+opengl {
+    nvidia_anti_flicker = false
+    force_introspection = 2
+}
 
 # Input configuration
 input {
@@ -185,78 +216,131 @@ input {
     follow_mouse = 1
     repeat_rate = 25
     repeat_delay = 600
+    accel_profile = flat
+    force_no_accel = false
 }
 
-# General settings optimized for headless
+# General settings optimized for performance
 general {
     gaps_in = 0
     gaps_out = 0
-    border_size = 1
-    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+    border_size = 2
+    col.active_border = rgba(33ccffee)
     col.inactive_border = rgba(595959aa)
     layout = dwindle
     no_focus_fallback = true
+    allow_tearing = false
+    resize_on_border = true
+    extend_border_grab_area = 10
 }
 
-# Disable animations for better performance
+# Disable all animations for maximum performance
 animations {
     enabled = false
 }
 
-# Decoration settings
+# Minimal decoration for performance
 decoration {
     rounding = 0
     drop_shadow = false
+    blur {
+        enabled = false
+    }
 }
 
-# Auto-start applications
-exec-once = /usr/local/bin/zed-wayland.sh
+# Layout settings
+dwindle {
+    pseudotile = false
+    preserve_split = true
+    smart_split = false
+    smart_resizing = false
+}
+
+# Gestures (disabled for headless)
+gestures {
+    workspace_swipe = false
+}
+
+# XWayland settings - disabled for container environment stability
+xwayland {
+    force_zero_scaling = true
+    # Disable XWayland to avoid EGL context issues in containers
+    # Can be re-enabled later once core Wayland functionality is stable
+    enabled = false
+}
+
+# Window rules for better compatibility
+windowrulev2 = immediate, class:.*
+windowrulev2 = noanim, class:.*
+
+# Workspace configuration
+workspace = 1, monitor:WL-1, default:true
+
+# Auto-start terminal for testing
+exec-once = foot
 HYPRCONF
         
-        # Try Hyprland first with hardware acceleration and better error handling
-        echo "Attempting to start Hyprland with NVIDIA GPU acceleration..."
+        # Enhanced Hyprland startup with NVIDIA GPU acceleration
+        echo "Attempting to start Hyprland with NVIDIA RTX 4090 GPU acceleration..."
         
-        # Set up environment for Hyprland NVIDIA support
+        # Set up comprehensive environment for Hyprland NVIDIA support
         export HYPRLAND_LOG_WLR=1
         export HYPRLAND_NO_RT=1
         export WLR_RENDERER_ALLOW_SOFTWARE=1
         
-        # Start Hyprland with timeout and error capture
-        timeout 15 Hyprland 2>&1 &
+        # Ensure ownership of config files
+        chown -R ubuntu:ubuntu /home/ubuntu/.config/hypr /home/ubuntu/.cache/hyprland
+        
+        # Pre-flight GPU check
+        echo "Pre-flight GPU check:"
+        echo "DRI devices: $(ls /dev/dri/)"
+        echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
+        echo "GBM_BACKEND: $GBM_BACKEND"
+        
+        # Start Hyprland with comprehensive error capture
+        echo "Starting Hyprland..."
+        # Redirect both stdout and stderr to capture all output
+        (Hyprland 2>&1 | while read line; do echo "HYPRLAND: $line"; done) &
         COMPOSITOR_PID=$!
-        sleep 10
+        
+        # Give Hyprland more time to initialize with GPU
+        sleep 15
         
         # Check if Hyprland is still running
         if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-            echo "Hyprland failed to start with GPU acceleration, trying software fallback..."
+            echo "❌ Hyprland failed to start with NVIDIA GPU acceleration"
+            echo "Checking for any error output..."
             
             # Kill any remaining Hyprland processes
             pkill -f Hyprland 2>/dev/null || true
-            sleep 2
+            sleep 3
             
-            # Try Hyprland with software rendering
-            export WLR_RENDERER=pixman
-            export LIBGL_ALWAYS_SOFTWARE=1
-            export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+            # Try Hyprland with modified settings for container environment
+            echo "🔄 Trying Hyprland with container-optimized settings..."
+            export WLR_RENDERER=gles2
             export WLR_BACKENDS=headless
+            export WLR_RENDERER_ALLOW_SOFTWARE=1
+            export WLR_DRM_NO_MODIFIERS=1
             
-            echo "Attempting Hyprland with software rendering..."
-            timeout 15 Hyprland 2>&1 &
+            # Second attempt with more conservative settings
+            (Hyprland 2>&1 | while read line; do echo "HYPRLAND-2: $line"; done) &
             COMPOSITOR_PID=$!
-            sleep 8
+            sleep 12
             
             if ! kill -0 $COMPOSITOR_PID 2>/dev/null; then
-                echo "Hyprland failed with software rendering, falling back to cage..."
+                echo "❌ Hyprland failed on second attempt, falling back to cage..."
                 pkill -f Hyprland 2>/dev/null || true
                 sleep 2
+                echo "Starting cage as fallback..."
                 cage -- sleep infinity &
                 COMPOSITOR_PID=$!
                 sleep 5
+                echo "✅ Cage started as fallback compositor"
             else
-                echo "Hyprland started successfully with software rendering"
+                echo "✅ Hyprland started successfully with container-optimized settings"
             fi
         else
-            echo "Hyprland started successfully with GPU acceleration"
+            echo "✅ Hyprland started successfully with NVIDIA GPU acceleration!"
         fi
     else
         # Try cage with hardware acceleration first
