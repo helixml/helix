@@ -24,18 +24,18 @@ RUN go install github.com/air-verse/air@v1.52.3
 RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
 
 # Main runtime image with GUI support
-FROM ubuntu:24.04
+FROM scottyhardy/docker-remote-desktop:latest
 
 # Install system dependencies for GUI, RDP, Zed, and development
 RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq && apt-get install -qqy \
     # Basic utilities
     wget git unzip curl sqlite3 ca-certificates \
-    # X11 and GUI support
-    xvfb xauth xterm dbus-x11 \
+    # X11 and GUI support  
+    xvfb xauth xterm dbus-x11 xserver-xorg-video-dummy \
     # Window manager and desktop environment
     openbox obconf \
-    # RDP support
-    socat xrdp openssh-server \
+    # RDP and VNC support
+    socat xrdp openssh-server tigervnc-standalone-server \
     # Development tools that Zed needs
     build-essential cmake \
     # Fonts for better display
@@ -172,12 +172,23 @@ priority=100
 stdout_logfile=/var/log/dbus.log
 redirect_stderr=true
 
-[program:xvfb]
-command=/usr/bin/Xvfb :1 -screen 0 1920x1080x24 -ac -extension GLX +extension RANDR +extension RENDER
+# Start sesman (session manager) for XRDP
+[program:sesman]
+command=/usr/sbin/xrdp-sesman --nodaemon
 autostart=true
 autorestart=true
 user=root
-environment=DISPLAY=":1"
+priority=150
+stdout_logfile=/var/log/sesman.log
+redirect_stderr=true
+
+# Start Xvfb on display :0 (more standard)
+[program:xvfb]
+command=/usr/bin/Xvfb :0 -screen 0 1920x1080x24 -ac -extension GLX +extension RANDR +extension RENDER
+autostart=true
+autorestart=true
+user=root
+environment=DISPLAY=":0"
 priority=200
 stdout_logfile=/var/log/xvfb.log
 redirect_stderr=true
@@ -187,7 +198,7 @@ command=/usr/bin/openbox --config-file /etc/xdg/openbox/rc.xml
 autostart=true
 autorestart=true
 user=zed
-environment=HOME="/home/zed",USER="zed",DISPLAY=":1"
+environment=HOME="/home/zed",USER="zed",DISPLAY=":0"
 priority=300
 stdout_logfile=/var/log/openbox.log
 redirect_stderr=true
@@ -294,60 +305,22 @@ XSESSION_EOF
 chmod +x /home/\$RDP_USER/.xsession
 chown \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.xsession
 
-# Create simplified XRDP configuration - direct connection to existing X session
-mkdir -p /etc/xrdp
-cat > /etc/xrdp/xrdp.ini << 'XRDP_EOF'
-[Globals]
-port=3389
-use_vsock=false
-tcp_nodelay=true
-tcp_keepalive=true
-security_layer=rdp
-autorun=DirectX11
-allow_channels=true
-max_bpp=32
-new_cursors=true
+# Use standard Ubuntu XRDP configuration (proven working setup)
+# This eliminates all the custom config issues
 
-[DirectX11]
-name=Direct X11 Session
-lib=libxup.so
-username=ask
-password=ask
-ip=127.0.0.1
-port=-1
-code=20
-XRDP_EOF
+# Install desktop environment that XRDP expects
+apt-get update && apt-get install -y ubuntu-desktop-minimal --no-install-recommends
 
-# No sesman configuration needed - direct connection mode
+# Configure XRDP to use standard Ubuntu desktop
+# The default configurations usually work better than custom ones
 
-# Create Openbox menu and autostart configuration
-mkdir -p /home/\$RDP_USER/.config/openbox
-cat > /home/\$RDP_USER/.config/openbox/menu.xml << 'MENU_EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<openbox_menu xmlns="http://openbox.org/3.4/menu">
-  <menu id="root-menu" label="Zed Desktop">
-    <item label="Terminal">
-      <action name="Execute"><execute>xterm</execute></action>
-    </item>
-    <item label="Zed Editor">
-      <action name="Execute"><execute>/usr/local/bin/zed</execute></action>
-    </item>
-    <separator />
-    <item label="Exit Session">
-      <action name="Exit" />
-    </item>
-  </menu>
-</openbox_menu>
-MENU_EOF
+# Use default Ubuntu XRDP session startup (it knows how to handle the desktop properly)
+# No custom startwm.sh needed - Ubuntu's default will work with ubuntu-desktop-minimal
 
-cat > /home/\$RDP_USER/.config/openbox/autostart << 'AUTOSTART_EOF'
-#!/bin/bash
-# Auto-start a terminal when desktop session begins
-xterm &
-AUTOSTART_EOF
+# Ubuntu's default XRDP configuration handles reconnection properly
 
-chmod +x /home/\$RDP_USER/.config/openbox/autostart
-chown -R \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.config
+# Ubuntu desktop minimal will provide proper desktop environment
+# No custom openbox configuration needed
 
 echo "RDP user setup completed for \$RDP_USER"
 EOF
@@ -394,7 +367,7 @@ fi
 # Set display dimensions from environment or defaults
 export DISPLAY_WIDTH=\${DISPLAY_WIDTH:-1920}
 export DISPLAY_HEIGHT=\${DISPLAY_HEIGHT:-1080}
-export DISPLAY_NUM=\${DISPLAY_NUM:-1}
+export DISPLAY_NUM=\${DISPLAY_NUM:-0}
 export DISPLAY=:\${DISPLAY_NUM}
 
 # Ensure required directories exist
