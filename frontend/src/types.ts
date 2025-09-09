@@ -593,6 +593,7 @@ export interface IAssistantConfig {
   model?: string;
   conversation_starters?: string[];
   agent_mode?: boolean;
+  memory?: boolean;
   max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
@@ -805,6 +806,7 @@ export interface IAppFlatState {
   provider?: string
   model?: string
   agent_mode?: boolean
+  memory?: boolean
   max_iterations?: number
   reasoning_model?: string
   reasoning_model_provider?: string
