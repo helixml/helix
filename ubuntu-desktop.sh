@@ -21,13 +21,6 @@ resizeable=false
 
 [libinput]
 enable-tap=true
-tap-and-drag=true
-disable-while-typing=false
-
-[keyboard]
-keymap_rules=evdev
-keymap_model=pc105
-keymap_layout=us
 
 [shell]
 background-color=0xff1b1b26
@@ -75,40 +68,7 @@ sleep 8
 
 echo "Weston started, launching applications..."
 
-# Start input reset daemon to handle reconnection issues
-cat > /tmp/input-reset.sh << 'INPUT_RESET'
-#!/bin/bash
-while true; do
-    sleep 30
-    # Check if weston is running and reset input focus
-    if pgrep weston > /dev/null; then
-        # Send a key event to refresh input state
-        export WAYLAND_DISPLAY=wayland-1
-        # Use weston-simple-touch to refresh input if available
-        timeout 1s weston-info 2>/dev/null >/dev/null || true
-    fi
-done
-INPUT_RESET
-
-chmod +x /tmp/input-reset.sh
-/tmp/input-reset.sh &
-
-# Create manual input reset script for emergency use
-cat > /tmp/fix-input.sh << 'FIX_INPUT'
-#!/bin/bash
-echo "Attempting to fix input issues..."
-export WAYLAND_DISPLAY=wayland-1
-
-# Kill and restart weston-keyboard if it exists
-pkill weston-keyboard 2>/dev/null || true
-sleep 1
-/usr/libexec/weston-keyboard &
-
-# Reset input devices via weston control
-echo "Input reset attempted. Try typing now."
-FIX_INPUT
-
-chmod +x /tmp/fix-input.sh
+# Input hacks removed - they don't help with the keyboard issues
 
 # Start Helix agent runner in background
 echo "Starting Helix External Agent Runner..."
