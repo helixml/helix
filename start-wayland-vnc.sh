@@ -105,7 +105,23 @@ COMPOSITOR_PID=\$!
 # # Start Chrome browser with Wayland support
 # WAYLAND_DISPLAY=wayland-1 google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage &
 
-# Wait for compositor
+# Start Helix agent runner in background
+echo \"Starting Helix External Agent Runner...\"
+export API_HOST=http://api:8080
+export API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+export LOG_LEVEL=debug
+export CONCURRENCY=1
+export MAX_TASKS=0
+export SESSION_TIMEOUT=3600
+export WORKSPACE_DIR=/tmp/workspace
+
+# Start the Helix agent runner
+/usr/local/bin/helix external-agent-runner &
+AGENT_PID=\$!
+
+echo \"Helix agent runner started with PID \$AGENT_PID\"
+
+# Wait for compositor (this keeps the container running)
 wait \$COMPOSITOR_PID
 "
 
