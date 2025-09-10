@@ -1,0 +1,75 @@
+{
+  "theme": "One Dark",
+  "buffer_font_family": "JetBrains Mono",
+  "buffer_font_size": 14,
+  "ui_font_family": "Inter",
+  "ui_font_size": 14,
+  "tab_size": 4,
+  "hard_tabs": false,
+  "soft_wrap": "editor_width",
+  "show_whitespaces": "selection",
+  "remove_trailing_whitespace_on_save": true,
+  "ensure_final_newline_on_save": true,
+  "format_on_save": "on",
+  "autosave": "after_delay",
+  "auto_update": false,
+  "vim_mode": false,
+  "relative_line_numbers": false,
+  "cursor_blink": true,
+  "hover_popover_enabled": true,
+  "confirm_quit": false,
+  "restore_on_startup": "last_session",
+  "terminal": {
+    "shell": "system",
+    "font_family": "JetBrains Mono",
+    "font_size": 14,
+    "line_height": "comfortable"
+  },
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/node_modules",
+    "**/.DS_Store",
+    "**/target",
+    "**/.vscode"
+  ],
+  "languages": {
+    "TypeScript": {
+      "format_on_save": "on",
+      "formatter": "prettier"
+    },
+    "JavaScript": {
+      "format_on_save": "on", 
+      "formatter": "prettier"
+    },
+    "JSON": {
+      "format_on_save": "on"
+    },
+    "Python": {
+      "format_on_save": "on",
+      "formatter": "ruff"
+    },
+    "Rust": {
+      "format_on_save": "on"
+    },
+    "Go": {
+      "format_on_save": "on"
+    }
+  },
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "check": {
+          "command": "clippy"
+        }
+      }
+    }
+  },
+  "git": {
+    "inline_blame": {
+      "enabled": true
+    }
+  },
+  "assistant": {
+    "enabled": false
+  }
+}

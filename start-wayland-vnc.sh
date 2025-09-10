@@ -34,11 +34,11 @@ export WLR_DRM_DEVICES=/dev/dri/card0
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 export WLR_DRM_NO_ATOMIC=1
 
-# Wolf-style render node configuration for GPU acceleration
-export WOLF_RENDER_NODE=/dev/dri/renderD128
-export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_RENDER_NODE}
+# GPU render node configuration for hardware acceleration
+export GPU_RENDER_NODE=/dev/dri/renderD128
+export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$GPU_RENDER_NODE}
 
-# Wolf's GST GPU configuration
+# GStreamer GPU configuration for hardware encoding
 export GST_GL_API=gles2
 export GST_GL_WINDOW=surfaceless
 
@@ -91,7 +91,7 @@ export WLR_DRM_DEVICES=\"$WLR_DRM_DEVICES\"
 export WLR_RENDERER_ALLOW_SOFTWARE=\"$WLR_RENDERER_ALLOW_SOFTWARE\"
 export LIBGL_DRIVERS_PATH=\"$LIBGL_DRIVERS_PATH\"
 export LIBVA_DRIVERS_PATH=\"$LIBVA_DRIVERS_PATH\"
-export WOLF_RENDER_NODE=\"$WOLF_RENDER_NODE\"
+export GPU_RENDER_NODE=\"$GPU_RENDER_NODE\"
 export GST_GL_DRM_DEVICE=\"$GST_GL_DRM_DEVICE\"
 
 # Start dbus session
@@ -147,18 +147,22 @@ fi
 
 echo \"Using Wayland display: \$WAYLAND_DISPLAY\"
 
+# Disable Wayland security features that would require user permission prompts in containerized environment
+export SUNSHINE_DISABLE_WAYLAND_SECURITY=1
+export WLR_ALLOW_ALL_CLIENTS=1
+
 # Start wayvnc with input enabled and cursor optimizations for VNC
 wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5901 &
 WAYVNC_PID=\$!
 
 echo \"VNC server started on port 5901\"
 
-# Start Wolf Moonlight server
-echo \"Starting Wolf Moonlight server...\"
+# Start Sunshine Moonlight server
+echo \"Starting Sunshine Moonlight server...\"
 /start-moonlight.sh &
 MOONLIGHT_PID=\$!
 
-echo \"Moonlight server started on ports 47984 (HTTPS), 47989 (HTTP), 47999 (Control), 48010 (RTSP), 48100 (Video), 48200 (Audio)\"
+echo \"Sunshine Moonlight server started on port 47989 (HTTP/HTTPS), will use standard Moonlight protocol ports\"
 
 # Set up environment for AGS
 echo \"Setting up AGS environment...\"
@@ -176,7 +180,18 @@ hyprctl dispatch workspace 1 2>/dev/null || true
 sleep 3
 
 # Start AGS with proper environment and unique bus name
-echo \"Starting AGS bar and dock...\"
+echo \\\"Pre-compiling AGS SCSS styles...\\\"
+mkdir -p /home/ubuntu/.cache/ags/user/generated
+cd /home/ubuntu/.config/ags
+
+if command -v sass >/dev/null 2>&1; then
+    sass scss/main.scss /home/ubuntu/.cache/ags/user/generated/style.css 2>&1 || echo \\\"SCSS compilation failed, AGS will try at runtime\\\"
+    echo \\\"SCSS compilation completed\\\"
+else
+    echo \\\"Sass not available, AGS will compile at runtime\\\"
+fi
+
+echo \\\"Starting AGS bar and dock...\\\"
 (agsv1 --bus-name \"ags-\$(date +%s)\" 2>&1 | while read line; do echo \"AGS: \$line\"; done) &
 AGS_PID=\$!
 

@@ -3,21 +3,15 @@ package moonlight
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/connman"
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 // UDP-over-TCP encapsulation protocol constants
