@@ -239,6 +239,13 @@ services:
                 - BUILD_TYPE=release
         ports:
             - "5901:5901"  # Expose VNC for direct testing
+            # Moonlight/Sunshine ports for direct client testing
+            - "47989:47989"  # Moonlight HTTP/HTTPS main port
+            - "47984:47984"  # Moonlight HTTPS control
+            - "47999:47999"  # Moonlight control port  
+            - "48010:48010"  # Moonlight RTSP
+            - "48100:48100"  # Moonlight video stream
+            - "48200:48200"  # Moonlight audio stream
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
@@ -286,6 +293,8 @@ services:
             - ./hypr-config:/home/ubuntu/.config/hypr
             # Mount AGS config from dots-hyprland for fast iteration
             - /home/luke/pm/dots-hyprland/.config/ags:/home/ubuntu/.config/ags
+            # Mount Zed config for persistence
+            - ./zed-config:/home/ubuntu/.config/zed
         # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
         devices:
             - "/dev/dri:/dev/dri"
