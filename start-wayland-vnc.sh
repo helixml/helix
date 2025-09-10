@@ -1,135 +1,14 @@
 #!/bin/bash
 set -e
 
-# Weston + VNC startup script for 4K@60Hz with proper input support
+# Main startup script - runs as root, then switches to Ubuntu user
 
-# Ensure proper ownership of config directories (run as root before su)
+echo "Setting up environment..."
+
+# Ensure proper ownership of config directories
 mkdir -p /home/ubuntu/.config
 chown -R ubuntu:ubuntu /home/ubuntu/.config
 
-# Start Weston with proper VNC support
-su ubuntu -c "
-export USER=ubuntu
-export HOME=/home/ubuntu
-export XDG_RUNTIME_DIR=/tmp/runtime-ubuntu
-mkdir -p /tmp/runtime-ubuntu
-chmod 700 /tmp/runtime-ubuntu
-
-# GPU acceleration
-export NVIDIA_VISIBLE_DEVICES=all
-export NVIDIA_DRIVER_CAPABILITIES=all
-export GBM_BACKEND=nvidia-drm
-export __GLX_VENDOR_LIBRARY_NAME=nvidia
-
-# Weston configuration for VNC backend without TLS for easier connection
-mkdir -p /home/ubuntu/.config
-cat > /home/ubuntu/.config/weston.ini << 'WESTONCONF'
-[core]
-backend=vnc-backend.so
-renderer=gl
-
-[vnc]
-refresh-rate=60
-
-[output]
-name=vnc
-mode=3840x2160
-resizeable=false
-
-[shell]
-background-color=0xff1b1b26
-panel-color=0xff241c2e
-locking=false
-binding-modifier=ctrl
-
-[launcher]
-icon=/usr/share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png
-path=/usr/bin/ghostty
-displayname=Ghostty
-
-[launcher]
-icon=/usr/share/icons/hicolor/32x32/apps/google-chrome.png
-path=/usr/bin/google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage
-displayname=Chrome
-
-WESTONCONF
-
-# Start dbus session
-if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
-    eval \$(dbus-launch --sh-syntax)
-fi
-
-echo \"Starting Weston with 4K@60Hz RDP support...\"
-
-# Generate TLS key and certificate for Weston RDP backend
-mkdir -p /tmp/rdp-keys
-cd /tmp/rdp-keys
-
-echo \"Generating TLS key and certificate for RDP backend...\"
-
-# Generate RSA private key
-openssl genrsa -out tls.key 2048
-
-# Generate certificate signing request (non-interactive)
-openssl req -new -key tls.key -out tls.csr -subj \"/C=US/ST=CA/L=SF/O=Helix/CN=localhost\"
-
-# Generate self-signed certificate
-openssl x509 -req -days 365 -signkey tls.key -in tls.csr -out tls.crt
-
-# Generate client certificate for Remmina
-echo \"Generating client certificate for VNC client...\"
-openssl genrsa -out client.key 2048
-openssl req -new -key client.key -out client.csr -subj \"/C=US/ST=CA/L=SF/O=Helix/CN=client\"
-openssl x509 -req -days 365 -signkey client.key -in client.csr -out client.crt
-
-# Verify files were created
-if [ ! -f \"tls.key\" ] || [ ! -f \"tls.crt\" ] || [ ! -f \"client.key\" ] || [ ! -f \"client.crt\" ]; then
-    echo \"ERROR: Failed to generate TLS certificates\"
-    exit 1
-fi
-
-echo \"TLS files generated successfully:\"
-ls -la tls.key tls.crt client.key client.crt
-
-# Start Weston with VNC backend for 4K@60Hz using TLS
-#weston --backend=vnc-backend.so --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --vnc-tls-key=/tmp/rdp-keys/tls.key --vnc-tls-cert=/tmp/rdp-keys/tls.crt &
-weston --backend=vnc-backend.so --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --disable-transport-layer-security &
-COMPOSITOR_PID=\$!
-
-# # Wait for Weston to start
-# sleep 8
-
-# echo \"Weston started, launching terminal...\"
-
-# # Start applications in Weston
-# echo \"Starting applications...\"
-
-# # Start Ghostty terminal
-# WAYLAND_DISPLAY=wayland-1 ghostty &
-# sleep 2
-
-# # Start Chrome browser with Wayland support
-# WAYLAND_DISPLAY=wayland-1 google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage &
-
-# Start Helix agent runner in background
-echo \"Starting Helix External Agent Runner...\"
-export API_HOST=http://api:8080
-export API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-export LOG_LEVEL=debug
-export CONCURRENCY=1
-export MAX_TASKS=0
-export SESSION_TIMEOUT=3600
-export WORKSPACE_DIR=/tmp/workspace
-
-# Start the Helix agent runner
-/usr/local/bin/helix external-agent-runner &
-AGENT_PID=\$!
-
-echo \"Helix agent runner started with PID \$AGENT_PID\"
-
-# Wait for compositor (this keeps the container running)
-wait \$COMPOSITOR_PID
-"
-
-# RDP is built into Weston, no separate server needed
-echo "RDP server started on port 3389"
+# Switch to Ubuntu user and run desktop environment
+echo "Switching to Ubuntu user and starting desktop..."
+exec su ubuntu -c "/ubuntu-desktop.sh"

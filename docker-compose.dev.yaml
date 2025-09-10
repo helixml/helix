@@ -276,6 +276,8 @@ services:
             - ./zed.sh:/usr/local/bin/zed.sh
             - ./zed-vgl.sh:/usr/local/bin/zed-vgl.sh
             - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
+            # Mount Ubuntu desktop script
+            - ./ubuntu-desktop.sh:/ubuntu-desktop.sh
             # Mount zed-build directory for live binary updates
             - ./zed-build:/zed-build
             # Mount startup script for fast iteration without rebuilds
