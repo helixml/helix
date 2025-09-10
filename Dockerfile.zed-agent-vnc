@@ -107,17 +107,61 @@ RUN apt-get update && apt-get install -y \
     libxtst-dev libxss-dev libnuma-dev libpulse-dev libopus-dev \
     # Additional dependencies for Wayland support
     libwayland-dev libxkbcommon-dev \
-    # UPnP library for Sunshine
-    libminiupnpc17 libminiupnpc-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Sunshine from official GitHub releases
+# Install Sunshine build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential cmake git pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install core Sunshine dependencies
+RUN apt-get update && apt-get install -y \
+    libssl-dev libavdevice-dev libavformat-dev libavcodec-dev libavutil-dev \
+    libswscale-dev libavfilter-dev libdrm-dev libcap-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install input/display dependencies for Sunshine
+RUN apt-get update && apt-get install -y \
+    libevdev-dev libpulse-dev libopus-dev libxtst-dev libx11-dev libxrandr-dev \
+    libxfixes-dev libxss-dev libwayland-dev libinput-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install encoding/media dependencies (include all libva variants)
+RUN apt-get update && apt-get install -y \
+    libva-dev libva-drm2 libva-x11-2 libva2 libvdpau-dev libnuma-dev \
+    libminiupnpc-dev libcurl4-openssl-dev \
+    # Additional headers for Sunshine compilation
+    libgbm-dev libxcb-xfixes0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install notification and system tray dependencies for Sunshine
+RUN apt-get update && apt-get install -y \
+    libnotify-dev libayatana-appindicator3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone Sunshine source from specific stable tag
 RUN cd /tmp && \
-    curl -L -o sunshine.deb "https://github.com/LizardByte/Sunshine/releases/latest/download/sunshine-ubuntu-24.04-amd64.deb" && \
-    apt-get update && \
-    apt-get install -y ./sunshine.deb && \
-    rm sunshine.deb && \
-    rm -rf /var/lib/apt/lists/*
+    git clone https://github.com/LizardByte/Sunshine.git --recurse-submodules && \
+    cd Sunshine && \
+    git checkout v2025.829.135256
+
+# Configure Sunshine build
+RUN cd /tmp/Sunshine && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DSUNSHINE_ENABLE_WAYLAND=ON \
+          -DSUNSHINE_ENABLE_X11=ON \
+          -DSUNSHINE_ENABLE_DRM=ON \
+          -DSUNSHINE_ENABLE_CUDA=OFF \
+          -DSUNSHINE_ENABLE_TRAY=OFF \
+          -DBUILD_DOCS=OFF \
+          ..
+
+# Build and install Sunshine
+RUN cd /tmp/Sunshine/build && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/Sunshine
 
 # Install illogical-impulse specific tools (fonts installation simplified for now)
 RUN apt-get update && apt-get install -y \
