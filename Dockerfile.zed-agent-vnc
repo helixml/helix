@@ -98,70 +98,18 @@ RUN <<_ADD_NVRTC
     rm -rf /var/lib/apt/lists/*
 _ADD_NVRTC
 
-# Install Sunshine Moonlight server from official packages
+
+# Install Sunshine runtime dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
-    # Sunshine runtime dependencies
-    libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
-    libswscale-dev libdrm-dev libvdpau-dev libx11-dev libxfixes-dev libxrandr-dev \
-    libxtst-dev libxss-dev libnuma-dev libpulse-dev libopus-dev \
-    # Additional dependencies for Wayland support
-    libwayland-dev libxkbcommon-dev \
+    debianutils libcap2 libcurl4 libdrm2 libgbm1 libevdev2 \
+    libnuma1 libopus0 libpulse0 libva2 libva-drm2 \
+    libwayland-client0 libx11-6 miniupnpc openssl \
+    libayatana-appindicator3-1 libnotify4 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Sunshine build dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential cmake git pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install core Sunshine dependencies
-RUN apt-get update && apt-get install -y \
-    libssl-dev libavdevice-dev libavformat-dev libavcodec-dev libavutil-dev \
-    libswscale-dev libavfilter-dev libdrm-dev libcap-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install input/display dependencies for Sunshine
-RUN apt-get update && apt-get install -y \
-    libevdev-dev libpulse-dev libopus-dev libxtst-dev libx11-dev libxrandr-dev \
-    libxfixes-dev libxss-dev libwayland-dev libinput-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install encoding/media dependencies (include all libva variants)
-RUN apt-get update && apt-get install -y \
-    libva-dev libva-drm2 libva-x11-2 libva2 libvdpau-dev libnuma-dev \
-    libminiupnpc-dev libcurl4-openssl-dev \
-    # Additional headers for Sunshine compilation
-    libgbm-dev libxcb-xfixes0-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install notification and system tray dependencies for Sunshine
-RUN apt-get update && apt-get install -y \
-    libnotify-dev libayatana-appindicator3-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone Sunshine source from specific stable tag
-RUN cd /tmp && \
-    git clone https://github.com/LizardByte/Sunshine.git --recurse-submodules && \
-    cd Sunshine && \
-    git checkout v2025.829.135256
-
-# Configure Sunshine build
-RUN cd /tmp/Sunshine && \
-    mkdir build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release \
-          -DSUNSHINE_ENABLE_WAYLAND=ON \
-          -DSUNSHINE_ENABLE_X11=ON \
-          -DSUNSHINE_ENABLE_DRM=ON \
-          -DSUNSHINE_ENABLE_CUDA=OFF \
-          -DSUNSHINE_ENABLE_TRAY=OFF \
-          -DBUILD_DOCS=OFF \
-          ..
-
-# Build and install Sunshine
-RUN cd /tmp/Sunshine/build && \
-    make -j$(nproc) && \
-    make install && \
-    cd / && rm -rf /tmp/Sunshine
+# Install Sunshine from pre-built .deb package
+COPY sunshine-ubuntu-25.04.deb /tmp/sunshine.deb
+RUN dpkg -i /tmp/sunshine.deb && rm /tmp/sunshine.deb
 
 # Install illogical-impulse specific tools (fonts installation simplified for now)
 RUN apt-get update && apt-get install -y \
@@ -438,7 +386,7 @@ echo "Starting Sunshine config refresher..."
 
 # Start Sunshine Moonlight server
 echo "Starting Sunshine with GPU acceleration and Wayland capture"
-exec sunshine /etc/sunshine/sunshine.conf
+exec sunshine
 EOF
 
 # Copy Wayland VNC startup script

@@ -32,6 +32,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
@@ -566,6 +567,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 
 	// Reverse dial endpoint for external agent runners (requires runner token authentication)
+	// This handles both control connections (non-WebSocket) and data connections (WebSocket)
 	runnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
@@ -1649,7 +1651,27 @@ func getWebSocketMessageTypeName(messageType int) string {
 
 // handleRevDial handles reverse dial connections from external agent runners
 func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
+	// Create the WebSocket handler for data connections using revdial.ConnHandler
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+	}
+	
+	revDialConnHandler := revdial.ConnHandler(upgrader)
+	
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is a WebSocket upgrade request (data connection)
+		if websocket.IsWebSocketUpgrade(r) {
+			log.Debug().Msg("Handling revdial WebSocket data connection")
+			// This is a data connection - use the revdial ConnHandler
+			revDialConnHandler.ServeHTTP(w, r)
+			return
+		}
+		
+		// This is a control connection - proceed with existing logic
+		log.Debug().Msg("Handling revdial control connection")
+		
 		// Get authenticated user from middleware (runner token authentication)
 		user := getRequestUser(r)
 		if user == nil || user.TokenType != types.TokenTypeRunner {
