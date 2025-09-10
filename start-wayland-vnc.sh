@@ -153,6 +153,26 @@ WAYVNC_PID=\$!
 
 echo \"VNC server started on port 5901\"
 
+# Set up environment for AGS
+echo \"Setting up AGS environment...\"
+export DISPLAY=:1
+export HYPRLAND_INSTANCE_SIGNATURE=\$(ls \$XDG_RUNTIME_DIR/hypr/ | tail -1)
+
+# Create additional workspaces for better desktop experience
+echo \"Creating additional workspaces...\"
+for i in 2 3 4 5; do
+    hyprctl dispatch workspace \$i 2>/dev/null || true
+done
+hyprctl dispatch workspace 1 2>/dev/null || true
+
+# Wait a bit more for Hyprland to fully initialize
+sleep 3
+
+# Start AGS with proper environment and unique bus name
+echo \"Starting AGS bar and dock...\"
+(agsv1 --bus-name \"ags-\$(date +%s)\" 2>&1 | while read line; do echo \"AGS: \$line\"; done) &
+AGS_PID=\$!
+
 # Wait for both processes
 wait \$COMPOSITOR_PID \$WAYVNC_PID
 " &
