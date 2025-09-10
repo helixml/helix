@@ -138,6 +138,50 @@ RUN apt-get update && apt-get install -y curl \
     && /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh)" || echo "Ghostty installation failed, continuing with alternatives" && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Google Chrome using modern method (apt-key is deprecated)
+RUN mkdir -p /etc/apt/keyrings \
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor | tee /etc/apt/keyrings/google-chrome.gpg > /dev/null \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create desktop entries for application launcher
+RUN mkdir -p /home/ubuntu/.local/share/applications \
+    && chown -R ubuntu:ubuntu /home/ubuntu/.local
+
+# Create Ghostty desktop entry
+RUN cat > /home/ubuntu/.local/share/applications/ghostty.desktop << 'EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Ghostty Terminal
+Comment=Fast, feature-rich, and cross-platform terminal emulator
+Exec=env WAYLAND_DISPLAY=wayland-0 ghostty
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupWMClass=ghostty
+EOF
+
+# Create Chrome desktop entry for Wayland
+RUN cat > /home/ubuntu/.local/share/applications/chrome-wayland.desktop << 'EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Google Chrome
+Comment=Access the Internet
+Exec=env WAYLAND_DISPLAY=wayland-0 google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage %U
+Icon=google-chrome
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=Google-chrome
+EOF
+
+# Fix ownership of desktop files
+RUN chown -R ubuntu:ubuntu /home/ubuntu/.local/share/applications
+
 # Create startup script for Helix External Agent Runner
 COPY <<EOF /start-helix-agent.sh
 #!/bin/bash

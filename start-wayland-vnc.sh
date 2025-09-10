@@ -37,13 +37,22 @@ refresh-rate=60
 # force-no-compression=true
 cursor=client
 
-[output]
-scale=2
-
 [shell]
 background-color=0xff1b1b26
 panel-color=0xff241c2e
 locking=false
+binding-modifier=ctrl
+
+[launcher]
+icon=/usr/share/icons/hicolor/32x32/apps/com.mitchellh.ghostty.png
+path=/usr/bin/ghostty
+displayname=Ghostty
+
+[launcher]
+icon=/usr/share/icons/hicolor/32x32/apps/google-chrome.png
+path=/usr/bin/google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage
+displayname=Chrome
+
 WESTONCONF
 
 # Start dbus session
@@ -81,13 +90,20 @@ ls -la tls.key tls.crt
 weston --backend=rdp-backend.so --rdp-tls-key=/tmp/rdp-keys/tls.key --rdp-tls-cert=/tmp/rdp-keys/tls.crt &
 COMPOSITOR_PID=\$!
 
-# Wait for Weston to start
-sleep 8
+# # Wait for Weston to start
+# sleep 8
 
-echo \"Weston started, launching terminal...\"
+# echo \"Weston started, launching terminal...\"
 
-# Start Ghostty terminal in Weston
-WAYLAND_DISPLAY=wayland-0 ghostty &
+# # Start applications in Weston
+# echo \"Starting applications...\"
+
+# # Start Ghostty terminal
+# WAYLAND_DISPLAY=wayland-1 ghostty &
+# sleep 2
+
+# # Start Chrome browser with Wayland support
+# WAYLAND_DISPLAY=wayland-1 google-chrome --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage &
 
 # Wait for compositor
 wait \$COMPOSITOR_PID
