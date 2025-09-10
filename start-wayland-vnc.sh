@@ -117,10 +117,12 @@ echo \"DRI devices: \$(ls /dev/dri/)\"
 echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
 echo \"GBM_BACKEND: \$GBM_BACKEND\"
 
-# Start Hyprland with comprehensive error capture
+# Start Hyprland with comprehensive error capture  
 echo \"Starting Hyprland...\"
-(Hyprland 2>&1 | while read line; do echo \"HYPRLAND: \$line\"; done) &
+export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
+/usr/bin/Hyprland > /tmp/hyprland.log 2>&1 &
 COMPOSITOR_PID=\$!
+echo \"Hyprland started with PID: \$COMPOSITOR_PID\"
 
 # Give Hyprland time to initialize with GPU
 sleep 5
