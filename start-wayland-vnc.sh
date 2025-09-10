@@ -153,6 +153,13 @@ WAYVNC_PID=\$!
 
 echo \"VNC server started on port 5901\"
 
+# Start Wolf Moonlight server
+echo \"Starting Wolf Moonlight server...\"
+/start-moonlight.sh &
+MOONLIGHT_PID=\$!
+
+echo \"Moonlight server started on ports 47984 (HTTPS), 47989 (HTTP), 47999 (Control), 48010 (RTSP), 48100 (Video), 48200 (Audio)\"
+
 # Set up environment for AGS
 echo \"Setting up AGS environment...\"
 export DISPLAY=:1
@@ -173,8 +180,8 @@ echo \"Starting AGS bar and dock...\"
 (agsv1 --bus-name \"ags-\$(date +%s)\" 2>&1 | while read line; do echo \"AGS: \$line\"; done) &
 AGS_PID=\$!
 
-# Wait for both processes
-wait \$COMPOSITOR_PID \$WAYVNC_PID
+# Wait for all processes
+wait \$COMPOSITOR_PID \$WAYVNC_PID \$MOONLIGHT_PID
 " &
 
 # Start Helix agent in background
