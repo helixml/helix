@@ -123,8 +123,8 @@ func (gc *GuacamoleClient) authenticate() error {
 	return nil
 }
 
-// createRDPConnection creates a new RDP connection in Guacamole
-func (gc *GuacamoleClient) createRDPConnection(sessionID, hostname string, port int, username, password string) (string, error) {
+// createVNCConnection creates a new VNC connection in Guacamole
+func (gc *GuacamoleClient) createVNCConnection(sessionID, hostname string, port int) (string, error) {
 	if gc.authToken == "" {
 		if err := gc.authenticate(); err != nil {
 			return "", err
@@ -134,21 +134,15 @@ func (gc *GuacamoleClient) createRDPConnection(sessionID, hostname string, port 
 	connection := GuacamoleConnectionConfig{
 		Name:             fmt.Sprintf("Helix-Session-%s", sessionID),
 		ParentIdentifier: "ROOT",
-		Protocol:         "rdp",
+		Protocol:         "vnc",
 		Parameters: map[string]string{
-			"hostname":                   hostname,
-			"port":                       fmt.Sprintf("%d", port),
-			"username":                   username,
-			"password":                   password,
-			"security":                   "any",
-			"ignore-cert":                "true",
-			"resize-method":              "reconnect",
-			"enable-wallpaper":           "false",
-			"enable-theming":             "false",
-			"enable-font-smoothing":      "false",
-			"enable-full-window-drag":    "false",
-			"enable-desktop-composition": "false",
-			"enable-menu-animations":     "false",
+			"hostname":     hostname,
+			"port":         fmt.Sprintf("%d", port),
+			"password":     "helix123", // Static VNC password
+			"color-depth":  "24",
+			"cursor":       "remote",
+			"read-only":    "false",
+			"swap-red-blue": "false",
 		},
 		Attributes: map[string]string{
 			"guac-full-screen": "false",
@@ -391,12 +385,10 @@ func (rpm *RDPProxyManager) startRDPProxy(sessionID, runnerID string) (int, erro
 
 // createOrGetConnection creates or retrieves a Guacamole connection
 func (rpm *RDPProxyManager) createOrGetConnection(sessionID, hostname string, port int, sessionInfo *ZedAgentSession) (string, error) {
-	connectionID, err := rpm.guacamoleClient.createRDPConnection(
+	connectionID, err := rpm.guacamoleClient.createVNCConnection(
 		sessionID,
 		hostname,
 		port,
-		sessionInfo.RDPUsername,
-		sessionInfo.RDPPassword, // Use actual configured password
 	)
 	if err != nil {
 		return "", err
@@ -406,7 +398,7 @@ func (rpm *RDPProxyManager) createOrGetConnection(sessionID, hostname string, po
 		Str("session_id", sessionID).
 		Str("connection_id", connectionID).
 		Str("proxy_target", fmt.Sprintf("%s:%d", hostname, port)).
-		Msg("Created Guacamole connection to local RDP proxy")
+		Msg("Created Guacamole connection to local VNC proxy")
 
 	return connectionID, nil
 }
@@ -495,12 +487,11 @@ func (s *HelixAPIServer) proxyWebSocketToGuacamole(ctx context.Context, frontend
 		Msg("RDP proxy connection closed")
 }
 
-// ZedAgentSession represents a Zed agent session for RDP access
+// ZedAgentSession represents a Zed agent session for VNC access
 type ZedAgentSession struct {
 	SessionID   string `json:"session_id"`
-	RDPPort     int    `json:"rdp_port"`
-	RDPUsername string `json:"rdp_username"`
-	RDPPassword string `json:"rdp_password"`
+	VNCPort     int    `json:"vnc_port"`
+	VNCPassword string `json:"vnc_password"`
 	Status      string `json:"status"`
 }
 
@@ -665,9 +656,8 @@ func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string
 		if err == nil {
 			return &ZedAgentSession{
 				SessionID:   sessionID,
-				RDPPort:     5900,
-				RDPUsername: "zed",
-				RDPPassword: session.RDPPassword, // Use actual configured password
+				VNCPort:     5901, // wayvnc runs on port 5901
+				VNCPassword: session.RDPPassword, // Use RDP password field as VNC password for now
 				Status:      session.Status,
 			}, nil
 		}
@@ -675,8 +665,8 @@ func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string
 	}
 
 	// Fail securely - no fallback passwords
-	log.Error().Str("session_id", sessionID).Msg("Session not found in external agent executor - RDP access unavailable")
-	return nil, fmt.Errorf("RDP access not available for session %s", sessionID)
+	log.Error().Str("session_id", sessionID).Msg("Session not found in external agent executor - VNC access unavailable")
+	return nil, fmt.Errorf("VNC access not available for session %s", sessionID)
 }
 
 // stopRDPProxy stops the RDP proxy for a session
