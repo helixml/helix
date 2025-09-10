@@ -531,3 +531,135 @@ curl -X GET "https://api.helix.ml/api/v1/revdial?runnerid=runner-123" \
    - Runner RDP: API endpoint `/api/v1/external-agents/runners/{runnerID}/rdp-connection`
    - Session RDP: API endpoint `/api/v1/sessions/{sessionID}/rdp-connection`
    - Frontend automatically uses Guacamole proxy for connections
+
+## Future Roadmap: Moonlight Protocol Integration
+
+### Overview
+
+As an enhancement to the current RDP/Guacamole architecture, we plan to integrate **Moonlight** protocol support for high-performance, GPU-accelerated remote desktop streaming. Moonlight provides superior performance for graphical workloads and gaming compared to traditional RDP.
+
+### Moonlight Architecture Vision
+
+```
+Frontend Moonlight Client (WebRTC/WebCodecs) <-(H.264/H.265 Stream over WebSocket)->
+    ↓
+API Moonlight Proxy <-(WebSocket/WebRTC Signaling)->
+    ↓
+Moonlight Embedded Server <-(GameStream Protocol)->
+    ↓
+Agent Runner Reverse Dial Listener <-(TCP/UDP)->
+    ↓
+Sunshine Server (GPU-Accelerated Streaming)
+```
+
+### Key Advantages of Moonlight Integration
+
+1. **GPU Hardware Acceleration**: Native NVENC/AMD VCE encoding for efficient streaming
+2. **Low Latency**: Optimized for real-time interaction with sub-20ms latency
+3. **High Quality**: Support for 4K@60fps streaming with adaptive bitrate
+4. **Gaming Performance**: Designed specifically for interactive graphical applications
+5. **HDR Support**: Wide color gamut and HDR streaming capabilities
+
+### Implementation Components
+
+#### 1. Sunshine Server (Agent Runner)
+- **Purpose**: Replace XRDP with GPU-accelerated Sunshine streaming server
+- **Protocol**: GameStream-compatible protocol (Moonlight standard)
+- **GPU Acceleration**: Direct NVENC/VCE hardware encoding
+- **Configuration**: Auto-detect optimal settings based on GPU capabilities
+
+#### 2. API Moonlight Proxy
+- **Location**: `api/pkg/server/moonlight_proxy.go` (future implementation)
+- **Purpose**: WebSocket/WebRTC proxy for Moonlight protocol
+- **Features**:
+  - Protocol translation between WebRTC and GameStream
+  - Session management and authentication
+  - Adaptive bitrate control based on network conditions
+
+#### 3. Frontend Moonlight Client
+- **Technology**: WebRTC/WebCodecs for browser-native H.264/H.265 decoding
+- **Purpose**: High-performance video streaming in browser
+- **Features**:
+  - Hardware-accelerated video decoding
+  - Low-latency input capture and transmission
+  - Adaptive quality based on network/device capabilities
+
+### Migration Strategy
+
+#### Phase 1: Parallel Implementation
+- Implement Moonlight alongside existing RDP infrastructure
+- Allow users to choose between RDP (compatibility) and Moonlight (performance)
+- Maintain Guacamole for legacy support and troubleshooting
+
+#### Phase 2: Capability Detection
+- Auto-detect GPU capabilities on agent runners
+- Prefer Moonlight for GPU-enabled runners, fallback to RDP for CPU-only
+- Implement client capability detection for optimal protocol selection
+
+#### Phase 3: Full Migration (Long-term)
+- Default to Moonlight for all graphical workloads
+- Retain RDP for text-based/headless scenarios
+- Sunset Guacamole infrastructure for graphical applications
+
+### Technical Requirements
+
+#### Agent Runner Prerequisites
+- **GPU**: NVIDIA GTX 1000+ or AMD RX 400+ series for hardware encoding
+- **Software**: Sunshine server installation and configuration
+- **Network**: UDP hole-punching support for optimal performance
+
+#### API Server Changes
+- **WebRTC Signaling**: Implement WebRTC signaling server functionality
+- **Reverse Dial Integration**: Adapt existing reverse dial for UDP streams
+- **Authentication**: Extend current auth model to Moonlight sessions
+
+#### Frontend Enhancements
+- **WebCodecs Support**: Modern browser requirement for hardware decode
+- **Input Optimization**: Low-latency keyboard/mouse input handling
+- **Quality Controls**: User-accessible bitrate and quality settings
+
+### Performance Expectations
+
+| Protocol | Latency | Quality | GPU Usage | Bandwidth | Use Case |
+|----------|---------|---------|-----------|-----------|----------|
+| **RDP (Current)** | 50-150ms | Good | None | 5-20 Mbps | General desktop, text editing |
+| **Moonlight (Future)** | 5-20ms | Excellent | High | 10-100 Mbps | Graphics, gaming, video editing |
+
+### Security Considerations
+
+#### Authentication Integration
+- Reuse existing Helix authentication infrastructure
+- Session-based access control consistent with current RDP implementation
+- Encrypted streams with same security model as current architecture
+
+#### Network Security
+- Maintain reverse dial architecture for NAT traversal
+- Encrypted GameStream protocol (AES-256)
+- Certificate-based authentication between components
+
+### Implementation Priority
+
+**High Priority:**
+- Research Sunshine integration patterns
+- WebRTC signaling server implementation
+- Protocol detection and fallback mechanisms
+
+**Medium Priority:**
+- Frontend WebCodecs client development
+- Performance optimization and tuning
+- Comprehensive testing across GPU types
+
+**Low Priority:**
+- HDR and advanced color support
+- Multi-monitor streaming optimization
+- Advanced quality control features
+
+### Success Metrics
+
+1. **Latency Reduction**: Target <20ms end-to-end latency for local network
+2. **Quality Improvement**: Support for 1080p@60fps minimum, 4K@60fps target
+3. **Resource Efficiency**: Reduce CPU usage by 70% through GPU offloading
+4. **User Experience**: Seamless protocol selection based on capabilities
+5. **Compatibility**: Maintain 100% backward compatibility with RDP fallback
+
+This roadmap positions Helix to offer industry-leading remote desktop performance while maintaining the robust architecture and security model established with the current RDP/Guacamole implementation.
