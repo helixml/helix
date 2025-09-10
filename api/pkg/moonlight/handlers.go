@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,13 +15,14 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // MoonlightServer provides HTTP/RTSP endpoints for Moonlight protocol
 type MoonlightServer struct {
 	proxy         *MoonlightProxy
-	store         types.Store
+	store         store.Store
 	apps          map[uint64]*MoonlightApp // app_id -> app config
 	publicURL     string                   // Public URL for this server
 	pairedClients map[string]*PairedClient // certificate -> client mapping
@@ -108,7 +107,7 @@ type LaunchResponse struct {
 }
 
 // NewMoonlightServer creates a new Moonlight HTTP/RTSP server
-func NewMoonlightServer(proxy *MoonlightProxy, store types.Store, publicURL string, authenticator auth.Authenticator) *MoonlightServer {
+func NewMoonlightServer(proxy *MoonlightProxy, store store.Store, publicURL string, authenticator auth.Authenticator) *MoonlightServer {
 	return &MoonlightServer{
 		proxy:         proxy,
 		store:         store,
@@ -533,11 +532,14 @@ func (ms *MoonlightServer) refreshAppsFromSessions(userID string) {
 	ms.apps = make(map[uint64]*MoonlightApp)
 	
 	// Get user to check permissions
-	user, err := ms.store.GetUserByID(ctx, userID)
+	user, err := ms.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
 	if err != nil {
 		log.Error().Err(err).Str("user_id", userID).Msg("Failed to get user for app list")
 		return
 	}
+	
+	// Log user info for session access
+	log.Debug().Str("user_id", user.ID).Msg("Refreshing apps for user")
 	
 	appID := uint64(1)
 	
@@ -620,7 +622,7 @@ func (ms *MoonlightServer) userCanAccessAgentRunner(user *types.User, agentRunne
 
 // handleListApps returns the current app configuration
 func (ms *MoonlightServer) handleListApps(w http.ResponseWriter, r *http.Request) {
-	ms.refreshAppsFromSessions()
+	ms.refreshAppsFromSessions("")
 	
 	apps := make([]*MoonlightApp, 0, len(ms.apps))
 	for _, app := range ms.apps {
@@ -694,7 +696,7 @@ func (ms *MoonlightServer) handleDeleteApp(w http.ResponseWriter, r *http.Reques
 
 // handleRefreshApps manually refreshes the app list
 func (ms *MoonlightServer) handleRefreshApps(w http.ResponseWriter, r *http.Request) {
-	ms.refreshAppsFromSessions()
+	ms.refreshAppsFromSessions("")
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
