@@ -17,6 +17,12 @@ FROM ubuntu:25.04
 # Install base packages
 RUN apt-get update && apt-get install -y \
     wget curl ca-certificates gnupg software-properties-common \
+    # Wolf/Moonlight build dependencies
+    git cmake ninja-build pkg-config ccache clang build-essential \
+    libboost-thread-dev libboost-locale-dev libboost-filesystem-dev \
+    libboost-log-dev libboost-stacktrace-dev libboost-container-dev \
+    libcurl4-openssl-dev libssl-dev libevdev-dev libunwind-dev \
+    libudev-dev libpci-dev jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Wayland compositor and VNC server with Games on Whales inspired GPU support
@@ -93,6 +99,41 @@ RUN <<_ADD_NVRTC
     apt-get remove -y --purge unzip curl
     rm -rf /var/lib/apt/lists/*
 _ADD_NVRTC
+
+# Install Rust for Wolf's custom compositor
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+ARG RUST_VERSION=1.88.0
+RUN rustup install $RUST_VERSION && rustup default $RUST_VERSION && cargo install cargo-c
+
+# Build and install Wolf's GStreamer Wayland display plugin
+RUN cd /tmp && \
+    git clone https://github.com/games-on-whales/gst-wayland-display && \
+    cd gst-wayland-display && \
+    git checkout dfeebb19b48f32207469e166a3955f5d65b5e6c6 && \
+    cargo cinstall -p gst-plugin-wayland-display --prefix=/usr/local/lib/x86_64-linux-gnu/ --libdir=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0 && \
+    cp /usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/* /usr/lib/x86_64-linux-gnu/gstreamer-1.0/ && \
+    cp /usr/local/lib/liblibgstwaylanddisplay* /usr/lib/x86_64-linux-gnu/ && \
+    rm -rf /tmp/gst-wayland-display
+
+# Clone and build Wolf Moonlight server
+RUN cd /tmp && \
+    git clone https://github.com/games-on-whales/wolf.git && \
+    cd wolf && \
+    cmake -B build \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_CXX_EXTENSIONS=OFF \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBoost_USE_STATIC_LIBS=ON \
+    -DBUILD_FAKE_UDEV_CLI=ON \
+    -DBUILD_TESTING=OFF \
+    -G Ninja && \
+    ninja -C build wolf && \
+    ninja -C build fake-udev && \
+    cp build/src/moonlight-server/wolf /usr/local/bin/wolf && \
+    cp build/src/fake-udev/fake-udev /usr/local/bin/fake-udev && \
+    rm -rf /tmp/wolf
 
 # Install illogical-impulse specific tools (fonts installation simplified for now)
 RUN apt-get update && apt-get install -y \
@@ -232,9 +273,126 @@ EOF
 
 RUN chmod +x /start-helix-agent.sh
 
+# Create Wolf/Moonlight configuration
+RUN mkdir -p /etc/wolf/cfg
+COPY <<EOF /etc/wolf/cfg/config.toml
+# Wolf Moonlight Server Configuration for Helix
+hostname = "helix-moonlight"
+
+[[apps]]
+title = "Helix Desktop"  
+id = 1
+start_virtual_compositor = false
+support_hdr = false
+
+# Don't start a new container - just stream the existing desktop
+runner = "fake-udev"
+
+[apps.env]
+
+[video]
+resolution = ["3840x2160"]
+fps = [60, 120]
+
+# GPU configuration - matches your NVIDIA setup  
+render_node = "/dev/dri/renderD128"
+
+# GStreamer pipeline for NVIDIA encoding
+video_producer_buffer_caps = "video/x-raw,format=NV12"
+
+[audio]
+mic = []
+speakers = []
+
+[input]
+# Virtual input devices - Wolf will create uinput devices
+mouse = []
+keyboard = []
+joypad = []
+
+[streaming]
+# Network configuration
+address_family = "BOTH"
+
+[gstreamer]
+# Enable hardware acceleration
+video_encoder = "nvh264enc"
+audio_encoder = "opusenc"
+EOF
+
+# Copy the dynamic config generation script and refresher
+COPY scripts/generate-wolf-config.sh /usr/local/bin/generate-wolf-config.sh
+COPY scripts/wolf-config-refresher.sh /usr/local/bin/wolf-config-refresher.sh
+RUN chmod +x /usr/local/bin/generate-wolf-config.sh /usr/local/bin/wolf-config-refresher.sh
+
+# Create Wolf startup script
+COPY <<EOF /start-moonlight.sh
+#!/bin/bash
+set -e
+
+echo "Starting Wolf Moonlight server..."
+
+# Wolf environment configuration (matches your GPU setup)
+export WOLF_CFG_FILE=/etc/wolf/cfg/config.toml  
+export WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+export WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+export WOLF_RENDER_NODE=/dev/dri/renderD128
+export WOLF_LOG_LEVEL=INFO
+
+# Runtime directory for sockets
+export XDG_RUNTIME_DIR=/tmp/runtime-ubuntu
+
+# GStreamer plugin path for Wolf's wayland display plugin
+export GST_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/gstreamer-1.0
+
+# GPU acceleration settings (matching your current setup)
+export GST_GL_API=gles2
+export GST_GL_WINDOW=surfaceless  
+export GST_GL_DRM_DEVICE=\$WOLF_RENDER_NODE
+
+# NVIDIA specific settings
+export NVIDIA_VISIBLE_DEVICES=all
+export NVIDIA_DRIVER_CAPABILITIES=all
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+
+# Wait for Wayland display to be ready
+echo "Waiting for Wayland display..."
+timeout=30
+while [ \$timeout -gt 0 ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-0" ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-1" ]; do
+    sleep 1
+    timeout=\$((timeout - 1))
+done
+
+if [ ! -S "\$XDG_RUNTIME_DIR/wayland-0" ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-1" ]; then
+    echo "Error: Wayland display not ready after 30 seconds"
+    exit 1
+fi
+
+# Set the Wayland display
+if [ -S "\$XDG_RUNTIME_DIR/wayland-1" ]; then
+    export WAYLAND_DISPLAY=wayland-1
+else
+    export WAYLAND_DISPLAY=wayland-0
+fi
+
+echo "Using Wayland display: \$WAYLAND_DISPLAY"
+
+# Generate dynamic Wolf config based on active Helix sessions
+echo "Generating Wolf config for active sessions..."
+/usr/local/bin/generate-wolf-config.sh
+
+# Start config refresher in background
+echo "Starting Wolf config refresher..."
+/usr/local/bin/wolf-config-refresher.sh &
+
+# Start Wolf Moonlight server
+echo "Starting Wolf with GPU acceleration on \$WOLF_RENDER_NODE"
+exec /usr/local/bin/wolf
+EOF
+
 # Copy Wayland VNC startup script
 COPY start-wayland-vnc.sh /start-wayland-vnc.sh
-RUN chmod +x /start-wayland-vnc.sh
+RUN chmod +x /start-wayland-vnc.sh /start-moonlight.sh
 
 # Environment variables for Wayland
 ENV WAYLAND_DISPLAY=wayland-0 \
@@ -247,8 +405,10 @@ ENV WAYLAND_DISPLAY=wayland-0 \
     WORKSPACE_DIR=/tmp/workspace \
     VNC_PASSWORD=helix123
 
-# Expose VNC port
+# Expose VNC port and Moonlight ports
 EXPOSE 5901 3030
+# Moonlight ports (following Wolf's port configuration)
+EXPOSE 47984/tcp 47989/tcp 47999/udp 48010/tcp 48100/udp 48200/udp
 
 # AGS (Aylur's GTK Shell) build stage - cached separately for efficiency
 RUN apt-get update && apt-get install -y \
