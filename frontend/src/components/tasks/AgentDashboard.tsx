@@ -64,6 +64,7 @@ import { IApp } from '../../types'
 import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
 import { useFloatingModal } from '../../contexts/floatingModal'
 import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
+import MoonlightConnectionButton from '../external-agent/MoonlightConnectionButton'
 
 // Using generated API types instead of local interfaces
 
@@ -610,6 +611,9 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                                 </IconButton>
                               </Tooltip>
                             )}
+                            <MoonlightConnectionButton 
+                              sessionId={session.session_id}
+                            />
                             <Tooltip title="View Session">
                               <IconButton 
                                 size="small"
@@ -699,6 +703,11 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          <Box sx={{ ml: 1 }}>
+                            <MoonlightConnectionButton 
+                              sessionId={connection.session_id}
+                            />
+                          </Box>
                         </ListItem>
                       ))}
                     </List>

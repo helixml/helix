@@ -35,6 +35,7 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -105,6 +106,8 @@ type HelixAPIServer struct {
 	rdpProxyManager            *RDPProxyManager
 	guacamoleProxy             *GuacamoleProxy
 	guacamoleLifecycle         *GuacamoleLifecycleManager
+	moonlightProxy             *moonlight.MoonlightProxy
+	moonlightServer            *moonlight.MoonlightServer
 }
 
 func NewServer(
@@ -276,6 +279,20 @@ func NewServer(
 		controller.Options.RunnerController,
 		ps,
 	)
+
+	// Initialize Moonlight proxy and server
+	publicURL := cfg.WebServer.URL
+	if publicURL == "" {
+		publicURL = "localhost"
+	}
+	
+	apiServer.moonlightProxy = moonlight.NewMoonlightProxy(connectionManager, publicURL)
+	apiServer.moonlightServer = moonlight.NewMoonlightServer(apiServer.moonlightProxy, store, publicURL, authenticator)
+	
+	// Start Moonlight proxy
+	if err := apiServer.moonlightProxy.Start(); err != nil {
+		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
+	}
 
 	// Initialize Git Repository Service using filestore mount
 	apiServer.gitRepositoryService = services.NewGitRepositoryService(
@@ -565,6 +582,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Guacamole web interface proxy for debugging - no auth required since Guacamole handles its own auth
 	router.PathPrefix("/guacamole/").HandlerFunc(apiServer.proxyGuacamoleWebInterface).Methods("GET", "POST", "PUT", "DELETE", "PATCH")
+
+	// Moonlight streaming server routes - no auth required for Moonlight protocol compatibility
+	apiServer.moonlightServer.RegisterRoutes(router)
 
 	// Agent dashboard and management routes
 	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
