@@ -139,11 +139,11 @@ func (apiServer *HelixAPIServer) handleRunnerGuacamoleProxy(w http.ResponseWrite
 	// TODO: Add admin permission check
 	// For now, allow any authenticated user
 
-	// Get runner RDP info
-	rdpPassword, err := apiServer.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
+	// Get runner VNC password (stored in RDP password field for now)
+	vncPassword, err := apiServer.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
 	if err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to get runner RDP password")
-		http.Error(w, "runner RDP access not available", http.StatusServiceUnavailable)
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to get runner VNC password")
+		http.Error(w, "runner VNC access not available", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -165,7 +165,7 @@ func (apiServer *HelixAPIServer) handleRunnerGuacamoleProxy(w http.ResponseWrite
 		Int("rdp_port", proxy.LocalPort).
 		Msg("Starting Guacamole proxy for runner")
 
-	err = apiServer.startGuacamoleProxy(w, r, runnerID, runnerID, proxy.LocalPort, rdpPassword, "runner")
+	err = apiServer.startGuacamoleProxy(w, r, runnerID, runnerID, proxy.LocalPort, vncPassword, "runner")
 	if err != nil {
 		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to start Guacamole proxy")
 		http.Error(w, "failed to start Guacamole proxy", http.StatusInternalServerError)
@@ -239,22 +239,21 @@ func (apiServer *HelixAPIServer) startGuacamoleProxy(w http.ResponseWriter, r *h
 	return apiServer.proxyGuacamoleTraffic(ctx, conn)
 }
 
-// createGuacamoleConnection creates a new RDP connection in the Guacamole server
+// createGuacamoleConnection creates a new VNC connection in the Guacamole server
 func (apiServer *HelixAPIServer) createGuacamoleConnection(connectionID string, rdpPort int, rdpPassword string) (string, error) {
-	// Create RDP connection configuration for Guacamole
+	// Create VNC connection configuration for Guacamole
 	connectionConfig := map[string]interface{}{
 		"parentIdentifier": "ROOT",
 		"name":             fmt.Sprintf("helix-%s", connectionID),
-		"protocol":         "rdp",
+		"protocol":         "vnc",
 		"parameters": map[string]string{
-			"hostname":    "api", // Connect to API container where RDP proxy is running
-			"port":        fmt.Sprintf("%d", rdpPort),
-			"username":    "zed",
-			"password":    rdpPassword,
-			"width":       "1024",
-			"height":      "768",
-			"dpi":         "96",
-			"color-depth": "32",
+			"hostname":     "api", // Connect to API container where VNC proxy is running
+			"port":         fmt.Sprintf("%d", rdpPort), // Still using rdpPort variable name but it's actually VNC port
+			"password":     "helix123", // Static VNC password
+			"color-depth":  "24",
+			"cursor":       "remote",
+			"read-only":    "false",
+			"swap-red-blue": "false",
 		},
 		"attributes": map[string]string{
 			"max-connections":          "",
@@ -454,10 +453,10 @@ func (apiServer *HelixAPIServer) getSessionRDPInfo(ctx context.Context, sessionI
 		return "", 0, "", fmt.Errorf("no runners available to handle session")
 	}
 
-	// Get runner's RDP password
+	// Get runner's VNC password (stored in RDP password field for now)
 	password, err := apiServer.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
 	if err != nil {
-		return "", 0, "", fmt.Errorf("failed to get runner RDP password: %w", err)
+		return "", 0, "", fmt.Errorf("failed to get runner VNC password: %w", err)
 	}
 
 	// Create or get RDP proxy for this session

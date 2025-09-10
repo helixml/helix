@@ -3,6 +3,22 @@ set -e
 
 # Hyprland-only startup script for 4K@60Hz with NVIDIA GPU acceleration
 
+# Lock file to prevent multiple concurrent executions
+LOCK_FILE="/tmp/start-wayland-vnc.lock"
+
+# Check if already running
+if [ -f "$LOCK_FILE" ]; then
+    echo "start-wayland-vnc.sh is already running (lock file exists: $LOCK_FILE)"
+    echo "If this is incorrect, remove $LOCK_FILE and try again"
+    exit 1
+fi
+
+# Create lock file with PID
+echo $$ > "$LOCK_FILE"
+
+# Cleanup lock file on exit
+trap 'rm -f "$LOCK_FILE"' EXIT
+
 echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
 
 # Set up environment for Wayland GPU acceleration
@@ -117,7 +133,7 @@ echo \"DRI devices: \$(ls /dev/dri/)\"
 echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
 echo \"GBM_BACKEND: \$GBM_BACKEND\"
 
-# Start Hyprland with comprehensive error capture  
+# Start Hyprland with comprehensive error capture
 echo \"Starting Hyprland...\"
 export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
 /usr/bin/Hyprland > /tmp/hyprland.log 2>&1 &
@@ -192,6 +208,10 @@ if command -v sass >/dev/null 2>&1; then
 else
     echo \\\"Sass not available, AGS will compile at runtime\\\"
 fi
+
+# Kill any existing AGS processes to prevent duplicates during restarts/debugging
+echo \\\"Cleaning up any existing AGS processes...\\\"
+# pkill -f agsv1 2>/dev/null || true
 
 echo \\\"Starting AGS bar and dock...\\\"
 (agsv1 --bus-name \"ags-\$(date +%s)\" 2>&1 | while read line; do echo \"AGS: \$line\"; done) &

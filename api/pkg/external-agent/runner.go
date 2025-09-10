@@ -23,6 +23,7 @@ import (
 	"github.com/sourcegraph/conc/pool"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -732,7 +733,93 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_forwarding_start").
 		Str("runner_id", r.cfg.RunnerID).
-		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting reverse dial forwarding to VNC")
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting revdial listener for VNC")
+	
+	// Create a dialServer function that creates WebSocket connections back to the control plane
+	// This is used by the revdial protocol for establishing data connections
+	dialServer := func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
+		// Build WebSocket URL for reverse dial data connections
+		wsURL := strings.Replace(r.cfg.APIHost, "http://", "ws://", 1) + path
+		
+		log.Debug().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_dial").
+			Str("url", wsURL).
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔗 EXTERNAL_AGENT_DEBUG: Dialing WebSocket for revdial data connection")
+		
+		// Create WebSocket connection with proper headers
+		headers := http.Header{}
+		dialer := websocket.Dialer{}
+		conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("url", wsURL).
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dial WebSocket for revdial")
+			return nil, resp, err
+		}
+		
+		log.Debug().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_connected").
+			Str("url", wsURL).
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("✅ EXTERNAL_AGENT_DEBUG: WebSocket connected for revdial data connection")
+		
+		return conn, resp, nil
+	}
+	
+	// Create a revdial listener from the established connection
+	// This handles the JSON control protocol and creates logical connections via WebSocket
+	listener := revdial.NewListener(r.revDialConn, dialServer)
+	defer listener.Close()
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_listener_created").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("✅ EXTERNAL_AGENT_DEBUG: Created revdial listener")
+	
+	// Accept incoming logical connections and forward each to VNC
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_context_cancelled").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("🔄 EXTERNAL_AGENT_DEBUG: Context cancelled, stopping revdial forwarding")
+			return
+		default:
+		}
+		
+		// Accept an incoming logical connection from the control plane
+		incomingConn, err := listener.Accept()
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_accept_failed").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to accept revdial connection")
+			return
+		}
+		
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connection_accepted").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔗 EXTERNAL_AGENT_DEBUG: Accepted new revdial logical connection")
+		
+		// Handle this connection in a goroutine
+		go r.handleSingleVNCForwarding(ctx, incomingConn)
+	}
+}
+
+// handleSingleVNCForwarding handles a single connection by forwarding it to VNC
+func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, incomingConn net.Conn) {
+	defer incomingConn.Close()
+	
+	log.Info().
+		Str("EXTERNAL_AGENT_DEBUG", "vnc_forward_start").
+		Str("runner_id", r.cfg.RunnerID).
+		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting VNC forwarding for single connection")
 	
 	// Connect to local VNC server
 	vncConn, err := net.Dial("tcp", "localhost:5901")
@@ -751,13 +838,13 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("✅ EXTERNAL_AGENT_DEBUG: Connected to local VNC server")
 	
-	// Simple bidirectional TCP proxy (no protocol conversion, no WebSockets)
+	// Simple bidirectional TCP proxy (no protocol conversion)
 	done := make(chan struct{}, 2)
 	
 	// Forward control plane → VNC
 	go func() {
 		defer func() { done <- struct{}{} }()
-		bytes, err := io.Copy(vncConn, r.revDialConn)
+		bytes, err := io.Copy(vncConn, incomingConn)
 		log.Debug().
 			Err(err).
 			Int64("bytes", bytes).
@@ -769,7 +856,7 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 	// Forward VNC → control plane  
 	go func() {
 		defer func() { done <- struct{}{} }()
-		bytes, err := io.Copy(r.revDialConn, vncConn)
+		bytes, err := io.Copy(incomingConn, vncConn)
 		log.Debug().
 			Err(err).
 			Int64("bytes", bytes).
@@ -782,9 +869,9 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 	<-done
 	
 	log.Info().
-		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connection_closed").
+		Str("EXTERNAL_AGENT_DEBUG", "vnc_forward_complete").
 		Str("runner_id", r.cfg.RunnerID).
-		Msg("🟠 EXTERNAL_AGENT_DEBUG: Reverse dial TCP connection closed")
+		Msg("🔄 EXTERNAL_AGENT_DEBUG: VNC forwarding completed for single connection")
 }
 
 
