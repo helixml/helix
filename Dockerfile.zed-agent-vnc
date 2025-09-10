@@ -203,13 +203,14 @@ COPY start-wayland-vnc.sh /start-wayland-vnc.sh
 RUN chmod +x /start-wayland-vnc.sh
 
 # Environment variables for Wayland
-ENV WAYLAND_DISPLAY=wayland-0 \
+# TODO: which of these are needed?
+ENV WAYLAND_DISPLAY=wayland-1 \
     XDG_RUNTIME_DIR=/tmp/runtime-ubuntu \
     WLR_RENDERER=gles2 \
     WLR_BACKENDS=headless \
     API_HOST=http://api:8080 \
-    CONCURRENCY=5 \
-    MAX_TASKS=0 \
+    CONCURRENCY=1 \
+    MAX_TASKS=1 \
     WORKSPACE_DIR=/tmp/workspace \
     VNC_PASSWORD=helix123
 

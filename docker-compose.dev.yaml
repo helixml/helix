@@ -260,7 +260,7 @@ services:
             - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
-            
+
             # Wolf-style GPU configuration for container runtime
             - NVIDIA_VISIBLE_DEVICES=all
             - NVIDIA_DRIVER_CAPABILITIES=all

@@ -735,7 +735,7 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting reverse dial forwarding to VNC")
 	
 	// Connect to local VNC server
-	vncConn, err := net.Dial("tcp", "localhost:5901")
+	vncConn, err := net.Dial("tcp", "localhost:5900")
 	if err != nil {
 		log.Error().
 			Err(err).

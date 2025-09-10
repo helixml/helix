@@ -66,31 +66,8 @@ export NVIDIA_DRIVER_CAPABILITIES=all
 export GBM_BACKEND=nvidia-drm
 export __GLX_VENDOR_LIBRARY_NAME=nvidia
 
-# Generate TLS certificates for RDP
-cd /tmp
-mkdir -p rdp-keys
-cd rdp-keys
-
-# Generate private key
-openssl genrsa -out tls.key 2048
-
-# Generate certificate signing request
-openssl req -new -key tls.key -out tls.csr -subj "/C=US/ST=CA/L=SF/O=Helix/CN=localhost"
-
-# Generate self-signed certificate
-openssl x509 -req -days 365 -signkey tls.key -in tls.csr -out tls.crt
-
-# Generate client certificate for VNC client
-echo "Generating client certificate for VNC client..."
-openssl genrsa -out client.key 2048
-openssl req -new -key client.key -out client.csr -subj "/C=US/ST=CA/L=SF/O=Helix/CN=client"
-openssl x509 -req -days 365 -signkey client.key -in client.csr -out client.crt
-
-echo "TLS files generated successfully:"
-ls -la tls.key tls.crt client.key client.crt
-
 # Start Weston with VNC backend for 4K@60Hz using TLS
-weston --backend=vnc-backend.so --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --vnc-tls-key=/tmp/rdp-keys/tls.key --vnc-tls-cert=/tmp/rdp-keys/tls.crt &
+weston --backend=vnc --address=0.0.0.0 --port=5900 --width=3840 --height=2160 --disable-transport-layer-security &
 COMPOSITOR_PID=$!
 
 # Wait for Weston to start
