@@ -5,6 +5,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
+import Stack from '@mui/material/Stack'
 import { Trash } from 'lucide-react'
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -21,9 +24,12 @@ import { useListAppMemories, useDeleteAppMemory } from '../../services/appServic
 
 interface MemoriesManagementProps {
   appId: string
+  memory: boolean
+  onMemoryChange: (value: boolean) => void
+  readOnly?: boolean
 }
 
-const MemoriesManagement: FC<MemoriesManagementProps> = ({ appId }) => {
+const MemoriesManagement: FC<MemoriesManagementProps> = ({ appId, memory, onMemoryChange, readOnly = false }) => {
   const theme = useTheme()
   const snackbar = useSnackbar()
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
@@ -142,9 +148,21 @@ const MemoriesManagement: FC<MemoriesManagementProps> = ({ appId }) => {
   return (
     <>
       <Box sx={{ p: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          Agent Memories
-        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+          <Typography variant="h6">
+            Agent Memories
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={memory}
+                onChange={(e) => onMemoryChange(e.target.checked)}
+                disabled={readOnly}
+              />
+            }
+            label="Memory"
+          />
+        </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Memories are automatically injected into the agent's context and can be used to remember things between sessions.          
           They are not shared between users or agents, only between sessions for the same user.
