@@ -108,7 +108,7 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (*types.GptScrip
 			return nil, fmt.Errorf("failed to load program from file: %w", err)
 		}
 	} else if script.URL != "" {
-		client := system.NewRetryClient(3)
+		client := system.NewRetryClient(3, false)
 		resp, err := client.Get(script.URL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get script from url: %w", err)

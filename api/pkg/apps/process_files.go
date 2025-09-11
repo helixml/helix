@@ -94,7 +94,7 @@ func processLocalFiles(config *types.AppHelixConfig, basePath string) error {
 
 func processSchemaContent(schemaPath, basePath string) (string, error) {
 	if strings.HasPrefix(strings.ToLower(schemaPath), "http://") || strings.HasPrefix(strings.ToLower(schemaPath), "https://") {
-		client := system.NewRetryClient(3)
+		client := system.NewRetryClient(3, false)
 		resp, err := client.Get(schemaPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to get schema from URL: %w", err)
