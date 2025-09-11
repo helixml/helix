@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -62,6 +63,12 @@ func (apiServer *HelixAPIServer) registerGuacamoleProxyRoutes(authRouter *mux.Ro
 
 	// Runner-specific Guacamole proxy
 	authRouter.HandleFunc("/external-agents/runners/{runnerID}/guac/proxy", apiServer.handleRunnerGuacamoleProxy).Methods("GET")
+	
+	// Session-specific Guacamole connection ID endpoint
+	authRouter.HandleFunc("/sessions/{sessionID}/guacamole-connection-id", apiServer.getSessionGuacamoleConnectionID).Methods("GET")
+
+	// Runner-specific Guacamole connection ID endpoint
+	authRouter.HandleFunc("/external-agents/runners/{runnerID}/guacamole-connection-id", apiServer.getRunnerGuacamoleConnectionID).Methods("GET")
 	
 	// Admin endpoint to cleanup all Guacamole connections
 	authRouter.HandleFunc("/admin/guacamole/cleanup", apiServer.handleGuacamoleCleanup).Methods("POST")
@@ -606,5 +613,156 @@ func (apiServer *HelixAPIServer) handleGuacamoleCleanup(w http.ResponseWriter, r
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 		"message": "Guacamole connections cleaned up",
+	})
+}
+
+// getSessionGuacamoleConnectionID creates a Guacamole connection and returns the connection ID for direct access
+func (apiServer *HelixAPIServer) getSessionGuacamoleConnectionID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	sessionID := vars["sessionID"]
+	if sessionID == "" {
+		http.Error(w, "sessionID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify user owns the session
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		return
+	}
+
+	if session.Owner != user.ID {
+		http.Error(w, "you are not allowed to access this session", http.StatusForbidden)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		http.Error(w, "session does not support RDP access", http.StatusBadRequest)
+		return
+	}
+
+	// Get session RDP info
+	runnerID, rdpProxyPort, rdpPassword, err := apiServer.getSessionRDPInfo(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session RDP info")
+		http.Error(w, "failed to get RDP connection info", http.StatusInternalServerError)
+		return
+	}
+
+	// Create Guacamole connection
+	connectionName := fmt.Sprintf("session-%s-%d", sessionID, time.Now().UnixNano())
+	guacConnectionID, err := apiServer.createGuacamoleConnection(connectionName, rdpProxyPort, rdpPassword)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to create Guacamole connection")
+		http.Error(w, "failed to create Guacamole connection", http.StatusInternalServerError)
+		return
+	}
+
+	// Construct direct Guacamole URL
+	identifier := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s\x00c\x00postgresql", guacConnectionID)))
+	guacamoleURL := fmt.Sprintf("http://localhost:8080/guacamole/#/client/%s", identifier)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("runner_id", runnerID).
+		Str("guac_connection_id", guacConnectionID).
+		Str("guacamole_url", guacamoleURL).
+		Msg("Created Guacamole connection for session")
+
+	// Return connection info
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"guacamole_connection_id": guacConnectionID,
+		"guacamole_url":          guacamoleURL,
+		"session_id":             sessionID,
+		"runner_id":              runnerID,
+	})
+}
+
+// getRunnerGuacamoleConnectionID creates a Guacamole connection and returns the connection ID for direct runner access
+func (apiServer *HelixAPIServer) getRunnerGuacamoleConnectionID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	runnerID := vars["runnerID"]
+	if runnerID == "" {
+		http.Error(w, "runnerID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if user has admin permissions for runner access
+	if !apiServer.isAdmin(r) {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("runner_id", runnerID).
+			Msg("Non-admin user attempted to access runner VNC")
+		http.Error(w, "admin access required for runner connections", http.StatusForbidden)
+		return
+	}
+
+	// Get runner VNC password
+	vncPassword, err := apiServer.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to get runner VNC password")
+		http.Error(w, "runner VNC access not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create or get RDP proxy for this runner
+	if apiServer.rdpProxyManager == nil {
+		http.Error(w, "RDP proxy manager not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	proxy, err := apiServer.rdpProxyManager.CreateRunnerRDPProxy(ctx, runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to create RDP proxy for runner")
+		http.Error(w, "failed to create RDP proxy", http.StatusInternalServerError)
+		return
+	}
+
+	// Create Guacamole connection
+	connectionName := fmt.Sprintf("runner-%s-%d", runnerID, time.Now().UnixNano())
+	guacConnectionID, err := apiServer.createGuacamoleConnection(connectionName, proxy.LocalPort, vncPassword)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to create Guacamole connection")
+		http.Error(w, "failed to create Guacamole connection", http.StatusInternalServerError)
+		return
+	}
+
+	// Construct direct Guacamole URL
+	identifier := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s\x00c\x00postgresql", guacConnectionID)))
+	guacamoleURL := fmt.Sprintf("http://localhost:8080/guacamole/#/client/%s", identifier)
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("guac_connection_id", guacConnectionID).
+		Str("guacamole_url", guacamoleURL).
+		Int("rdp_port", proxy.LocalPort).
+		Msg("Created Guacamole connection for runner")
+
+	// Return connection info
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"guacamole_connection_id": guacConnectionID,
+		"guacamole_url":          guacamoleURL,
+		"runner_id":              runnerID,
+		"rdp_port":               proxy.LocalPort,
 	})
 }
