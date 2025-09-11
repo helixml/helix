@@ -302,10 +302,29 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
+// filestoreConfig godoc
+// @Summary Get filestore configuration
+// @Description Get the filestore configuration including user prefix and available folders
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Success 200 {object} filestore.Config
+// @Router /api/v1/filestore/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.Config, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
+// filestoreList godoc
+// @Summary List filestore items
+// @Description List files and folders in the specified path. Supports both user and app-scoped paths
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string false "Path to list (e.g., 'documents', 'apps/app_id/folder')"
+// @Success 200 {array} filestore.Item
+// @Router /api/v1/filestore/list [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -345,6 +364,16 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
+// filestoreGet godoc
+// @Summary Get filestore item
+// @Description Get information about a specific file or folder in the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/get [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -376,6 +405,16 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
+// filestoreCreateFolder godoc
+// @Summary Create filestore folder
+// @Description Create a new folder in the filestore at the specified path
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   request body object{path=string} true "Request body with folder path"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/folder [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	var request struct {
 		Path string `json:"path"`
@@ -412,6 +451,17 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
+// filestoreRename godoc
+// @Summary Rename filestore item
+// @Description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Current path of the file or folder"
+// @Param   new_path query string true "New path for the file or folder"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/rename [put]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 	newPath := req.URL.Query().Get("new_path")
@@ -458,6 +508,16 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
+// filestoreDelete godoc
+// @Summary Delete filestore item
+// @Description Delete a file or folder from the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder to delete"
+// @Success 200 {object} object{path=string} "Path of the deleted item"
+// @Router /api/v1/filestore/delete [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 
@@ -491,6 +551,17 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	return path, err
 }
 
+// filestoreUpload godoc
+// @Summary Upload files to filestore
+// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Tags    filestore
+// @Accept  multipart/form-data
+// @Produce json
+// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   files formData file true "Files to upload (multipart form data)"
+// @Success 200 {object} object{success=bool} "Upload success status"
+// @Router /api/v1/filestore/upload [post]
+// @Security BearerAuth
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
