@@ -214,12 +214,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
 
-  // Check if this is an external agent session
+  // Check if this is an external agent session and show Zed editor by default
   useEffect(() => {
     if (session?.data?.config?.agent_type === 'zed_external' || testRDPMode) {
       setIsExternalAgent(true)
+      // Show Zed editor by default for zed-enabled sessions
+      setShowRDPViewer(true)
     } else {
       setIsExternalAgent(false)
+      setShowRDPViewer(false)
     }
   }, [session?.data?.config?.agent_type, testRDPMode])
   
@@ -264,6 +267,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [assistantID, setAssistantID] = useState<string | null>(null)
   const [showRDPViewer, setShowRDPViewer] = useState(false)
   const [isExternalAgent, setIsExternalAgent] = useState(false)
+  const [rdpViewerHeight, setRdpViewerHeight] = useState(600)
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1313,20 +1317,58 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             </Box>
           )}
 
-          {/* Embedded RDP Viewer */}
+          {/* Embedded RDP Viewer with Resizable Height */}
           {isExternalAgent && showRDPViewer && (
-            <Box sx={{ px: 2, pb: 2, height: 400 }}>
-              <GuacamoleIframeClient
-                sessionId={sessionID}
-                isRunner={false}
-                onConnectionChange={(connected) => {
-                  console.log('RDP connection status:', connected);
-                }}
-                onError={(error) => {
-                  console.error('RDP error:', error);
-                }}
-                height={400}
-              />
+            <Box sx={{ px: 2, pb: 2 }}>
+              {/* Height Control */}
+              <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Height: {rdpViewerHeight}px
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setRdpViewerHeight(Math.max(300, rdpViewerHeight - 100))}
+                    disabled={rdpViewerHeight <= 300}
+                  >
+                    -100px
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setRdpViewerHeight(rdpViewerHeight + 100)}
+                  >
+                    +100px
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setRdpViewerHeight(600)}
+                  >
+                    Reset
+                  </Button>
+                </Box>
+              </Box>
+              <Box sx={{ 
+                height: rdpViewerHeight,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+                overflow: 'hidden'
+              }}>
+                <GuacamoleIframeClient
+                  sessionId={sessionID}
+                  isRunner={false}
+                  onConnectionChange={(connected) => {
+                    console.log('RDP connection status:', connected);
+                  }}
+                  onError={(error) => {
+                    console.error('RDP error:', error);
+                  }}
+                  height={rdpViewerHeight}
+                />
+              </Box>
             </Box>
           )}
 
