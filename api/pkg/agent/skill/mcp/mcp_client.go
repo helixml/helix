@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"maps"
 	"net/http"
@@ -29,7 +30,9 @@ type Client interface {
 	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
-type DefaultClientGetter struct{}
+type DefaultClientGetter struct {
+	TLSSkipVerify bool
+}
 
 func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (Client, error) {
 	var t transport.Interface
@@ -49,11 +52,20 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 		headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
 	}
 
+	httpClient := http.DefaultClient
+	if d.TLSSkipVerify {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+
 	switch {
 	case strings.HasSuffix(cfg.URL, "sse"):
+
 		sse, err := transport.NewSSE(
 			cfg.URL,
 			transport.WithHeaders(headers),
+			transport.WithHTTPClient(httpClient),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
@@ -65,7 +77,7 @@ func (d *DefaultClientGetter) NewClient(ctx context.Context, meta agent.Meta, oa
 			transport.WithHTTPHeaders(headers),
 			transport.WithHTTPTimeout(60*time.Second),
 			// Passing default client so that we don't need to close it
-			transport.WithHTTPBasicClient(http.DefaultClient),
+			transport.WithHTTPBasicClient(httpClient),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create HTTP transport: %w", err)

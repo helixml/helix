@@ -218,9 +218,11 @@ func NewServer(
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 		cache:             cache,
-		mcpClientGetter:   &mcp.DefaultClientGetter{},
-		avatarsBucket:     avatarsBucket,
-		trigger:           trigger,
+		mcpClientGetter: &mcp.DefaultClientGetter{
+			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
+		},
+		avatarsBucket: avatarsBucket,
+		trigger:       trigger,
 	}, nil
 }
 
