@@ -18,6 +18,7 @@ import (
 
 	"encoding/base64"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -2001,4 +2002,100 @@ func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*
 	}
 
 	return app, nil
+}
+
+// listAppMemories godoc
+// @Summary List app memories
+// @Description List memories for a specific app and user
+// @Tags    memories
+// @Produce json
+// @Success 200 {array} types.Memory
+// @Router /api/v1/apps/{id}/memories [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listAppMemories(_ http.ResponseWriter, r *http.Request) ([]*types.Memory, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	// Get the app to verify it exists and authorize access
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("App not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Authorize user to access the app
+	if err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403("You do not have access to this app")
+	}
+
+	// List memories for the user and app
+	memories, err := s.Store.ListMemories(r.Context(), &types.ListMemoryRequest{
+		UserID: user.ID,
+		AppID:  appID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return memories, nil
+}
+
+// deleteAppMemory godoc
+// @Summary Delete app memory
+// @Description Delete a specific memory for an app and user
+// @Tags    memories
+// @Produce json
+// @Success 200
+// @Param id path string true "App ID"
+// @Param memory_id path string true "Memory ID"
+// @Router /api/v1/apps/{id}/memories/{memory_id} [delete]
+// @Security BearerAuth
+func (s *HelixAPIServer) deleteAppMemory(_ http.ResponseWriter, r *http.Request) (*types.Memory, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	// Extract memory ID from the URL path
+	memoryID := mux.Vars(r)["memory_id"]
+
+	// Get the app to verify it exists and authorize access
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404("App not found")
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Authorize user to access the app
+	if err := s.authorizeUserToApp(r.Context(), user, app, types.ActionGet); err != nil {
+		return nil, system.NewHTTPError403("You do not have permission to delete memories for this app")
+	}
+
+	// Delete the memory
+	err = s.Store.DeleteMemory(r.Context(), &types.Memory{
+		ID:     memoryID,
+		UserID: user.ID,
+		AppID:  appID,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("app_id", appID).
+			Str("memory_id", memoryID).
+			Msg("Failed to delete memory")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("app_id", appID).
+		Str("memory_id", memoryID).
+		Msg("Successfully deleted memory")
+
+	return &types.Memory{
+		ID: memoryID,
+	}, nil
 }
