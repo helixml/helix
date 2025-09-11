@@ -107,8 +107,8 @@ RUN apt-get update && apt-get install -y \
     libayatana-appindicator3-1 libnotify4 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Sunshine from pre-built .deb package
-COPY sunshine-ubuntu-25.04.deb /tmp/sunshine.deb
+# Install Sunshine from ICU 76-compatible .deb package
+COPY sunshine-ubuntu-25.04-icu76-fixed.deb /tmp/sunshine.deb
 RUN dpkg -i /tmp/sunshine.deb && rm /tmp/sunshine.deb
 
 # Install illogical-impulse specific tools (fonts installation simplified for now)
