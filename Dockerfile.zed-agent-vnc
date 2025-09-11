@@ -458,4 +458,4 @@ ENTRYPOINT ["/start-wayland-vnc.sh"]
 # Copy everything from Go build stage LAST to avoid cache invalidation of expensive compilation steps
 COPY --from=go-build-env /usr/local/go /usr/local/go
 COPY --from=go-build-env /go/bin/air /usr/local/bin/air
-COPY --from=go-build-env /app/api/helix /usr/local/bin/helix
+COPY --from=go-build-env /helix /usr/local/bin/helix
