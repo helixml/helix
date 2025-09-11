@@ -136,8 +136,15 @@ func (apiServer *HelixAPIServer) handleRunnerGuacamoleProxy(w http.ResponseWrite
 		return
 	}
 
-	// TODO: Add admin permission check
-	// For now, allow any authenticated user
+	// Check if user has admin permissions for runner access
+	if !apiServer.isUserAdmin(user) {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("runner_id", runnerID).
+			Msg("Non-admin user attempted to access runner VNC")
+		http.Error(w, "admin access required for runner connections", http.StatusForbidden)
+		return
+	}
 
 	// Get runner VNC password (stored in RDP password field for now)
 	vncPassword, err := apiServer.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
