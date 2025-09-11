@@ -22,10 +22,16 @@ trap 'rm -f "$LOCK_FILE"' EXIT
 echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
 
 # Set up environment for Wayland GPU acceleration
-export WLR_RENDERER=${WLR_RENDERER:-gles2}
+# Force OpenGL instead of Vulkan to fix Sunshine wlroots capture (GitHub issue #4050)
+export WLR_RENDERER=gles2
 export WLR_BACKENDS=${WLR_BACKENDS:-headless}
 export WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS:-1}
 export WLR_HEADLESS_OUTPUTS=${WLR_HEADLESS_OUTPUTS:-1}
+
+# Prevent Vulkan zink driver which breaks Sunshine capture - use NVIDIA OpenGL instead
+export VK_ICD_FILENAMES=""
+export VK_DRIVER_FILES=""
+export DISABLE_VK_LAYER_NV_optimus_1=1
 
 # Set GPU acceleration settings
 export __GL_THREADED_OPTIMIZATIONS=1
