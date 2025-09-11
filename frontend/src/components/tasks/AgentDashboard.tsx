@@ -54,6 +54,7 @@ import {
   Timeline as TimelineIcon,
   Edit as EditIcon,
   Visibility as VisibilityIcon,
+  CleaningServices as CleaningServicesIcon,
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
 // Removed date-fns dependency - using native JavaScript instead
@@ -104,6 +105,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const [approvalComments, setApprovalComments] = useState('')
   const [runnerRDPViewerOpen, setRunnerRDPViewerOpen] = useState<string | null>(null) // runner ID
   const [approvalLoading, setApprovalLoading] = useState(false)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
   
   // Use ref to store API to prevent dependency issues
   const apiRef = useRef(api)
@@ -410,6 +412,19 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
     }
   }
 
+  const cleanupGuacamoleConnections = async () => {
+    setCleanupLoading(true)
+    try {
+      await apiRef.current.post('/api/v1/admin/guacamole/cleanup')
+      setError(null)
+      console.log('Guacamole connections cleaned up successfully')
+    } catch (err: any) {
+      setError(err.message || 'Failed to cleanup Guacamole connections')
+    } finally {
+      setCleanupLoading(false)
+    }
+  }
+
   if (loading && !dashboardData) {
     return <LinearProgress />
   }
@@ -437,6 +452,16 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
             sx={{ mr: 2 }}
           >
             Create Spec-Driven Task
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<CleaningServicesIcon />}
+            onClick={cleanupGuacamoleConnections}
+            disabled={cleanupLoading}
+            sx={{ mr: 2 }}
+            color="warning"
+          >
+            {cleanupLoading ? 'Cleaning...' : 'Cleanup VNC'}
           </Button>
           <IconButton onClick={() => window.location.reload()}>
             <RefreshIcon />

@@ -255,7 +255,7 @@ func (glm *GuacamoleLifecycleManager) createGuacamoleVNCConnection(ctx context.C
 	if directProxy {
 		// Direct connection to zed-runner container for local development
 		hostname = "zed-runner"
-		port = "5902" // Direct wayvnc port
+		port = "5901" // Direct wayvnc port
 		log.Info().
 			Str("connection_id", connectionID).
 			Msg("Using direct VNC proxy (bypassing reverse dial)")
@@ -683,5 +683,55 @@ func (glm *GuacamoleLifecycleManager) sendPasswordConfigurationToRunner(ctx cont
 		Str("runner_id", runnerID).
 		Msg("Successfully sent RDP password configuration to runner via ZedAgent WebSocket")
 
+	return nil
+}
+
+// CleanupAllGuacamoleConnections removes all helix-* connections from Guacamole
+func (glm *GuacamoleLifecycleManager) CleanupAllGuacamoleConnections(ctx context.Context) error {
+	log.Info().Msg("Starting cleanup of all Helix Guacamole connections")
+
+	// Authenticate with Guacamole
+	authToken, err := glm.authenticateWithGuacamole()
+	if err != nil {
+		return fmt.Errorf("failed to authenticate with Guacamole: %w", err)
+	}
+
+	// List all connections
+	connections, err := glm.listGuacamoleConnections(authToken)
+	if err != nil {
+		return fmt.Errorf("failed to list connections: %w", err)
+	}
+
+	// Find and delete all helix-* connections
+	deletedCount := 0
+	for id, conn := range connections {
+		if name, ok := conn["name"].(string); ok && strings.HasPrefix(name, "helix-") {
+			deleteURL := fmt.Sprintf("%s/guacamole/api/session/data/postgresql/connections/%s?token=%s",
+				glm.guacamoleProxy.guacamoleServerURL, id, authToken)
+
+			req, err := http.NewRequest("DELETE", deleteURL, nil)
+			if err != nil {
+				log.Error().Err(err).Str("connection_id", id).Msg("Failed to create delete request")
+				continue
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Error().Err(err).Str("connection_id", id).Msg("Failed to delete connection")
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+				log.Info().Str("connection_name", name).Str("connection_id", id).Msg("Deleted Guacamole connection")
+				deletedCount++
+			} else {
+				log.Error().Int("status", resp.StatusCode).Str("connection_id", id).Msg("Failed to delete connection")
+			}
+		}
+	}
+
+	log.Info().Int("deleted_count", deletedCount).Msg("Completed cleanup of Helix Guacamole connections")
 	return nil
 }

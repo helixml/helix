@@ -2,15 +2,32 @@
 # Go build stage (contains Helix binary, Go runtime, and air)
 # ====================================================================
 FROM golang:1.24 AS go-build-env
+
+# Install air with cache
+RUN go install github.com/air-verse/air@v1.52.3
+
+# Set up Go cache directories
+ENV GOCACHE=/go/cache/build
+ENV GOMODCACHE=/go/cache/mod
+RUN mkdir -p /go/cache/build /go/cache/mod
+
 WORKDIR /app
+
+# Copy go.mod and go.sum first for better layer caching
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/cache/mod \
+    --mount=type=cache,target=/go/cache/build \
+    go mod download
+
+# Copy source code
 COPY api ./api
 COPY .git /.git
+
+# Build the application with cache mounts
 WORKDIR /app/api
-RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
-RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
-RUN go install github.com/air-verse/air@v1.52.3
+RUN --mount=type=cache,target=/go/cache/mod \
+    --mount=type=cache,target=/go/cache/build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
 
 # VNC + VirtualGL stage for GPU-accelerated remote desktop
 FROM ubuntu:25.04
