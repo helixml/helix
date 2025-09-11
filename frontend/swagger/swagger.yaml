@@ -2290,6 +2290,21 @@ definitions:
       redirect_uri:
         type: string
     type: object
+  types.Memory:
+    properties:
+      app_id:
+        type: string
+      contents:
+        type: string
+      created:
+        type: string
+      id:
+        type: string
+      updated:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.Message:
     properties:
       content:
@@ -4777,6 +4792,47 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/apps/{id}/memories:
+    get:
+      description: List memories for a specific app and user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Memory'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List app memories
+      tags:
+      - memories
+  /api/v1/apps/{id}/memories/{memory_id}:
+    delete:
+      description: Delete a specific memory for an app and user
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Memory ID
+        in: path
+        name: memory_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete app memory
+      tags:
+      - memories
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
