@@ -92,6 +92,8 @@ services:
             - GUACAMOLE_SERVER_URL=${GUACAMOLE_SERVER_URL:-http://guacamole-client:8080}
             - GUACAMOLE_USERNAME=${GUACAMOLE_USERNAME:-guacadmin}
             - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
+            # Direct VNC proxy for local development (bypasses reverse dial)
+            - DIRECT_VNC_PROXY=${DIRECT_VNC_PROXY:-true}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum

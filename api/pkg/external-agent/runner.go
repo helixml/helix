@@ -822,7 +822,7 @@ func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, inc
 		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting VNC forwarding for single connection")
 	
 	// Connect to local VNC server
-	vncConn, err := net.Dial("tcp", "localhost:5901")
+	vncConn, err := net.Dial("tcp", "localhost:5902")
 	if err != nil {
 		log.Error().
 			Err(err).
