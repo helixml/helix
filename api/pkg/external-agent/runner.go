@@ -55,8 +55,50 @@ func (r *ExternalAgentRunner) Run(ctx context.Context) error {
 		Str("runner_id", r.cfg.RunnerID).
 		Int("concurrency", r.cfg.Concurrency).
 		Int("max_tasks", r.cfg.MaxTasks).
-		Msg("🚀 EXTERNAL_AGENT_DEBUG: Starting external agent runner")
-	return r.run(ctx)
+		Msg("🚀 EXTERNAL_AGENT_DEBUG: Starting external agent runner with auto-reconnect")
+	
+	// Persistent retry loop - keep trying to reconnect on failures
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "runner_shutdown").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("🛑 EXTERNAL_AGENT_DEBUG: Runner shutting down due to context cancellation")
+			return ctx.Err()
+		default:
+		}
+		
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "connection_attempt").
+			Str("runner_id", r.cfg.RunnerID).
+			Msg("🔄 EXTERNAL_AGENT_DEBUG: Attempting to connect to control plane")
+		
+		err := r.run(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "runner_cancelled").
+					Str("runner_id", r.cfg.RunnerID).
+					Msg("🛑 EXTERNAL_AGENT_DEBUG: Runner cancelled, exiting")
+				return err
+			}
+			
+			log.Error().
+				Err(err).
+				Str("EXTERNAL_AGENT_DEBUG", "connection_failed").
+				Str("runner_id", r.cfg.RunnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Connection failed, will retry in 5 seconds")
+			
+			// Wait before retrying
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+				// Continue to next iteration
+			}
+		}
+	}
 }
 
 func (r *ExternalAgentRunner) run(ctx context.Context) error {
@@ -97,7 +139,7 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 		log.Error().
 			Err(err).
 			Str("runner_id", r.cfg.RunnerID).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to establish reverse dial connection")
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to establish reverse dial connection, will retry on next reconnect")
 		return fmt.Errorf("failed to establish reverse dial connection: %w", err)
 	}
 	
@@ -134,7 +176,7 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 				log.Error().
 					Str("EXTERNAL_AGENT_DEBUG", "websocket_read_error").
 					Err(err).
-					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to read websocket message")
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to read websocket message - connection will be retried")
 				return
 			}
 
@@ -214,16 +256,16 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 						Str("EXTERNAL_AGENT_DEBUG", "ping_broken_pipe").
 						Str("runner_id", r.cfg.RunnerID).
 						Err(err).
-						Msg("❌ EXTERNAL_AGENT_DEBUG: Broken pipe when sending ping - control plane closed connection")
-					return fmt.Errorf("Helix control-plane has closed connection, restarting (%s)", err)
+						Msg("❌ EXTERNAL_AGENT_DEBUG: Broken pipe when sending ping - control plane closed connection, will reconnect")
+					return fmt.Errorf("Helix control-plane has closed connection, will auto-reconnect (%s)", err)
 				}
 
 				log.Error().
 					Str("EXTERNAL_AGENT_DEBUG", "ping_send_error").
 					Str("runner_id", r.cfg.RunnerID).
 					Err(err).
-					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send ping message, closing connection")
-				return fmt.Errorf("failed to write ping message (%w), closing connection", err)
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send ping message, will reconnect")
+				return fmt.Errorf("failed to write ping message (%w), will auto-reconnect", err)
 			}
 
 			log.Info().
