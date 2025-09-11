@@ -12,8 +12,6 @@ import {
   Bot,
   Clock,
   Server,
-  User,
-  Users,
   Settings,
   ChevronsUp,
   ChevronsDown,
@@ -374,6 +372,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('tasks'),
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
+      },
+      {
+        icon: <FileText size={NAV_BUTTON_SIZE} />,
+        tooltip: "View files",
+        isActive: isActive('files'),
+        onClick: () => orgNavigateTo('files'),
+        label: "Files",
       },
       {
         icon: <Server size={NAV_BUTTON_SIZE} />,

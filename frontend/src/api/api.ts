@@ -16,6 +16,36 @@ export interface ControllerMemoryEstimationResponse {
   model_id?: string;
 }
 
+export interface FilestoreConfig {
+  folders?: FilestoreFolder[];
+  /**
+   * this will be the virtual path from the storage instance
+   * to the users root directory
+   * we use this to strip the full paths in the frontend so we can deal with only relative paths
+   */
+  user_prefix?: string;
+}
+
+export interface FilestoreFolder {
+  name?: string;
+  readonly?: boolean;
+}
+
+export interface FilestoreItem {
+  /** timestamp */
+  created?: number;
+  /** is this thing a folder or not? */
+  directory?: boolean;
+  /** the filename */
+  name?: string;
+  /** the relative path to the file from the base path of the storage instance */
+  path?: string;
+  /** bytes */
+  size?: number;
+  /** the URL that can be used to load the object directly */
+  url?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -3423,6 +3453,225 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/dashboard`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the filestore configuration including user prefix and available folders
+     *
+     * @tags filestore
+     * @name V1FilestoreConfigList
+     * @summary Get filestore configuration
+     * @request GET:/api/v1/filestore/config
+     * @secure
+     */
+    v1FilestoreConfigList: (params: RequestParams = {}) =>
+      this.request<FilestoreConfig, any>({
+        path: `/api/v1/filestore/config`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a file or folder from the filestore
+     *
+     * @tags filestore
+     * @name V1FilestoreDeleteDelete
+     * @summary Delete filestore item
+     * @request DELETE:/api/v1/filestore/delete
+     * @secure
+     */
+    v1FilestoreDeleteDelete: (
+      query: {
+        /** Path to the file or folder to delete */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          path?: string;
+        },
+        any
+      >({
+        path: `/api/v1/filestore/delete`,
+        method: "DELETE",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new folder in the filestore at the specified path
+     *
+     * @tags filestore
+     * @name V1FilestoreFolderCreate
+     * @summary Create filestore folder
+     * @request POST:/api/v1/filestore/folder
+     * @secure
+     */
+    v1FilestoreFolderCreate: (
+      request: {
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/folder`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get information about a specific file or folder in the filestore
+     *
+     * @tags filestore
+     * @name V1FilestoreGetList
+     * @summary Get filestore item
+     * @request GET:/api/v1/filestore/get
+     * @secure
+     */
+    v1FilestoreGetList: (
+      query: {
+        /** Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder') */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/get`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List files and folders in the specified path. Supports both user and app-scoped paths
+     *
+     * @tags filestore
+     * @name V1FilestoreListList
+     * @summary List filestore items
+     * @request GET:/api/v1/filestore/list
+     * @secure
+     */
+    v1FilestoreListList: (
+      query?: {
+        /** Path to list (e.g., 'documents', 'apps/app_id/folder') */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem[], any>({
+        path: `/api/v1/filestore/list`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+     *
+     * @tags filestore
+     * @name V1FilestoreRenameUpdate
+     * @summary Rename filestore item
+     * @request PUT:/api/v1/filestore/rename
+     * @secure
+     */
+    v1FilestoreRenameUpdate: (
+      query: {
+        /** Current path of the file or folder */
+        path: string;
+        /** New path for the file or folder */
+        new_path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/rename`,
+        method: "PUT",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+     *
+     * @tags filestore
+     * @name V1FilestoreUploadCreate
+     * @summary Upload files to filestore
+     * @request POST:/api/v1/filestore/upload
+     * @secure
+     */
+    v1FilestoreUploadCreate: (
+      query: {
+        /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
+        path: string;
+      },
+      data: {
+        /** Files to upload (multipart form data) */
+        files: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          success?: boolean;
+        },
+        any
+      >({
+        path: `/api/v1/filestore/upload`,
+        method: "POST",
+        query: query,
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Serve files from the filestore with access control. Supports both user and app-scoped paths
+     *
+     * @tags filestore
+     * @name V1FilestoreViewerDetail
+     * @summary View filestore files
+     * @request GET:/api/v1/filestore/viewer/{path}
+     * @secure
+     */
+    v1FilestoreViewerDetail: (
+      path: string,
+      query?: {
+        /** Set to 'true' to redirect .url files to their target URLs */
+        redirect_urls?: string;
+        /** URL signature for public access */
+        signature?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, any>({
+        path: `/api/v1/filestore/viewer/${path}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 

@@ -95,7 +95,6 @@ const SidebarContentInner: React.FC<{
   const router = useRouter()
   const api = useApi()
   const account = useAccount()
-  const { data: sessions } = useListSessions(account.organizationTools.organization?.id)
   const appTools = useApp(params.app_id)
 
   const apiClient = api.getApiClient()

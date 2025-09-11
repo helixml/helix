@@ -10,6 +10,48 @@ definitions:
       model_id:
         type: string
     type: object
+  filestore.Config:
+    properties:
+      folders:
+        items:
+          $ref: '#/definitions/filestore.Folder'
+        type: array
+      user_prefix:
+        description: |-
+          this will be the virtual path from the storage instance
+          to the users root directory
+          we use this to strip the full paths in the frontend so we can deal with only relative paths
+        type: string
+    type: object
+  filestore.Folder:
+    properties:
+      name:
+        type: string
+      readonly:
+        type: boolean
+    type: object
+  filestore.Item:
+    properties:
+      created:
+        description: timestamp
+        type: integer
+      directory:
+        description: is this thing a folder or not?
+        type: boolean
+      name:
+        description: the filename
+        type: string
+      path:
+        description: the relative path to the file from the base path of the storage
+          instance
+        type: string
+      size:
+        description: bytes
+        type: integer
+      url:
+        description: the URL that can be used to load the object directly
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -5063,6 +5105,218 @@ paths:
             $ref: '#/definitions/types.DashboardData'
       security:
       - BearerAuth: []
+  /api/v1/filestore/config:
+    get:
+      consumes:
+      - application/json
+      description: Get the filestore configuration including user prefix and available
+        folders
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Config'
+      security:
+      - BearerAuth: []
+      summary: Get filestore configuration
+      tags:
+      - filestore
+  /api/v1/filestore/delete:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a file or folder from the filestore
+      parameters:
+      - description: Path to the file or folder to delete
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Path of the deleted item
+          schema:
+            properties:
+              path:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/folder:
+    post:
+      consumes:
+      - application/json
+      description: Create a new folder in the filestore at the specified path
+      parameters:
+      - description: Request body with folder path
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            path:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Create filestore folder
+      tags:
+      - filestore
+  /api/v1/filestore/get:
+    get:
+      consumes:
+      - application/json
+      description: Get information about a specific file or folder in the filestore
+      parameters:
+      - description: Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Get filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/list:
+    get:
+      consumes:
+      - application/json
+      description: List files and folders in the specified path. Supports both user
+        and app-scoped paths
+      parameters:
+      - description: Path to list (e.g., 'documents', 'apps/app_id/folder')
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/filestore.Item'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List filestore items
+      tags:
+      - filestore
+  /api/v1/filestore/rename:
+    put:
+      consumes:
+      - application/json
+      description: Rename a file or folder in the filestore. Cannot rename between
+        different scopes (user/app)
+      parameters:
+      - description: Current path of the file or folder
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: New path for the file or folder
+        in: query
+        name: new_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Rename filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one or more files to the specified path in the filestore.
+        Supports multipart form data with 'files' field
+      parameters:
+      - description: Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Files to upload (multipart form data)
+        in: formData
+        name: files
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Upload success status
+          schema:
+            properties:
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload files to filestore
+      tags:
+      - filestore
+  /api/v1/filestore/viewer/{path}:
+    get:
+      consumes:
+      - application/json
+      description: Serve files from the filestore with access control. Supports both
+        user and app-scoped paths
+      parameters:
+      - description: File path to view (e.g., 'dev/users/user_id/file.pdf', 'dev/apps/app_id/file.pdf')
+        in: path
+        name: path
+        required: true
+        type: string
+      - description: Set to 'true' to redirect .url files to their target URLs
+        in: query
+        name: redirect_urls
+        type: string
+      - description: URL signature for public access
+        in: query
+        name: signature
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: View filestore files
+      tags:
+      - filestore
   /api/v1/helix-models:
     get:
       description: List all available Helix models, optionally filtering by type,
