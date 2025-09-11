@@ -137,7 +137,7 @@ func (apiServer *HelixAPIServer) handleRunnerGuacamoleProxy(w http.ResponseWrite
 	}
 
 	// Check if user has admin permissions for runner access
-	if !apiServer.isUserAdmin(user) {
+	if !apiServer.isAdmin(r) {
 		log.Warn().
 			Str("user_id", user.ID).
 			Str("runner_id", runnerID).
