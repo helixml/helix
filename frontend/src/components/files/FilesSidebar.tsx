@@ -7,15 +7,7 @@ import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
 import Box from '@mui/material/Box'
-import TextField from '@mui/material/TextField'
-import Button from '@mui/material/Button'
-import Dialog from '@mui/material/Dialog'
-import DialogTitle from '@mui/material/DialogTitle'
-import DialogContent from '@mui/material/DialogContent'
-import DialogActions from '@mui/material/DialogActions'
 
 import FolderIcon from '@mui/icons-material/Folder'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
@@ -25,9 +17,6 @@ import VideoFileIcon from '@mui/icons-material/VideoFile'
 import AudioFileIcon from '@mui/icons-material/AudioFile'
 import CodeIcon from '@mui/icons-material/Code'
 import ArchiveIcon from '@mui/icons-material/Archive'
-import AddIcon from '@mui/icons-material/Add'
-import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -37,9 +26,8 @@ import SlideMenuContainer from '../system/SlideMenuContainer'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
-import { useListFilestore, useCreateFilestoreFolder, useUploadFilestoreFiles } from '../../services/filestoreService'
+import { useListFilestore } from '../../services/filestoreService'
 import { FilestoreItem } from '../../api/api'
-import useSnackbar from '../../hooks/useSnackbar'
 
 // Menu identifier constant
 const MENU_TYPE = 'files'
@@ -54,17 +42,10 @@ export const FilesSidebar: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
-  const snackbar = useSnackbar()
   const [currentPage, setCurrentPage] = useState(0)
   const [allFiles, setAllFiles] = useState<FilestoreItem[]>([])
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
-
-  // New file menu state
-  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
-  const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false)
-  const [folderName, setFolderName] = useState('')
-  const [fileInputRef, setFileInputRef] = useState<HTMLInputElement | null>(null)
 
   const orgId = router.params.org_id
 
@@ -77,10 +58,6 @@ export const FilesSidebar: FC<{
     '', // List root directory
     !!account.user?.id // Only load if logged in
   )
-
-  // Mutation hooks for file operations
-  const createFolderMutation = useCreateFilestoreFolder()
-  const uploadFilesMutation = useUploadFilestoreFiles()
 
   // Update state when files data changes
   useEffect(() => {
@@ -107,73 +84,6 @@ export const FilesSidebar: FC<{
   useEffect(() => {
     resetPagination()
   }, [orgId, resetPagination])
-
-  // Handler for opening the new file menu
-  const handleNewFileClick = (event: React.MouseEvent<HTMLElement>) => {
-    setMenuAnchorEl(event.currentTarget)
-  }
-
-  // Handler for closing the new file menu
-  const handleMenuClose = () => {
-    setMenuAnchorEl(null)
-  }
-
-  // Handler for creating a new folder
-  const handleCreateFolder = () => {
-    setCreateFolderDialogOpen(true)
-    handleMenuClose()
-  }
-
-  // Handler for uploading files
-  const handleUploadFiles = () => {
-    if (fileInputRef) {
-      fileInputRef.click()
-    }
-    handleMenuClose()
-  }
-
-  // Handler for file input change
-  const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    if (files.length === 0) return
-
-    try {
-      await uploadFilesMutation.mutateAsync({
-        path: '', // Upload to root directory
-        files: files
-      })
-      snackbar.success(`Successfully uploaded ${files.length} file(s)`)
-    } catch (error) {
-      console.error('Upload error:', error)
-      snackbar.error('Failed to upload files')
-    }
-
-    // Reset the input
-    if (event.target) {
-      event.target.value = ''
-    }
-  }
-
-  // Handler for creating folder dialog
-  const handleCreateFolderSubmit = async () => {
-    if (!folderName.trim()) return
-
-    try {
-      await createFolderMutation.mutateAsync(folderName.trim())
-      snackbar.success('Folder created successfully')
-      setCreateFolderDialogOpen(false)
-      setFolderName('')
-    } catch (error) {
-      console.error('Create folder error:', error)
-      snackbar.error('Failed to create folder')
-    }
-  }
-
-  // Handler for canceling folder creation
-  const handleCreateFolderCancel = () => {
-    setCreateFolderDialogOpen(false)
-    setFolderName('')
-  }
   
   const lightTheme = useLightTheme()
   const {
@@ -335,37 +245,6 @@ export const FilesSidebar: FC<{
 
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
-      {/* New File Button */}
-      <Box
-        sx={{
-          width: '100%',
-          px: 2,
-          py: 1,
-        }}
-      >
-        <Button
-          variant="contained"
-          color="secondary"
-          startIcon={<AddIcon />}
-          onClick={handleNewFileClick}
-          sx={{
-            width: '100%',
-            height: '48px',
-            borderRadius: '8px',
-            fontWeight: 'bold',
-            textTransform: 'none',
-            fontSize: '14px',
-            backgroundColor: '#00E5FF',
-            color: '#000',
-            '&:hover': {
-              backgroundColor: '#00D4E6',
-            },
-          }}
-        >
-          New File
-        </Button>
-      </Box>
-
       <List
         sx={{
           py: 1,
@@ -417,83 +296,6 @@ export const FilesSidebar: FC<{
           </Row>
         )
       }
-
-      {/* New File Dropdown Menu */}
-      <Menu
-        anchorEl={menuAnchorEl}
-        open={Boolean(menuAnchorEl)}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'left',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'left',
-        }}
-        sx={{
-          '& .MuiPaper-root': {
-            minWidth: 200,
-            mt: 1,
-          },
-        }}
-      >
-        <MenuItem onClick={handleCreateFolder}>
-          <CreateNewFolderIcon sx={{ mr: 1 }} />
-          Create Directory
-        </MenuItem>
-        <MenuItem onClick={handleUploadFiles}>
-          <CloudUploadIcon sx={{ mr: 1 }} />
-          Upload File
-        </MenuItem>
-      </Menu>
-
-      {/* Hidden file input for uploads */}
-      <input
-        type="file"
-        ref={setFileInputRef}
-        onChange={handleFileInputChange}
-        multiple
-        style={{ display: 'none' }}
-      />
-
-      {/* Create Folder Dialog */}
-      <Dialog
-        open={createFolderDialogOpen}
-        onClose={handleCreateFolderCancel}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Create New Directory</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Directory Name"
-            fullWidth
-            variant="outlined"
-            value={folderName}
-            onChange={(e) => setFolderName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleCreateFolderSubmit()
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCreateFolderCancel}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleCreateFolderSubmit}
-            variant="contained"
-            disabled={!folderName.trim() || createFolderMutation.isPending}
-          >
-            {createFolderMutation.isPending ? 'Creating...' : 'Create'}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </SlideMenuContainer>
   )
 }
