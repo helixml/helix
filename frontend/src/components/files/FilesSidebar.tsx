@@ -108,10 +108,10 @@ export const FilesSidebar: FC<{
         key={filePath}
         onClick={() => {
           if (file.directory) {
-            // Navigate to folder
-            account.orgNavigate('files', {file_path: filePath})
+            // Navigate to folder - for now just navigate to files page
+            account.orgNavigate('files', {})
           } else {
-            // Open file
+            // Open file - set file_path in URL query
             account.orgNavigate('files', {file_path: filePath})
             onOpenFile()
           }

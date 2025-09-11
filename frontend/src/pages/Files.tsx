@@ -1,139 +1,165 @@
-import React, { FC, useState, useCallback, useMemo, Fragment } from 'react'
-import { prettyBytes } from '../utils/format'
+import React, { FC, useState, useCallback, useEffect } from 'react'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import TextField from '@mui/material/TextField'
-import AddIcon from '@mui/icons-material/Add'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Container from '@mui/material/Container'
+import Grid from '@mui/material/Grid'
+import { useTheme } from '@mui/material/styles'
 
 import Page from '../components/system/Page'
-import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
-import FileStoreGrid from '../components/datagrid/FileStore'
-import Window from '../components/widgets/Window'
-import FileUpload from '../components/widgets/FileUpload'
-import Progress from '../components/widgets/Progress'
-import ClickLink from '../components/widgets/ClickLink'
-import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import MonacoEditor from '../components/widgets/MonacoEditor'
+import PreviewPanel from '../components/app/PreviewPanel'
 
-import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-
-import {
-  IFileStoreItem,
-} from '../types'
-
-import {
-  getRelativePath,
-} from '../utils/filestore'
+import useThemeConfig from '../hooks/useThemeConfig'
+import useLightTheme from '../hooks/useLightTheme'
+import { useListFilestore } from '../services/filestoreService'
+import { FilestoreItem } from '../api/api'
 
 const Files: FC = () => {
   const account = useAccount()
-  const filestore = useFilestore()
   const snackbar = useSnackbar()
+  const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
+  const theme = useTheme()
   
   const {
-    name,
     params,
-    setParams,
-    removeParams,
   } = useRouter()
 
   const {
-    // this is actually the "name" of the file / folder
-    edit_id,
-    edit_item_title,
-    delete_id,
-    delete_item_title,
+    file_path,
   } = params
   
-  const [ editName, setEditName ] = useState('')
+  const [ selectedFile, setSelectedFile ] = useState<FilestoreItem | null>(null)
+  const [ fileContent, setFileContent ] = useState('')
+  const [ isLoadingContent, setIsLoadingContent ] = useState(false)
+  const [ isSearchMode, setIsSearchMode ] = useState(false)
+  const [ inputValue, setInputValue ] = useState('')
+  const [ searchResults, setSearchResults ] = useState([])
+  const [ session, setSession ] = useState(undefined)
 
-  const sortedFiles = useMemo(() => {
-    const folders = filestore.files.filter((file) => file.directory)
-    const files = filestore.files.filter((file) => !file.directory)
-    return folders.concat(files)
-  }, [
-    filestore.files,
-  ])
+  // Load files data
+  const {
+    data: filesData,
+    isLoading: isLoadingFiles,
+    error
+  } = useListFilestore(
+    '', // List root directory
+    !!account.user?.id // Only load if logged in
+  )
 
-  const onUpload = useCallback(async (files: File[]) => {
-    const result = await filestore.upload(filestore.path, files)
-    if(!result) return
-    await filestore.loadFiles(filestore.path)
-    snackbar.success('Files Uploaded')
-  }, [
-    filestore.path,
-  ])
-
-  const onViewFile = useCallback((file: IFileStoreItem) => {
-    if(!account.token) {
-      snackbar.error('must be logged in')
-      return 
-    }
-    if(file.directory) {
-      filestore.setPath(getRelativePath(filestore.config, file))
+  // Monitor URL query parameter for file_path changes
+  useEffect(() => {
+    if (file_path && filesData) {
+      const file = filesData.find(f => f.path === file_path || f.name === file_path)
+      if (file && !file.directory) {
+        setSelectedFile(file)
+        loadFileContent(file)
+      } else {
+        setSelectedFile(null)
+        setFileContent('')
+      }
     } else {
-      window.open(file.url)
+      setSelectedFile(null)
+      setFileContent('')
     }
-  }, [
-    filestore.config,
-    account.token,
-  ])
+  }, [file_path, filesData])
 
-  const onEditFile = useCallback((file: IFileStoreItem) => {
-    setEditName(file.name)
-    setParams({
-      edit_id: file.name,
-      edit_item_title: file.directory ? 'Directory' : 'File',
-    })
-  }, [
-    setParams,
-  ])
-
-  const onDeleteFile = useCallback(async (file: IFileStoreItem) => {
-    setParams({
-      delete_id: file.name,
-      delete_item_title: file.name,
-    })
-  }, [
-    filestore.path,
-  ])
-
-  const onSubmitEditWindow = useCallback(async (newName: string) => {
-    let result = false
-    let message = ''
-    if(edit_id == 'new_folder') {
-      result = await filestore.createFolder(newName)
-      message = 'Folder Created'
-    } else {
-      result = await filestore.rename(edit_id, newName)
-      message = `${edit_item_title} Renamed`
+  const loadFileContent = useCallback(async (file: FilestoreItem) => {
+    if (!file.url || file.directory) return
+    
+    setIsLoadingContent(true)
+    try {
+      const response = await fetch(file.url)
+      if (response.ok) {
+        const content = await response.text()
+        setFileContent(content)
+      } else {
+        snackbar.error('Failed to load file content')
+        setFileContent('')
+      }
+    } catch (error) {
+      console.error('Error loading file content:', error)
+      snackbar.error('Failed to load file content')
+      setFileContent('')
+    } finally {
+      setIsLoadingContent(false)
     }
-    if(!result) return
-    await filestore.loadFiles(filestore.path)
-    snackbar.success(message)
-    removeParams(['edit_item_title', 'edit_id'])
-  }, [
-    edit_id,
-    edit_item_title,
-    filestore.path,
-  ])
+  }, [snackbar])
 
-  const onConfirmDelete = useCallback(async () => {
-    const result = await filestore.del(delete_id)
-    if(!result) return
-    await filestore.loadFiles(filestore.path)
-    snackbar.success(`${delete_item_title} Deleted`)
-    removeParams(['delete_item_title', 'delete_id'])
-  }, [
-    delete_id,
-    delete_item_title,
-    filestore.path,
-  ])
+  const getFileLanguage = useCallback((fileName: string) => {
+    const extension = fileName.split('.').pop()?.toLowerCase()
+    const languageMap: { [key: string]: string } = {
+      'js': 'javascript',
+      'ts': 'typescript',
+      'jsx': 'javascript',
+      'tsx': 'typescript',
+      'py': 'python',
+      'java': 'java',
+      'cpp': 'cpp',
+      'c': 'c',
+      'h': 'c',
+      'go': 'go',
+      'rs': 'rust',
+      'php': 'php',
+      'rb': 'ruby',
+      'swift': 'swift',
+      'kt': 'kotlin',
+      'scala': 'scala',
+      'sh': 'shell',
+      'bash': 'shell',
+      'ps1': 'powershell',
+      'bat': 'batch',
+      'cmd': 'batch',
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'json': 'json',
+      'xml': 'xml',
+      'html': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'sass': 'sass',
+      'less': 'less',
+      'sql': 'sql',
+      'md': 'markdown',
+      'txt': 'plaintext',
+      'log': 'plaintext',
+    }
+    return languageMap[extension || ''] || 'plaintext'
+  }, [])
+
+  const isImageFile = useCallback((fileName: string) => {
+    const extension = fileName.split('.').pop()?.toLowerCase()
+    return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(extension || '')
+  }, [])
+
+  const isTextFile = useCallback((fileName: string) => {
+    const extension = fileName.split('.').pop()?.toLowerCase()
+    const textExtensions = [
+      'js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'go', 'rs', 'php', 'rb', 'swift', 'kt', 'scala',
+      'sh', 'bash', 'ps1', 'bat', 'cmd', 'yaml', 'yml', 'json', 'xml', 'html', 'css', 'scss', 'sass', 'less',
+      'sql', 'md', 'txt', 'log', 'csv', 'ini', 'cfg', 'conf', 'env', 'dockerfile', 'makefile'
+    ]
+    return textExtensions.includes(extension || '')
+  }, [])
+
+
+  // PreviewPanel callbacks
+  const handleInference = useCallback(() => {
+    // For now, just show a message - this could be enhanced to work with files
+    snackbar.info('File inference not yet implemented')
+  }, [snackbar])
+
+  const handleSearch = useCallback((query: string) => {
+    // For now, just show a message - this could be enhanced to search within files
+    snackbar.info('File search not yet implemented')
+  }, [snackbar])
+
+  const handleSessionUpdate = useCallback((newSession: any) => {
+    setSession(newSession)
+  }, [])
 
   if(!account.user) return null
   return (
@@ -142,203 +168,119 @@ const Files: FC = () => {
     >
       <Container
         maxWidth="xl"
+        sx={{
+          display: 'block',
+        }}
       >
-        <Box
-          sx={{
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <Box
-            sx={{
-              flexGrow: 0,
-              pl: 6,
-              width: '100%',
-              height: '60px',
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            {
-              filestore.breadcrumbs.map((breadcrumb, i) => {
-                return (
-                  <Fragment key={ i }>
-                    <ClickLink
-                      textDecoration
-                      key={ i }
-                      onClick={ () => {
-                        filestore.setPath(breadcrumb.path)
-                      }}
-                    >
-                      { breadcrumb.title }
-                    </ClickLink>
-                    {
-                      i < filestore.breadcrumbs.length - 1 && (
-                        <Box
-                          sx={{
-                            ml: 1,
-                            mr: 1,
-                          }}
-                        >
-                          :
-                        </Box>
-                      )
-                    }
-                  </Fragment>
-                )
-              })
-            }
-          </Box>
-          <Box
-            sx={{
-              height: '100%',
-              width: '100%',
-              flexGrow: 1,
-            }}
-          >
-            <DataGridWithFilters
-              filters={
-                <Box
-                  sx={{
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                  }}
-                >
-                  {
-                    filestore.uploadProgress ? (
-                      <>
-                        <Typography
-                          sx={{
-                            mb: 2,
-                          }}
-                          variant="caption"
-                        >
-                          uploaded { prettyBytes(filestore.uploadProgress.uploadedBytes) } of { prettyBytes(filestore.uploadProgress.totalBytes) }
-                        </Typography>
-                        <Progress progress={ filestore.uploadProgress.percent } />
-                      </>
-                    ) : filestore.readonly ? null : (
-                      <>
-                        <Button
-                          sx={{
-                            width: '100%',
-                          }}
-                          variant="contained"
-                          color="secondary"
-                          endIcon={<AddIcon />}
-                          onClick={ () => {
-                            setEditName('')
-                            setParams({
-                              edit_item_title: 'Folder',
-                              edit_id: 'new_folder',
-                            })
-                          }}
-                        >
-                          Create Folder
-                        </Button>
-                        <FileUpload
-                          sx={{
-                            width: '100%',
-                            mt: 2,
-                          }}
-                          onUpload={ onUpload }
-                        >
-                          <Button
-                            sx={{
-                              width: '100%',
-                            }}
-                            variant="contained"
-                            color="secondary"
-                            endIcon={<CloudUploadIcon />}
-                          >
-                            Upload Files
-                          </Button>
-                          <Box
-                            sx={{
-                              border: '1px dashed #ccc',
-                              p: 2,
-                              display: 'flex',
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              minHeight: '100px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <Typography
-                              sx={{
-                                color: '#999'
+        <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
+          <Grid container>
+            {/* Left Panel - File Preview Only */}
+            <Grid item xs={12} md={6} sx={{
+              backgroundColor: themeConfig.darkPanel,
+              p: 0,
+              mt: 2,
+              mb: 2,
+              borderRadius: 2,
+              boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
+            }}>
+              <Box sx={{ width: '100%', p: 0, pl: 4 }}>
+                <Grid container spacing={0}>
+                  <Grid item xs={12} sx={{
+                    borderRight: '1px solid #303047',
+                    overflow: 'auto',
+                    pb: 8,
+                    minHeight: 'calc(100vh - 120px)',
+                    ...lightTheme.scrollbar
+                  }}>
+                    <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                      {/* File Content Display */}
+                      {selectedFile ? (
+                        <Box sx={{ p: 2, borderTop: '1px solid #303047' }}>
+                          <Typography variant="h6" sx={{ mb: 2 }}>
+                            {selectedFile.name}
+                          </Typography>
+                          
+                          {isLoadingContent ? (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                              <Typography>Loading content...</Typography>
+                            </Box>
+                          ) : isImageFile(selectedFile.name || '') ? (
+                            <Box sx={{ textAlign: 'center' }}>
+                              <img
+                                src={selectedFile.url}
+                                alt={selectedFile.name || ''}
+                                style={{
+                                  maxWidth: '100%',
+                                  maxHeight: '400px',
+                                  objectFit: 'contain',
+                                }}
+                              />
+                            </Box>
+                          ) : isTextFile(selectedFile.name || '') ? (
+                            <MonacoEditor
+                              value={fileContent}
+                              onChange={setFileContent}
+                              language={getFileLanguage(selectedFile.name || '')}
+                              readOnly={true}
+                              autoHeight={true}
+                              minHeight={200}
+                              maxHeight={400}
+                              theme="helix-dark"
+                              options={{
+                                fontSize: 14,
+                                lineNumbers: 'on',
+                                folding: true,
+                                lineDecorationsWidth: 0,
+                                lineNumbersMinChars: 3,
+                                scrollBeyondLastLine: false,
+                                minimap: { enabled: false },
+                                wordWrap: 'on',
+                                wrappingIndent: 'indent',
                               }}
-                              variant="caption"
-                            >
-                              drop files here to upload them...
+                            />
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              File type not supported for preview
                             </Typography>
-                          </Box>
-                        </FileUpload>
-                      </>
-                    )
-                  }
-                </Box>
-              }
-              datagrid={
-                <FileStoreGrid
-                  files={ sortedFiles }
-                  config={ filestore.config }
-                  readonly={ filestore.readonly }
-                  loading={ filestore.loading || filestore.uploadProgress ? true : false }
-                  onView={ onViewFile }
-                  onEdit={ onEditFile }
-                  onDelete={ onDeleteFile }
-                />
-              }
-            />
-          </Box>
-        </Box>
-        {
-          edit_id && (
-            <Window
-              open
-              title={ `${edit_id == 'new_folder' ? 'New' : 'Edit'} ${edit_item_title}` }
-              withCancel
-              onCancel={ () => removeParams(['edit_item_title', 'edit_id']) }
-              onSubmit={ () => onSubmitEditWindow(editName) }
-            >
-              <Box
-                sx={{
-                  p: 2,
-                }}
-              >
-                <TextField
-                  fullWidth
-                  label={ `${edit_item_title} Name` }
-                  value={ editName }
-                  onChange={(e) => setEditName(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      onSubmitEditWindow(editName)
-                    }
-                  }}
-                />
+                          )}
+                        </Box>
+                      ) : (
+                        <Box sx={{ p: 4, textAlign: 'center' }}>
+                          <Typography variant="body1" color="text.secondary">
+                            Select a file from the sidebar to preview it here
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Grid>
+                </Grid>
               </Box>
-            </Window>
-          )
-        }
-        {
-          delete_id && (
-            <DeleteConfirmWindow
-              title={ delete_item_title }
-              onCancel={ () => removeParams(['delete_item_title', 'delete_id']) }
-              onSubmit={ onConfirmDelete }
+            </Grid>
+
+            {/* Right Panel - PreviewPanel */}
+            <PreviewPanel
+              appId="files"
+              loading={false}
+              name="Files"
+              avatar=""
+              image=""
+              isSearchMode={isSearchMode}
+              setIsSearchMode={setIsSearchMode}
+              inputValue={inputValue}
+              setInputValue={setInputValue}
+              onInference={handleInference}
+              onSearch={handleSearch}
+              hasKnowledgeSources={false}
+              searchResults={searchResults}
+              session={session}
+              serverConfig={account.serverConfig}
+              themeConfig={themeConfig}
+              snackbar={snackbar}
+              conversationStarters={[]}
+              onSessionUpdate={handleSessionUpdate}
             />
-          )
-        }
+          </Grid>
+        </Box>
       </Container>
     </Page>
   )
