@@ -243,10 +243,14 @@ services:
             - "47989:47989"  # Moonlight HTTP/HTTPS main port
             - "47990:47990"  # Sunshine web UI (HTTPS config interface)
             - "47984:47984"  # Moonlight HTTPS control
-            - "47999:47999"  # Moonlight control port  
-            - "48010:48010"  # Moonlight RTSP
-            - "48100:48100"  # Moonlight video stream
-            - "48200:48200"  # Moonlight audio stream
+            - "47999:47999"  # Moonlight control port (TCP)
+            - "47999:47999/udp"  # Moonlight control port (UDP)  
+            - "48010:48010"  # Moonlight RTSP (TCP)
+            - "48010:48010/udp"  # Moonlight RTSP (UDP)
+            - "48100:48100"  # Moonlight video stream (TCP)
+            - "48100:48100/udp"  # Moonlight video stream (UDP)
+            - "48200:48200"  # Moonlight audio stream (TCP)
+            - "48200:48200/udp"  # Moonlight audio stream (UDP)
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
@@ -265,6 +269,10 @@ services:
             - WLR_BACKENDS=headless
             - WLR_HEADLESS_OUTPUTS=1
             - WLR_NO_HARDWARE_CURSORS=1
+            # Force NVIDIA OpenGL instead of Vulkan to fix Sunshine wlroots capture (GitHub issue #4050)
+            - VK_ICD_FILENAMES=""
+            - VK_DRIVER_FILES=""
+            - DISABLE_VK_LAYER_NV_optimus_1=1
             - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
