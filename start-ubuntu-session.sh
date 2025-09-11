@@ -38,7 +38,7 @@ mkdir -p /home/ubuntu/.cache/hyprland
 chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
 
 # Enhanced Hyprland startup with NVIDIA GPU acceleration
-echo "Starting Hyprland with NVIDIA RTX 4090 GPU acceleration..."
+echo "Starting Hyprland with NVIDIA GPU acceleration..."
 
 # Set up comprehensive environment for Hyprland NVIDIA support
 export HYPRLAND_LOG_WLR=1
@@ -90,16 +90,16 @@ export SUNSHINE_DISABLE_WAYLAND_SECURITY=1
 export WLR_ALLOW_ALL_CLIENTS=1
 
 # Start wayvnc with input enabled and cursor optimizations for VNC
-echo "Starting wayvnc on port 5902..."
-wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5902 &
+echo "Starting wayvnc on port 5901..."
+wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5901 &
 WAYVNC_PID=$!
 
 # Wait a moment and verify wayvnc is running on the correct port
 sleep 2
-if lsof -i :5902 >/dev/null 2>&1; then
-    echo "✅ VNC server started successfully on port 5902"
+if lsof -i :5901 >/dev/null 2>&1; then
+    echo "✅ VNC server started successfully on port 5901"
 else
-    echo "❌ VNC server failed to start on port 5902"
+    echo "❌ VNC server failed to start on port 5901"
     echo "Exiting container due to VNC startup failure"
     exit 1
 fi
@@ -115,6 +115,9 @@ echo "Sunshine Moonlight server started on port 47989 (HTTP/HTTPS), will use sta
 echo "Setting up AGS environment..."
 export DISPLAY=:1
 export HYPRLAND_INSTANCE_SIGNATURE=$(ls $XDG_RUNTIME_DIR/hypr/ | tail -1)
+# Ensure D-Bus session is available for AGS
+export DBUS_SESSION_BUS_ADDRESS
+echo "AGS environment: DISPLAY=$DISPLAY, DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 
 # Create additional workspaces for better desktop experience
 echo "Creating additional workspaces..."
@@ -143,6 +146,16 @@ echo "Cleaning up any existing AGS processes..."
 # pkill -f agsv1 2>/dev/null || true
 
 echo "Starting AGS bar and dock..."
+# Ensure environment is properly set for AGS
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    eval $(dbus-launch --sh-syntax)
+fi
+export DBUS_SESSION_BUS_ADDRESS
+export WAYLAND_DISPLAY
+export DISPLAY
+export XDG_RUNTIME_DIR
+
+echo "AGS starting with environment: WAYLAND_DISPLAY=$WAYLAND_DISPLAY DISPLAY=$DISPLAY"
 (agsv1 --bus-name "ags-$(date +%s)" 2>&1 | while read line; do echo "AGS: $line"; done) &
 AGS_PID=$!
 
