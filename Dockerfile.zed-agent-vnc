@@ -119,8 +119,8 @@ RUN apt-get update && apt-get install -y \
     libgtk-layer-shell0 libpulse0 libpam0g \
     # Material Design Icons and fonts
     fonts-material-design-icons-iconfont \
-    # illogical-impulse tools
-    fuzzel python3-pip \
+    # Desktop application launcher
+    fuzzel \
     hyprland hyprpaper hyprland-backgrounds && \
     # Install Python packages
     (python3 -m pip install --break-system-packages material-color-utilities || echo "matugen alternative install failed") && \
@@ -178,8 +178,12 @@ RUN /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostt
 RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install failed, continuing..."
 
 # Copy AGS from build stage (no dev dependencies in prod image)
-COPY --from=ags-builder /usr/bin/agsv1 /usr/bin/agsv1
 COPY --from=ags-builder /usr/local/share/com.github.Aylur.ags /usr/local/share/com.github.Aylur.ags
+COPY --from=ags-builder /usr/local/lib/ii-agsv1 /usr/local/lib/ii-agsv1
+# Copy GIR typelibs for GtkLayerShell (needed for AGS bar/dock)
+COPY --from=ags-builder /usr/lib/x86_64-linux-gnu/girepository-1.0/GtkLayerShell-0.1.typelib /usr/lib/x86_64-linux-gnu/girepository-1.0/
+# Recreate the proper symlink to the actual AGS binary
+RUN ln -sf /usr/local/share/com.github.Aylur.ags/com.github.Aylur.ags /usr/bin/agsv1
 
 # ====================================================================
 # Layer 5: Sunshine .deb package (changes when we update versions)
@@ -375,62 +379,7 @@ echo "Starting Sunshine with GPU acceleration and Wayland capture"
 exec sunshine
 EOF
 
-# Create illogical-impulse setup script
-COPY <<EOF /setup-illogical-impulse.sh
-#!/bin/bash
-set -e
-
-# Only run once
-if [ -f "/home/ubuntu/.illogical-impulse-installed" ]; then
-    exit 0
-fi
-
-echo "Setting up illogical-impulse dotfiles..."
-
-# Switch to ubuntu user
-su ubuntu -c '
-export USER=ubuntu
-export HOME=/home/ubuntu
-
-# Clone the dotfiles if not already present
-if [ ! -d "/home/ubuntu/.config/hypr-dots" ]; then
-    cd /home/ubuntu
-    git clone https://github.com/end-4/dots-hyprland.git .config/hypr-dots
-fi
-
-# Copy key configuration files
-cd /home/ubuntu/.config/hypr-dots
-
-# Copy Hyprland config (backup existing)
-mkdir -p /home/ubuntu/.config/hypr
-if [ -f "/home/ubuntu/.config/hypr/hyprland.conf" ]; then
-    cp /home/ubuntu/.config/hypr/hyprland.conf /home/ubuntu/.config/hypr/hyprland.conf.backup
-fi
-
-# Copy illogical-impulse configs (selectively to avoid overwriting our working setup)
-cp -r .config/ags /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/gtk-3.0 /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/gtk-4.0 /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/kitty /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/fuzzel /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/fish /home/ubuntu/.config/ 2>/dev/null || true
-cp -r .config/starship.toml /home/ubuntu/.config/ 2>/dev/null || true
-
-# Copy Hyprland configuration structure (do NOT copy hyprland.conf itself)
-cp -r .config/hypr /home/ubuntu/.config/hypr-dots-backup 2>/dev/null || true
-
-# Set up wallpapers
-mkdir -p /home/ubuntu/Pictures/wallpapers
-cp -r Pictures/* /home/ubuntu/Pictures/ 2>/dev/null || true
-cp -r wallpapers/* /home/ubuntu/Pictures/wallpapers/ 2>/dev/null || true
-
-# Create a flag file to indicate setup is complete
-touch /home/ubuntu/.illogical-impulse-installed
-
-echo "illogical-impulse dotfiles setup complete!"
-'
-
-EOF
+# Note: AGS configuration is mounted from host via docker-compose volume bind
 
 # Dynamic Sunshine script creation
 RUN echo '#!/bin/bash\necho "Sunshine config generation placeholder"' > /usr/local/bin/generate-sunshine-config.sh && \
@@ -439,7 +388,7 @@ RUN echo '#!/bin/bash\necho "Sunshine config generation placeholder"' > /usr/loc
 
 # Copy and set permissions for all scripts
 COPY start-wayland-vnc.sh /start-wayland-vnc.sh
-RUN chmod +x /start-wayland-vnc.sh /start-moonlight.sh /start-helix-agent.sh /setup-illogical-impulse.sh
+RUN chmod +x /start-wayland-vnc.sh /start-moonlight.sh /start-helix-agent.sh
 
 # ====================================================================
 # Layer 10: Environment and ports (rarely change)
