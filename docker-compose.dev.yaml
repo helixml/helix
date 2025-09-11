@@ -271,10 +271,6 @@ services:
             - WLR_BACKENDS=headless
             - WLR_HEADLESS_OUTPUTS=1
             - WLR_NO_HARDWARE_CURSORS=1
-            # Force NVIDIA OpenGL instead of Vulkan to fix Sunshine wlroots capture (GitHub issue #4050)
-            - VK_ICD_FILENAMES=""
-            - VK_DRIVER_FILES=""
-            - DISABLE_VK_LAYER_NV_optimus_1=1
             - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}

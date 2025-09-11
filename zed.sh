@@ -1,19 +1,19 @@
 #!/bin/bash
 # Zed launcher script with software rendering for RDP/headless environments
 
-# Force software rendering and try to bypass Vulkan validation
+# Enable GPU acceleration for Zed
 export ZED_ALLOW_EMULATED_GPU=1
 export ZED_ALLOW_ROOT=1
-export LIBGL_ALWAYS_SOFTWARE=1
-export GALLIUM_DRIVER=llvmpipe
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+export LIBGL_ALWAYS_SOFTWARE=0
+# export GALLIUM_DRIVER=llvmpipe
+# export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+# export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 export VK_LOADER_DEBUG=none
 export VK_INSTANCE_LAYERS=""
 export RUST_BACKTRACE=1
 
 # Debug info
-echo "Starting Zed with software rendering..."
+echo "Starting Zed with GPU acceleration..."
 echo "DISPLAY: $DISPLAY"
 echo "Vulkan ICD: $VK_ICD_FILENAMES"
 
