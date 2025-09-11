@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Typography, Alert, CircularProgress, IconButton } from '@mui/material';
-import { Fullscreen, FullscreenExit, ContentCopy, Refresh } from '@mui/icons-material';
+import { Fullscreen, FullscreenExit, ContentCopy, Refresh, OpenInNew } from '@mui/icons-material';
 import { useRDPConnection } from '../../hooks/useRDPConnection';
 
 
@@ -38,6 +38,7 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
   const [status, setStatus] = useState('Initializing...');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [clipboardText, setClipboardText] = useState('');
+  const [guacamoleURL, setGuacamoleURL] = useState<string | null>(null);
 
   // Use the RDP connection hook
   const { 
@@ -111,77 +112,82 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
     }
   }, [onConnectionChange, onError]);
 
-  // Connect to RDP
+  // Helper function to construct Guacamole direct URL
+  const constructGuacamoleURL = (connectionId: string, dataSource: string = 'postgresql') => {
+    // Format: "connectionId\0c\0dataSource"
+    const identifier = btoa(`${connectionId}\0c\0${dataSource}`);
+    return `http://localhost:8080/guacamole/#/client/${identifier}`;
+  };
+
+  // Connect to RDP using direct Guacamole URL
   const connect = useCallback(async () => {
     console.log('🔗 connect() called with:', { sessionId, isRunner });
     
-    console.log('🔄 Setting connecting state and fetching connection info...');
+    console.log('🔄 Setting connecting state and fetching Guacamole connection ID...');
     setIsConnecting(true);
     setError(null);
     clearConnectionError();
 
     try {
-      // Fetch connection info from API
-      console.log('📡 Calling fetchConnectionInfo with:', { sessionId, isRunner });
-      const connInfo = await fetchConnectionInfo(sessionId, isRunner);
-      console.log('📡 fetchConnectionInfo returned:', connInfo);
+      // Get Guacamole connection ID from our API
+      const endpoint = isRunner 
+        ? `/api/v1/external-agents/runners/${sessionId}/guacamole-connection-id`
+        : `/api/v1/sessions/${sessionId}/guacamole-connection-id`;
       
-      if (!connInfo) {
-        throw new Error('Failed to fetch RDP connection information');
+      console.log('📡 Fetching Guacamole connection ID from:', endpoint);
+      
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add auth headers if needed
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get Guacamole connection: ${response.status} ${response.statusText}`);
       }
 
-      const config = {
-        sessionId,
-        hostname: connInfo.host,
-        port: connInfo.rdp_port,
-        username: connInfo.username,
-        password: connInfo.rdp_password,
-        width,
-        height,
-        audioEnabled: true,
-        wsUrl: connInfo.proxy_url || (isRunner 
-          ? `/api/v1/external-agents/runners/${sessionId}/rdp/proxy`
-          : `/api/v1/external-agents/${sessionId}/rdp/proxy`)
-      };
+      const data = await response.json();
+      console.log('📡 Guacamole connection response:', data);
+      
+      if (!data.guacamole_connection_id) {
+        throw new Error('No Guacamole connection ID returned from API');
+      }
 
-      console.log('📤 Reloading iframe with connection config in URL parameters');
-      
-      // Build URL with connection parameters
-      const params = new URLSearchParams({
-        sessionId: config.sessionId,
-        hostname: config.hostname,
-        port: config.port.toString(),
-        username: config.username,
-        password: config.password,
-        width: config.width.toString(),
-        height: config.height.toString(),
-        audioEnabled: config.audioEnabled.toString(),
-        wsUrl: config.wsUrl,
-        autoConnect: 'true',
-        isRunner: isRunner.toString()  // Pass isRunner flag to iframe
-      });
-      
-      // Reload iframe with new URL containing connection parameters
+      // Construct the direct Guacamole URL
+      const guacamoleURL = data.guacamole_url || constructGuacamoleURL(data.guacamole_connection_id);
+      console.log('🎯 Using Guacamole URL:', guacamoleURL);
+
+      // Load the direct Guacamole interface
       if (iframeRef.current) {
-        iframeRef.current.src = `/rdp-client.html?${params.toString()}`;
-        console.log('✅ Iframe reloaded with connection parameters');
+        iframeRef.current.src = guacamoleURL;
+        console.log('✅ Iframe loaded with Guacamole direct URL');
+        
+        // Set connected state immediately for direct Guacamole
+        setIsConnected(true);
+        setIsConnecting(false);
+        setStatus('Connected via Guacamole');
+        onConnectionChange?.(true);
       }
     } catch (err: any) {
-      const errorMsg = err.message || 'Failed to connect to RDP';
+      const errorMsg = err.message || 'Failed to connect to Guacamole';
+      console.error('❌ Guacamole connection failed:', errorMsg);
       setError(errorMsg);
       onError?.(errorMsg);
       setIsConnecting(false);
     }
-  }, [sessionId, isRunner, fetchConnectionInfo, clearConnectionError, width, height]);
+  }, [sessionId, isRunner, clearConnectionError, onConnectionChange, onError]);
 
   // Disconnect
   const disconnect = useCallback(() => {
-    // Reset iframe to initial state
+    // Reset iframe to blank page for direct Guacamole
     if (iframeRef.current) {
-      iframeRef.current.src = '/rdp-client.html';
+      iframeRef.current.src = 'about:blank';
     }
     setIsConnected(false);
     setIsConnecting(false);
+    setStatus('Disconnected');
   }, []);
 
   // Reconnect
@@ -394,21 +400,31 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
         </Box>
       )}
 
-      {/* Guacamole RDP Client Iframe */}
+      {/* Guacamole Direct Client Iframe */}
       <iframe
         ref={iframeRef}
-        src="/rdp-client.html"
+        src="about:blank"
         style={{
           width: '100%',
           height: '100%',
           border: 'none',
           backgroundColor: '#000'
         }}
-        title="Guacamole RDP Client"
+        title="Guacamole Direct Client"
         allow="clipboard-read; clipboard-write; fullscreen"
-        // sandbox="allow-same-origin allow-scripts allow-forms allow-top-navigation allow-modals" // Temporarily disabled for debugging
+        // sandbox="allow-same-origin allow-scripts allow-forms allow-top-navigation allow-modals allow-pointer-lock" // Removed for keyboard testing
         onLoad={() => {
           console.log('🔄 Iframe loaded');
+          // Try to focus the iframe content
+          if (iframeRef.current) {
+            iframeRef.current.focus();
+            // Also try focusing the iframe's content window
+            try {
+              iframeRef.current.contentWindow?.focus();
+            } catch (e) {
+              console.log('Could not focus iframe content window (cross-origin)');
+            }
+          }
         }}
       />
 
