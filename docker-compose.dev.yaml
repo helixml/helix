@@ -300,6 +300,7 @@ services:
             - ./zed-build:/zed-build
             # Mount startup script for fast iteration without rebuilds
             - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
+            - ./start-ubuntu-session.sh:/start-ubuntu-session.sh
             # Mount Hyprland config for fast iteration
             - ./hypr-config:/home/ubuntu/.config/hypr
             # Mount AGS config from dots-hyprland for fast iteration
