@@ -149,11 +149,6 @@ ENV GOCACHE="/root/.cache/go-build"
 # Fix git ownership issue for mounted source code (git is installed in the previous step)
 RUN git config --global --add safe.directory /workspace/helix
 
-# Create symlink to mounted zed-build directory
-RUN ln -sf /zed-build/zed /usr/local/bin/zed
-
-# Air will be copied later with other Go tools
-
 # Configure ubuntu user for Wayland sessions (user may already exist)
 RUN echo 'ubuntu:helix123' | chpasswd && \
     usermod -aG sudo ubuntu 2>/dev/null || useradd -m -s /bin/bash ubuntu && echo 'ubuntu:helix123' | chpasswd && usermod -aG sudo ubuntu
@@ -164,8 +159,8 @@ RUN groupadd -f -g 992 render && usermod -aG video,render ubuntu
 # Install MCP filesystem server
 RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install failed, continuing..."
 
-# Create workspace directory
-RUN mkdir -p /workspace && chmod 755 /workspace
+# Create work directory for ubuntu user
+RUN mkdir -p /home/ubuntu/work && chown ubuntu:ubuntu /home/ubuntu/work
 
 # Install Ghostty terminal at build time (moved from runtime for efficiency)
 RUN apt-get update && apt-get install -y curl \
@@ -187,6 +182,9 @@ RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
+
+# Update Chrome desktop file to use Wayland properly
+RUN sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=env XDG_RUNTIME_DIR=/tmp/runtime-ubuntu WAYLAND_DISPLAY=wayland-1 /usr/bin/google-chrome-stable --enable-features=UseOzonePlatform --ozone-platform=wayland --no-sandbox --disable-dev-shm-usage --disable-gpu-sandbox|g' /usr/share/applications/google-chrome.desktop
 
 # Install Zed icon for dock display
 RUN mkdir -p /usr/share/icons/hicolor/512x512/apps \
@@ -471,6 +469,17 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 
 # Start Wayland VNC
 ENTRYPOINT ["/start-wayland-vnc.sh"]
+
+# Download and install official Zed release
+RUN export SHELL=/bin/bash && curl -fsSL https://zed.dev/install.sh | sh && \
+    # Move entire zed.app to system location for all users
+    mv /root/.local/zed.app /usr/local/ && \
+    # Move the actual binary to /usr/local/bin for easy access
+    mv /root/.local/bin/zed /usr/local/bin/zed && \
+    # Copy desktop file to system location and fix paths
+    cp /root/.local/share/applications/dev.zed.Zed.desktop /usr/share/applications/ && \
+    # Update desktop file to use system app path
+    sed -i 's|/root/.local/zed.app|/usr/local/zed.app|g' /usr/share/applications/dev.zed.Zed.desktop
 
 # Copy everything from Go build stage LAST to avoid cache invalidation of expensive compilation steps
 COPY --from=go-build-env /usr/local/go /usr/local/go
