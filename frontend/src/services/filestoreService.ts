@@ -2,6 +2,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 import { FilestoreItem, FilestoreConfig } from '../api/api';
 
+// Types for upload functionality
+export interface UploadProgress {
+  uploaded: number;
+  total: number;
+  currentFile?: string;
+}
+
+export interface UploadResult {
+  success: boolean;
+}
+
 // Query keys for filestore operations
 export const filestoreListQueryKey = (path?: string) => [
   "filestore-list",
@@ -30,6 +41,11 @@ export const renameFilestoreItemMutationKey = (path: string) => [
 
 export const createFilestoreFolderMutationKey = (path: string) => [
   "create-filestore-folder",
+  path
+];
+
+export const uploadFilestoreFilesMutationKey = (path: string) => [
+  "upload-filestore-files",
   path
 ];
 
@@ -189,6 +205,84 @@ export function useCreateFilestoreFolder() {
   })
 }
 
+/**
+ * Hook to upload files to the filestore
+ */
+export function useUploadFilestoreFiles() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationKey: uploadFilestoreFilesMutationKey(""),
+    mutationFn: async ({ path, files }: { path: string; files: File[] }) => {
+      // Upload files one by one since the generated API client expects a single file
+      const results = []
+      for (const file of files) {
+        const response = await apiClient.v1FilestoreUploadCreate(
+          { path },
+          { files: file },
+          {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          }
+        )
+        results.push(response.data)
+      }
+      return results
+    },
+    onSuccess: (_, { path }) => {
+      // Invalidate and refetch filestore list queries
+      queryClient.invalidateQueries({ queryKey: ["filestore-list"] })
+      
+      // Invalidate the specific directory query
+      queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(path) })
+      
+      // Invalidate parent directory queries if we're uploading to a subdirectory
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (parentPath !== path) {
+        queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(parentPath) })
+      }
+    },
+  })
+}
+
+/**
+ * Hook to upload files with progress tracking
+ */
+export function useUploadFilestoreFilesWithProgress() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationKey: uploadFilestoreFilesMutationKey(""),
+    mutationFn: async ({ 
+      path, 
+      files, 
+      onProgress 
+    }: { 
+      path: string; 
+      files: File[]; 
+      onProgress?: (progress: UploadProgress) => void 
+    }) => {
+      return await uploadFilesWithProgress(path, files, onProgress)
+    },
+    onSuccess: (_, { path }) => {
+      // Invalidate and refetch filestore list queries
+      queryClient.invalidateQueries({ queryKey: ["filestore-list"] })
+      
+      // Invalidate the specific directory query
+      queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(path) })
+      
+      // Invalidate parent directory queries if we're uploading to a subdirectory
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (parentPath !== path) {
+        queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(parentPath) })
+      }
+    },
+  })
+}
+
 // Utility functions
 
 /**
@@ -209,4 +303,67 @@ export function getFilestoreViewerUrl(path: string, baseUrl?: string): string {
 export function getFilestoreSignedUrl(path: string, signature: string, baseUrl?: string): string {
   const base = baseUrl || window.location.origin
   return `${base}/api/v1/filestore/viewer/${path}?signature=${signature}`
+}
+
+/**
+ * Upload files with progress tracking
+ * @param path - The filestore path where files should be uploaded
+ * @param files - Array of files to upload
+ * @param onProgress - Optional callback for progress updates
+ * @returns Promise that resolves when all files are uploaded
+ */
+export async function uploadFilesWithProgress(
+  path: string,
+  files: File[],
+  onProgress?: (progress: UploadProgress) => void
+): Promise<UploadResult[]> {
+  const results: UploadResult[] = []
+  
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    
+    // Report progress
+    if (onProgress) {
+      onProgress({
+        uploaded: i,
+        total: files.length,
+        currentFile: file.name
+      })
+    }
+    
+    try {
+      // Create FormData for the file
+      const formData = new FormData()
+      formData.append('files', file)
+      
+      // Upload the file
+      const response = await fetch(`/api/v1/filestore/upload?path=${encodeURIComponent(path)}`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed for ${file.name}: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      results.push(result)
+    } catch (error) {
+      console.error(`Error uploading ${file.name}:`, error)
+      results.push({ success: false })
+    }
+  }
+  
+  // Report final progress
+  if (onProgress) {
+    onProgress({
+      uploaded: files.length,
+      total: files.length
+    })
+  }
+  
+  return results
 }
