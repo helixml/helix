@@ -1,5 +1,10 @@
 {
-  "theme": "One Dark",
+  "icon_theme": "Zed (Default)",
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
   "buffer_font_family": "JetBrains Mono",
   "buffer_font_size": 14,
   "ui_font_family": "Inter",
