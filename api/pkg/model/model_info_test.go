@@ -22,6 +22,20 @@ func Test_GetGeminiFlash(t *testing.T) {
 	assert.Equal(t, "0.0000004", modelInfo.Pricing.Completion)
 }
 
+func Test_GetGptOSS20B(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "openai",
+		Model:    "gpt-oss-20b",
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "OpenAI: gpt-oss-20b", modelInfo.Name)
+	assert.Equal(t, "0.00000015", modelInfo.Pricing.Completion)
+}
+
 func Test_GetGeminiFlash_CustomUserProvider(t *testing.T) {
 	b, err := NewBaseModelInfoProvider()
 	assert.NoError(t, err)

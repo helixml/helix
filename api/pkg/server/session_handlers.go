@@ -62,16 +62,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	}
 
-	var (
-		generateSessionNameProvider string
-		generateSessionNameModel    string
-	)
-
 	ctx = oai.SetContextAppID(ctx, startReq.AppID)
 
 	if assistantID := req.URL.Query().Get("assistant_id"); assistantID != "" {
 		startReq.AssistantID = assistantID
 	}
+
+	var sessionApp *types.App
 
 	// messageContextLimit - how many messages to keep in the context,
 	// configured by the app
@@ -97,6 +94,9 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		// Set it, will be used for session title generator
+		sessionApp = app
 
 		// Check if the user has access to the app
 		if err := s.authorizeUserToApp(req.Context(), user, app, types.ActionGet); err != nil {
@@ -130,12 +130,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			if assistant.ContextLimit > 0 {
 				messageContextLimit = assistant.ContextLimit
-			}
-
-			// If agent mode is enabled, used small generation model for session name generation
-			if assistant.AgentMode {
-				generateSessionNameProvider = assistant.SmallGenerationModelProvider
-				generateSessionNameModel = assistant.SmallGenerationModel
 			}
 		}
 	}
@@ -289,21 +283,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	if newSession {
 		go func() {
-
-			var (
-				provider string
-				model    string
-			)
-
-			if generateSessionNameProvider != "" && generateSessionNameModel != "" {
-				provider = generateSessionNameProvider
-				model = generateSessionNameModel
-			} else {
-				provider = string(startReq.Provider)
-				model = modelName
-			}
-
-			name, err := s.generateSessionName(ctx, user, startReq.OrganizationID, session, provider, model, message)
+			name, err := s.generateSessionName(ctx, user, startReq.OrganizationID, session, sessionApp, message)
 			if err != nil {
 				log.Error().Err(err).Msg("error generating session name")
 				return
@@ -528,7 +508,7 @@ func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
 	return strings.Join(words, " ")
 }
 
-func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.User, orgID string, session *types.Session, provider, model, prompt string) (string, error) {
+func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.User, orgID string, session *types.Session, app *types.App, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -552,6 +532,32 @@ func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.Us
 	ctx = oai.SetStep(ctx, &oai.Step{
 		Step: types.LLMCallStepGenerateTitle,
 	})
+
+	var (
+		provider string
+		model    string
+	)
+
+	if app != nil {
+		// We are in agent mode, if set, use the small generation model
+		if len(app.Config.Helix.Assistants) == 0 {
+			return "", fmt.Errorf("no assistant configurations found")
+		}
+		assistant := app.Config.Helix.Assistants[0]
+
+		if assistant.AgentMode {
+			provider = assistant.SmallGenerationModelProvider
+			model = assistant.SmallGenerationModel
+		} else {
+			provider = assistant.Provider
+			model = assistant.Model
+		}
+	} else {
+		// If no app/agent defined, we are in a simple session mode
+		// where user just selected a model
+		provider = session.Provider
+		model = session.ModelName
+	}
 
 	req := openai.ChatCompletionRequest{
 		Model: model,

@@ -22,7 +22,7 @@ You can use skill functions to help answer the user's question effectively.
 
 {{ formatSkillFunctions .SkillFunctions }}
 
-Skill functions handle multiple queries and receive context externally, requiring no arguments passed by you. They are designed to understand human language and execute complex actions based on instructions.
+Skill functions handle multiple queries and receive context externally, requiring no arguments passed by you (IF THERE ARE NO ARGUMENTS DEFINED ON THE SKILL). They are designed to understand human language and execute complex actions based on instructions.
 
 - **Dependence:** If multiple skills are needed, call them in parallel only if they are independent. Usually, skills are interdependent, so refrain from calling a skill if it relies on another's result.
 
