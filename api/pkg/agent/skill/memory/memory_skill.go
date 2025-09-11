@@ -16,7 +16,7 @@ import (
 func NewAddMemorySkill(store store.Store) agent.Skill {
 	return agent.Skill{
 		Name:          "AddMemory",
-		Description:   "TODO",
+		Description:   addMemorySkillDescription,
 		SystemPrompt:  "n/a",
 		Parameters:    addMemorySkillParameters,
 		Direct:        true,
@@ -30,10 +30,20 @@ func NewAddMemorySkill(store store.Store) agent.Skill {
 }
 
 const addMemorySkillDescription = `## Purpose
-The add_memory skill allows an LLM-based agent to persist knowledge across turns. 
-When the LLM detects that a user's question or the agent's context requires the retention of new facts, facts about user intent, 
-or observations from the environment, it should invoke this tool. The stored entry will be accessible in future interactions via <memory></memory>, 
-enabling the agent to maintain consistent state, remember preferences, and build cumulative knowledge in a controlled, structured manner.`
+The AddMemory skill allows an LLM-based agent to persist knowledge across conversation sessions and turns. 
+Use this tool whenever the user shares information that would be valuable to remember in future conversations, including:
+
+- Personal preferences, settings, or configurations
+- Important facts about the user's work, projects, or interests  
+- User goals, objectives, or ongoing tasks
+- Contact information, deadlines, or important dates
+- User feedback, corrections, or specific instructions
+- Context about previous conversations or decisions made
+- Any information the user explicitly asks you to remember
+
+The stored memories will be accessible in future interactions via <memory></memory>, enabling the agent to maintain consistent state, 
+remember user preferences, and build cumulative knowledge across sessions. Only store information that would genuinely be useful 
+for future conversations - avoid storing trivial or temporary information.`
 
 var addMemorySkillParameters = jsonschema.Definition{
 	Type: jsonschema.Object,
@@ -51,11 +61,11 @@ type addMemoryTool struct {
 }
 
 func (t *addMemoryTool) Name() string {
-	return "Browser"
+	return "Memory"
 }
 
 func (t *addMemoryTool) Description() string {
-	return "Use the browser to open website URLs"
+	return "Use the memory to store information"
 }
 
 func (t *addMemoryTool) String() string {
@@ -67,7 +77,7 @@ func (t *addMemoryTool) StatusMessage() string {
 }
 
 func (t *addMemoryTool) Icon() string {
-	return "LanguageIcon"
+	return "MemoryIcon"
 }
 
 func (t *addMemoryTool) OpenAI() []openai.Tool {

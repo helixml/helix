@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,12 +48,12 @@ func (m *DefaultMemory) Retrieve(meta *Meta) (*MemoryBlock, error) {
 
 	block := NewMemoryBlock()
 
-	for _, memory := range memories {
+	for idx, memory := range memories {
 		memBlock := NewMemoryBlock()
 		memBlock.AddString("id", memory.ID)
 		memBlock.AddString("contents", memory.Contents)
 
-		block.AddBlock("memory", memBlock)
+		block.AddBlock("memory_"+strconv.Itoa(idx), memBlock)
 	}
 
 	return block, nil
