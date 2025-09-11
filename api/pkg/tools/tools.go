@@ -60,7 +60,8 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 		isActionableTemplate = isInformativeOrActionablePrompt
 	}
 
-	retryClient := system.NewRetryClient(3)
+	retryClient := system.NewRetryClient(3, cfg.Tools.TLSSkipVerify)
+
 	return &ChainStrategy{
 		cfg:                       cfg,
 		store:                     store,
