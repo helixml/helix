@@ -1,4 +1,4 @@
-import { FC, Fragment, useState, useCallback, useEffect, useRef } from 'react'
+import { FC } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -6,8 +6,6 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
-import Tooltip from '@mui/material/Tooltip'
-import Box from '@mui/material/Box'
 
 import FolderIcon from '@mui/icons-material/Folder'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
@@ -20,7 +18,6 @@ import ArchiveIcon from '@mui/icons-material/Archive'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
-import ClickLink from '../widgets/ClickLink'
 import SlideMenuContainer from '../system/SlideMenuContainer'
 
 import useRouter from '../../hooks/useRouter'
@@ -32,9 +29,6 @@ import { FilestoreItem } from '../../api/api'
 // Menu identifier constant
 const MENU_TYPE = 'files'
 
-// Pagination constants
-const PAGE_SIZE = 20
-
 export const FilesSidebar: FC<{
   onOpenFile: () => void,
 }> = ({
@@ -42,48 +36,15 @@ export const FilesSidebar: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
-  const [currentPage, setCurrentPage] = useState(0)
-  const [allFiles, setAllFiles] = useState<FilestoreItem[]>([])
-  const [hasMore, setHasMore] = useState(true)
-  const [totalCount, setTotalCount] = useState(0)
-
-  const orgId = router.params.org_id
 
   const {
     data: filesData,
     isLoading: isLoadingFiles,
-    isFetching: isLoadingMore,
     error
   } = useListFilestore(
     '', // List root directory
     !!account.user?.id // Only load if logged in
   )
-
-  // Update state when files data changes
-  useEffect(() => {
-    if (filesData) {
-      // For now, we'll show all files at once since the API doesn't support pagination
-      // In the future, we can implement pagination if the API supports it
-      setAllFiles(filesData || [])
-      setTotalCount(filesData?.length || 0)
-      setHasMore(false) // No pagination for now
-    }
-  }, [filesData])
-
-  const loadMore = useCallback(() => {
-    // No pagination for now
-  }, [])
-
-  const resetPagination = useCallback(() => {
-    setCurrentPage(0)
-    setAllFiles([])
-    setHasMore(true)
-  }, [])
-
-  // Reset pagination when organization changes
-  useEffect(() => {
-    resetPagination()
-  }, [orgId, resetPagination])
   
   const lightTheme = useLightTheme()
   const {
@@ -194,7 +155,7 @@ export const FilesSidebar: FC<{
 
 
   // Show loading state for initial load
-  if (isLoadingFiles && currentPage === 0) {
+  if (isLoadingFiles) {
     return (
       <SlideMenuContainer menuType={MENU_TYPE}>
         <Row center sx={{ py: 4 }}>
@@ -254,48 +215,8 @@ export const FilesSidebar: FC<{
           width: '100%', // Ensure it doesn't exceed container width
         }}
       >
-        {allFiles.map(renderFile)}
+        {(filesData || []).map(renderFile)}
       </List>
-      {
-        totalCount > 0 && totalCount > PAGE_SIZE && (
-          <Row
-            sx={{
-              mt: 2,
-              mb: 1,
-            }}
-            center
-          >
-            <Cell grow sx={{
-              textAlign: 'center',
-              fontSize: '0.8em'
-            }}>
-              {
-                isLoadingMore && (
-                  <CircularProgress
-                    size={ 20 }
-                  />
-                )
-              }
-              {
-                !isLoadingMore && hasMore && (
-                  <ClickLink
-                    onClick={ loadMore }
-                  >
-                    Load More...
-                  </ClickLink>
-                )
-              }
-              {
-                !isLoadingMore && !hasMore && totalCount > PAGE_SIZE && (
-                  <Typography variant="caption" color="text.secondary">
-                    All files loaded
-                  </Typography>
-                )
-              }
-            </Cell>
-          </Row>
-        )
-      }
     </SlideMenuContainer>
   )
 }
