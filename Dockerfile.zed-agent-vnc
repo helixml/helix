@@ -1,15 +1,16 @@
-# Build stage for Go application
+# ====================================================================
+# Go build stage (contains Helix binary, Go runtime, and air)
+# ====================================================================
 FROM golang:1.24 AS go-build-env
 WORKDIR /app
-COPY go.mod .
-COPY go.sum .
+COPY go.mod go.sum ./
 RUN go mod download
 COPY api ./api
 COPY .git /.git
 WORKDIR /app/api
 RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
-RUN go install github.com/air-verse/air@v1.52.3
 RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
+RUN go install github.com/air-verse/air@v1.52.3
 
 # VNC + VirtualGL stage for GPU-accelerated remote desktop
 FROM ubuntu:25.04
@@ -122,10 +123,7 @@ RUN apt-get update && apt-get install -y \
     # Cleanup
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy Go from build stage for air hot reloading
-COPY --from=go-build-env /usr/local/go /usr/local/go
-
-# Add Go to PATH
+# Add Go to PATH (will be copied later)
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/go"
 ENV GOMODCACHE="/go/pkg/mod"
@@ -137,8 +135,7 @@ RUN git config --global --add safe.directory /workspace/helix
 # Create symlink to mounted zed-build directory
 RUN ln -sf /zed-build/zed /usr/local/bin/zed
 
-# Copy air for hot reloading (air changes less frequently than helix)
-COPY --from=go-build-env /go/bin/air /usr/local/bin/air
+# Air will be copied later with other Go tools
 
 # Configure ubuntu user for Wayland sessions (user may already exist)
 RUN echo 'ubuntu:helix123' | chpasswd && \
@@ -455,8 +452,10 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
     echo '{"dock": {"enabled": true, "pinnedApps": ["google-chrome", "firefox", "org.gnome.Nautilus", "foot", "ghostty"]}}' > /home/ubuntu/.config/ags/user_options.jsonc && \
     chown -R ubuntu:ubuntu /home/ubuntu/.config
 
-# Copy the compiled Helix binary LAST to avoid cache invalidation of expensive compilation steps
-COPY --from=go-build-env /helix /usr/local/bin/helix
-
 # Start Wayland VNC
 ENTRYPOINT ["/start-wayland-vnc.sh"]
+
+# Copy everything from Go build stage LAST to avoid cache invalidation of expensive compilation steps
+COPY --from=go-build-env /usr/local/go /usr/local/go
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
+COPY --from=go-build-env /app/api/helix /usr/local/bin/helix
