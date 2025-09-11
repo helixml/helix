@@ -62,6 +62,9 @@ func (apiServer *HelixAPIServer) registerGuacamoleProxyRoutes(authRouter *mux.Ro
 
 	// Runner-specific Guacamole proxy
 	authRouter.HandleFunc("/external-agents/runners/{runnerID}/guac/proxy", apiServer.handleRunnerGuacamoleProxy).Methods("GET")
+	
+	// Admin endpoint to cleanup all Guacamole connections
+	authRouter.HandleFunc("/admin/guacamole/cleanup", apiServer.handleGuacamoleCleanup).Methods("POST")
 }
 
 // handleSessionGuacamoleProxy handles session-specific Guacamole WebSocket connections
@@ -254,8 +257,8 @@ func (apiServer *HelixAPIServer) createGuacamoleConnection(connectionID string, 
 		"name":             fmt.Sprintf("helix-%s", connectionID),
 		"protocol":         "vnc",
 		"parameters": map[string]string{
-			"hostname":     "api", // Connect to API container where VNC proxy is running
-			"port":         fmt.Sprintf("%d", rdpPort), // Still using rdpPort variable name but it's actually VNC port
+			"hostname":     "zed-runner", // Direct connection to zed-runner container
+			"port":         "5901", // VNC port on zed-runner
 			"password":     "helix123", // Static VNC password
 			"color-depth":  "24",
 			"cursor":       "remote",
@@ -563,4 +566,45 @@ func (apiServer *HelixAPIServer) authenticateWithGuacamole() (string, error) {
 
 	log.Debug().Str("auth_url", authURL).Msg("Successfully authenticated with Guacamole")
 	return token, nil
+}
+
+// handleGuacamoleCleanup handles manual cleanup of all Guacamole connections
+func (apiServer *HelixAPIServer) handleGuacamoleCleanup(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user has admin permissions
+	if !apiServer.isAdmin(r) {
+		log.Warn().
+			Str("user_id", user.ID).
+			Msg("Non-admin user attempted to cleanup Guacamole connections")
+		http.Error(w, "admin access required", http.StatusForbidden)
+		return
+	}
+
+	// Trigger cleanup
+	if apiServer.guacamoleLifecycle != nil {
+		err := apiServer.guacamoleLifecycle.CleanupAllGuacamoleConnections(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to cleanup Guacamole connections")
+			http.Error(w, "cleanup failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Also trigger stale connection cleanup in proxy
+	if apiServer.guacamoleProxy != nil {
+		apiServer.guacamoleProxy.cleanupStaleConnections(0) // Clean all connections
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "success",
+		"message": "Guacamole connections cleaned up",
+	})
 }
