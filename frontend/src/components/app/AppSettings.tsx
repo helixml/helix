@@ -271,7 +271,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       agent_mode,
-      memory,
       reasoning_model,
       reasoning_model_provider,
       reasoning_model_effort,
@@ -304,13 +303,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
-  const handleCheckboxChange = (field: 'global' | 'agent_mode' | 'memory', value: boolean) => {
+  const handleCheckboxChange = (field: 'global' | 'agent_mode', value: boolean) => {
     if (field === 'global') {
       setGlobal(value)
     } else if (field === 'agent_mode') {
       setAgentMode(value)
-    } else if (field === 'memory') {
-      setMemory(value)
     }
         
     // Create updated state and call onUpdate immediately for checkboxes
@@ -326,7 +323,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
       temperature,
-      memory,
       top_p: topP,
       max_iterations: max_iterations
     }
@@ -334,17 +330,6 @@ const AppSettings: FC<AppSettingsProps> = ({
     onUpdate(updatedApp)
   }
 
-  const handleMemoryCheckboxChange = (value: boolean) => {  
-    setMemory(value)
-        
-    // Create updated state and call onUpdate immediately for checkboxes
-    const updatedApp: IAppFlatState = {
-      ...app,
-      memory: value,      
-    }
-    
-    onUpdate(updatedApp)
-  }
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
@@ -362,7 +347,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       presence_penalty: presencePenalty,
       reasoning_effort: reasoningEffort,
       temperature,
-      memory,
       top_p: topP,
       max_iterations: max_iterations
     }
@@ -545,24 +529,6 @@ const AppSettings: FC<AppSettingsProps> = ({
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
 
-            <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-              <Box>
-                <Typography variant="body2" color="text.secondary">
-                  Allow agent to remember things between sessions
-                </Typography>
-              </Box>
-              <FormControlLabel
-                sx={{mr: 20}}
-                control={
-                  <Switch
-                    checked={memory}
-                    onChange={(e) => handleMemoryCheckboxChange(e.target.checked)}
-                    disabled={readOnly}
-                  />
-                }
-                label="Memory"
-              />
-            </Stack>
             
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
