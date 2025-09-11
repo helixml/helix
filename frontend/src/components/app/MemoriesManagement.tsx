@@ -145,6 +145,10 @@ const MemoriesManagement: FC<MemoriesManagementProps> = ({ appId }) => {
         <Typography variant="h6" sx={{ mb: 2 }}>
           Agent Memories
         </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Memories are automatically injected into the agent's context and can be used to remember things between sessions.          
+          They are not shared between users or agents, only between sessions for the same user.
+        </Typography>
         {memories.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
             No memories found for this agent.
