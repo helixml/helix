@@ -24,7 +24,7 @@ import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApp from '../../hooks/useApp'
 import useApi from '../../hooks/useApi'
-import { useListSessions } from '../../services/sessionService'
+
 import { useCreateFilestoreFolder, useUploadFilestoreFiles } from '../../services/filestoreService'
 import useSnackbar from '../../hooks/useSnackbar'
 
