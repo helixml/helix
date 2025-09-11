@@ -133,28 +133,36 @@ export HYPRLAND_LOG_WLR=1
 export HYPRLAND_NO_RT=1
 export WLR_RENDERER_ALLOW_SOFTWARE=1
 
+# Enable debug logging temporarily to diagnose startup issues (moved inside su block)
+
 # Pre-flight GPU check
 echo \"Pre-flight GPU check:\"
 echo \"DRI devices: \$(ls /dev/dri/)\"
 echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
 echo \"GBM_BACKEND: \$GBM_BACKEND\"
 
-# Start Hyprland with comprehensive error capture
-echo \"Starting Hyprland...\"
+# Start Hyprland with comprehensive error capture and debug config
+echo \"Starting Hyprland with debug logging...\"
 export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
-/usr/bin/Hyprland > /tmp/hyprland.log 2>&1 &
+
+# Create debug config file
+echo \\\"debug { disable_logs = false }\\\" > /tmp/hypr-debug.conf
+cat /home/ubuntu/.config/hypr/hyprland.conf >> /tmp/hypr-debug.conf
+
+echo \"Hyprland command: /usr/bin/Hyprland\"
+/usr/bin/Hyprland &
 COMPOSITOR_PID=\$!
 echo \"Hyprland started with PID: \$COMPOSITOR_PID\"
 
 # Give Hyprland time to initialize with GPU
 sleep 5
 
-# Check if Hyprland is still running
-if ! kill -0 \$COMPOSITOR_PID 2>/dev/null; then
+# Check if Hyprland is running (either our PID or any Hyprland process)
+if pgrep -x \"Hyprland\" >/dev/null 2>&1; then
+    echo \"✅ Hyprland is running successfully with NVIDIA GPU acceleration!\"
+else
     echo \"❌ Hyprland failed to start with NVIDIA GPU acceleration\"
     exit 1
-else
-    echo \"✅ Hyprland started successfully with NVIDIA GPU acceleration!\"
 fi
 
 # Start wayvnc VNC server on the Wayland display
@@ -176,10 +184,19 @@ export SUNSHINE_DISABLE_WAYLAND_SECURITY=1
 export WLR_ALLOW_ALL_CLIENTS=1
 
 # Start wayvnc with input enabled and cursor optimizations for VNC
+echo \"Starting wayvnc on port 5901...\"
 wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5901 &
 WAYVNC_PID=\$!
 
-echo \"VNC server started on port 5901\"
+# Wait a moment and verify wayvnc is running on the correct port
+sleep 2
+if lsof -i :5901 >/dev/null 2>&1; then
+    echo \"✅ VNC server started successfully on port 5901\"
+else
+    echo \"❌ VNC server failed to start on port 5901\"
+    echo \"Exiting container due to VNC startup failure\"
+    exit 1
+fi
 
 # Start Sunshine Moonlight server
 echo \"Starting Sunshine Moonlight server...\"

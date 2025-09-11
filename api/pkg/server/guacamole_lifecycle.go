@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -42,6 +43,11 @@ func (glm *GuacamoleLifecycleManager) OnRunnerConnect(ctx context.Context, runne
 		Str("runner_id", runnerID).
 		Msg("Creating Guacamole connection for newly connected runner")
 
+	// Clean up any stale connections before creating new ones
+	if err := glm.CleanupStaleConnections(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to cleanup stale Guacamole connections, continuing anyway")
+	}
+
 	// Get or create agent runner record
 	runner, err := glm.store.GetOrCreateAgentRunner(ctx, runnerID)
 	if err != nil {
@@ -59,15 +65,32 @@ func (glm *GuacamoleLifecycleManager) OnRunnerConnect(ctx context.Context, runne
 		// Don't fail the runner connection for this, but warn since it's a security issue
 	}
 
-	// Create RDP proxy for this runner
-	proxy, err := glm.rdpProxyManager.CreateRunnerRDPProxy(ctx, runnerID)
-	if err != nil {
-		return fmt.Errorf("failed to create RDP proxy for runner: %w", err)
+	// Check if direct VNC proxy is enabled
+	directProxy := os.Getenv("DIRECT_VNC_PROXY") == "true"
+	
+	var proxyPort int
+	if directProxy {
+		// Skip reverse dial proxy creation - connect directly to zed-runner
+		proxyPort = 5902 // Direct wayvnc port (not used in direct mode)
+		log.Info().
+			Str("runner_id", runnerID).
+			Msg("Skipping VNC proxy creation - using direct connection mode")
+	} else {
+		// Create VNC proxy for this runner (using reverse dial to forward to VNC port 5902)
+		proxy, err := glm.rdpProxyManager.CreateRunnerRDPProxy(ctx, runnerID)
+		if err != nil {
+			return fmt.Errorf("failed to create VNC proxy for runner: %w", err)
+		}
+		proxyPort = proxy.LocalPort
+		log.Info().
+			Str("runner_id", runnerID).
+			Int("proxy_port", proxyPort).
+			Msg("Created VNC reverse dial proxy for runner")
 	}
 
-	// Create Guacamole connection
+	// Create Guacamole VNC connection
 	connectionID := fmt.Sprintf("runner-%s", runnerID)
-	guacConnectionID, err := glm.createGuacamoleConnection(ctx, connectionID, proxy.LocalPort, runner.RDPPassword, "runner")
+	guacConnectionID, err := glm.createGuacamoleVNCConnection(ctx, connectionID, proxyPort, runner.RDPPassword, "runner")
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -77,11 +100,18 @@ func (glm *GuacamoleLifecycleManager) OnRunnerConnect(ctx context.Context, runne
 		return nil
 	}
 
-	log.Info().
-		Str("runner_id", runnerID).
-		Str("guac_connection_id", guacConnectionID).
-		Int("rdp_port", proxy.LocalPort).
-		Msg("Successfully created Guacamole connection for runner")
+	if directProxy {
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("guac_connection_id", guacConnectionID).
+			Msg("Successfully created Guacamole VNC connection for runner (direct mode)")
+	} else {
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("guac_connection_id", guacConnectionID).
+			Int("rdp_port", proxyPort).
+			Msg("Successfully created Guacamole VNC connection for runner (reverse dial mode)")
+	}
 
 	return nil
 }
@@ -208,6 +238,101 @@ func (glm *GuacamoleLifecycleManager) OnPasswordRotation(ctx context.Context, ru
 	}
 
 	return nil
+}
+
+// createGuacamoleVNCConnection creates a new VNC connection in Guacamole
+func (glm *GuacamoleLifecycleManager) createGuacamoleVNCConnection(ctx context.Context, connectionID string, vncProxyPort int, vncPassword, connectionType string) (string, error) {
+	// Authenticate with Guacamole
+	authToken, err := glm.authenticateWithGuacamole()
+	if err != nil {
+		return "", fmt.Errorf("failed to authenticate with Guacamole: %w", err)
+	}
+
+	// Check if direct VNC proxy is enabled (bypass reverse dial for local development)
+	directProxy := os.Getenv("DIRECT_VNC_PROXY") == "true"
+	
+	var hostname, port string
+	if directProxy {
+		// Direct connection to zed-runner container for local development
+		hostname = "zed-runner"
+		port = "5902" // Direct wayvnc port
+		log.Info().
+			Str("connection_id", connectionID).
+			Msg("Using direct VNC proxy (bypassing reverse dial)")
+	} else {
+		// Use reverse dial proxy through API container (production mode)
+		hostname = "api"
+		port = fmt.Sprintf("%d", vncProxyPort)
+		log.Info().
+			Str("connection_id", connectionID).
+			Int("proxy_port", vncProxyPort).
+			Msg("Using reverse dial VNC proxy")
+	}
+
+	// Create VNC connection configuration
+	connectionConfig := map[string]interface{}{
+		"parentIdentifier": "ROOT",
+		"name":             fmt.Sprintf("helix-%s", connectionID),
+		"protocol":         "vnc",
+		"parameters": map[string]string{
+			"hostname":    hostname,
+			"port":        port,
+			"password":    vncPassword, // VNC only uses password, no username
+			"color-depth": "32",
+			"swap-red-blue": "false",
+			"cursor":      "remote",
+			"read-only":   "false",
+			"clipboard":   "remote",
+		},
+		"attributes": map[string]string{
+			"max-connections":          "",
+			"max-connections-per-user": "",
+			"weight":                   "",
+			"failover-only":            "",
+			"guacd-port":               "",
+			"guacd-encryption":         "",
+			"guacd-hostname":           "",
+		},
+	}
+
+	// Call Guacamole REST API
+	guacamoleURL := fmt.Sprintf("%s/guacamole/api/session/data/postgresql/connections?token=%s",
+		glm.guacamoleProxy.guacamoleServerURL, authToken)
+
+	configJSON, err := json.Marshal(connectionConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal connection config: %w", err)
+	}
+
+	// Make HTTP POST request
+	resp, err := http.Post(guacamoleURL, "application/json", strings.NewReader(string(configJSON)))
+	if err != nil {
+		return "", fmt.Errorf("failed to create connection: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("Guacamole API returned status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var guacConnection map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&guacConnection); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	guacConnectionID, ok := guacConnection["identifier"].(string)
+	if !ok {
+		guacConnectionID = fmt.Sprintf("guac-%s", connectionID)
+	}
+
+	log.Debug().
+		Str("connection_id", connectionID).
+		Str("guac_connection_id", guacConnectionID).
+		Str("connection_type", connectionType).
+		Msg("Created Guacamole VNC connection")
+
+	return guacConnectionID, nil
 }
 
 // createGuacamoleConnection creates a new connection in Guacamole
