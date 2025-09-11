@@ -241,6 +241,7 @@ services:
             - "5901:5901"  # Expose VNC for direct testing
             # Moonlight/Sunshine ports for direct client testing
             - "47989:47989"  # Moonlight HTTP/HTTPS main port
+            - "47990:47990"  # Sunshine web UI (HTTPS config interface)
             - "47984:47984"  # Moonlight HTTPS control
             - "47999:47999"  # Moonlight control port  
             - "48010:48010"  # Moonlight RTSP
