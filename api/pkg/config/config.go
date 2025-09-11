@@ -121,6 +121,8 @@ type Helix struct {
 type Tools struct {
 	Enabled bool `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 
+	TLSSkipVerify bool `envconfig:"TOOLS_TLS_SKIP_VERIFY" default:"false"`
+
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: openai/gpt-oss-20b

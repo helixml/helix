@@ -104,7 +104,9 @@ func NewController(
 
 	if options.MCPClientGetter == nil {
 		// Initialize default client getter
-		options.MCPClientGetter = &mcp.DefaultClientGetter{}
+		options.MCPClientGetter = &mcp.DefaultClientGetter{
+			TLSSkipVerify: options.Config.Tools.TLSSkipVerify,
+		}
 	}
 
 	models, err := model.GetModels()
