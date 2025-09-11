@@ -222,7 +222,7 @@ wait \$COMPOSITOR_PID \$WAYVNC_PID \$MOONLIGHT_PID
 " &
 
 # Start Helix agent in background
-# /start-helix-agent.sh &
+/start-helix-agent.sh &
 
 # Keep container running
 tail -f /dev/null
