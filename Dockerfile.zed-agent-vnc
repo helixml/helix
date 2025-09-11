@@ -101,8 +101,6 @@ RUN apt-get update && apt-get install -y \
     libpulse-dev libpam0g-dev libglib2.0-dev \
     gir1.2-gtk-3.0 gir1.2-glib-2.0 gobject-introspection \
     libgirepository1.0-dev \
-    # SCSS and additional tools
-    sass \
     # Notification and system tray support
     libnotify-bin libnotify-dev gir1.2-notify-0.7 \
     libdbusmenu-gtk3-dev gir1.2-dbusmenu-glib-0.4 gir1.2-dbusmenu-gtk3-0.4 \
@@ -111,7 +109,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Build AGS v1 (ii-agsv1)
-RUN npm install -g typescript && \
+RUN npm install -g typescript sass && \
     cd /tmp && \
     git clone https://github.com/end-4/ii-agsv1.git && \
     cd ii-agsv1 && \
@@ -372,7 +370,7 @@ RUN chmod +x /start-wayland-vnc.sh /start-moonlight.sh
 
 # Create user options for dots-hyprland AGS with Chrome in dock
 RUN mkdir -p /home/ubuntu/.config/ags && \
-    echo '{"dock": {"enabled": true, "pinnedApps": ["google-chrome", "firefox", "org.gnome.Nautilus", "foot", "ghostty"]}}' > /home/ubuntu/.config/ags/user_options.jsonc && \
+    echo '{"dock": {"enabled": true, "pinnedApps": ["google-chrome", "firefox", "org.gnome.Nautilus", "foot", "com.mitchellh.ghostty"]}}' > /home/ubuntu/.config/ags/user_options.jsonc && \
     chown -R ubuntu:ubuntu /home/ubuntu/.config
 
 # ====================================================================
