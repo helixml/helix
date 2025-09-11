@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Typography, Alert, CircularProgress, IconButton } from '@mui/material';
-import { Fullscreen, FullscreenExit, ContentCopy, Refresh, OpenInNew } from '@mui/icons-material';
+import { Fullscreen, FullscreenExit, ContentCopy, Refresh, OpenInNew, Keyboard } from '@mui/icons-material';
 import { useRDPConnection } from '../../hooks/useRDPConnection';
 
 
@@ -222,6 +222,18 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
     }
   }, [isFullscreen]);
 
+  // Force focus iframe
+  const focusIframe = useCallback(() => {
+    if (iframeRef.current) {
+      iframeRef.current.focus();
+      try {
+        iframeRef.current.contentWindow?.focus();
+      } catch (e) {
+        console.log('Could not focus iframe content window (cross-origin)');
+      }
+    }
+  }, []);
+
   // Setup message listener
   useEffect(() => {
     window.addEventListener('message', handleMessage);
@@ -345,6 +357,15 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
       >
         <IconButton 
           size="small" 
+          onClick={focusIframe}
+          sx={{ color: 'white' }}
+          title="Enable Keyboard Input"
+          disabled={!isConnected}
+        >
+          <Keyboard fontSize="small" />
+        </IconButton>
+        <IconButton 
+          size="small" 
           onClick={sendClipboard}
           sx={{ color: 'white' }}
           title="Paste Clipboard (Ctrl+V)"
@@ -400,6 +421,27 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
         </Box>
       )}
 
+      {/* Click instruction overlay */}
+      {isConnected && (
+        <Box 
+          sx={{ 
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            color: 'white',
+            padding: 1,
+            borderRadius: 1,
+            fontSize: '0.75rem',
+            zIndex: 1001,
+            opacity: 0.7,
+            pointerEvents: 'none'
+          }}
+        >
+          💡 Click inside to enable keyboard input
+        </Box>
+      )}
+
       {/* Guacamole Direct Client Iframe */}
       <iframe
         ref={iframeRef}
@@ -413,18 +455,32 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
         title="Guacamole Direct Client"
         allow="clipboard-read; clipboard-write; fullscreen"
         // sandbox="allow-same-origin allow-scripts allow-forms allow-top-navigation allow-modals allow-pointer-lock" // Removed for keyboard testing
-        onLoad={() => {
-          console.log('🔄 Iframe loaded');
-          // Try to focus the iframe content
+        onClick={() => {
+          // Try to focus on click
           if (iframeRef.current) {
             iframeRef.current.focus();
-            // Also try focusing the iframe's content window
             try {
               iframeRef.current.contentWindow?.focus();
             } catch (e) {
               console.log('Could not focus iframe content window (cross-origin)');
             }
           }
+        }}
+        onLoad={() => {
+          console.log('🔄 Iframe loaded');
+          // Try to focus the iframe content after multiple delays
+          [500, 1000, 2000].forEach(delay => {
+            setTimeout(() => {
+              if (iframeRef.current) {
+                iframeRef.current.focus();
+                try {
+                  iframeRef.current.contentWindow?.focus();
+                } catch (e) {
+                  console.log('Could not focus iframe content window (cross-origin)');
+                }
+              }
+            }, delay);
+          });
         }}
       />
 
