@@ -19,7 +19,7 @@ import {
   Link,
 } from '@mui/material';
 import {
-  Gamepad2 as GamepadIcon,
+  SportsEsports as GamepadIcon,
   Computer as ComputerIcon,
   Launch as LaunchIcon,
   ContentCopy as CopyIcon,
