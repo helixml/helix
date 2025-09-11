@@ -202,6 +202,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
@@ -308,7 +309,7 @@ const AppSettings: FC<AppSettingsProps> = ({
     } else if (field === 'agent_mode') {
       setAgentMode(value)
     }
-    
+        
     // Create updated state and call onUpdate immediately for checkboxes
     const updatedApp: IAppFlatState = {
       ...app,
@@ -328,6 +329,7 @@ const AppSettings: FC<AppSettingsProps> = ({
     
     onUpdate(updatedApp)
   }
+
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
@@ -523,9 +525,10 @@ const AppSettings: FC<AppSettingsProps> = ({
           />
         </Stack>
 
-        {agent_mode && (
+        {agent_mode && (          
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
+
             
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>

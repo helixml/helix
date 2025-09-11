@@ -1397,6 +1397,8 @@ type AssistantConfig struct {
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
 	LoraID      string `json:"lora_id,omitempty" yaml:"lora_id,omitempty"`
 
+	Memory bool `json:"memory,omitempty" yaml:"memory,omitempty"` // Enable/disable user based memory for the agent
+
 	// ContextLimit - the number of messages to include in the context for the AI assistant.
 	// When set to 1, the AI assistant will only see and remember the most recent message.
 	ContextLimit int `json:"context_limit,omitempty" yaml:"context_limit,omitempty"`
@@ -2261,4 +2263,19 @@ type TriggerExecution struct {
 	Error                  string                 `json:"error"`
 	Output                 string                 `json:"output"`
 	SessionID              string                 `json:"session_id"`
+}
+
+// Memory provides agent user memories
+type Memory struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	UserID   string    `json:"user_id"`
+	AppID    string    `json:"app_id"`
+	Contents string    `json:"contents"`
+}
+
+type ListMemoryRequest struct {
+	UserID string
+	AppID  string
 }

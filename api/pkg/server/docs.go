@@ -749,6 +749,72 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/memories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List memories for a specific app and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "List app memories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Memory"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/memories/{memory_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a specific memory for an app and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "Delete app memory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Memory ID",
+                        "name": "memory_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/step-info": {
             "get": {
                 "security": [
@@ -5885,6 +5951,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.AssistantMCP"
                     }
                 },
+                "memory": {
+                    "description": "Enable/disable user based memory for the agent",
+                    "type": "boolean"
+                },
                 "model": {
                     "type": "string"
                 },
@@ -7411,6 +7481,29 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "redirect_uri": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.Memory": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "contents": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user_id": {
                     "type": "string"
                 }
             }

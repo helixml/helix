@@ -37,6 +37,7 @@ const (
 	WalletPrefix               = "wal_"
 	TransactionPrefix          = "txn_"
 	TopUpPrefix                = "top_"
+	MemoryPrefix               = "mem_"
 )
 
 func GenerateUUID() string {
@@ -164,4 +165,8 @@ func GenerateTransactionID() string {
 
 func GenerateTopUpID() string {
 	return fmt.Sprintf("%s%s", TopUpPrefix, newID())
+}
+
+func GenerateMemoryID() string {
+	return fmt.Sprintf("%s%s", MemoryPrefix, newID())
 }

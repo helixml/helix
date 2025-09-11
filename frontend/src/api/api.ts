@@ -763,6 +763,8 @@ export interface TypesAssistantConfig {
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
   mcps?: TypesAssistantMCP[];
+  /** Enable/disable user based memory for the agent */
+  memory?: boolean;
   model?: string;
   name?: string;
   /**
@@ -1408,6 +1410,15 @@ export enum TypesLLMCallStep {
 
 export interface TypesLoginRequest {
   redirect_uri?: string;
+}
+
+export interface TypesMemory {
+  app_id?: string;
+  contents?: string;
+  created?: string;
+  id?: string;
+  updated?: string;
+  user_id?: string;
 }
 
 export interface TypesMessage {
@@ -3123,6 +3134,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List memories for a specific app and user
+     *
+     * @tags memories
+     * @name V1AppsMemoriesDetail
+     * @summary List app memories
+     * @request GET:/api/v1/apps/{id}/memories
+     * @secure
+     */
+    v1AppsMemoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesMemory[], any>({
+        path: `/api/v1/apps/${id}/memories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific memory for an app and user
+     *
+     * @tags memories
+     * @name V1AppsMemoriesDelete
+     * @summary Delete app memory
+     * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
+     * @secure
+     */
+    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}/memories/${memoryId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
