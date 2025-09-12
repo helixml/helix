@@ -1,4 +1,4 @@
-import { FC } from 'react'
+import { FC, useState, useCallback } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -6,15 +6,23 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
+import Breadcrumbs from '@mui/material/Breadcrumbs'
+import Link from '@mui/material/Link'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
 
-import FolderIcon from '@mui/icons-material/Folder'
-import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
-import ImageIcon from '@mui/icons-material/Image'
-import DescriptionIcon from '@mui/icons-material/Description'
-import VideoFileIcon from '@mui/icons-material/VideoFile'
-import AudioFileIcon from '@mui/icons-material/AudioFile'
-import CodeIcon from '@mui/icons-material/Code'
-import ArchiveIcon from '@mui/icons-material/Archive'
+import { 
+  Folder, 
+  File, 
+  Image, 
+  FileText, 
+  Video, 
+  Music, 
+  Code, 
+  Archive, 
+  ArrowLeft, 
+  Home 
+} from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -36,24 +44,71 @@ export const FilesSidebar: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
+  const lightTheme = useLightTheme()
+  
+  // State for current directory navigation
+  const [currentPath, setCurrentPath] = useState<string>('')
+  const [pathHistory, setPathHistory] = useState<string[]>([])
 
   const {
     data: filesData,
     isLoading: isLoadingFiles,
     error
   } = useListFilestore(
-    '', // List root directory
+    currentPath, // List current directory
     !!account.user?.id // Only load if logged in
   )
   
-  const lightTheme = useLightTheme()
   const {
     params,
   } = useRouter()
 
+  // Navigation functions
+  const navigateToDirectory = useCallback((path: string) => {
+    setPathHistory(prev => [...prev, currentPath])
+    setCurrentPath(path)
+  }, [currentPath])
+
+  const navigateBack = useCallback(() => {
+    if (pathHistory.length > 0) {
+      const previousPath = pathHistory[pathHistory.length - 1]
+      setPathHistory(prev => prev.slice(0, -1))
+      setCurrentPath(previousPath)
+    }
+  }, [pathHistory])
+
+  const navigateToRoot = useCallback(() => {
+    setPathHistory([])
+    setCurrentPath('')
+  }, [])
+
+  const navigateToPath = useCallback((path: string) => {
+    setPathHistory([])
+    setCurrentPath(path)
+  }, [])
+
+  // Get breadcrumb segments
+  const getBreadcrumbSegments = useCallback(() => {
+    if (!currentPath) return [{ name: 'home', path: '' }]
+    
+    const segments = currentPath.split('/').filter(Boolean)
+    const breadcrumbs = [{ name: 'home', path: '' }]
+    
+    let currentBreadcrumbPath = ''
+    segments.forEach(segment => {
+      currentBreadcrumbPath = currentBreadcrumbPath ? `${currentBreadcrumbPath}/${segment}` : segment
+      breadcrumbs.push({
+        name: segment,
+        path: currentBreadcrumbPath
+      })
+    })
+    
+    return breadcrumbs
+  }, [currentPath])
+
   const getFileIcon = (file: FilestoreItem) => {
     if (file.directory) {
-      return <FolderIcon color="primary" />
+      return <Folder size={20} color="#00E5FF" />
     }
 
     const fileName = file.name || ''
@@ -61,36 +116,36 @@ export const FilesSidebar: FC<{
 
     // Image files
     if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(extension || '')) {
-      return <ImageIcon color="primary" />
+      return <Image size={20} color="#00E5FF" />
     }
 
     // Video files
     if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(extension || '')) {
-      return <VideoFileIcon color="primary" />
+      return <Video size={20} color="#00E5FF" />
     }
 
     // Audio files
     if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'].includes(extension || '')) {
-      return <AudioFileIcon color="primary" />
+      return <Music size={20} color="#00E5FF" />
     }
 
     // Archive files
     if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2'].includes(extension || '')) {
-      return <ArchiveIcon color="primary" />
+      return <Archive size={20} color="#00E5FF" />
     }
 
     // Code files
     if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'go', 'rs', 'php', 'rb', 'swift', 'kt', 'scala', 'sh', 'bash', 'ps1', 'bat', 'cmd'].includes(extension || '')) {
-      return <CodeIcon color="primary" />
+      return <Code size={20} color="#00E5FF" />
     }
 
     // Document files
     if (['pdf', 'doc', 'docx', 'txt', 'rtf', 'odt', 'pages'].includes(extension || '')) {
-      return <DescriptionIcon color="primary" />
+      return <FileText size={20} color="#00E5FF" />
     }
 
     // Default file icon
-    return <InsertDriveFileIcon color="primary" />
+    return <File size={20} color="#00E5FF" />
   }
 
 
@@ -108,8 +163,10 @@ export const FilesSidebar: FC<{
         key={filePath}
         onClick={() => {
           if (file.directory) {
-            // Navigate to folder - for now just navigate to files page
-            account.orgNavigate('files', {})
+            // Navigate into directory
+            const fileName = file.name || ''
+            const newPath = currentPath ? `${currentPath}/${fileName}` : fileName
+            navigateToDirectory(newPath)
           } else {
             // Open file - set file_path in URL query
             account.orgNavigate('files', {file_path: filePath})
@@ -206,6 +263,58 @@ export const FilesSidebar: FC<{
 
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
+      {/* Navigation Header */}
+      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <IconButton 
+            size="small" 
+            onClick={navigateBack}
+            disabled={pathHistory.length === 0}
+            sx={{ color: lightTheme.textColorFaded }}
+          >
+            <ArrowLeft size={16} />
+          </IconButton>
+          <IconButton 
+            size="small" 
+            onClick={navigateToRoot}
+            sx={{ color: lightTheme.textColorFaded }}
+          >
+            <Home size={16} />
+          </IconButton>
+        </Box>
+        
+        <Breadcrumbs 
+          separator="/" 
+          sx={{ 
+            '& .MuiBreadcrumbs-separator': { 
+              color: lightTheme.textColorFaded 
+            } 
+          }}
+        >
+          {getBreadcrumbSegments().map((segment, index) => (
+            <Link
+              key={segment.path}
+              component="button"
+              variant="body2"
+              onClick={() => navigateToPath(segment.path)}
+              sx={{
+                color: index === getBreadcrumbSegments().length - 1 
+                  ? lightTheme.textColor 
+                  : lightTheme.textColorFaded,
+                textDecoration: 'none',
+                cursor: 'pointer',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+                fontSize: '0.875rem',
+              }}
+            >
+              {segment.name}
+            </Link>
+          ))}
+        </Breadcrumbs>
+      </Box>
+
       <List
         sx={{
           py: 1,
