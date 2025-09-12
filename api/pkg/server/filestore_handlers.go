@@ -55,6 +55,11 @@ func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.R
 			http.Redirect(w, r, url, http.StatusFound)
 		}
 	} else {
+		// Set cache control headers to prevent caching
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+
 		s.fileServerHandler.ServeHTTP(w, r)
 	}
 }

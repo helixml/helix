@@ -591,6 +591,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			return false, err
 		}
 
+		if len(req.MultipartForm.File["files"]) == 0 {
+			return false, fmt.Errorf("no files to upload")
+		}
+
 		files := req.MultipartForm.File["files"]
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
@@ -602,6 +606,12 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			// Extract the relative path within the app
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Strip filename from path if it contains the filename to prevent duplication
+			if strings.HasSuffix(relativePath, fileHeader.Filename) {
+				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
+				relativePath = strings.TrimSuffix(relativePath, "/")
+			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
@@ -619,6 +629,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		return false, err
 	}
 
+	if len(req.MultipartForm.File["files"]) == 0 {
+		return false, fmt.Errorf("no files to upload")
+	}
+
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
@@ -626,7 +640,15 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
+
+		// Strip filename from path if it contains the filename to prevent duplication
+		uploadPath := path
+		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
+			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
+			uploadPath = strings.TrimSuffix(uploadPath, "/")
+		}
+
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
