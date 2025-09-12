@@ -1,4 +1,4 @@
-import { FC, useState, useCallback } from 'react'
+import { FC, useState, useCallback, useEffect } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -31,7 +31,7 @@ import SlideMenuContainer from '../system/SlideMenuContainer'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
-import { useListFilestore } from '../../services/filestoreService'
+import { useListFilestore, useFilestoreConfig } from '../../services/filestoreService'
 import { FilestoreItem } from '../../api/api'
 
 // Menu identifier constant
@@ -46,65 +46,75 @@ export const FilesSidebar: FC<{
   const router = useRouter()
   const lightTheme = useLightTheme()
   
-  // State for current directory navigation
-  const [currentPath, setCurrentPath] = useState<string>('')
-  const [pathHistory, setPathHistory] = useState<string[]>([])
+  // Get current directory and selected file from URL parameters
+  const currentDirectory = router.params.directory || ''
+  const selectedFilePath = router.params.file_path || ''
 
+  const {
+    data: filestoreConfig,
+  } = useFilestoreConfig()
+  
   const {
     data: filesData,
     isLoading: isLoadingFiles,
     error
   } = useListFilestore(
-    currentPath, // List current directory
+    currentDirectory, // List current directory
     !!account.user?.id // Only load if logged in
   )
-  
-  const {
-    params,
-  } = useRouter()
 
-  // Navigation functions
+  // Navigation functions using URL parameters
   const navigateToDirectory = useCallback((path: string) => {
-    setPathHistory(prev => [...prev, currentPath])
-    setCurrentPath(path)
-  }, [currentPath])
+    router.setParams({ directory: path, file_path: '' })
+  }, [router])
 
   const navigateBack = useCallback(() => {
-    if (pathHistory.length > 0) {
-      const previousPath = pathHistory[pathHistory.length - 1]
-      setPathHistory(prev => prev.slice(0, -1))
-      setCurrentPath(previousPath)
-    }
-  }, [pathHistory])
+    // Use browser's back button functionality
+    window.history.back()
+  }, [])
 
   const navigateToRoot = useCallback(() => {
-    setPathHistory([])
-    setCurrentPath('')
-  }, [])
+    router.setParams({ directory: '', file_path: '' })
+  }, [router])
 
   const navigateToPath = useCallback((path: string) => {
-    setPathHistory([])
-    setCurrentPath(path)
-  }, [])
+    router.setParams({ directory: path, file_path: '' })
+  }, [router])
 
-  // Get breadcrumb segments
+  // Get breadcrumb segments - only show directory path, not selected file
   const getBreadcrumbSegments = useCallback(() => {
-    if (!currentPath) return [{ name: 'home', path: '' }]
+    if (!currentDirectory) return [{ name: 'home', path: '' }]
     
-    const segments = currentPath.split('/').filter(Boolean)
+    // Remove user prefix from the path for display purposes
+    let displayPath = currentDirectory
+    if (filestoreConfig?.user_prefix && currentDirectory.startsWith(filestoreConfig.user_prefix)) {
+      displayPath = currentDirectory.substring(filestoreConfig.user_prefix.length)
+      // Remove leading slash if present
+      if (displayPath.startsWith('/')) {
+        displayPath = displayPath.substring(1)
+      }
+    }
+    
+    const segments = displayPath.split('/').filter(Boolean)
     const breadcrumbs = [{ name: 'home', path: '' }]
     
+    // For directories, show the full path in breadcrumbs
     let currentBreadcrumbPath = ''
     segments.forEach(segment => {
       currentBreadcrumbPath = currentBreadcrumbPath ? `${currentBreadcrumbPath}/${segment}` : segment
+      // Reconstruct the full path including user prefix for navigation
+      const fullPath = filestoreConfig?.user_prefix 
+        ? `${filestoreConfig.user_prefix}/${currentBreadcrumbPath}`.replace(/\/+/g, '/')
+        : currentBreadcrumbPath
+      
       breadcrumbs.push({
         name: segment,
-        path: currentBreadcrumbPath
+        path: fullPath
       })
     })
     
     return breadcrumbs
-  }, [currentPath])
+  }, [currentDirectory, filestoreConfig?.user_prefix])
 
   const getFileIcon = (file: FilestoreItem) => {
     if (file.directory) {
@@ -151,7 +161,7 @@ export const FilesSidebar: FC<{
 
   const renderFile = (file: FilestoreItem) => {
     const filePath = file.path || file.name || ''
-    const isActive = filePath === params["file_path"]
+    const isActive = filePath === selectedFilePath
     return (
       <ListItem
         sx={{
@@ -165,11 +175,11 @@ export const FilesSidebar: FC<{
           if (file.directory) {
             // Navigate into directory
             const fileName = file.name || ''
-            const newPath = currentPath ? `${currentPath}/${fileName}` : fileName
+            const newPath = currentDirectory ? `${currentDirectory}/${fileName}` : fileName
             navigateToDirectory(newPath)
           } else {
-            // Open file - set file_path in URL query
-            account.orgNavigate('files', {file_path: filePath})
+            // Open file - set file_path in URL query but keep current directory
+            router.setParams({ file_path: filePath })
             onOpenFile()
           }
         }}
@@ -265,30 +275,28 @@ export const FilesSidebar: FC<{
     <SlideMenuContainer menuType={MENU_TYPE}>
       {/* Navigation Header */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        {(currentPath || pathHistory.length > 0) && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, ml: 1 }}>
-            {pathHistory.length > 0 && (
-              <IconButton 
-                size="small" 
-                onClick={navigateBack}
-                sx={{ color: lightTheme.textColorFaded }}
-              >
-                <ArrowLeft size={16} />
-              </IconButton>
-            )}
-            {currentPath && (
-              <IconButton 
-                size="small" 
-                onClick={navigateToRoot}
-                sx={{ color: lightTheme.textColorFaded }}
-              >
-                <Home size={16} />
-              </IconButton>
-            )}
-          </Box>
-        )}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, ml: 1 }}>
+          <IconButton 
+            size="small" 
+            onClick={navigateBack}
+            sx={{ color: lightTheme.textColorFaded }}
+            title="Go back"
+          >
+            <ArrowLeft size={16} />
+          </IconButton>
+          {currentDirectory && (
+            <IconButton 
+              size="small" 
+              onClick={navigateToRoot}
+              sx={{ color: lightTheme.textColorFaded }}
+              title="Go to root"
+            >
+              <Home size={16} />
+            </IconButton>
+          )}
+        </Box>
         
-        {currentPath && (
+        {currentDirectory && getBreadcrumbSegments().length > 1 && (
           <Breadcrumbs 
             separator="/" 
             sx={{
