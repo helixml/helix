@@ -296,7 +296,7 @@ export const FilesSidebar: FC<{
           )}
         </Box>
         
-        {currentDirectory && getBreadcrumbSegments().length > 1 && (
+        {currentDirectory && (
           <Breadcrumbs 
             separator="/" 
             sx={{
