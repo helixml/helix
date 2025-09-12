@@ -5,25 +5,26 @@ import Link from '@mui/material/Link'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
-import FolderOpenIcon from '@mui/icons-material/Folder'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
-import InfoIcon from '@mui/icons-material/Info'
-import DeleteIcon from '@mui/icons-material/Delete'
-import EditIcon from '@mui/icons-material/Edit'
-import MenuIcon from '@mui/icons-material/Menu'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import ShareIcon from '@mui/icons-material/Share'
 import TextField from '@mui/material/TextField'
-import SaveIcon from '@mui/icons-material/Save'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 
 // Lucide
-import { Info, Trash, Pencil } from 'lucide-react'
+import { 
+  Info, 
+  Trash2, 
+  Edit, 
+  Menu as MenuIcon, 
+  Share, 
+  Save, 
+  MoreVertical, 
+  Folder 
+} from 'lucide-react'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -44,6 +45,7 @@ import {
   TOOLBAR_HEIGHT,
 } from '../../config'
 import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
+import { FolderOpen } from '@mui/icons-material'
 
 export const SessionToolbar: FC<{
   session: TypesSession,
@@ -139,7 +141,7 @@ export const SessionToolbar: FC<{
         aria-label="menu"
         sx={{ mr: 2, display: { sm: 'block', lg: 'none' } }}
       >
-        <MenuIcon />
+        <MenuIcon size={18} />
       </IconButton>
       <Cell flexGrow={ 1 }>
         <Box
@@ -180,7 +182,7 @@ export const SessionToolbar: FC<{
                   size="small"
                   sx={{ ml: 1 }}
                 >
-                  <SaveIcon />
+                  <Save size={18} />
                 </IconButton>
               </Box>
             ) : (
@@ -206,7 +208,7 @@ export const SessionToolbar: FC<{
                   size="small"
                   sx={{ ml: 1 }}
                 >
-                  <Pencil size={18} />
+                  <Edit size={18} />
                 </IconButton>
               </>
             )}
@@ -276,7 +278,7 @@ export const SessionToolbar: FC<{
                       },
                     }}
                   >
-                    <Trash size={18} />
+                    <Trash2 size={18} />
                   </IconButton>
                 </Tooltip>
               </Cell>
@@ -305,7 +307,7 @@ export const SessionToolbar: FC<{
               aria-haspopup="true"
               onClick={(e) => setAnchorEl(e.currentTarget)}
             >
-              <MoreVertIcon />
+              <MoreVertical size={18} />
             </IconButton>
             <Menu
               id="session-menu"
@@ -322,7 +324,7 @@ export const SessionToolbar: FC<{
                 setAnchorEl(null)
               }}>
                 <ListItemIcon>
-                  <FolderOpenIcon fontSize="small" />
+                  <Folder size={18} />
                 </ListItemIcon>
                 <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
@@ -340,7 +342,7 @@ export const SessionToolbar: FC<{
                 setAnchorEl(null)
               }}>
                 <ListItemIcon>
-                  <DeleteIcon fontSize="small" />
+                  <Trash2 size={18} />
                 </ListItemIcon>
                 <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
@@ -351,7 +353,7 @@ export const SessionToolbar: FC<{
                   setAnchorEl(null)
                 }}>
                   <ListItemIcon>
-                    <ShareIcon fontSize="small" />
+                    <Share size={18} />
                   </ListItemIcon>
                   <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
                 </MenuItem>

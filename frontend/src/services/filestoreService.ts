@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 import { FilestoreItem, FilestoreConfig } from '../api/api';
+import { getRelativePath } from '../utils/filestore';
 
 // Types for upload functionality
 export interface UploadProgress {
@@ -46,6 +47,11 @@ export const createFilestoreFolderMutationKey = (path: string) => [
 
 export const uploadFilestoreFilesMutationKey = (path: string) => [
   "upload-filestore-files",
+  path
+];
+
+export const saveFilestoreFileMutationKey = (path: string) => [
+  "save-filestore-file",
   path
 ];
 
@@ -215,12 +221,15 @@ export function useUploadFilestoreFiles() {
 
   return useMutation({
     mutationKey: uploadFilestoreFilesMutationKey(""),
-    mutationFn: async ({ path, files }: { path: string; files: File[] }) => {
+    mutationFn: async ({ path, files, config }: { path: string; files: File[]; config?: FilestoreConfig }) => {
+      // Remove user prefix from path if config is provided and has user_prefix
+      const uploadPath = config && config.user_prefix ? getRelativePath(config as any, { path, created: Date.now() } as any) : path
+      
       // Upload files one by one since the generated API client expects a single file
       const results = []
       for (const file of files) {
         const response = await apiClient.v1FilestoreUploadCreate(
-          { path },
+          { path: uploadPath },
           { files: file },
           {
             headers: {
@@ -259,13 +268,15 @@ export function useUploadFilestoreFilesWithProgress() {
     mutationFn: async ({ 
       path, 
       files, 
+      config,
       onProgress 
     }: { 
       path: string; 
       files: File[]; 
+      config?: FilestoreConfig;
       onProgress?: (progress: UploadProgress) => void 
     }) => {
-      return await uploadFilesWithProgress(path, files, onProgress)
+      return await uploadFilesWithProgress(path, files, config, onProgress)
     },
     onSuccess: (_, { path }) => {
       // Invalidate and refetch filestore list queries
@@ -275,6 +286,56 @@ export function useUploadFilestoreFilesWithProgress() {
       queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(path) })
       
       // Invalidate parent directory queries if we're uploading to a subdirectory
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (parentPath !== path) {
+        queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(parentPath) })
+      }
+    },
+  })
+}
+
+/**
+ * Hook to save file content by overwriting the existing file
+ */
+export function useSaveFilestoreFile() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationKey: saveFilestoreFileMutationKey(""),
+    mutationFn: async ({ path, content, config }: { path: string; content: string; config?: FilestoreConfig }) => {
+      // Create a Blob from the content
+      const blob = new Blob([content], { type: 'text/plain' })
+      const file = new File([blob], path.split('/').pop() || 'file', { type: 'text/plain' })
+      
+      // Get the parent directory path for the upload
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      
+      // Remove user prefix from path if config is provided and has user_prefix
+      const uploadPath = config && config.user_prefix ? getRelativePath(config as any, { path: parentPath, created: Date.now() } as any) : parentPath
+      
+      // Use the API client to upload the file
+      const response = await apiClient.v1FilestoreUploadCreate(
+        { path: uploadPath },
+        { files: file },
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      )
+      
+      return response.data
+    },
+    onSuccess: (_, { path }) => {
+      // Invalidate and refetch filestore list queries
+      queryClient.invalidateQueries({ queryKey: ["filestore-list"] })
+      
+      // Invalidate the specific item query
+      queryClient.invalidateQueries({ queryKey: filestoreItemQueryKey(path) })
+      
+      // Invalidate parent directory queries
       const parentPath = path.split('/').slice(0, -1).join('/')
       if (parentPath !== path) {
         queryClient.invalidateQueries({ queryKey: filestoreListQueryKey(parentPath) })
@@ -309,15 +370,20 @@ export function getFilestoreSignedUrl(path: string, signature: string, baseUrl?:
  * Upload files with progress tracking
  * @param path - The filestore path where files should be uploaded
  * @param files - Array of files to upload
+ * @param config - Optional filestore config to remove user prefix
  * @param onProgress - Optional callback for progress updates
  * @returns Promise that resolves when all files are uploaded
  */
 export async function uploadFilesWithProgress(
   path: string,
   files: File[],
+  config?: FilestoreConfig,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadResult[]> {
   const results: UploadResult[] = []
+  
+  // Remove user prefix from path if config is provided and has user_prefix
+  const uploadPath = config && config.user_prefix ? getRelativePath(config as any, { path, created: Date.now() } as any) : path
   
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
@@ -337,7 +403,7 @@ export async function uploadFilesWithProgress(
       formData.append('files', file)
       
       // Upload the file
-      const response = await fetch(`/api/v1/filestore/upload?path=${encodeURIComponent(path)}`, {
+      const response = await fetch(`/api/v1/filestore/upload?path=${encodeURIComponent(uploadPath)}`, {
         method: 'POST',
         body: formData,
         headers: {

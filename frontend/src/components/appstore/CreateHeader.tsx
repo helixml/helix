@@ -3,7 +3,7 @@ import Box from '@mui/material/Box'
 import Avatar from '@mui/material/Avatar'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
-import EditIcon from '@mui/icons-material/Edit'
+import { Edit } from 'lucide-react'
 
 import {
   IApp,
@@ -92,10 +92,10 @@ const CreateHeader: FC<{
                   justifyContent: 'center',
                 }}
               >
-                <EditIcon
-                  sx={{
-                    fontSize: 22,
-                    color: 'white',
+                <Edit
+                  size={22}
+                  color="white"
+                  style={{
                     opacity: 0,
                     transition: 'opacity 0.2s',
                   }}

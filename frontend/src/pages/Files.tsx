@@ -1,9 +1,9 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import { useTheme } from '@mui/material/styles'
+
 
 import Page from '../components/system/Page'
 import MonacoEditor from '../components/widgets/MonacoEditor'
@@ -14,7 +14,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useLightTheme from '../hooks/useLightTheme'
-import { useListFilestore } from '../services/filestoreService'
+import { useListFilestore, useSaveFilestoreFile, useFilestoreConfig } from '../services/filestoreService'
 import { FilestoreItem } from '../api/api'
 
 const Files: FC = () => {
@@ -22,7 +22,6 @@ const Files: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
-  const theme = useTheme()
   
   const {
     params,
@@ -34,38 +33,47 @@ const Files: FC = () => {
   
   const [ selectedFile, setSelectedFile ] = useState<FilestoreItem | null>(null)
   const [ fileContent, setFileContent ] = useState('')
+  const [ originalContent, setOriginalContent ] = useState('')
   const [ isLoadingContent, setIsLoadingContent ] = useState(false)
+  const [ hasUnsavedChanges, setHasUnsavedChanges ] = useState(false)
   const [ isSearchMode, setIsSearchMode ] = useState(false)
   const [ inputValue, setInputValue ] = useState('')
   const [ searchResults, setSearchResults ] = useState([])
   const [ session, setSession ] = useState(undefined)
+  
+  // Refs for debouncing
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSavedContentRef = useRef<string>('')
 
-  // Load files data
   const {
-    data: filesData,
-    isLoading: isLoadingFiles,
-    error
-  } = useListFilestore(
-    '', // List root directory
-    !!account.user?.id // Only load if logged in
-  )
+    data: configData,
+    isLoading: isLoadingConfig,
+    error: configError
+  } = useFilestoreConfig()  
+
+  // Note: Files listing is now handled by FilesSidebar component
+  // This page only handles file content display and editing
+
+  // Save file mutation
+  const saveFileMutation = useSaveFilestoreFile()
 
   // Monitor URL query parameter for file_path changes
   useEffect(() => {
-    if (file_path && filesData) {
-      const file = filesData.find(f => f.path === file_path || f.name === file_path)
-      if (file && !file.directory) {
-        setSelectedFile(file)
-        loadFileContent(file)
-      } else {
-        setSelectedFile(null)
-        setFileContent('')
+    if (file_path) {
+      // Create a file object from the path for content loading
+      const file: FilestoreItem = {
+        name: file_path.split('/').pop() || file_path,
+        path: file_path,
+        directory: false,
+        url: `/api/v1/filestore/viewer/${file_path}` // Construct the viewer URL
       }
+      setSelectedFile(file)
+      loadFileContent(file)
     } else {
       setSelectedFile(null)
       setFileContent('')
     }
-  }, [file_path, filesData])
+  }, [file_path])
 
   const loadFileContent = useCallback(async (file: FilestoreItem) => {
     if (!file.url || file.directory) return
@@ -76,14 +84,23 @@ const Files: FC = () => {
       if (response.ok) {
         const content = await response.text()
         setFileContent(content)
+        setOriginalContent(content)
+        lastSavedContentRef.current = content
+        setHasUnsavedChanges(false)
       } else {
         snackbar.error('Failed to load file content')
         setFileContent('')
+        setOriginalContent('')
+        lastSavedContentRef.current = ''
+        setHasUnsavedChanges(false)
       }
     } catch (error) {
       console.error('Error loading file content:', error)
       snackbar.error('Failed to load file content')
       setFileContent('')
+      setOriginalContent('')
+      lastSavedContentRef.current = ''
+      setHasUnsavedChanges(false)
     } finally {
       setIsLoadingContent(false)
     }
@@ -145,6 +162,74 @@ const Files: FC = () => {
     return textExtensions.includes(extension || '')
   }, [])
 
+  // File editing functions
+
+  const handleContentChange = useCallback((newContent: string) => {
+    setFileContent(newContent)
+    setHasUnsavedChanges(newContent !== originalContent)
+    
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    
+    // Set new timeout for debounced save
+    saveTimeoutRef.current = setTimeout(() => {
+      if (newContent !== lastSavedContentRef.current && selectedFile) {
+        saveFileMutation.mutate(
+          { path: selectedFile.path || selectedFile.name || '', content: newContent, config: configData },
+          {
+            onSuccess: () => {
+              lastSavedContentRef.current = newContent
+              setHasUnsavedChanges(false)
+              snackbar.success('File saved automatically')
+            },
+            onError: (error) => {
+              console.error('Auto-save failed:', error)
+              snackbar.error('Failed to save file automatically')
+            }
+          }
+        )
+      }
+    }, 2000) // 2 second debounce
+  }, [originalContent, selectedFile, saveFileMutation, snackbar])
+
+
+  const handleEditorBlur = useCallback(() => {
+    // Save immediately on blur if there are unsaved changes
+    if (hasUnsavedChanges && selectedFile) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+      }
+      
+      saveFileMutation.mutate(
+        { path: selectedFile.path || selectedFile.name || '', content: fileContent, config: configData },
+        {
+          onSuccess: () => {
+            setOriginalContent(fileContent)
+            lastSavedContentRef.current = fileContent
+            setHasUnsavedChanges(false)
+            snackbar.success('File saved')
+          },
+          onError: (error) => {
+            console.error('Save failed:', error)
+            snackbar.error('Failed to save file')
+          }
+        }
+      )
+    }
+  }, [hasUnsavedChanges, selectedFile, fileContent, saveFileMutation, snackbar])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
+
 
   // PreviewPanel callbacks
   const handleInference = useCallback(() => {
@@ -177,28 +262,33 @@ const Files: FC = () => {
             {/* Left Panel - File Preview Only */}
             <Grid item xs={12} md={6} sx={{
               backgroundColor: themeConfig.darkPanel,
-              p: 0,
-              mt: 2,
-              mb: 2,
+              p: 0,              
               borderRadius: 2,
               boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
             }}>
               <Box sx={{ width: '100%', p: 0, pl: 4 }}>
                 <Grid container spacing={0}>
                   <Grid item xs={12} sx={{
-                    borderRight: '1px solid #303047',
                     overflow: 'auto',
                     pb: 8,
                     minHeight: 'calc(100vh - 120px)',
                     ...lightTheme.scrollbar
                   }}>
-                    <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                    <Box sx={{ mt: "-1px", p: 0 }}>
                       {/* File Content Display */}
                       {selectedFile ? (
-                        <Box sx={{ p: 2, borderTop: '1px solid #303047' }}>
-                          <Typography variant="h6" sx={{ mb: 2 }}>
-                            {selectedFile.name}
-                          </Typography>
+                        <Box sx={{ p: 2 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                            <Typography variant="h6">
+                              {selectedFile.name}
+                              {hasUnsavedChanges && (
+                                <Typography component="span" variant="body2" color="warning.main" sx={{ ml: 1 }}>
+                                  (unsaved changes)
+                                </Typography>
+                              )}
+                            </Typography>
+                            
+                          </Box>
                           
                           {isLoadingContent ? (
                             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
@@ -219,9 +309,10 @@ const Files: FC = () => {
                           ) : isTextFile(selectedFile.name || '') ? (
                             <MonacoEditor
                               value={fileContent}
-                              onChange={setFileContent}
+                              onChange={handleContentChange}
+                              onBlur={handleEditorBlur}
                               language={getFileLanguage(selectedFile.name || '')}
-                              readOnly={true}
+                              readOnly={false}
                               autoHeight={true}
                               minHeight={200}
                               maxHeight={400}
