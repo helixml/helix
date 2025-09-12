@@ -570,15 +570,18 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
 			return false, fmt.Errorf("invalid app path format: %s", err)
 		}
 
 		// Check app filestore access for app-scoped paths
 		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("error checking app filestore access")
 			return false, err
 		}
 		if !hasAccess {
+			log.Error().Str("path", path).Msg("access denied to app filestore path")
 			return false, fmt.Errorf("access denied to app filestore path: %s", path)
 		}
 
