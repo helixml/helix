@@ -16,7 +16,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/coreos/go-oidc/v3 v3.13.0
 	github.com/davecgh/go-spew v1.1.1
-	github.com/dgraph-io/ristretto/v2 v2.2.0
+	github.com/dgraph-io/ristretto/v2 v2.3.0
 	github.com/dop251/goja v0.0.0-20250531102226-cb187b08699c
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/drone/envsubst v1.0.3
@@ -284,7 +284,7 @@ require (
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.27.0
 	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.34.0 // indirect
