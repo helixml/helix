@@ -265,55 +265,62 @@ export const FilesSidebar: FC<{
     <SlideMenuContainer menuType={MENU_TYPE}>
       {/* Navigation Header */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, ml: 1 }}>
-          <IconButton 
-            size="small" 
-            onClick={navigateBack}
-            disabled={pathHistory.length === 0}
-            sx={{ color: lightTheme.textColorFaded }}
-          >
-            <ArrowLeft size={16} />
-          </IconButton>
-          <IconButton 
-            size="small" 
-            onClick={navigateToRoot}
-            sx={{ color: lightTheme.textColorFaded }}
-          >
-            <Home size={16} />
-          </IconButton>
-        </Box>
+        {(currentPath || pathHistory.length > 0) && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, ml: 1 }}>
+            {pathHistory.length > 0 && (
+              <IconButton 
+                size="small" 
+                onClick={navigateBack}
+                sx={{ color: lightTheme.textColorFaded }}
+              >
+                <ArrowLeft size={16} />
+              </IconButton>
+            )}
+            {currentPath && (
+              <IconButton 
+                size="small" 
+                onClick={navigateToRoot}
+                sx={{ color: lightTheme.textColorFaded }}
+              >
+                <Home size={16} />
+              </IconButton>
+            )}
+          </Box>
+        )}
         
-        <Breadcrumbs 
-          separator="/" 
-          sx={{
-            ml: 2,
-            '& .MuiBreadcrumbs-separator': { 
-              color: lightTheme.textColorFaded 
-            } 
-          }}
-        >
-          {getBreadcrumbSegments().map((segment, index) => (
-            <Link
-              key={segment.path}
-              component="button"
-              variant="body2"
-              onClick={() => navigateToPath(segment.path)}
-              sx={{
-                color: index === getBreadcrumbSegments().length - 1 
-                  ? lightTheme.textColor 
-                  : lightTheme.textColorFaded,
-                textDecoration: 'none',
-                cursor: 'pointer',
-                '&:hover': {
-                  textDecoration: 'underline',
-                },
-                fontSize: '0.875rem',
-              }}
-            >
-              {segment.name}
-            </Link>
-          ))}
-        </Breadcrumbs>
+        {currentPath && (
+          <Breadcrumbs 
+            separator="/" 
+            sx={{
+              ml: 2,
+              '& .MuiBreadcrumbs-separator': { 
+                color: lightTheme.textColorFaded 
+              } 
+            }}
+          >
+            {getBreadcrumbSegments().map((segment, index) => (
+              <Link
+                key={segment.path}
+                component="button"
+                variant="body2"
+                onClick={() => navigateToPath(segment.path)}
+                sx={{
+                  color: index === getBreadcrumbSegments().length - 1 
+                    ? lightTheme.textColor 
+                    : lightTheme.textColorFaded,
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    textDecoration: 'underline',
+                  },
+                  fontSize: '0.875rem',
+                }}
+              >
+                {segment.name}
+              </Link>
+            ))}
+          </Breadcrumbs>
+        )}
       </Box>
 
       <List
