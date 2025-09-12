@@ -15,9 +15,7 @@ import DialogActions from '@mui/material/DialogActions'
 import TextField from '@mui/material/TextField'
 import { styled, keyframes } from '@mui/material/styles'
 
-import AddIcon from '@mui/icons-material/Add'
-import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import { Plus, FolderPlus, Upload, FileText } from 'lucide-react'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -25,7 +23,8 @@ import useAccount from '../../hooks/useAccount'
 import useApp from '../../hooks/useApp'
 import useApi from '../../hooks/useApi'
 
-import { useCreateFilestoreFolder, useUploadFilestoreFiles } from '../../services/filestoreService'
+import { useCreateFilestoreFolder, useUploadFilestoreFiles, useFilestoreConfig } from '../../services/filestoreService'
+import DarkDialog from '../dialog/DarkDialog'
 import useSnackbar from '../../hooks/useSnackbar'
 
 import SlideMenuContainer from './SlideMenuContainer'
@@ -116,10 +115,13 @@ const SidebarContentInner: React.FC<{
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [fileInputRef, setFileInputRef] = useState<HTMLInputElement | null>(null)
+  const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
+  const [fileName, setFileName] = useState('')
 
   // Mutation hooks for file operations
   const createFolderMutation = useCreateFilestoreFolder()
   const uploadFilesMutation = useUploadFilestoreFiles()
+  const { data: filestoreConfig } = useFilestoreConfig()
 
 
 
@@ -166,6 +168,12 @@ const SidebarContentInner: React.FC<{
     handleMenuClose()
   }
 
+  // Handler for creating a new file
+  const handleCreateFile = () => {
+    setCreateFileDialogOpen(true)
+    handleMenuClose()
+  }
+
   // Handler for uploading files
   const handleUploadFiles = () => {
     if (fileInputRef) {
@@ -182,7 +190,8 @@ const SidebarContentInner: React.FC<{
     try {
       await uploadFilesMutation.mutateAsync({
         path: '', // Upload to root directory
-        files: files
+        files: files,
+        config: filestoreConfig
       })
       snackbar.success(`Successfully uploaded ${files.length} file(s)`)
     } catch (error) {
@@ -215,6 +224,33 @@ const SidebarContentInner: React.FC<{
   const handleCreateFolderCancel = () => {
     setCreateFolderDialogOpen(false)
     setFolderName('')
+  }
+
+  // Handler for creating file dialog
+  const handleCreateFileSubmit = async () => {
+    if (!fileName.trim()) return
+
+    try {
+      // Create an empty file by uploading an empty string
+      const emptyFile = new File([''], fileName.trim(), { type: 'text/plain' })
+      await uploadFilesMutation.mutateAsync({
+        path: '', // Upload to root directory
+        files: [emptyFile],
+        config: filestoreConfig
+      })
+      snackbar.success('File created successfully')
+      setCreateFileDialogOpen(false)
+      setFileName('')
+    } catch (error) {
+      console.error('Create file error:', error)
+      snackbar.error('Failed to create file')
+    }
+  }
+
+  // Handler for canceling file creation
+  const handleCreateFileCancel = () => {
+    setCreateFileDialogOpen(false)
+    setFileName('')
   }
 
   return (
@@ -283,7 +319,7 @@ const SidebarContentInner: React.FC<{
                         mr: 2,
                       }}
                     >
-                      <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
+                      <Plus size={20} color="#00E5FF" />
                     </Box>
                   </ListItemButton>
                 </ListItem>
@@ -317,7 +353,7 @@ const SidebarContentInner: React.FC<{
                         ml: 1,
                         pl: 0,
                       }}
-                      primary={`New File`}
+                      primary={`New`}
                       primaryTypographyProps={{
                         fontWeight: 'bold',
                         color: '#FFFFFF',
@@ -337,7 +373,7 @@ const SidebarContentInner: React.FC<{
                         mr: 2,
                       }}
                     >
-                      <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
+                      <Plus size={20} color="#00E5FF" />
                     </Box>
                   </ListItemButton>
                 </ListItem>
@@ -385,12 +421,16 @@ const SidebarContentInner: React.FC<{
           },
         }}
       >
+        <MenuItem onClick={handleCreateFile}>
+          <FileText size={16} style={{ marginRight: 8 }} />
+          New
+        </MenuItem>
         <MenuItem onClick={handleCreateFolder}>
-          <CreateNewFolderIcon sx={{ mr: 1 }} />
+          <FolderPlus size={16} style={{ marginRight: 8 }} />
           Create Directory
         </MenuItem>
         <MenuItem onClick={handleUploadFiles}>
-          <CloudUploadIcon sx={{ mr: 1 }} />
+          <Upload size={16} style={{ marginRight: 8 }} />
           Upload File
         </MenuItem>
       </Menu>
@@ -441,6 +481,45 @@ const SidebarContentInner: React.FC<{
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Create File Dialog */}
+      <DarkDialog
+        open={createFileDialogOpen}
+        onClose={handleCreateFileCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New File</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="File Name"
+            fullWidth
+            variant="outlined"
+            value={fileName}
+            onChange={(e) => setFileName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleCreateFileSubmit()
+              }
+            }}
+            placeholder="Enter filename (e.g., myfile.txt)"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreateFileCancel}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateFileSubmit}
+            variant="contained"
+            disabled={!fileName.trim() || uploadFilesMutation.isPending}
+          >
+            {uploadFilesMutation.isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogActions>
+      </DarkDialog>
     </SlideMenuContainer>
   )
 }

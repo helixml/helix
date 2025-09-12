@@ -4,7 +4,7 @@ import Toolbar from '@mui/material/Toolbar'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 
-import MenuIcon from '@mui/icons-material/Menu'
+import { Menu } from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -71,7 +71,7 @@ const AppBar: React.FC<{
                     mr: 1,
                   }}
                 >
-                  <MenuIcon />
+                  <Menu size={24} />
                 </IconButton>
               </Cell>
             )
