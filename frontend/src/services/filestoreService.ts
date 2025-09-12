@@ -309,11 +309,9 @@ export function useSaveFilestoreFile() {
       const blob = new Blob([content], { type: 'text/plain' })
       const file = new File([blob], path.split('/').pop() || 'file', { type: 'text/plain' })
       
-      // Get the parent directory path for the upload
-      const parentPath = path.split('/').slice(0, -1).join('/')
-      
       // Remove user prefix from path if config is provided and has user_prefix
-      const uploadPath = config && config.user_prefix ? getRelativePath(config as any, { path: parentPath, created: Date.now() } as any) : parentPath
+      // Use the full path for the upload to preserve the complete file path structure
+      const uploadPath = config && config.user_prefix ? getRelativePath(config as any, { path, created: Date.now() } as any) : path
       
       // Use the API client to upload the file
       const response = await apiClient.v1FilestoreUploadCreate(

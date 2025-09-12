@@ -60,15 +60,26 @@ const Files: FC = () => {
   // Monitor URL query parameter for file_path changes
   useEffect(() => {
     if (file_path) {
-      // Create a file object from the path for content loading
-      const file: FilestoreItem = {
-        name: file_path.split('/').pop() || file_path,
-        path: file_path,
-        directory: false,
-        url: `/api/v1/filestore/viewer/${file_path}` // Construct the viewer URL
+      // Only show preview for files (not directories)
+      // Check if the path has a file extension to determine if it's a file
+      const fileName = file_path.split('/').pop() || file_path
+      const hasExtension = fileName.includes('.') && !fileName.endsWith('/')
+      
+      if (hasExtension) {
+        // Create a file object from the path for content loading
+        const file: FilestoreItem = {
+          name: fileName,
+          path: file_path,
+          directory: false,
+          url: `/api/v1/filestore/viewer/${file_path}` // Construct the viewer URL
+        }
+        setSelectedFile(file)
+        loadFileContent(file)
+      } else {
+        // It's a directory, don't show preview
+        setSelectedFile(null)
+        setFileContent('')
       }
-      setSelectedFile(file)
-      loadFileContent(file)
     } else {
       setSelectedFile(null)
       setFileContent('')
