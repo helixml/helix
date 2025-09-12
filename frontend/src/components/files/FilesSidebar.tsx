@@ -265,7 +265,7 @@ export const FilesSidebar: FC<{
     <SlideMenuContainer menuType={MENU_TYPE}>
       {/* Navigation Header */}
       <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, ml: 1 }}>
           <IconButton 
             size="small" 
             onClick={navigateBack}
@@ -285,7 +285,8 @@ export const FilesSidebar: FC<{
         
         <Breadcrumbs 
           separator="/" 
-          sx={{ 
+          sx={{
+            ml: 2,
             '& .MuiBreadcrumbs-separator': { 
               color: lightTheme.textColorFaded 
             } 
