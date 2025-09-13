@@ -70,29 +70,30 @@ type Options struct {
 }
 
 type HelixAPIServer struct {
-	Cfg               *config.ServerConfig
-	Store             store.Store
-	Stripe            *stripe.Stripe
-	Controller        *controller.Controller
-	Janitor           *janitor.Janitor
-	authMiddleware    *authMiddleware
-	pubsub            pubsub.PubSub
-	mcpClientGetter   mcp.ClientGetter
-	providerManager   manager.ProviderManager
-	modelInfoProvider model.ModelInfoProvider
-	gptScriptExecutor gptscript.Executor
-	inferenceServer   *openai.InternalHelixServer
-	knowledgeManager  knowledge.Manager
-	skillManager      *api_skill.Manager
-	router            *mux.Router
-	scheduler         *scheduler.Scheduler
-	pingService       *version.PingService
-	oidcClient        auth.OIDC
-	oauthManager      *oauth.Manager
-	fileServerHandler http.Handler
-	cache             *ristretto.Cache[string, string]
-	avatarsBucket     *blob.Bucket
-	trigger           *trigger.Manager
+	Cfg                   *config.ServerConfig
+	Store                 store.Store
+	Stripe                *stripe.Stripe
+	Controller            *controller.Controller
+	Janitor               *janitor.Janitor
+	authMiddleware        *authMiddleware
+	pubsub                pubsub.PubSub
+	mcpClientGetter       mcp.ClientGetter
+	providerManager       manager.ProviderManager
+	modelInfoProvider     model.ModelInfoProvider
+	gptScriptExecutor     gptscript.Executor
+	inferenceServer       *openai.InternalHelixServer
+	knowledgeManager      knowledge.Manager
+	skillManager          *api_skill.Manager
+	router                *mux.Router
+	scheduler             *scheduler.Scheduler
+	pingService           *version.PingService
+	oidcClient            auth.OIDC
+	oauthManager          *oauth.Manager
+	fileServerHandler     http.Handler
+	cache                 *ristretto.Cache[string, string]
+	avatarsBucket         *blob.Bucket
+	trigger               *trigger.Manager
+	anthropicReverseProxy *httputil.ReverseProxy
 }
 
 func NewServer(
@@ -189,7 +190,9 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	return &HelixAPIServer{
+	anthropicReverseProxy := &httputil.ReverseProxy{}
+
+	server := &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
 		Stripe:            stripe,
@@ -221,9 +224,15 @@ func NewServer(
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
-		avatarsBucket: avatarsBucket,
-		trigger:       trigger,
-	}, nil
+		avatarsBucket:         avatarsBucket,
+		trigger:               trigger,
+		anthropicReverseProxy: anthropicReverseProxy,
+	}
+
+	server.anthropicReverseProxy.ModifyResponse = server.anthropicAPIProxyModifyResponse
+	server.anthropicReverseProxy.Director = server.anthropicAPIProxyDirector
+
+	return server, nil
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
@@ -371,6 +380,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+
+	// Anthropic API compatible routes
+	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 
