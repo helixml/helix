@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsSidebar from '../components/session/SessionsSidebar'
+import FilesSidebar from '../components/files/FilesSidebar'
 import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
 import OrgSidebar from '../components/orgs/OrgSidebar'
 import AppSidebar from '../components/app/AppSidebar'
@@ -214,6 +215,9 @@ const Layout: FC<{
       case 'team_people':
         // Organization management pages use the org context sidebar
         return <OrgSidebar />
+      
+      case 'files':
+        return <FilesSidebar onOpenFile={() => {}} />
       
       default:
         // Default to SessionsMenu for most routes
