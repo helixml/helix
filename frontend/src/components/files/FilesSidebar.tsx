@@ -113,7 +113,6 @@ export const FilesSidebar: FC<{
   }, [handleMenuClose])
 
   const handleDeleteConfirm = useCallback(async () => {
-    console.log('handleDeleteConfirm', selectedFile)
     if (selectedFile) {
       let filePath = selectedFile.path || selectedFile.name || ''
       // Remove the user prefix if it exists
