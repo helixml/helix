@@ -133,6 +133,11 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure we return an empty array instead of null for empty results
+	if tasks == nil {
+		tasks = []*types.SpecTask{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
 }

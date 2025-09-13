@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y \
     glib2.0-bin wl-clipboard translate-shell \
     # Audio tools
     pipewire-audio pulseaudio-utils alsa-utils \
-    # Python for matugen and other tools
+    # Python for matugen, neural TTS, and other tools
     python3 python3-pip python3-venv \
     # Development tools and dependencies for Zed
     && apt-get install -y \
@@ -137,6 +137,8 @@ RUN apt-get update && apt-get install -y \
     && (apt-get install -y hypridle hyprlock hyprpicker 2>/dev/null || echo "Some Hyprland tools not available") \
     # Install matugen alternative
     && python3 -m pip install --break-system-packages material-color-utilities || echo "matugen alternative install failed" \
+    # Install Coqui TTS for high-quality neural robot voice
+    && python3 -m pip install --break-system-packages TTS || echo "Coqui TTS install failed, will use fallback" \
     # Cleanup
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -474,8 +476,8 @@ ENTRYPOINT ["/start-wayland-vnc.sh"]
 RUN export SHELL=/bin/bash && curl -fsSL https://zed.dev/install.sh | sh && \
     # Move entire zed.app to system location for all users
     mv /root/.local/zed.app /usr/local/ && \
-    # Move the actual binary to /usr/local/bin for easy access
-    mv /root/.local/bin/zed /usr/local/bin/zed && \
+    # Create direct symlink to the actual binary (not copying the symlink)
+    ln -sf /usr/local/zed.app/bin/zed /usr/local/bin/zed && \
     # Copy desktop file to system location and fix paths
     cp /root/.local/share/applications/dev.zed.Zed.desktop /usr/share/applications/ && \
     # Update desktop file to use system app path
