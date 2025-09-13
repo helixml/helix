@@ -495,7 +495,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		log.Error().Err(err).Msg("failed to create avatars directory, app avatars will not be saved")
 	}
 
-	// avatarsBucket, err := blob.OpenBucket(ctx, cfg.FileStore.AvatarsPath)
 	avatarsBucket, err := fileblob.OpenBucket(cfg.FileStore.AvatarsPath, &fileblob.Options{
 		NoTempDir: true,
 	})
@@ -503,7 +502,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	anthropicProxy := anthropic.New(postgresStore, logStores...)
+	anthropicProxy := anthropic.New(cfg, postgresStore, dynamicInfoProvider, logStores...)
 
 	server, err := server.NewServer(
 		cfg,
