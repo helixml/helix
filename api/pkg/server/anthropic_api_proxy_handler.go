@@ -21,6 +21,26 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	var orgID string
+	if endpoint.OwnerType == types.OwnerTypeOrg {
+		orgID = endpoint.Owner
+	} else {
+		orgID = ""
+	}
+
+	hasEnoughBalance, err := s.Controller.HasEnoughBalance(r.Context(), getRequestUser(r), orgID, endpoint.BillingEnabled)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to check balance")
+		http.Error(w, "Failed to check balance: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !hasEnoughBalance {
+		http.Error(w, "Insufficient balance", http.StatusPaymentRequired)
+		return
+	}
+
 	r = anthropic.SetRequestProviderEndpoint(r, endpoint)
 
 	s.anthropicProxy.ServeHTTP(w, r)
