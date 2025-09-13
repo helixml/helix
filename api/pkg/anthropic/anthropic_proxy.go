@@ -214,7 +214,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, req []byte,
 	)
 
 	// Get pricing info for the model
-	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, string(provider.Name), string(respMessage.Model))
+	modelInfo, err := s.getModelInfo(ctx, provider.BaseURL, provider.Name, string(respMessage.Model))
 	if err == nil {
 		// Calculate the cost for the call and persist it
 		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, usage.InputTokens, usage.OutputTokens)
@@ -223,7 +223,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, req []byte,
 				Err(err).
 				Str("user_id", vals.OwnerID).
 				Str("model", string(respMessage.Model)).
-				Str("provider", string(provider.Name)).
+				Str("provider", provider.Name).
 				Err(err).Msg("failed to calculate token price")
 		}
 		totalCost = promptCost + completionCost
@@ -233,7 +233,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, req []byte,
 		Str("owner_id", vals.OwnerID).
 		Str("organization_id", orgID).
 		Str("model", string(respMessage.Model)).
-		Str("provider", string(provider.Name)).
+		Str("provider", provider.Name).
 		Int("prompt_tokens", int(usage.InputTokens)).
 		Int("completion_tokens", int(usage.OutputTokens)).
 		Int("total_tokens", int(usage.InputTokens+usage.OutputTokens)).
