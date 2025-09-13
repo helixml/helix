@@ -19,6 +19,18 @@ type providerEndpointContextKeyType string
 
 var providerEndpointContextKey providerEndpointContextKeyType = "provider_endpoint"
 
+func setRequestProviderEndpoint(req *http.Request, endpoint *types.ProviderEndpoint) *http.Request {
+	return req.WithContext(context.WithValue(req.Context(), providerEndpointContextKey, endpoint))
+}
+
+func getRequestProviderEndpoint(req *http.Request) *types.ProviderEndpoint {
+	endpointIntf := req.Context().Value(providerEndpointContextKey)
+	if endpointIntf == nil {
+		return nil
+	}
+	return endpointIntf.(*types.ProviderEndpoint)
+}
+
 func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http.Request) {
 	endpoint, err := s.getProviderEndpoint(r)
 	if err != nil {
@@ -27,22 +39,15 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		http.Error(w, "Failed to get provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	r = r.WithContext(context.WithValue(r.Context(), providerEndpointContextKey, endpoint))
+	r = setRequestProviderEndpoint(r, endpoint)
 
 	s.anthropicReverseProxy.ServeHTTP(w, r)
 }
 
 func (s *HelixAPIServer) anthropicAPIProxyDirector(r *http.Request) {
-	endpointIntf := r.Context().Value(providerEndpointContextKey)
-
-	if endpointIntf == nil {
+	endpoint := getRequestProviderEndpoint(r)
+	if endpoint == nil {
 		log.Error().Msg("provider endpoint not found in context")
-		return
-	}
-
-	endpoint, ok := endpointIntf.(*types.ProviderEndpoint)
-	if !ok {
-		log.Error().Msg("provider endpoint is not a types.ProviderEndpoint")
 		return
 	}
 
@@ -107,30 +112,32 @@ func (s *HelixAPIServer) getProviderEndpoint(r *http.Request) (*types.ProviderEn
 	}
 
 	return s.Store.GetProviderEndpoint(r.Context(), q)
-
-	// TODO: authentication, loading.
-	// TODO: optional specific endpoint ID
-	// TODO: organization billing
 }
 
 // anthropicAPIProxyModifyResponse - parses the response
 func (s *HelixAPIServer) anthropicAPIProxyModifyResponse(response *http.Response) error {
-	pr, pw := io.Pipe()
-	body := response.Body
-	response.Body = pr
-	go func() {
-		defer pw.Close()
-		reader := bufio.NewReader(body)
-		for {
-			line, err := reader.ReadBytes('\n')
-			if err != nil {
-				return
-			}
 
-			// TODO: read chunks and look for the usage
-			fmt.Println(string(line))
-			pw.Write(line)
-		}
-	}()
+	// If content type is "text/event-stream", then process the stream
+	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
+		pr, pw := io.Pipe()
+		body := response.Body
+		response.Body = pr
+		go func() {
+			defer pw.Close()
+			reader := bufio.NewReader(body)
+			for {
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				// TODO: read chunks and look for the usage
+				fmt.Println(string(line))
+				pw.Write(line)
+			}
+		}()
+		return nil
+	}
+
 	return nil
 }
