@@ -8741,6 +8741,13 @@ const docTemplate = `{
                 "error": {
                     "type": "string"
                 },
+                "headers": {
+                    "description": "If for example anthropic expects x-api-key and anthropic-version",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
