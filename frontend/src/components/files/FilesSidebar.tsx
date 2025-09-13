@@ -10,6 +10,8 @@ import Breadcrumbs from '@mui/material/Breadcrumbs'
 import Link from '@mui/material/Link'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 
 import { 
   Folder, 
@@ -21,17 +23,21 @@ import {
   Code, 
   Archive, 
   ArrowLeft, 
-  Home 
+  Home,
+  MoreVertical,
+  Trash2
 } from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import SlideMenuContainer from '../system/SlideMenuContainer'
+import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
-import { useListFilestore, useFilestoreConfig } from '../../services/filestoreService'
+import useSnackbar from '../../hooks/useSnackbar'
+import { useListFilestore, useFilestoreConfig, useDeleteFilestoreItem } from '../../services/filestoreService'
 import { FilestoreItem } from '../../api/api'
 
 // Menu identifier constant
@@ -45,6 +51,7 @@ export const FilesSidebar: FC<{
   const account = useAccount()
   const router = useRouter()
   const lightTheme = useLightTheme()
+  const snackbar = useSnackbar()
   
   // Get current directory and selected file from URL parameters
   const currentDirectory = router.params.directory || ''
@@ -63,6 +70,14 @@ export const FilesSidebar: FC<{
     !!account.user?.id // Only load if logged in
   )
 
+  // Delete functionality
+  const deleteFilestoreItem = useDeleteFilestoreItem()
+
+  // Menu state
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [selectedFile, setSelectedFile] = useState<FilestoreItem | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
   // Navigation functions using URL parameters
   const navigateToDirectory = useCallback((path: string) => {
     router.setParams({ directory: path, file_path: '' })
@@ -80,6 +95,48 @@ export const FilesSidebar: FC<{
   const navigateToPath = useCallback((path: string) => {
     router.setParams({ directory: path, file_path: '' })
   }, [router])
+
+  // Menu handling functions
+  const handleMenuOpen = useCallback((event: React.MouseEvent<HTMLElement>, file: FilestoreItem) => {
+    event.stopPropagation() // Prevent file selection when clicking menu
+    setMenuAnchorEl(event.currentTarget)
+    setSelectedFile(file)
+  }, [])
+
+  const handleMenuClose = useCallback(() => {
+    setMenuAnchorEl(null)
+  }, [])
+
+  const handleDeleteClick = useCallback(() => {
+    setDeleteDialogOpen(true)
+    handleMenuClose()
+  }, [handleMenuClose])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    console.log('handleDeleteConfirm', selectedFile)
+    if (selectedFile) {
+      let filePath = selectedFile.path || selectedFile.name || ''
+      // Remove the user prefix if it exists
+      if (filestoreConfig?.user_prefix && filePath.startsWith(filestoreConfig.user_prefix)) {
+        filePath = filePath.substring(filestoreConfig.user_prefix.length)
+      }
+      try {        
+
+        await deleteFilestoreItem.mutateAsync(filePath)
+        snackbar.success(`${selectedFile.directory ? 'Folder' : 'File'} deleted successfully`)
+        setDeleteDialogOpen(false)
+        setSelectedFile(null)
+      } catch (error) {
+        console.error('Failed to delete file:', error)
+        snackbar.error(`Failed to delete ${selectedFile.directory ? 'folder' : 'file'}`)
+      }
+    }
+  }, [selectedFile, deleteFilestoreItem, snackbar])
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteDialogOpen(false)
+    setSelectedFile(null)
+  }, [])
 
   // Get breadcrumb segments - only show directory path, not selected file
   const getBreadcrumbSegments = useCallback(() => {
@@ -169,6 +226,8 @@ export const FilesSidebar: FC<{
           cursor: 'pointer',
           width: '100%',
           padding: 0,
+          display: 'flex',
+          alignItems: 'center',
         }}
         key={filePath}
         onClick={() => {
@@ -190,8 +249,8 @@ export const FilesSidebar: FC<{
             borderRadius: '4px',
             backgroundColor: isActive ? '#1a1a2f' : 'transparent',
             cursor: 'pointer',
-            width: '100%',
-            mr: -2,
+            flex: 1,
+            mr: 0.5,
             '&:hover': {
               '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
               '.MuiListItemIcon-root': { color: '#fff' },
@@ -216,6 +275,20 @@ export const FilesSidebar: FC<{
             id={filePath}
           />
         </ListItemButton>
+        <IconButton
+          size="small"
+          onClick={(e) => handleMenuOpen(e, file)}
+          sx={{
+            color: lightTheme.textColorFaded,
+            opacity: 0.7,
+            '&:hover': {
+              opacity: 1,
+              color: '#fff',
+            },
+          }}
+        >
+          <MoreVertical size={16} />
+        </IconButton>
       </ListItem>
     )
   }
@@ -342,6 +415,50 @@ export const FilesSidebar: FC<{
       >
         {(filesData || []).map(renderFile)}
       </List>
+
+      {/* Context Menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        sx={{
+          '& .MuiPaper-root': {
+            backgroundColor: '#1a1a2f',
+            border: '1px solid #333',
+            borderRadius: '8px',
+          },
+        }}
+      >
+        <MenuItem
+          onClick={handleDeleteClick}
+          sx={{
+            color: '#ff6b6b',
+            '&:hover': {
+              backgroundColor: '#2a1a1a',
+            },
+          }}
+        >
+          <Trash2 size={16} style={{ marginRight: '8px' }} />
+          Delete
+        </MenuItem>
+      </Menu>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmWindow
+        open={deleteDialogOpen}
+        title={selectedFile?.directory ? `folder "${selectedFile.name}"` : `file "${selectedFile?.name}"`}
+        confirmString="delete"
+        onCancel={handleDeleteCancel}
+        onSubmit={handleDeleteConfirm}
+      />
     </SlideMenuContainer>
   )
 }
