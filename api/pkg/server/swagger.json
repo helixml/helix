@@ -1174,6 +1174,338 @@
                 }
             }
         },
+        "/api/v1/filestore/config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the filestore configuration including user prefix and available folders",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Get filestore configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Config"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/delete": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a file or folder from the filestore",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Delete filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to the file or folder to delete",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Path of the deleted item",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/folder": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new folder in the filestore at the specified path",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Create filestore folder",
+                "parameters": [
+                    {
+                        "description": "Request body with folder path",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/get": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get information about a specific file or folder in the filestore",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Get filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/list": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List files and folders in the specified path. Supports both user and app-scoped paths",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "List filestore items",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to list (e.g., 'documents', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/filestore.Item"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/rename": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Rename filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Current path of the file or folder",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "New path for the file or folder",
+                        "name": "new_path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/upload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Upload files to filestore",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Files to upload (multipart form data)",
+                        "name": "files",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Upload success status",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/viewer/{path}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Serve files from the filestore with access control. Supports both user and app-scoped paths",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "View filestore files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "File path to view (e.g., 'dev/users/user_id/file.pdf', 'dev/apps/app_id/file.pdf')",
+                        "name": "path",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to 'true' to redirect .url files to their target URLs",
+                        "name": "redirect_urls",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "URL signature for public access",
+                        "name": "signature",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "File content",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/helix-models": {
             "get": {
                 "security": [
@@ -4282,6 +4614,61 @@
                     "$ref": "#/definitions/memory.MemoryEstimate"
                 },
                 "model_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "filestore.Config": {
+            "type": "object",
+            "properties": {
+                "folders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/filestore.Folder"
+                    }
+                },
+                "user_prefix": {
+                    "description": "this will be the virtual path from the storage instance\nto the users root directory\nwe use this to strip the full paths in the frontend so we can deal with only relative paths",
+                    "type": "string"
+                }
+            }
+        },
+        "filestore.Folder": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "readonly": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "filestore.Item": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "description": "timestamp",
+                    "type": "integer"
+                },
+                "directory": {
+                    "description": "is this thing a folder or not?",
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "the filename",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "the relative path to the file from the base path of the storage instance",
+                    "type": "string"
+                },
+                "size": {
+                    "description": "bytes",
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "the URL that can be used to load the object directly",
                     "type": "string"
                 }
             }

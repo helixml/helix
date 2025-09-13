@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -174,7 +175,12 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	// otherwise we try to decode the token with keycloak
-	return auth.authenticator.ValidateUserToken(ctx, token)
+	user, err := auth.authenticator.ValidateUserToken(ctx, token)
+	if err != nil {
+		log.Error().Err(err).Str("token", token).Msg("error validating user token")
+		return nil, err
+	}
+	return user, nil
 }
 
 // this will extract the token from the request and then load the correct
