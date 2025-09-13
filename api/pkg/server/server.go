@@ -20,6 +20,7 @@ import (
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -70,30 +71,30 @@ type Options struct {
 }
 
 type HelixAPIServer struct {
-	Cfg                   *config.ServerConfig
-	Store                 store.Store
-	Stripe                *stripe.Stripe
-	Controller            *controller.Controller
-	Janitor               *janitor.Janitor
-	authMiddleware        *authMiddleware
-	pubsub                pubsub.PubSub
-	mcpClientGetter       mcp.ClientGetter
-	providerManager       manager.ProviderManager
-	modelInfoProvider     model.ModelInfoProvider
-	gptScriptExecutor     gptscript.Executor
-	inferenceServer       *openai.InternalHelixServer
-	knowledgeManager      knowledge.Manager
-	skillManager          *api_skill.Manager
-	router                *mux.Router
-	scheduler             *scheduler.Scheduler
-	pingService           *version.PingService
-	oidcClient            auth.OIDC
-	oauthManager          *oauth.Manager
-	fileServerHandler     http.Handler
-	cache                 *ristretto.Cache[string, string]
-	avatarsBucket         *blob.Bucket
-	trigger               *trigger.Manager
-	anthropicReverseProxy *httputil.ReverseProxy
+	Cfg               *config.ServerConfig
+	Store             store.Store
+	Stripe            *stripe.Stripe
+	Controller        *controller.Controller
+	Janitor           *janitor.Janitor
+	authMiddleware    *authMiddleware
+	pubsub            pubsub.PubSub
+	mcpClientGetter   mcp.ClientGetter
+	providerManager   manager.ProviderManager
+	modelInfoProvider model.ModelInfoProvider
+	gptScriptExecutor gptscript.Executor
+	inferenceServer   *openai.InternalHelixServer
+	knowledgeManager  knowledge.Manager
+	skillManager      *api_skill.Manager
+	router            *mux.Router
+	scheduler         *scheduler.Scheduler
+	pingService       *version.PingService
+	oidcClient        auth.OIDC
+	oauthManager      *oauth.Manager
+	fileServerHandler http.Handler
+	cache             *ristretto.Cache[string, string]
+	avatarsBucket     *blob.Bucket
+	trigger           *trigger.Manager
+	anthropicProxy    *anthropic.Proxy
 }
 
 func NewServer(
@@ -114,6 +115,7 @@ func NewServer(
 	oauthManager *oauth.Manager,
 	avatarsBucket *blob.Bucket,
 	trigger *trigger.Manager,
+	anthropicProxy *anthropic.Proxy,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -190,8 +192,6 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	anthropicReverseProxy := &httputil.ReverseProxy{}
-
 	server := &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -224,13 +224,10 @@ func NewServer(
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
-		avatarsBucket:         avatarsBucket,
-		trigger:               trigger,
-		anthropicReverseProxy: anthropicReverseProxy,
+		avatarsBucket:  avatarsBucket,
+		trigger:        trigger,
+		anthropicProxy: anthropicProxy,
 	}
-
-	server.anthropicReverseProxy.ModifyResponse = server.anthropicAPIProxyModifyResponse
-	server.anthropicReverseProxy.Director = server.anthropicAPIProxyDirector
 
 	return server, nil
 }
