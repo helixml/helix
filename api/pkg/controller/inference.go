@@ -67,7 +67,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
@@ -208,7 +208,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	hasEnoughBalance, err := c.HasEnoughBalance(ctx, user, opts.OrganizationID, client.BillingEnabled())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
 	}
