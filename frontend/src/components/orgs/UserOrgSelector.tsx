@@ -373,13 +373,14 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
-      {
-        icon: <FileText size={NAV_BUTTON_SIZE} />,
-        tooltip: "View files",
-        isActive: isActive('files'),
-        onClick: () => orgNavigateTo('files'),
-        label: "Files",
-      },
+      // TODO: re-enable once we have the files editor working
+      // {
+      //   icon: <FileText size={NAV_BUTTON_SIZE} />,
+      //   tooltip: "View files",
+      //   isActive: isActive('files'),
+      //   onClick: () => orgNavigateTo('files'),
+      //   label: "Files",
+      // },
       {
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
