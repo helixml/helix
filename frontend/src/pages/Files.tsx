@@ -7,14 +7,13 @@ import Grid from '@mui/material/Grid'
 
 import Page from '../components/system/Page'
 import MonacoEditor from '../components/widgets/MonacoEditor'
-import PreviewPanel from '../components/app/PreviewPanel'
 
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useLightTheme from '../hooks/useLightTheme'
-import { useListFilestore, useSaveFilestoreFile, useFilestoreConfig } from '../services/filestoreService'
+import { useSaveFilestoreFile, useFilestoreConfig } from '../services/filestoreService'
 import { FilestoreItem } from '../api/api'
 
 const Files: FC = () => {
@@ -36,10 +35,6 @@ const Files: FC = () => {
   const [ originalContent, setOriginalContent ] = useState('')
   const [ isLoadingContent, setIsLoadingContent ] = useState(false)
   const [ hasUnsavedChanges, setHasUnsavedChanges ] = useState(false)
-  const [ isSearchMode, setIsSearchMode ] = useState(false)
-  const [ inputValue, setInputValue ] = useState('')
-  const [ searchResults, setSearchResults ] = useState([])
-  const [ session, setSession ] = useState(undefined)
   
   // Refs for debouncing
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -242,20 +237,6 @@ const Files: FC = () => {
   }, [])
 
 
-  // PreviewPanel callbacks
-  const handleInference = useCallback(() => {
-    // For now, just show a message - this could be enhanced to work with files
-    snackbar.info('File inference not yet implemented')
-  }, [snackbar])
-
-  const handleSearch = useCallback((query: string) => {
-    // For now, just show a message - this could be enhanced to search within files
-    snackbar.info('File search not yet implemented')
-  }, [snackbar])
-
-  const handleSessionUpdate = useCallback((newSession: any) => {
-    setSession(newSession)
-  }, [])
 
   if(!account.user) return null
   return (
@@ -269,119 +250,92 @@ const Files: FC = () => {
         }}
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
-          <Grid container>
-            {/* Left Panel - File Preview Only */}
-            <Grid item xs={12} md={6} sx={{
-              backgroundColor: themeConfig.darkPanel,
-              p: 0,              
-              borderRadius: 2,
-              boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
-            }}>
-              <Box sx={{ width: '100%', p: 0, pl: 4 }}>
-                <Grid container spacing={0}>
-                  <Grid item xs={12} sx={{
-                    overflow: 'auto',
-                    pb: 8,
-                    minHeight: 'calc(100vh - 120px)',
-                    ...lightTheme.scrollbar
-                  }}>
-                    <Box sx={{ mt: "-1px", p: 0 }}>
-                      {/* File Content Display */}
-                      {selectedFile ? (
-                        <Box sx={{ p: 2 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                            <Typography variant="h6">
-                              {selectedFile.name}
-                              {hasUnsavedChanges && (
-                                <Typography component="span" variant="body2" color="warning.main" sx={{ ml: 1 }}>
-                                  (unsaved changes)
-                                </Typography>
-                              )}
-                            </Typography>
-                            
-                          </Box>
-                          
-                          {isLoadingContent ? (
-                            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                              <Typography>Loading content...</Typography>
-                            </Box>
-                          ) : isImageFile(selectedFile.name || '') ? (
-                            <Box sx={{ textAlign: 'center' }}>
-                              <img
-                                src={selectedFile.url}
-                                alt={selectedFile.name || ''}
-                                style={{
-                                  maxWidth: '100%',
-                                  maxHeight: '400px',
-                                  objectFit: 'contain',
-                                }}
-                              />
-                            </Box>
-                          ) : isTextFile(selectedFile.name || '') ? (
-                            <MonacoEditor
-                              value={fileContent}
-                              onChange={handleContentChange}
-                              onBlur={handleEditorBlur}
-                              language={getFileLanguage(selectedFile.name || '')}
-                              readOnly={false}
-                              autoHeight={true}
-                              minHeight={200}
-                              maxHeight={400}
-                              theme="helix-dark"
-                              options={{
-                                fontSize: 14,
-                                lineNumbers: 'on',
-                                folding: true,
-                                lineDecorationsWidth: 0,
-                                lineNumbersMinChars: 3,
-                                scrollBeyondLastLine: false,
-                                minimap: { enabled: false },
-                                wordWrap: 'on',
-                                wrappingIndent: 'indent',
-                              }}
-                            />
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              File type not supported for preview
+          <Box sx={{
+            backgroundColor: themeConfig.darkPanel,
+            p: 0,              
+            borderRadius: 2,
+            boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
+            width: '100%'
+          }}>
+            <Box sx={{ width: '100%', p: 0, pl: 4 }}>
+              <Box sx={{
+                overflow: 'auto',
+                pb: 8,
+                minHeight: 'calc(100vh - 120px)',
+                ...lightTheme.scrollbar
+              }}>
+                <Box sx={{ mt: "-1px", p: 0 }}>
+                  {/* File Content Display */}
+                  {selectedFile ? (
+                    <Box sx={{ p: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                        <Typography variant="h6">
+                          {selectedFile.name}
+                          {hasUnsavedChanges && (
+                            <Typography component="span" variant="body2" color="warning.main" sx={{ ml: 1 }}>
+                              (unsaved changes)
                             </Typography>
                           )}
+                        </Typography>
+                        
+                      </Box>
+                      
+                      {isLoadingContent ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                          <Typography>Loading content...</Typography>
                         </Box>
+                      ) : isImageFile(selectedFile.name || '') ? (
+                        <Box sx={{ textAlign: 'center' }}>
+                          <img
+                            src={selectedFile.url}
+                            alt={selectedFile.name || ''}
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '400px',
+                              objectFit: 'contain',
+                            }}
+                          />
+                        </Box>
+                      ) : isTextFile(selectedFile.name || '') ? (
+                        <MonacoEditor
+                          value={fileContent}
+                          onChange={handleContentChange}
+                          onBlur={handleEditorBlur}
+                          language={getFileLanguage(selectedFile.name || '')}
+                          readOnly={false}
+                          autoHeight={true}
+                          minHeight={200}
+                          maxHeight={400}
+                          theme="helix-dark"
+                          options={{
+                            fontSize: 14,
+                            lineNumbers: 'on',
+                            folding: true,
+                            lineDecorationsWidth: 0,
+                            lineNumbersMinChars: 3,
+                            scrollBeyondLastLine: false,
+                            minimap: { enabled: false },
+                            wordWrap: 'on',
+                            wrappingIndent: 'indent',
+                          }}
+                        />
                       ) : (
-                        <Box sx={{ p: 4, textAlign: 'center' }}>
-                          <Typography variant="body1" color="text.secondary">
-                            Select a file from the sidebar to preview it here
-                          </Typography>
-                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          File type not supported for preview
+                        </Typography>
                       )}
                     </Box>
-                  </Grid>
-                </Grid>
+                  ) : (
+                    <Box sx={{ p: 4, textAlign: 'center' }}>
+                      <Typography variant="body1" color="text.secondary">
+                        Select a file from the sidebar to preview it here
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
               </Box>
-            </Grid>
-
-            {/* Right Panel - PreviewPanel */}
-            <PreviewPanel
-              appId="files"
-              loading={false}
-              name="Files"
-              avatar=""
-              image=""
-              isSearchMode={isSearchMode}
-              setIsSearchMode={setIsSearchMode}
-              inputValue={inputValue}
-              setInputValue={setInputValue}
-              onInference={handleInference}
-              onSearch={handleSearch}
-              hasKnowledgeSources={false}
-              searchResults={searchResults}
-              session={session}
-              serverConfig={account.serverConfig}
-              themeConfig={themeConfig}
-              snackbar={snackbar}
-              conversationStarters={[]}
-              onSessionUpdate={handleSessionUpdate}
-            />
-          </Grid>
+            </Box>
+          </Box>
         </Box>
       </Container>
     </Page>
