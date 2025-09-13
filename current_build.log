@@ -1,0 +1,10 @@
+🔨 Building HyprMoon Debian Package
+📁 Output directory: /home/luke/pm/helix/deb-output
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.deb-builder
+#1 transferring dockerfile:
+#1 transferring dockerfile: 2B done
+#1 DONE 0.3s
+ERROR: failed to build: failed to solve: failed to read dockerfile: open Dockerfile.deb-builder: no such file or directory
+❌ No packages generated
