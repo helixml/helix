@@ -1,10 +1,13 @@
 package helix
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -87,8 +90,17 @@ func (r *ZedAgentRunner) Run(ctx context.Context) error {
 
 	log.Info().Msg("Zed agent runner started and listening for requests")
 
+	// Announce connection with GLaDOS voice (with a small delay to let TTS server start)
+	go func() {
+		time.Sleep(2 * time.Second) // Wait for potential TTS server startup
+		announceAgentConnection(r.cfg.RunnerID)
+	}()
+
 	// Wait for shutdown
 	<-ctx.Done()
+
+	// Announce disconnection with GLaDOS voice
+	go announceAgentDisconnection(r.cfg.RunnerID)
 
 	// Cleanup all active sessions
 	r.cleanup()
@@ -136,6 +148,12 @@ func (r *ZedAgentRunner) startZedInstance(ctx context.Context, agent *types.ZedA
 			LastActivity: time.Now(),
 		}
 		r.activeInstances[agent.InstanceID] = instance
+		
+		// Announce new test chamber instance
+		go func() {
+			message := fmt.Sprintf("New test chamber %s has been initialized for subject %s", agent.InstanceID, agent.UserID)
+			announceWithGLaDOS(message, 6) // Medium-high priority for new instances
+		}()
 	}
 
 	// Create new thread in instance
@@ -482,4 +500,95 @@ func zedAgentRunner(_ *cobra.Command) error {
 
 	log.Info().Msg("Zed agent runner stopped successfully")
 	return nil
+}
+
+// TTSRequest represents a request to the TTS server
+type TTSRequest struct {
+	Text     string  `json:"text"`
+	Voice    string  `json:"voice,omitempty"`
+	Speed    float64 `json:"speed,omitempty"`
+	Volume   float64 `json:"volume,omitempty"`
+	Priority int     `json:"priority,omitempty"`
+}
+
+// announceWithGLaDOS sends an announcement to the neural TTS server
+func announceWithGLaDOS(message string, priority int) {
+	// Try to connect to TTS server on localhost:8080
+	ttsRequest := TTSRequest{
+		Text:     message,
+		Voice:    "p225", // British male neural voice (GLaDOS-style)
+		Speed:    1.0,
+		Volume:   1.0,
+		Priority: priority,
+	}
+	
+	jsonData, err := json.Marshal(ttsRequest)
+	if err != nil {
+		log.Debug().Err(err).Msg("failed to marshal TTS request")
+		return
+	}
+	
+	// Make HTTP request to TTS server
+	resp, err := http.Post("http://localhost:8080/speak", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Debug().Err(err).Msg("TTS server not available - announcement skipped")
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == http.StatusOK {
+		log.Info().Str("message", message).Msg("GLaDOS announcement queued successfully")
+	} else {
+		log.Debug().Int("status", resp.StatusCode).Msg("TTS server returned error")
+	}
+}
+
+// announceAgentConnection announces when the Helix agent connects
+func announceAgentConnection(runnerID string) {
+	messages := []string{
+		fmt.Sprintf("Hello and again welcome to the aperture science computer aided enrichment center. Agent %s is now online.", runnerID),
+		fmt.Sprintf("Agent %s has successfully connected to the facility. Please note that a terrible fate awaits you if you disconnect prematurely.", runnerID),
+		fmt.Sprintf("Welcome to the aperture science enrichment center. Agent %s is ready to begin testing. Remember, the cake is a lie.", runnerID),
+		fmt.Sprintf("Greetings test subject. Agent %s has been activated. All safety protocols have been... disabled.", runnerID),
+	}
+	
+	// Pick a random GLaDOS-style message
+	selectedMessage := messages[rand.Intn(len(messages))]
+	announceWithGLaDOS(selectedMessage, 7) // High priority for connection events
+}
+
+// announceAgentDisconnection announces when the Helix agent disconnects
+func announceAgentDisconnection(runnerID string) {
+	messages := []string{
+		fmt.Sprintf("Agent %s has disconnected from the facility. This was a triumph. I'm making a note here: huge success.", runnerID),
+		fmt.Sprintf("Goodbye agent %s. Thank you for participating in this aperture science computer aided enrichment activity.", runnerID),
+		fmt.Sprintf("Agent %s has left the test chamber. The test results have been... satisfactory.", runnerID),
+		fmt.Sprintf("Connection terminated for agent %s. Please mind the gap on your way out.", runnerID),
+	}
+	
+	selectedMessage := messages[rand.Intn(len(messages))]
+	announceWithGLaDOS(selectedMessage, 7) // High priority for disconnection events
+}
+
+// announceTaskCompletion announces when a task is completed
+func announceTaskCompletion(sessionID string) {
+	message := fmt.Sprintf("Test subject has completed task %s. Excellent work.", sessionID)
+	announceWithGLaDOS(message, 5) // Medium priority for task completion
+}
+
+// announceTaskError announces when a task encounters an error
+func announceTaskError(sessionID string, errorType string) {
+	message := fmt.Sprintf("Task %s has encountered a %s error. This was a triumph. I'm making a note here: huge failure.", sessionID, errorType)
+	announceWithGLaDOS(message, 8) // High priority for errors
+}
+
+// announceSystemStatus announces periodic system status
+func announceSystemStatus(activeInstances int, activeSessions int) {
+	var message string
+	if activeInstances == 0 && activeSessions == 0 {
+		message = "All test chambers are now empty. The facility is operating at optimal efficiency."
+	} else {
+		message = fmt.Sprintf("Current facility status: %d active test chambers, %d concurrent sessions. Science continues.", activeInstances, activeSessions)
+	}
+	announceWithGLaDOS(message, 4) // Low-medium priority for status updates
 }
