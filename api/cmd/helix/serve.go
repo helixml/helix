@@ -12,6 +12,7 @@ import (
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
 
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -502,6 +503,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	anthropicProxy := anthropic.New(postgresStore, logStores...)
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
@@ -520,6 +523,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		oauthManager,
 		avatarsBucket,
 		trigger,
+		anthropicProxy,
 	)
 	if err != nil {
 		return err
