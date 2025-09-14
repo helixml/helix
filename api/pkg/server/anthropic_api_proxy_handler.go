@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -40,11 +42,21 @@ func (s *HelixAPIServer) anthropicAPIProxyHandler(w http.ResponseWriter, r *http
 		orgID = ""
 	}
 
+	bts, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:       user.ID,
-		SessionID:     "n/a",
-		InteractionID: "n/a",
+		OwnerID:         user.ID,
+		SessionID:       "n/a",
+		InteractionID:   "n/a",
+		OriginalRequest: bts,
 	})
+
+	// Restore the buffer
+	r.Body = io.NopCloser(bytes.NewBuffer(bts))
 
 	ctx = oai.SetContextOrganizationID(ctx, orgID)
 
