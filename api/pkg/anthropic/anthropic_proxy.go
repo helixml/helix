@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -129,18 +129,94 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 		body := response.Body
 		response.Body = pr
 
-		// TODO: assemble the response body into a buffer
+		// Process streaming response and assemble the complete message
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Msgf("Recovered from panic: %v", r)
+				}
+			}()
+
+			start, ok := getStartTime(response.Request)
+			if !ok {
+				log.Error().Msg("failed to get start time")
+				return
+			}
+
+			// We will use this to store the response message
+			// that we assemble from the chunks
+			var respMessage anthropic.Message
+
 			defer pw.Close()
 			reader := bufio.NewReader(body)
 			for {
 				line, err := reader.ReadBytes('\n')
 				if err != nil {
+					// Log the final assembled message for billing
+					if len(respMessage.Content) > 0 {
+						bts, err := json.Marshal(respMessage)
+						if err != nil {
+							log.Error().Err(err).Any("resp_message", respMessage).Msg("failed to marshal resp message")
+						}
+						s.logLLMCall(response.Request.Context(), time.Now(), bts, nil, true, time.Since(start).Milliseconds())
+					}
 					return
 				}
 
-				// TODO: read chunks and look for the usage
-				fmt.Println(string(line))
+				// Parse SSE line
+				lineStr := string(line)
+				if strings.HasPrefix(lineStr, "data: ") {
+					data := strings.TrimPrefix(lineStr, "data: ")
+					data = strings.TrimSpace(data)
+
+					// Skip empty data and [DONE] markers
+					if data == "" || data == "[DONE]" {
+						_, _ = pw.Write(line)
+						continue
+					}
+
+					// Parse the JSON data as a streaming event
+					var event anthropic.MessageStreamEventUnion
+					if err := event.UnmarshalJSON([]byte(data)); err != nil {
+						log.Debug().Err(err).Str("data", data).Msg("failed to parse streaming event")
+						_, _ = pw.Write(line)
+						continue
+					}
+
+					// Handle different event types
+					switch event.Type {
+					case "message_start":
+						startEvent := event.AsMessageStart()
+						respMessage = startEvent.Message
+						log.Debug().Str("message_id", respMessage.ID).Msg("message started")
+
+					case "message_delta":
+						deltaEvent := event.AsMessageDelta()
+						// Create a partial message from the delta
+						chunk := &anthropic.Message{
+							ID:           respMessage.ID,
+							Model:        respMessage.Model,
+							Role:         respMessage.Role,
+							StopReason:   deltaEvent.Delta.StopReason,
+							StopSequence: deltaEvent.Delta.StopSequence,
+							Usage: anthropic.Usage{
+								InputTokens:  deltaEvent.Usage.InputTokens,
+								OutputTokens: deltaEvent.Usage.OutputTokens,
+							},
+						}
+						appendChunk(&respMessage, chunk)
+
+					case "message_stop":
+						log.Debug().Str("message_id", respMessage.ID).Msg("message completed")
+
+					case "content_block_start", "content_block_delta", "content_block_stop":
+						// These events contain content blocks that are already handled
+						// by the message_delta events, so we can skip them for now
+						log.Debug().Str("event_type", event.Type).Msg("content block event")
+					}
+				}
+
+				// Forward the line to the client
 				_, _ = pw.Write(line)
 			}
 		}()
@@ -178,13 +254,13 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 		}
 
 		// Log LLM call
-		s.logLLMCall(ctx, time.Now(), buf, buf, nil, false, time.Since(start).Milliseconds())
+		s.logLLMCall(ctx, time.Now(), buf, nil, false, time.Since(start).Milliseconds())
 	}()
 
 	return nil
 }
 
-func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, req []byte, resp []byte, apiError error, stream bool, durationMs int64) {
+func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte, apiError error, stream bool, durationMs int64) {
 
 	provider := GetRequestProviderEndpoint(ctx)
 
@@ -248,12 +324,12 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, req []byte,
 		InteractionID:    vals.InteractionID,
 		OrganizationID:   orgID,
 		Model:            string(respMessage.Model),
-		OriginalRequest:  req,
-		Request:          req,
+		OriginalRequest:  vals.OriginalRequest,
+		Request:          vals.OriginalRequest,
 		Response:         resp,
-		Provider:         string(provider.Name),
+		Provider:         provider.Name,
 		DurationMs:       durationMs,
-		PromptTokens:     int64(usage.InputTokens),
+		PromptTokens:     usage.InputTokens,
 		CompletionTokens: usage.OutputTokens,
 		TotalTokens:      usage.InputTokens + usage.OutputTokens,
 		PromptCost:       promptCost,
@@ -348,4 +424,37 @@ func isNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+// appendChunk appends content from a streaming chunk to the response message
+func appendChunk(resp *anthropic.Message, chunk *anthropic.Message) {
+	if chunk == nil {
+		return
+	}
+
+	// Initialize response message fields from the first chunk if not set
+	if resp.ID == "" {
+		resp.ID = chunk.ID
+	}
+	if resp.Model == "" {
+		resp.Model = chunk.Model
+	}
+	if resp.Role == "" {
+		resp.Role = chunk.Role
+	}
+	if resp.StopReason == "" {
+		resp.StopReason = chunk.StopReason
+	}
+	if resp.StopSequence == "" {
+		resp.StopSequence = chunk.StopSequence
+	}
+
+	// Append content blocks
+	resp.Content = append(resp.Content, chunk.Content...)
+
+	// Accumulate usage information
+	if chunk.Usage.InputTokens > 0 || chunk.Usage.OutputTokens > 0 {
+		resp.Usage.InputTokens += chunk.Usage.InputTokens
+		resp.Usage.OutputTokens += chunk.Usage.OutputTokens
+	}
 }
