@@ -33,7 +33,7 @@ type ProxySuite struct {
 	ctx               context.Context
 	cfg               *config.ServerConfig
 	store             *store.MockStore
-	modelInfoProvider *model.MockModelInfoProvider
+	modelInfoProvider model.ModelInfoProvider
 	billing           *logger.BillingLogger
 
 	proxy *Proxy
@@ -47,7 +47,11 @@ func (suite *ProxySuite) SetupSuite() {
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
-	suite.modelInfoProvider = model.NewMockModelInfoProvider(ctrl)
+
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	suite.NoError(err, "failed to init model info provider")
+
+	suite.modelInfoProvider = modelInfoProvider
 
 	billingLogger, err := logger.NewBillingLogger(suite.store, true)
 	suite.NoError(err)
@@ -60,6 +64,7 @@ func (suite *ProxySuite) SetupSuite() {
 func (suite *ProxySuite) TestProxyBilling_OK() {
 	userID := "user-123"
 	llmResponse := anthropic.Message{
+		Model: anthropic.Model("claude-sonnet-4-20250514"),
 		Content: []anthropic.ContentBlockUnion{
 			{
 				Text: "hello to you too",
@@ -85,15 +90,41 @@ func (suite *ProxySuite) TestProxyBilling_OK() {
 	}`
 
 	ctx := oai.SetContextValues(suite.ctx, &oai.ContextValues{
+		InteractionID:   "interaction_123",
 		OriginalRequest: []byte(llmRequest),
 		OwnerID:         userID,
 	})
+
+	suite.store.EXPECT().GetWalletByUser(gomock.Any(), userID).Return(&types.Wallet{
+		ID:      "wallet_123",
+		Balance: 100,
+	}, nil)
+
+	suite.store.EXPECT().UpdateWalletBalance(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, walletID string, amount float64, metadata types.TransactionMetadata) (*types.Wallet, error) {
+			// Validate amount
+			assert.Equal(suite.T(), -0.030300000000000004, amount)
+
+			// Wallet
+			assert.Equal(suite.T(), "wallet_123", walletID)
+
+			// Validate metadata
+			assert.Equal(suite.T(), "interaction_123", metadata.InteractionID)
+			assert.Equal(suite.T(), types.TransactionTypeUsage, metadata.TransactionType)
+
+			return &types.Wallet{
+				ID:      walletID,
+				Balance: 100 - amount,
+			}, nil
+		},
+	)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://localhost:8080/v1/messages", bytes.NewBufferString(llmRequest))
 	suite.NoError(err)
 
 	// Preparing the context
 	req = SetRequestProviderEndpoint(req, &types.ProviderEndpoint{
+		Name:    "anthropic",
 		BaseURL: ts.URL,
 	})
 

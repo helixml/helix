@@ -239,7 +239,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		log.Error().Err(err).Msg("failed to parse anthropic response for usage")
 		return
 	}
-	// TODO: Extract and log usage information from resp
+
 	log.Debug().Interface("usage", respMessage.Usage).Msg("anthropic usage information")
 
 	usage := respMessage.Usage
