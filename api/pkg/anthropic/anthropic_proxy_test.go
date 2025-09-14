@@ -1,12 +1,49 @@
 package anthropic
 
 import (
+	"context"
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/openai/logger"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 )
+
+func TestProxySuite(t *testing.T) {
+	suite.Run(t, new(ProxySuite))
+}
+
+type ProxySuite struct {
+	suite.Suite
+
+	store             *store.MockStore
+	modelInfoProvider *model.MockModelInfoProvider
+	ctx               context.Context
+
+	billing *logger.BillingLogger
+}
+
+func (suite *ProxySuite) SetupSuite() {
+	ctrl := gomock.NewController(suite.T())
+
+	suite.ctx = context.Background()
+	suite.store = store.NewMockStore(ctrl)
+	suite.modelInfoProvider = model.NewMockModelInfoProvider(ctrl)
+
+	billingLogger, err := logger.NewBillingLogger(suite.store, true)
+	suite.NoError(err)
+
+	suite.billing = billingLogger
+}
+
+func (suite *ProxySuite) TestProxyBilling_OK() {
+
+}
 
 func Test_stripDateFromModelName(t *testing.T) {
 	tests := []struct {
