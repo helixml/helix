@@ -1,13 +1,22 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
+
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -21,15 +30,20 @@ func TestProxySuite(t *testing.T) {
 type ProxySuite struct {
 	suite.Suite
 
+	ctx               context.Context
+	cfg               *config.ServerConfig
 	store             *store.MockStore
 	modelInfoProvider *model.MockModelInfoProvider
-	ctx               context.Context
+	billing           *logger.BillingLogger
 
-	billing *logger.BillingLogger
+	proxy *Proxy
 }
 
 func (suite *ProxySuite) SetupSuite() {
 	ctrl := gomock.NewController(suite.T())
+
+	suite.cfg = &config.ServerConfig{}
+	suite.cfg.Stripe.BillingEnabled = true
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
@@ -39,10 +53,62 @@ func (suite *ProxySuite) SetupSuite() {
 	suite.NoError(err)
 
 	suite.billing = billingLogger
+
+	suite.proxy = New(suite.cfg, suite.store, suite.modelInfoProvider)
 }
 
 func (suite *ProxySuite) TestProxyBilling_OK() {
+	userID := "user-123"
+	llmResponse := anthropic.Message{
+		Content: []anthropic.ContentBlockUnion{
+			{
+				Text: "hello to you too",
+			},
+		},
+		Usage: anthropic.Usage{
+			InputTokens:  100,
+			OutputTokens: 2000,
+		},
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(llmResponse)
+	}))
+	defer ts.Close()
 
+	llmRequest := `{
+    "model": "claude-sonnet-4-20250514",
+    "stream": true, "max_tokens": 1024,
+    "messages": [
+        {"role": "user", "content": "Hello, world"}
+    ]
+	}`
+
+	ctx := oai.SetContextValues(suite.ctx, &oai.ContextValues{
+		OriginalRequest: []byte(llmRequest),
+		OwnerID:         userID,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://localhost:8080/v1/messages", bytes.NewBufferString(llmRequest))
+	suite.NoError(err)
+
+	// Preparing the context
+	req = SetRequestProviderEndpoint(req, &types.ProviderEndpoint{
+		BaseURL: ts.URL,
+	})
+
+	rec := httptest.NewRecorder()
+
+	suite.proxy.ServeHTTP(rec, req)
+
+	suite.Equal(200, rec.Result().StatusCode)
+
+	respBody, err := io.ReadAll(rec.Result().Body)
+	suite.NoError(err, "failed to read response body")
+
+	suite.Contains(string(respBody), "hello to you too")
+
+	suite.proxy.wg.Wait()
 }
 
 func Test_stripDateFromModelName(t *testing.T) {
