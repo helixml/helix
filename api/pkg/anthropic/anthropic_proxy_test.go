@@ -3,7 +3,9 @@ package anthropic
 import (
 	"testing"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_stripDateFromModelName(t *testing.T) {
@@ -152,6 +154,247 @@ func Test_stripDateFromModelName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := stripDateFromModelName(tt.modelName)
 			assert.Equal(t, tt.want, got, "stripDateFromModelName() = %v, want %v", got, tt.want)
+		})
+	}
+}
+
+func Test_appendChunk(t *testing.T) {
+	tests := []struct {
+		name     string
+		resp     *anthropic.Message
+		chunk    *anthropic.Message
+		expected anthropic.Message
+	}{
+		{
+			name: "append chunk to empty response",
+			resp: &anthropic.Message{},
+			chunk: &anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  10,
+					OutputTokens: 5,
+				},
+			},
+			expected: anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  10,
+					OutputTokens: 5,
+				},
+			},
+		},
+		{
+			name: "append chunk to existing response",
+			resp: &anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+				Usage: anthropic.Usage{
+					InputTokens:  10,
+					OutputTokens: 5,
+				},
+			},
+			chunk: &anthropic.Message{
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: " world",
+					},
+				},
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  0,
+					OutputTokens: 2,
+				},
+			},
+			expected: anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+					{
+						Type: "text",
+						Text: " world",
+					},
+				},
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  10,
+					OutputTokens: 7,
+				},
+			},
+		},
+		{
+			name: "append nil chunk",
+			resp: &anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+			},
+			chunk: nil,
+			expected: anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+			},
+		},
+		{
+			name: "append chunk with empty content",
+			resp: &anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+			},
+			chunk: &anthropic.Message{
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  0,
+					OutputTokens: 0,
+				},
+			},
+			expected: anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+				StopReason: "end_turn",
+				Usage: anthropic.Usage{
+					InputTokens:  0,
+					OutputTokens: 0,
+				},
+			},
+		},
+		{
+			name: "append chunk with usage to response without usage",
+			resp: &anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+				},
+			},
+			chunk: &anthropic.Message{
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: " world",
+					},
+				},
+				Usage: anthropic.Usage{
+					InputTokens:  5,
+					OutputTokens: 2,
+				},
+			},
+			expected: anthropic.Message{
+				ID:    "msg_123",
+				Model: "claude-3-5-sonnet-20241022",
+				Role:  "assistant",
+				Content: []anthropic.ContentBlockUnion{
+					{
+						Type: "text",
+						Text: "Hello",
+					},
+					{
+						Type: "text",
+						Text: " world",
+					},
+				},
+				Usage: anthropic.Usage{
+					InputTokens:  5,
+					OutputTokens: 2,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a copy of the response to avoid modifying the original
+			resp := &anthropic.Message{}
+			if tt.resp != nil {
+				*resp = *tt.resp
+			}
+
+			// Call appendChunk
+			appendChunk(resp, tt.chunk)
+
+			// Verify the result
+			assert.Equal(t, tt.expected.ID, resp.ID)
+			assert.Equal(t, tt.expected.Model, resp.Model)
+			assert.Equal(t, tt.expected.Role, resp.Role)
+			assert.Equal(t, tt.expected.StopReason, resp.StopReason)
+			assert.Equal(t, tt.expected.StopSequence, resp.StopSequence)
+			assert.Equal(t, len(tt.expected.Content), len(resp.Content))
+
+			// Verify content blocks
+			for i, expectedBlock := range tt.expected.Content {
+				require.Less(t, i, len(resp.Content), "response content should have at least %d blocks", i+1)
+				assert.Equal(t, expectedBlock.Type, resp.Content[i].Type)
+				if expectedBlock.Text != "" {
+					assert.Equal(t, expectedBlock.Text, resp.Content[i].Text)
+				}
+			}
+
+			// Verify usage
+			if tt.expected.Usage.InputTokens > 0 || tt.expected.Usage.OutputTokens > 0 {
+				assert.Equal(t, tt.expected.Usage.InputTokens, resp.Usage.InputTokens)
+				assert.Equal(t, tt.expected.Usage.OutputTokens, resp.Usage.OutputTokens)
+			}
 		})
 	}
 }
