@@ -19,6 +19,37 @@ echo $$ > "$LOCK_FILE"
 # Cleanup lock file on exit
 trap 'rm -f "$LOCK_FILE"' EXIT
 
+# === HYPRMOON VERSION INFORMATION ===
+echo "================================================================"
+echo "HYPRMOON VERSION CHECK - CRITICAL DEBUGGING INFORMATION"
+echo "================================================================"
+echo "Checking what version of HyprMoon/Hyprland is actually installed..."
+
+# Check if hyprmoon package is installed
+if dpkg -l hyprmoon >/dev/null 2>&1; then
+    echo "✅ HYPRMOON PACKAGE FOUND:"
+    dpkg -l hyprmoon | grep "^ii"
+    echo ""
+    echo "HyprMoon binary location:"
+    which Hyprland || echo "❌ Hyprland binary not found in PATH"
+    ls -la /usr/bin/Hyprland 2>/dev/null || echo "❌ /usr/bin/Hyprland not found"
+else
+    echo "❌ HYPRMOON PACKAGE NOT FOUND!"
+    echo "Checking for Ubuntu hyprland package instead..."
+    if dpkg -l hyprland >/dev/null 2>&1; then
+        echo "⚠️  UBUNTU HYPRLAND PACKAGE FOUND (THIS IS WRONG!):"
+        dpkg -l hyprland | grep "^ii"
+    else
+        echo "❌ NO HYPRLAND PACKAGE FOUND AT ALL!"
+    fi
+fi
+
+echo ""
+echo "All hypr-related packages installed:"
+dpkg -l | grep hypr || echo "❌ No hypr packages found"
+echo "================================================================"
+echo ""
+
 echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
 
 # Set up environment for Wayland GPU acceleration
