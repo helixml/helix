@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y \
     libudev-dev libpci-dev jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install our Step 6 HyprMoon package with streaming infrastructure
-COPY hyprmoon_0.41.2+ds-1.3+step6_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step6_amd64.deb
-COPY hyprland-backgrounds_0.41.2+ds-1.3+step6_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step6_all.deb
+# Copy and install our Step 8 HyprMoon package with Wolf REST API integration
+COPY hyprmoon_0.41.2+ds-1.3+step8_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8_amd64.deb
+COPY hyprland-backgrounds_0.41.2+ds-1.3+step8_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8_all.deb
 
 # Install Wayland compositor and VNC server with GPU support
 RUN apt-get update && apt-get install -y \
@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y \
     libhyprcursor0 libhyprlang2 libhyprutils0 libudis86-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install our Step 6 HyprMoon package with streaming infrastructure
+# Install our Step 8 HyprMoon package with Wolf REST API integration
 RUN dpkg -i /tmp/hyprmoon_*.deb \
     && dpkg -i /tmp/hyprland-backgrounds_*.deb \
     && rm /tmp/hyprmoon_*.deb /tmp/hyprland-backgrounds_*.deb
@@ -116,17 +116,7 @@ RUN <<_ADD_NVRTC
 _ADD_NVRTC
 
 
-# Install Sunshine runtime dependencies
-RUN apt-get update && apt-get install -y \
-    debianutils libcap2 libcurl4 libdrm2 libgbm1 libevdev2 \
-    libnuma1 libopus0 libpulse0 libva2 libva-drm2 \
-    libwayland-client0 libx11-6 miniupnpc openssl \
-    libayatana-appindicator3-1 libnotify4 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Sunshine from ICU 76-compatible .deb package
-COPY sunshine-ubuntu-25.04-icu76-fixed.deb /tmp/sunshine.deb
-RUN dpkg -i /tmp/sunshine.deb && rm /tmp/sunshine.deb
+# Sunshine removed - HyprMoon provides built-in Moonlight streaming
 
 # Install illogical-impulse specific tools (fonts installation simplified for now)
 RUN apt-get update && apt-get install -y \
@@ -278,135 +268,11 @@ EOF
 
 RUN chmod +x /start-helix-agent.sh
 
-# Create Sunshine configuration
-RUN mkdir -p /etc/sunshine
-COPY <<EOF /etc/sunshine/sunshine.conf
-# Sunshine Moonlight Server Configuration for Helix
-
-# Network configuration
-sunshine_name = helix-moonlight
-port = 47989
-
-# Video configuration
-fps = [10, 30, 60, 120]
-resolutions = [
-    352x240,
-    480x360,
-    858x480,
-    1280x720,
-    1920x1080,
-    2560x1440,
-    3840x2160,
-]
-
-# Encoder settings - prefer hardware acceleration
-encoder = nvenc
-adapter_name = 0
-output_name = 0
-
-# Capture method for Wayland - force no permission prompts
-capture = wlr
-wlr_force_headless = true
-
-# Audio configuration
-audio_sink = auto
-virtual_sink = sunshine-audio
-
-# Input configuration
-gamepad = auto
-
-# Security - disable permission prompts in container environment
-pin_timeout = 15
-allow_elevated = true
-
-# File paths
-file_apps = /etc/sunshine/apps.json
-
-# Logging
-min_log_level = info
-log_path = /var/log/sunshine.log
-
-# Container-specific settings to bypass permission systems
-global_prep_cmd = []
-EOF
-
-# Create Sunshine apps configuration
-COPY <<EOF /etc/sunshine/apps.json
-{
-  "apps": [
-    {
-      "name": "Helix Desktop",
-      "cmd": [],
-      "detached": [],
-      "image-path": "",
-      "working-dir": ""
-    }
-  ]
-}
-EOF
-
-# Dynamic Sunshine script creation (inline to avoid missing file issues)
-RUN echo '#!/bin/bash\necho "Sunshine config generation placeholder"' > /usr/local/bin/generate-sunshine-config.sh && \
-    echo '#!/bin/bash\necho "Sunshine config refresher placeholder"' > /usr/local/bin/sunshine-config-refresher.sh && \
-    chmod +x /usr/local/bin/generate-sunshine-config.sh /usr/local/bin/sunshine-config-refresher.sh
-
-# Create Sunshine startup script
-COPY <<EOF /start-moonlight.sh
-#!/bin/bash
-set -e
-
-echo "Starting Sunshine Moonlight server..."
-
-# Runtime directory for sockets
-export XDG_RUNTIME_DIR=/tmp/runtime-ubuntu
-
-# GPU acceleration settings
-export LIBVA_DRIVER_NAME=nvidia
-export NVIDIA_VISIBLE_DEVICES=all
-export NVIDIA_DRIVER_CAPABILITIES=all
-export __GLX_VENDOR_LIBRARY_NAME=nvidia
-
-# Wayland specific settings for capture
-export WAYLAND_DISPLAY=wayland-1
-
-# Wait for Wayland display to be ready
-echo "Waiting for Wayland display..."
-timeout=30
-while [ \$timeout -gt 0 ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-0" ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-1" ]; do
-    sleep 1
-    timeout=\$((timeout - 1))
-done
-
-if [ ! -S "\$XDG_RUNTIME_DIR/wayland-0" ] && [ ! -S "\$XDG_RUNTIME_DIR/wayland-1" ]; then
-    echo "Error: Wayland display not ready after 30 seconds"
-    exit 1
-fi
-
-# Set the Wayland display
-if [ -S "\$XDG_RUNTIME_DIR/wayland-1" ]; then
-    export WAYLAND_DISPLAY=wayland-1
-else
-    export WAYLAND_DISPLAY=wayland-0
-fi
-
-echo "Using Wayland display: \$WAYLAND_DISPLAY"
-
-# Generate dynamic Sunshine config based on active Helix sessions
-echo "Generating Sunshine config for active sessions..."
-/usr/local/bin/generate-sunshine-config.sh
-
-# Start config refresher in background
-echo "Starting Sunshine config refresher..."
-/usr/local/bin/sunshine-config-refresher.sh &
-
-# Start Sunshine Moonlight server
-echo "Starting Sunshine with GPU acceleration and Wayland capture"
-exec sunshine
-EOF
+# HyprMoon provides built-in Moonlight streaming - no external Sunshine needed
 
 # Copy Wayland VNC startup script
 COPY start-wayland-vnc.sh /start-wayland-vnc.sh
-RUN chmod +x /start-wayland-vnc.sh /start-moonlight.sh
+RUN chmod +x /start-wayland-vnc.sh
 
 # Environment variables for Wayland
 ENV WAYLAND_DISPLAY=wayland-0 \
@@ -421,7 +287,7 @@ ENV WAYLAND_DISPLAY=wayland-0 \
 
 # Expose VNC port and Moonlight ports
 EXPOSE 5901 3030
-# Moonlight ports (Sunshine uses standard GameStream ports)
+# Moonlight ports (HyprMoon built-in streaming)
 EXPOSE 47984/tcp 47989/tcp 47999/udp 48010/tcp 48100/udp 48200/udp
 
 # AGS (Aylur's GTK Shell) build stage - cached separately for efficiency
