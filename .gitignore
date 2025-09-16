@@ -32,3 +32,4 @@ zed-config/development_credentials
 *.log
 hyprland-crash-report.txt
 raw-hyprland.deb
+logs/
