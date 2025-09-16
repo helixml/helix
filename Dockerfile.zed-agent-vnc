@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y \
     libudev-dev libpci-dev jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install our Step 8 HyprMoon package with Wolf REST API integration
-COPY hyprmoon_0.41.2+ds-1.3+step8_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8_amd64.deb
-COPY hyprland-backgrounds_0.41.2+ds-1.3+step8_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8_all.deb
+# Copy and install our Step 8.9 HyprMoon package with memory safety fixes
+COPY hyprmoon_0.41.2+ds-1.3+step8.9_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9_amd64.deb
+COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9_all.deb
 
 # Install Wayland compositor and VNC server with GPU support
 RUN apt-get update && apt-get install -y \
@@ -34,13 +34,15 @@ RUN apt-get update && apt-get install -y \
     wayvnc cage sway-backgrounds weston \
     && rm -rf /var/lib/apt/lists/*
 
-# Install GStreamer and Hyprland-specific dependencies required by Step 6 HyprMoon package
+# Install GStreamer and Hyprland-specific dependencies required by Step 8.9 HyprMoon package with memory safety fixes
 RUN apt-get update && apt-get install -y \
-    libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+    libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgstreamer-plugins-bad1.0-0 \
     libhyprcursor0 libhyprlang2 libhyprutils0 libudis86-0 \
+    libboost-locale1.83.0 libboost-log1.83.0 libboost-thread1.83.0 \
+    libenet7 libfmt10 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install our Step 8 HyprMoon package with Wolf REST API integration
+# Install our Step 8.9 HyprMoon package with memory safety fixes
 RUN dpkg -i /tmp/hyprmoon_*.deb \
     && dpkg -i /tmp/hyprland-backgrounds_*.deb \
     && rm /tmp/hyprmoon_*.deb /tmp/hyprland-backgrounds_*.deb
