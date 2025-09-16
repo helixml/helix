@@ -104,12 +104,8 @@ else
     exit 1
 fi
 
-# Start Sunshine Moonlight server
-echo "Starting Sunshine Moonlight server..."
-/start-moonlight.sh &
-MOONLIGHT_PID=$!
-
-echo "Sunshine Moonlight server started on port 47989 (HTTP/HTTPS), will use standard Moonlight protocol ports"
+# HyprMoon provides built-in Moonlight streaming - no external Sunshine needed
+echo "HyprMoon built-in Moonlight manager active"
 
 # Set up environment for AGS
 echo "Setting up AGS environment..."
@@ -160,4 +156,4 @@ echo "AGS starting with environment: WAYLAND_DISPLAY=$WAYLAND_DISPLAY DISPLAY=$D
 AGS_PID=$!
 
 # Wait for all processes
-wait $COMPOSITOR_PID $WAYVNC_PID $MOONLIGHT_PID
+wait $COMPOSITOR_PID $WAYVNC_PID
