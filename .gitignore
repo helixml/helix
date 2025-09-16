@@ -23,3 +23,12 @@ zed-build
 helix
 tmp
 zed-config/development_credentials
+
+# Large binary files
+*.deb
+*.ddeb
+*.buildinfo
+*.changes
+*.log
+hyprland-crash-report.txt
+raw-hyprland.deb
