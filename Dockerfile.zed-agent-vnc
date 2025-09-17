@@ -333,11 +333,11 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 # Start Wayland VNC
 ENTRYPOINT ["/start-wayland-vnc.sh"]
 
-# Copy and install our Step 8.9.7 HyprMoon package with certificate debugging
-COPY hyprmoon_0.41.2+ds-1.3+step8.9.7_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.7_amd64.deb
-COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.7_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.7_all.deb
+# Copy and install our Step 8.9.8 HyprMoon package with PIN promise fix
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.8_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.8_amd64.deb
+COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.8_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.8_all.deb
 
-# Install our Step 8.9.7 HyprMoon package with certificate debugging
+# Install our Step 8.9.8 HyprMoon package with PIN promise fix
 RUN dpkg -i /tmp/hyprmoon_*.deb \
     && dpkg -i /tmp/hyprland-backgrounds_*.deb \
     && rm /tmp/hyprmoon_*.deb /tmp/hyprland-backgrounds_*.deb
