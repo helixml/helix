@@ -4,13 +4,17 @@
 FROM golang:1.24 AS go-build-env
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY api ./api
 COPY .git /.git
 WORKDIR /app/api
 RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
-RUN CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
-RUN go install github.com/air-verse/air@v1.52.3
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/air-verse/air@v1.52.3
 
 # VNC + VirtualGL stage for GPU-accelerated remote desktop
 FROM ubuntu:25.04
@@ -334,7 +338,7 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 ENTRYPOINT ["/start-wayland-vnc.sh"]
 
 # Copy and install our Step 8.9.8 HyprMoon package with PIN promise fix
-COPY hyprmoon_0.41.2+ds-1.3+step8.9.10_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.10_amd64.deb
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.12_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.12_amd64.deb
 COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.10_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.10_all.deb
 
 # Install our Step 8.9.8 HyprMoon package with PIN promise fix
