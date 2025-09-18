@@ -91,6 +91,16 @@ else
     BINARY_NAME="helix-${OS}-${ARCH}"
 fi
 
+
+# Compose command (sudo-aware) + fallback to legacy docker-compose
+COMPOSE_CMD="docker compose"
+if ! $COMPOSE_CMD version >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+  fi
+fi
+
+
 # Set installation directory based on environment
 case $ENVIRONMENT in
     "gitbash")
@@ -106,6 +116,7 @@ case $ENVIRONMENT in
         # CLI_INSTALL_PATH keeps default: /usr/local/bin/helix
         ;;
 esac
+
 
 # Function to check if docker works without sudo
 check_docker_sudo() {
@@ -382,8 +393,9 @@ install_docker() {
         fi
     fi
 
+
     # Skip Docker Compose plugin installation for Git Bash (assume Docker Desktop includes it)
-    if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
+    if [ "$ENVIRONMENT" != "gitbash" ] && ! $COMPOSE_CMD version &> /dev/null; then
         echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
         sudo apt-get update
         sudo apt-get install -y docker-compose-plugin
@@ -993,9 +1005,9 @@ EOF"
     echo "│"
     echo "│ cd $INSTALL_DIR"
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│ sudo docker compose up -d --remove-orphans"
+        echo "│ $COMPOSE_CMD up -d --remove-orphans"
     else
-        echo "│ docker compose up -d --remove-orphans"
+        echo "│ $COMPOSE_CMD up -d --remove-orphans"
     fi
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
