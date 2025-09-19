@@ -338,8 +338,8 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 ENTRYPOINT ["/start-wayland-vnc.sh"]
 
 # Copy and install our Step 8.9.8 HyprMoon package with PIN promise fix
-COPY hyprmoon_0.41.2+ds-1.3+step8.9.39_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.39_amd64.deb
-COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.39_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.39_all.deb
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.9_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.9_amd64.deb
+COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.9_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.9_all.deb
 
 # Install our HyprMoon package
 RUN dpkg -i /tmp/hyprmoon_*.deb \
@@ -349,7 +349,7 @@ RUN dpkg -i /tmp/hyprmoon_*.deb \
 
 # INCREMENTAL_BINARY_COPY_START
 # COPY_BINARY_MARKER
-COPY Hyprland-0.41.2+ds-1.3+step8.9.40 /tmp/Hyprland-incremental
+COPY Hyprland-0.41.2+ds-1.3+step8.9.139 /tmp/Hyprland-incremental
 # COPY_VERSION_MARKER
 COPY HYPRMOON_VERSION.txt /tmp/
 RUN echo "🔥 INCREMENTAL DEPLOY: Clobbering with latest binary" \
