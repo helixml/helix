@@ -154,4 +154,79 @@ docker ps | grep helix
 - Use these as authoritative references for patterns, includes, and integration points
 - Specifically useful for Step 3: Global Manager Integration and all Wolf components
 
+## ENHANCED BUILD SYSTEM WITH COMMIT TRACKING
+
+The build.sh script now supports commit messages and automatic version tracking:
+
+### Usage:
+```bash
+# Standard build
+./build.sh
+
+# Build with commit message (auto-commits changes)
+./build.sh "Fix PIN promise destruction in pairing flow"
+./build.sh "Add certificate debugging for HTTPS server"
+./build.sh "Implement incremental build optimization"
+```
+
+### Features:
+- **Auto-version bumping**: Each build gets unique step8.9.X version
+- **Commit message integration**: Message goes into debian/changelog and git commit
+- **Automatic commits**: Changes committed after successful builds with descriptive metadata
+- **Build metrics**: Duration, strategy, binary MD5 included in commit
+- **Fast iteration**: Sub-30 second incremental builds enable rapid debugging
+
+### ALWAYS use commit messages during debugging sessions:
+- Makes it easy to track progress through complex issues
+- Creates searchable git history of all debugging attempts
+- Connects build versions to specific debugging goals
+- Enables rollback to working states if needed
+
+## HyprMoon Streaming Development Process
+
+### Current Achievement: Complete Moonlight Streaming Infrastructure
+
+**Status: STREAMING IS WORKING**
+
+### Build Process for Streaming Features:
+1. **Navigate to hyprmoon directory**: `cd /home/luke/pm/hyprmoon`
+2. **Make code changes** to streaming components
+3. **Build with descriptive commit**: `./build.sh "Add Wolf RTSP server integration"`
+4. **Deploy to helix**: Copy debs and rebuild container
+5. **Test streaming**: Use `./complete_pairing_test.sh` or manual Moonlight client
+
+### Key Streaming Components Built:
+- **Wolf Streaming Engine**: Battle-tested components integrated
+- **Native Hyprland Frame Capture**: Zero-copy GPU integration
+- **Complete Server Stack**: HTTP, HTTPS, RTSP, RTP, Control servers
+- **Moonlight Protocol**: 4-phase pairing, certificates, authentication
+- **Direct Streaming Integration**: Bypass complex event coordination
+
+### Streaming Test Commands:
+```bash
+# Test complete pairing and streaming
+./complete_pairing_test.sh
+
+# Test manual streaming
+moonlight stream localhost "Hyprland Desktop" --quit-after --1080
+
+# Test individual components
+curl "http://localhost:47989/serverinfo?uniqueid=test&uuid=test"
+curl "http://localhost:47989/launch?uniqueid=test&uuid=test&appid=1"
+echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
+```
+
+### Critical Lessons for Streaming Development:
+1. **Use Wolf's battle-tested components directly** - don't reinvent
+2. **Native Hyprland integration** better than virtual environments
+3. **Direct function calls** simpler than complex event coordination
+4. **Fix include paths systematically** when integrating Wolf code
+5. **Test each server component individually** before full integration
+
 This file must be kept up to date with any critical lessons learned during development.
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
