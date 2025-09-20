@@ -33,3 +33,6 @@ zed-config/development_credentials
 hyprland-crash-report.txt
 raw-hyprland.deb
 logs/
+Hyprland-*
+*.deb
+sunshine-*

@@ -249,10 +249,12 @@ services:
             - "47999:47999/udp"  # Moonlight control port (UDP)  
             - "48010:48010"  # Moonlight RTSP (TCP)
             - "48010:48010/udp"  # Moonlight RTSP (UDP)
-            - "48100:48100"  # Moonlight video stream (TCP)
-            - "48100:48100/udp"  # Moonlight video stream (UDP)
-            - "48200:48200"  # Moonlight audio stream (TCP)
-            - "48200:48200/udp"  # Moonlight audio stream (UDP)
+            - "47998:47998/udp"  # Moonlight video RTP stream (actual streaming port)
+            - "48000:48000/udp"  # Moonlight audio RTP stream (actual streaming port)
+            - "48100:48100"  # Moonlight video ping/discovery (TCP)
+            - "48100:48100/udp"  # Moonlight video ping/discovery (UDP)
+            - "48200:48200"  # Moonlight audio ping/discovery (TCP)
+            - "48200:48200/udp"  # Moonlight audio ping/discovery (UDP)
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
