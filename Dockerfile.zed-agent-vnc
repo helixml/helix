@@ -37,8 +37,10 @@ RUN apt-get update && apt-get install -y \
 # Install GStreamer and Hyprland-specific dependencies required by Step 8.9 HyprMoon package with memory safety fixes
 RUN apt-get update && apt-get install -y \
     libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libgstreamer-plugins-bad1.0-0 \
+    # GStreamer NVIDIA hardware encoding plugins for nvh264enc
+    gstreamer1.0-plugins-bad gstreamer1.0-vaapi gstreamer1.0-tools \
     libhyprcursor0 libhyprlang2 libhyprutils0 libudis86-0 \
-    libboost-locale1.83.0 libboost-log1.83.0 libboost-thread1.83.0 \
+    libboost-locale1.83.0 libboost-log1.83.0 libboost-thread1.83.0 libboost-chrono1.83.0 \
     libenet7 libfmt10 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -337,9 +339,9 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 # Start Wayland VNC
 ENTRYPOINT ["/start-wayland-vnc.sh"]
 
-# Copy and install our Step 8.9.8 HyprMoon package with PIN promise fix
-COPY hyprmoon_0.41.2+ds-1.3+step8.9.9_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.9_amd64.deb
-COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.9_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.9_all.deb
+# Copy and install our Step 8.9.39 HyprMoon package with session-based streaming architecture
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.177_amd64.deb /tmp/hyprmoon_0.41.2+ds-1.3+step8.9.177_amd64.deb
+COPY hyprland-backgrounds_0.41.2+ds-1.3+step8.9.177_all.deb /tmp/hyprland-backgrounds_0.41.2+ds-1.3+step8.9.177_all.deb
 
 # Install our HyprMoon package
 RUN dpkg -i /tmp/hyprmoon_*.deb \
@@ -349,7 +351,7 @@ RUN dpkg -i /tmp/hyprmoon_*.deb \
 
 # INCREMENTAL_BINARY_COPY_START
 # COPY_BINARY_MARKER
-COPY Hyprland-0.41.2+ds-1.3+step8.9.139 /tmp/Hyprland-incremental
+COPY Hyprland-0.41.2+ds-1.3+step8.9.189 /tmp/Hyprland-incremental
 # COPY_VERSION_MARKER
 COPY HYPRMOON_VERSION.txt /tmp/
 RUN echo "🔥 INCREMENTAL DEPLOY: Clobbering with latest binary" \
