@@ -50,3 +50,4 @@ Environment variable configuration makes this perfect for Docker deployments - j
 *Built for seamless AI-assisted coding workflows* ✨
 
 
+
