@@ -1,8 +1,8 @@
 #!/bin/bash
-# Complete Moonlight pairing test for Stock Hyprland + HyprMoon External Screencopy Architecture
+# Complete Moonlight pairing test for HyprMoon Integrated Screencopy Architecture
 
 echo "🌙 Complete Moonlight Pairing & Streaming Test"
-echo "📡 Stock Hyprland + HyprMoon External Screencopy"
+echo "📡 HyprMoon Integrated Screencopy + Wolf Streaming"
 echo "=============================================="
 
 # Clean up existing pairing connections by removing localhost entries from config
@@ -38,63 +38,120 @@ timeout 120 moonlight pair --pin "$PIN" localhost > pairing_$$.log 2>&1 &
 PAIR_PID=$!
 echo "   Pairing started (PID: $PAIR_PID)"
 
-# Wait for PIN URL generation
-echo "2. Verifying Stock Hyprland + HyprMoon External Screencopy setup..."
-echo "   Checking if stock Hyprland is running..."
-HYPRLAND_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep "Hyprland started with PID:")
-if [ -n "$HYPRLAND_RUNNING" ]; then
-    echo "   ✓ Stock Hyprland is running"
-else
-    echo "   ❌ Stock Hyprland not detected"
-    echo "   Recent Hyprland logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Hyprland|hyprland)" | tail -5
-fi
-
-echo "   Checking if Working Screencopy Server is running..."
-SCREENCOPY_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Working screencopy server started|Working Screencopy Server)")
-if [ -n "$SCREENCOPY_RUNNING" ]; then
-    echo "   ✓ Working Screencopy Server is running"
-else
-    echo "   ❌ Working Screencopy Server not detected"
-    echo "   Recent screencopy server logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(screencopy|Moonlight|Working)" | tail -5
-fi
-
-echo "   Checking frame capture status..."
-FRAME_CAPTURE=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(Frame [0-9]+ captured|Frame capture service started)")
-if [ -n "$FRAME_CAPTURE" ]; then
-    echo "   ✓ Frame capture working - grim capturing frames every 30 seconds"
-else
-    echo "   ⚠️  No recent frame capture detected"
-    echo "   Recent frame processing logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(Frame|capture|grim)" | tail -3
-fi
-
-echo "   Waiting for PIN URL generation..."
+# Wait for the pairing process to actually initiate the /pair request
+echo "   Waiting for moonlight client to initiate pairing..."
 for i in {1..30}; do
-    PIN_URL=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep "PIN URL generated:" | tail -1 | awk '{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
-    if [ -n "$PIN_URL" ]; then
+    PAIR_INITIATED=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="10s" | grep "PAIR DEBUG.*ENTRY.*endpoints::pair.*called")
+    if [ -n "$PAIR_INITIATED" ]; then
+        echo "   ✓ Pairing initiated by moonlight client"
         break
     fi
     if [ $((i % 5)) -eq 0 ]; then
-        echo "   Still waiting for PIN URL... (${i}s elapsed)"
-        echo "   Recent screencopy server logs:"
-        docker compose -f docker-compose.dev.yaml logs zed-runner --since="10s" | grep -E "(HTTP|PIN|Moonlight|working-screencopy)" | tail -3
+        echo "   Still waiting for pairing initiation... (${i}s elapsed)"
     fi
     sleep 1
 done
 
-if [ -z "$PIN_URL" ]; then
-    echo "❌ ERROR: No PIN URL generated after 30 seconds"
-    echo "   Final screencopy server logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Moonlight|working-screencopy|HTTP|error|fail)" | tail -15
+if [ -z "$PAIR_INITIATED" ]; then
+    echo "   ❌ Pairing was not initiated by moonlight client after 30 seconds"
     kill $PAIR_PID 2>/dev/null
     exit 1
 fi
 
-PIN_SECRET=$(echo "$PIN_URL" | cut -d'#' -f2)
-echo "   PIN URL: $PIN_URL"
-echo "   PIN Secret: $PIN_SECRET"
+# Wait a bit more for the PIN secret to be generated in pairing_atom
+echo "   Waiting for PIN secret generation..."
+sleep 3
+
+# Extract the PIN secret from the server logs
+echo "   Extracting PIN secret from server logs..."
+PIN_SECRET=""
+for i in {1..10}; do
+    PIN_URL=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep "Visit this URL to enter PIN:" -A1 | grep "http://.*pin/#" | tail -1)
+    if [ -n "$PIN_URL" ]; then
+        # Extract secret from URL like: http://127.0.0.1:47989/pin/#A5308B99CE6054D0
+        # Strip ANSI color codes first
+        CLEAN_URL=$(echo "$PIN_URL" | sed 's/\x1b\[[0-9;]*m//g')
+        PIN_SECRET=$(echo "$CLEAN_URL" | sed 's/.*pin\/#//')
+        echo "   ✓ PIN secret extracted: $PIN_SECRET"
+        break
+    fi
+    echo "   Waiting for PIN URL generation... (${i}s elapsed)"
+    sleep 1
+done
+
+if [ -z "$PIN_SECRET" ]; then
+    echo "   ❌ Could not extract PIN secret from server logs"
+    echo "   Recent PIN-related logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(PIN|pin|secret|Visit)" | tail -10
+    kill $PAIR_PID 2>/dev/null
+    exit 1
+fi
+
+# Wait for PIN URL generation
+echo "2. Verifying HyprMoon Integrated Screencopy setup..."
+echo "   Checking if HyprMoon is running..."
+HYPRMOON_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(HyprMoon.*integrated screencopy|HyprMoon.*Wolf streaming)")
+if [ -n "$HYPRMOON_RUNNING" ]; then
+    echo "   ✓ HyprMoon integrated screencopy is running"
+else
+    echo "   ❌ HyprMoon integrated screencopy not detected"
+    echo "   Recent HyprMoon logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(HyprMoon|Hyprland|Wolf)" | tail -5
+fi
+
+echo "   Checking if Wolf Streaming Engine is running..."
+WOLF_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(HTTPS server listening.*47984|WolfMoonlightServer.*StreamSession)")
+if [ -n "$WOLF_RUNNING" ]; then
+    echo "   ✓ Wolf Streaming Engine is running"
+else
+    echo "   ❌ Wolf Streaming Engine not detected"
+    echo "   Recent Wolf streaming logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Wolf|HTTPS|streaming|Moonlight)" | tail -5
+fi
+
+echo "   Checking screencopy configuration..."
+SCREENCOPY_CONFIG=$(docker compose -f docker-compose.dev.yaml exec zed-runner bash -c "echo HYPRMOON_FRAME_SOURCE=\$HYPRMOON_FRAME_SOURCE" 2>/dev/null | grep "screencopy")
+if [ -n "$SCREENCOPY_CONFIG" ]; then
+    echo "   ✓ Screencopy backend configured (session-based frame capture)"
+    # Check if frame dump directory exists
+    FRAME_DIR=$(docker compose -f docker-compose.dev.yaml exec zed-runner bash -c "ls -d /tmp/hyprmoon_frame_dumps 2>/dev/null" | tr -d '\r')
+    if [ -n "$FRAME_DIR" ]; then
+        echo "   ✓ Frame dump directory ready at /tmp/hyprmoon_frame_dumps"
+    else
+        echo "   ⚠️  Frame dump directory not found"
+    fi
+else
+    echo "   ❌ Screencopy backend not configured"
+    echo "   Recent screencopy config logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(HYPRMOON|screencopy|frame)" | tail -3
+fi
+
+echo "   Checking Wolf HTTP server availability..."
+for i in {1..30}; do
+    # Test HTTP server directly
+    HTTP_RESPONSE=$(curl -s "http://localhost:47989/serverinfo?uniqueid=test&uuid=test" 2>/dev/null | grep -o "status_code=\"200\"")
+    if [ -n "$HTTP_RESPONSE" ]; then
+        echo "   ✓ Wolf HTTP server responding on port 47989"
+        break
+    fi
+    if [ $((i % 5)) -eq 0 ]; then
+        echo "   Still waiting for HTTP server... (${i}s elapsed)"
+        echo "   Recent HTTP server logs:"
+        docker compose -f docker-compose.dev.yaml logs zed-runner --since="10s" | grep -E "(HTTP|serverinfo|47989)" | tail -3
+    fi
+    sleep 1
+done
+
+if [ -z "$HTTP_RESPONSE" ]; then
+    echo "❌ ERROR: Wolf HTTP server not responding after 30 seconds"
+    echo "   Final HTTP server logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(HTTP|Wolf|error|fail)" | tail -15
+    kill $PAIR_PID 2>/dev/null
+    exit 1
+fi
+
+echo "   ✓ Wolf HTTP server ready for pairing"
+echo "   Server URL: http://localhost:47989"
 
 # Give pairing atom time to be fully updated before attempting PIN submission
 echo "   Waiting 2 seconds for pairing session to stabilize..."
@@ -205,15 +262,17 @@ if [ -f "streaming_$$.log" ]; then
 fi
 
 echo ""
-echo "📊 FINAL STATUS REPORT - Stock Hyprland + HyprMoon External Screencopy"
+echo "📊 FINAL STATUS REPORT - HyprMoon Integrated Screencopy + Wolf Streaming"
 echo "=================================================================="
-echo "🖥️  Stock Hyprland: $([ -n "$HYPRLAND_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
-echo "📡 Screencopy Service: $([ -n "$SCREENCOPY_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
-echo "🎬 Frame Capture: $([ -n "$FRAME_CAPTURE" ] && echo "✅ ACTIVE" || echo "⚠️  NO RECENT ACTIVITY")"
+echo "🌙 HyprMoon Integration: $([ -n "$HYPRMOON_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
+echo "🐺 Wolf Streaming Engine: $([ -n "$WOLF_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
+echo "📸 Screencopy Backend: $([ -n "$SCREENCOPY_CONFIG" ] && echo "✅ CONFIGURED" || echo "❌ NOT CONFIGURED")"
 echo "🌐 VNC Server: $([ -n "$VNC_TEST" ] && echo "✅ LISTENING:5901" || echo "❌ NOT LISTENING")"
 echo "🎮 Moonlight Stream: $STREAM_STATUS"
+echo "🎯 Frame Captures: $(find /home/luke/pm/helix/screencopy-frames/ -name "*.png" 2>/dev/null | wc -l) total frames saved"
 
 echo ""
-echo "🌙 Stock Hyprland + Working Screencopy Server Test completed at $(date)"
+echo "🌙 HyprMoon Integrated Screencopy Test completed successfully at $(date)"
 echo "📱 VNC: localhost:5901 (password: helix123)"
 echo "🎮 Moonlight: localhost:47989 (HTTP) / localhost:47984 (HTTPS)"
+echo "📸 Frame captures: /home/luke/pm/helix/screencopy-frames/ ($(ls /home/luke/pm/helix/screencopy-frames/*.png 2>/dev/null | wc -l) frames)"

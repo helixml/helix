@@ -44,12 +44,18 @@ else
     fi
 fi
 
-# Check for external screencopy service
-if [ -f "/usr/local/bin/working-screencopy-server.py" ]; then
-    echo "✅ WORKING SCREENCOPY SERVER FOUND:"
-    ls -la /usr/local/bin/working-screencopy-server.py
+# Check for HyprMoon with integrated screencopy
+if dpkg -l hyprmoon >/dev/null 2>&1; then
+    echo "✅ HYPRMOON WITH INTEGRATED SCREENCOPY FOUND:"
+    dpkg -l hyprmoon | grep "^ii" || echo "Package info not available"
+    echo ""
+    echo "HyprMoon binary location:"
+    which Hyprland || echo "❌ Hyprland binary not found in PATH"
+    ls -la /usr/bin/Hyprland 2>/dev/null || echo "❌ /usr/bin/Hyprland not found"
+    HYPRMOON_MODE=true
 else
-    echo "❌ Working screencopy server not found"
+    echo "❌ HyprMoon not found - falling back to stock Hyprland"
+    HYPRMOON_MODE=false
 fi
 
 echo ""
@@ -58,7 +64,11 @@ dpkg -l | grep hypr || echo "❌ No hypr packages found"
 echo "================================================================"
 echo ""
 
-echo "Starting stock Hyprland compositor + Working Screencopy Server with frame capture and NVIDIA GPU acceleration..."
+if [ "$HYPRMOON_MODE" = "true" ]; then
+    echo "Starting HyprMoon with integrated screencopy backend and NVIDIA GPU acceleration..."
+else
+    echo "Starting stock Hyprland compositor with NVIDIA GPU acceleration..."
+fi
 
 # Set up environment for Wayland GPU acceleration
 # Force OpenGL instead of Vulkan to fix Sunshine wlroots capture (GitHub issue #4050)
@@ -152,6 +162,9 @@ export LIBVA_DRIVERS_PATH=\"\$LIBVA_DRIVERS_PATH\"
 export GPU_RENDER_NODE=\"\$GPU_RENDER_NODE\"
 export GST_GL_DRM_DEVICE=\"\$GST_GL_DRM_DEVICE\"
 
+# Export HyprMoon mode selection
+export HYPRMOON_MODE=\"$HYPRMOON_MODE\"
+
 # Start dbus session
 if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
     eval \$(dbus-launch --sh-syntax)
@@ -161,51 +174,82 @@ fi
 mkdir -p /home/ubuntu/.cache/hyprland
 chown ubuntu:ubuntu /home/ubuntu/.cache/hyprland
 
-# Enhanced Hyprland startup with NVIDIA GPU acceleration
-echo \"Starting Hyprland with NVIDIA GPU acceleration...\"
+if [ \"\$HYPRMOON_MODE\" = \"true\" ]; then
+    # HyprMoon with integrated screencopy
+    echo \"Starting HyprMoon with integrated screencopy backend...\"
 
-# Set up comprehensive environment for Hyprland NVIDIA support
-export HYPRLAND_LOG_WLR=1
-export HYPRLAND_NO_RT=1
-export WLR_RENDERER_ALLOW_SOFTWARE=1
+    # Set up comprehensive environment for HyprMoon NVIDIA support
+    export HYPRLAND_LOG_WLR=1
+    export HYPRLAND_NO_RT=1
+    export WLR_RENDERER_ALLOW_SOFTWARE=1
 
-# Pre-flight GPU check
-echo \"Pre-flight GPU check:\"
-echo \"DRI devices: \$(ls /dev/dri/)\"
-echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
-echo \"GBM_BACKEND: \$GBM_BACKEND\"
+    # HyprMoon screencopy configuration
+    export HYPRMOON_FRAME_SOURCE=screencopy
+    export HYPRMOON_WAYLAND_DISPLAY=wayland-0
+    export HYPRMOON_DEBUG_SAVE_FRAMES=1
 
-# Start Hyprland with comprehensive error capture and debug config
-echo \"Starting Hyprland with debug logging...\"
-export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
+    echo \"HyprMoon screencopy environment:\"
+    echo \"  HYPRMOON_FRAME_SOURCE: \$HYPRMOON_FRAME_SOURCE\"
+    echo \"  HYPRMOON_WAYLAND_DISPLAY: \$HYPRMOON_WAYLAND_DISPLAY\"
+    echo \"  HYPRMOON_DEBUG_SAVE_FRAMES: \$HYPRMOON_DEBUG_SAVE_FRAMES\"
 
-echo \"Hyprland command: /usr/bin/Hyprland\"
-/usr/bin/Hyprland &
-COMPOSITOR_PID=\$!
-echo \"Hyprland started with PID: \$COMPOSITOR_PID\"
+    # Pre-flight GPU check
+    echo \"Pre-flight GPU check:\"
+    echo \"DRI devices: \$(ls /dev/dri/)\"
+    echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
+    echo \"GBM_BACKEND: \$GBM_BACKEND\"
+
+    # Start HyprMoon with comprehensive error capture and debug config
+    echo \"Starting HyprMoon with integrated screencopy...\"
+    export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
+
+    echo \"HyprMoon command: /usr/bin/Hyprland\"
+    /usr/bin/Hyprland &
+    COMPOSITOR_PID=\$!
+    echo \"HyprMoon started with PID: \$COMPOSITOR_PID\"
+else
+    # Enhanced Hyprland startup with NVIDIA GPU acceleration
+    echo \"Starting stock Hyprland with NVIDIA GPU acceleration...\"
+
+    # Set up comprehensive environment for Hyprland NVIDIA support
+    export HYPRLAND_LOG_WLR=1
+    export HYPRLAND_NO_RT=1
+    export WLR_RENDERER_ALLOW_SOFTWARE=1
+
+    # Pre-flight GPU check
+    echo \"Pre-flight GPU check:\"
+    echo \"DRI devices: \$(ls /dev/dri/)\"
+    echo \"NVIDIA_VISIBLE_DEVICES: \$NVIDIA_VISIBLE_DEVICES\"
+    echo \"GBM_BACKEND: \$GBM_BACKEND\"
+
+    # Start Hyprland with comprehensive error capture and debug config
+    echo \"Starting Hyprland with debug logging...\"
+    export PATH=\"/usr/bin:/usr/local/bin:\$PATH\"
+
+    echo \"Hyprland command: /usr/bin/Hyprland\"
+    /usr/bin/Hyprland &
+    COMPOSITOR_PID=\$!
+    echo \"Hyprland started with PID: \$COMPOSITOR_PID\"
+fi
 
 # Give Hyprland time to initialize with GPU
 sleep 5
 
 # Check if Hyprland is running (either our PID or any Hyprland process)
 if pgrep -x \"Hyprland\" >/dev/null 2>&1; then
-    echo \"✅ Hyprland is running successfully with NVIDIA GPU acceleration!\"
-
-    # Start Working Screencopy Server with frame capture
-    echo \"🌙 Starting Working Screencopy Server with frame capture...\"
-    if [ -f \"/usr/local/bin/working-screencopy-server.py\" ]; then
-        /usr/local/bin/working-screencopy-server.py &
-        MOONLIGHT_PID=\$!
-        echo \"📡 Working screencopy server started with PID: \$MOONLIGHT_PID\"
-        echo \"🎯 Moonlight streaming available on port 47989 (HTTP)\"
-        echo \"📸 Frame capture every 30 seconds to /tmp/screencopy_frames\"
+    if [ \"\$HYPRMOON_MODE\" = \"true\" ]; then
+        echo \"✅ HyprMoon is running successfully with integrated screencopy backend!\"
+        echo \"🎯 Moonlight streaming with screencopy available on port 47989 (HTTP)\"
+        echo \"📸 Screencopy frame capture with debug saving to /tmp/hyprmoon_frame_dumps\"
+        echo \"🌙 HyprMoon integrated server active with Wolf streaming engine\"
     else
-        echo \"❌ Working screencopy server binary not found\"
+        echo \"✅ Stock Hyprland is running successfully with NVIDIA GPU acceleration!\"
+        echo \"⚠️ No Moonlight streaming available (HyprMoon not installed)\"
     fi
 else
     echo \"❌ Hyprland failed to start with NVIDIA GPU acceleration\"
-    # DO NOT EXIT - continue for Moonlight testing
-    echo \"⚠️ Continuing anyway to allow Moonlight server initialization\"
+    # DO NOT EXIT - continue for testing
+    echo \"⚠️ Continuing anyway\"
 fi
 
 # Try to start VNC but don't fail if it doesn't work
@@ -213,7 +257,12 @@ echo \"Attempting to start wayvnc VNC server...\"
 sleep 1
 
 # Find the actual Wayland display socket
-if [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
+# Hyprland creates sockets in subdirectories, try to find them
+HYPR_SOCKET_DIR=\$(find \"\$XDG_RUNTIME_DIR/hypr\" -name \"*.sock\" -type s 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+if [ -n \"\$HYPR_SOCKET_DIR\" ] && [ -S \"\$HYPR_SOCKET_DIR/.socket.sock\" ]; then
+    export WAYLAND_DISPLAY=\"\$HYPR_SOCKET_DIR/.socket.sock\"
+    echo \"Found Hyprland socket: \$WAYLAND_DISPLAY\"
+elif [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
     export WAYLAND_DISPLAY=wayland-1
 elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
     export WAYLAND_DISPLAY=wayland-0
@@ -242,8 +291,11 @@ else
     # DO NOT EXIT - allow Moonlight to work without VNC
 fi
 
-# Working Screencopy Server provides streaming + frame capture - no external Sunshine needed
-echo \"Working Screencopy Server active with frame capture\"
+if [ \"\$HYPRMOON_MODE\" = \"true\" ]; then
+    echo \"🚀 HyprMoon integrated server active with screencopy backend\"
+else
+    echo \"Stock Hyprland active (no Moonlight streaming)\"
+fi
 
 # Keep running to allow Moonlight server to complete initialization
 echo \"Keeping session alive for Moonlight server initialization...\"

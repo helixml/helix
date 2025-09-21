@@ -136,6 +136,11 @@ RUN apt-get update && apt-get install -y \
 
 # Add Go to PATH (will be copied later)
 ENV PATH="/usr/local/go/bin:${PATH}"
+
+# HyprMoon screencopy configuration - capture from OURSELVES!
+ENV HYPRMOON_FRAME_SOURCE=screencopy
+ENV HYPRMOON_WAYLAND_DISPLAY=wayland-0
+ENV HYPRMOON_DEBUG_SAVE_FRAMES=1
 ENV GOPATH="/go"
 ENV GOMODCACHE="/go/pkg/mod"
 ENV GOCACHE="/root/.cache/go-build"
@@ -345,10 +350,13 @@ RUN mkdir -p /home/ubuntu/.config/ags && \
 # Start Wayland VNC
 ENTRYPOINT ["/start-wayland-vnc.sh"]
 
-# Copy and install working screencopy server with frame capture
-COPY working-screencopy-server.py /usr/local/bin/working-screencopy-server.py
-RUN chmod +x /usr/local/bin/working-screencopy-server.py \
-    && echo "Working Screencopy Server v1.0.0" > /WORKING_SCREENCOPY_VERSION.txt
+# Removed old Python screencopy server - now using integrated HyprMoon screencopy
+
+# Install HyprMoon integrated with screencopy support
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.192_amd64.deb /tmp/hyprmoon.deb
+RUN dpkg -i /tmp/hyprmoon.deb || apt-get update && apt-get install -f -y && dpkg -i /tmp/hyprmoon.deb \
+    && rm /tmp/hyprmoon.deb \
+    && echo "HyprMoon with integrated screencopy installed" > /HYPRMOON_INSTALLED.txt
 # INCREMENTAL_BINARY_COPY_END
 
 # Copy everything from Go build stage LAST to avoid cache invalidation of expensive compilation steps
