@@ -295,6 +295,16 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// Notify external agents of new interactions if this session uses external agents
+	for _, interaction := range session.Interactions {
+		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
+			log.Warn().Err(err).
+				Str("session_id", session.ID).
+				Str("interaction_id", interaction.ID).
+				Msg("Failed to notify external agent of new interaction")
+		}
+	}
+
 	// Validate external agent configuration if specified
 	if startReq.AgentType == "zed_external" {
 		if startReq.ExternalAgentConfig == nil {

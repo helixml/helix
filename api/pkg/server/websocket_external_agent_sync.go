@@ -212,11 +212,12 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 
 // handleExternalAgentSync handles WebSocket connections from external agents (Zed instances)
 func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter, req *http.Request) {
-	// Extract session ID from query parameters
-	sessionID := req.URL.Query().Get("session_id")
-	if sessionID == "" {
-		http.Error(res, "session_id is required", http.StatusBadRequest)
-		return
+	// Extract agent ID from query parameters (optional - will generate one if not provided)
+	agentID := req.URL.Query().Get("agent_id")
+	if agentID == "" {
+		// Generate a unique agent ID for this connection
+		agentID = fmt.Sprintf("external-agent-%d", time.Now().UnixNano())
+		log.Info().Str("agent_id", agentID).Msg("Generated agent ID for external agent connection")
 	}
 
 	// Validate auth token
@@ -232,7 +233,7 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		token = authHeader[7:]
 	}
 
-	if !apiServer.validateExternalAgentToken(sessionID, token) {
+	if !apiServer.validateExternalAgentToken(agentID, token) {
 		http.Error(res, "Invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -240,15 +241,15 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	// Upgrade to WebSocket
 	conn, err := apiServer.externalAgentWSManager.upgrader.Upgrade(res, req, nil)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to upgrade WebSocket")
+		log.Error().Err(err).Str("agent_id", agentID).Msg("Failed to upgrade WebSocket")
 		return
 	}
 
-	log.Info().Str("session_id", sessionID).Msg("External agent WebSocket connected")
+	log.Info().Str("agent_id", agentID).Msg("External agent WebSocket connected")
 
 	// Create connection wrapper
 	wsConn := &ExternalAgentWSConnection{
-		SessionID:   sessionID,
+		SessionID:   agentID, // Using agent ID as connection identifier
 		Conn:        conn,
 		ConnectedAt: time.Now(),
 		LastPing:    time.Now(),
@@ -256,8 +257,8 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	}
 
 	// Register connection
-	apiServer.externalAgentWSManager.registerConnection(sessionID, wsConn)
-	defer apiServer.externalAgentWSManager.unregisterConnection(sessionID)
+	apiServer.externalAgentWSManager.registerConnection(agentID, wsConn)
+	defer apiServer.externalAgentWSManager.unregisterConnection(agentID)
 
 	// Start goroutines for handling connection
 	ctx, cancel := context.WithCancel(req.Context())
@@ -461,6 +462,77 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 		apiServer.contextMappings = make(map[string]string)
 	}
 	apiServer.contextMappings[contextID] = createdSession.ID
+
+	return nil
+}
+
+// NotifyExternalAgentOfNewInteraction sends a message to external agent when a new interaction is created
+func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID string, interaction *types.Interaction) error {
+	// Get the session to check if it has an external agent
+	session, err := apiServer.Controller.Options.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Check if this session uses an external Zed agent
+	if session.Metadata.AgentType != "zed_external" {
+		// Not an external agent session, nothing to do
+		return nil
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", interaction.ID).
+		Str("agent_type", session.Metadata.AgentType).
+		Msg("Notifying external agent of new interaction")
+
+	// Find the external agent connection for this session type
+	// For now, we'll send to all connected external agents
+	// In a more sophisticated implementation, we'd track which agent is handling which session
+	apiServer.externalAgentWSManager.mu.RLock()
+	defer apiServer.externalAgentWSManager.mu.RUnlock()
+
+	if len(apiServer.externalAgentWSManager.connections) == 0 {
+		log.Warn().Str("session_id", sessionID).Msg("No external agents connected to handle session")
+		return nil
+	}
+
+	// Create the command to send to Zed
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"session_id": sessionID,
+			"message":    interaction.PromptMessage,
+			"role":       "user",
+			"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
+		},
+	}
+
+	// Send to all connected external agents (in future, route to specific agent)
+	var sentCount int
+	for agentSessionID, wsConn := range apiServer.externalAgentWSManager.connections {
+		select {
+		case wsConn.SendChan <- command:
+			log.Info().
+				Str("session_id", sessionID).
+				Str("agent_session_id", agentSessionID).
+				Str("interaction_id", interaction.ID).
+				Msg("Sent interaction to external agent via WebSocket")
+			sentCount++
+		default:
+			log.Warn().
+				Str("session_id", sessionID).
+				Str("agent_session_id", agentSessionID).
+				Msg("Failed to send to external agent: channel full")
+		}
+	}
+
+	if sentCount > 0 {
+		log.Info().
+			Str("session_id", sessionID).
+			Int("sent_count", sentCount).
+			Msg("Successfully notified external agents of new interaction")
+	}
 
 	return nil
 }
