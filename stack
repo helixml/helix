@@ -119,7 +119,7 @@ function build-zed() {
 
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
-  local BUILD_TYPE="${1:-release}"
+  local BUILD_TYPE="${1:-debug}"
 
   # Check if Zed source directory exists
   if [ ! -d "$ZED_SOURCE_DIR" ]; then
@@ -154,9 +154,9 @@ function build-zed() {
   echo "Source directory: $(pwd)"
   echo "Build type: $BUILD_TYPE"
 
-  # Build Zed
+  # Build Zed with external WebSocket sync feature enabled
   if [ "$BUILD_TYPE" = "release" ]; then
-    if RUST_LOG=info cargo build --release; then
+    if RUST_LOG=info cargo build --release --features external_websocket_sync; then
       BINARY_PATH="target/release/zed"
     else
       echo "❌ Zed build failed"
@@ -164,7 +164,7 @@ function build-zed() {
       return 1
     fi
   else
-    if RUST_LOG=info cargo build; then
+    if RUST_LOG=info cargo build --features external_websocket_sync; then
       BINARY_PATH="target/debug/zed"
     else
       echo "❌ Zed build failed"
@@ -465,6 +465,25 @@ function stop() {
 
 function up() {
   docker compose -f docker-compose.dev.yaml up -d $@
+}
+
+function build-zed-agent() {
+  echo "🔨 Building Zed agent Docker image..."
+  
+  # Build the Docker image using the Zed binary we built
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run './stack build-zed' first."
+    return 1
+  fi
+  
+  docker build -t helix/zed-agent:latest -f Dockerfile.zed-agent-vnc .
+  
+  if [ $? -eq 0 ]; then
+    echo "✅ Zed agent Docker image built successfully"
+  else
+    echo "❌ Failed to build Zed agent Docker image"
+    return 1
+  fi
 }
 
 function zed-agent-up() {
@@ -850,7 +869,7 @@ function help() {
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo ""
   echo "Zed Agent commands:"
-  echo "  build-zed [release|debug] - Build Zed with External WebSocket Thread Sync"
+  echo "  build-zed [debug|release] - Build Zed with External WebSocket Thread Sync (default: debug)"
   echo "  build-zed-agent    - Build Zed agent Docker image"
   echo "  zed-agent-up       - Start Zed agent services"
   echo "  zed-agent-down     - Stop Zed agent services"

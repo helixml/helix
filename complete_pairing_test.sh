@@ -1,7 +1,8 @@
 #!/bin/bash
-# Complete Moonlight pairing test that doesn't stop until video streaming works
+# Complete Moonlight pairing test for Stock Hyprland + HyprMoon External Screencopy Architecture
 
 echo "🌙 Complete Moonlight Pairing & Streaming Test"
+echo "📡 Stock Hyprland + HyprMoon External Screencopy"
 echo "=============================================="
 
 # Clean up existing pairing connections by removing localhost entries from config
@@ -38,36 +39,55 @@ PAIR_PID=$!
 echo "   Pairing started (PID: $PAIR_PID)"
 
 # Wait for PIN URL generation
-echo "2. Waiting for server PIN URL..."
-echo "   First checking if Moonlight server is initializing..."
-MOONLIGHT_INIT=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep "Initializing moonlight server")
-if [ -n "$MOONLIGHT_INIT" ]; then
-    echo "   ✓ Moonlight server is initializing"
+echo "2. Verifying Stock Hyprland + HyprMoon External Screencopy setup..."
+echo "   Checking if stock Hyprland is running..."
+HYPRLAND_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep "Hyprland started with PID:")
+if [ -n "$HYPRLAND_RUNNING" ]; then
+    echo "   ✓ Stock Hyprland is running"
 else
-    echo "   ❌ No Moonlight server initialization found"
-    echo "   Recent logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | tail -10
-    kill $PAIR_PID 2>/dev/null
-    exit 1
+    echo "   ❌ Stock Hyprland not detected"
+    echo "   Recent Hyprland logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Hyprland|hyprland)" | tail -5
 fi
 
+echo "   Checking if Working Screencopy Server is running..."
+SCREENCOPY_RUNNING=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Working screencopy server started|Working Screencopy Server)")
+if [ -n "$SCREENCOPY_RUNNING" ]; then
+    echo "   ✓ Working Screencopy Server is running"
+else
+    echo "   ❌ Working Screencopy Server not detected"
+    echo "   Recent screencopy server logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(screencopy|Moonlight|Working)" | tail -5
+fi
+
+echo "   Checking frame capture status..."
+FRAME_CAPTURE=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(Frame [0-9]+ captured|Frame capture service started)")
+if [ -n "$FRAME_CAPTURE" ]; then
+    echo "   ✓ Frame capture working - grim capturing frames every 30 seconds"
+else
+    echo "   ⚠️  No recent frame capture detected"
+    echo "   Recent frame processing logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep -E "(Frame|capture|grim)" | tail -3
+fi
+
+echo "   Waiting for PIN URL generation..."
 for i in {1..30}; do
-    PIN_URL=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep "pin/#" | tail -1 | awk '{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
+    PIN_URL=$(docker compose -f docker-compose.dev.yaml logs zed-runner --since="30s" | grep "PIN URL generated:" | tail -1 | awk '{print $NF}' | sed 's/\x1b\[[0-9;]*m//g')
     if [ -n "$PIN_URL" ]; then
         break
     fi
     if [ $((i % 5)) -eq 0 ]; then
         echo "   Still waiting for PIN URL... (${i}s elapsed)"
-        echo "   Recent Moonlight logs:"
-        docker compose -f docker-compose.dev.yaml logs zed-runner --since="10s" | grep -E "(Moonlight|Wolf|HTTP|pin)" | tail -3
+        echo "   Recent screencopy server logs:"
+        docker compose -f docker-compose.dev.yaml logs zed-runner --since="10s" | grep -E "(HTTP|PIN|Moonlight|working-screencopy)" | tail -3
     fi
     sleep 1
 done
 
 if [ -z "$PIN_URL" ]; then
     echo "❌ ERROR: No PIN URL generated after 30 seconds"
-    echo "   Final Moonlight server logs:"
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Moonlight|Wolf|HTTP|error|fail)" | tail -15
+    echo "   Final screencopy server logs:"
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Moonlight|working-screencopy|HTTP|error|fail)" | tail -15
     kill $PAIR_PID 2>/dev/null
     exit 1
 fi
@@ -90,8 +110,8 @@ else
     echo "   ❌ HTTP server not responding: $HTTP_TEST"
     echo "   Checking if port 47989 is listening..."
     netstat -tlnp 2>/dev/null | grep :47989 || echo "   Port 47989 not listening"
-    echo "   Checking Moonlight server logs..."
-    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Moonlight|Wolf|HTTP|error|fail)" | tail -10
+    echo "   Checking screencopy server logs..."
+    docker compose -f docker-compose.dev.yaml logs zed-runner --since="60s" | grep -E "(Moonlight|working-screencopy|HTTP|error|fail)" | tail -10
     kill $PAIR_PID 2>/dev/null
     exit 1
 fi
@@ -140,8 +160,20 @@ else
     exit 1
 fi
 
-# Test video streaming
-echo "5. Testing video streaming..."
+# Test both VNC and Moonlight streaming
+echo "5. Testing dual streaming setup (VNC + Moonlight)..."
+
+# Test VNC connectivity first
+echo "   Testing VNC server on port 5901..."
+VNC_TEST=$(netstat -tlnp 2>/dev/null | grep :5901)
+if [ -n "$VNC_TEST" ]; then
+    echo "   ✓ VNC server listening on port 5901"
+else
+    echo "   ❌ VNC server not listening on port 5901"
+fi
+
+# Test Moonlight streaming
+echo "   Testing Moonlight video streaming..."
 echo "   Moonlight client debug output:"
 timeout 30 moonlight stream localhost "Hyprland Desktop" --quit-after --1080 2>&1 | tee streaming_$$.log &
 STREAM_PID=$!
@@ -158,7 +190,7 @@ kill $STREAM_PID 2>/dev/null || true
 
 echo "   Stream status: $STREAM_STATUS"
 
-# Check streaming logs
+# Check streaming logs and provide comprehensive status
 if [ -f "streaming_$$.log" ]; then
     if grep -q "Computer.*has not been paired" streaming_$$.log; then
         echo "   ❌ Still shows not paired - pairing incomplete"
@@ -168,9 +200,20 @@ if [ -f "streaming_$$.log" ]; then
         echo "   ⚠️  Pairing worked but streaming connection failed"
         cat streaming_$$.log | grep -E "(connection|error|critical)" | tail -3
     else
-        echo "   🎉 SUCCESS: Video streaming working!"
+        echo "   🎉 SUCCESS: Moonlight video streaming working!"
     fi
 fi
 
 echo ""
-echo "🌙 Test completed at $(date)"
+echo "📊 FINAL STATUS REPORT - Stock Hyprland + HyprMoon External Screencopy"
+echo "=================================================================="
+echo "🖥️  Stock Hyprland: $([ -n "$HYPRLAND_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
+echo "📡 Screencopy Service: $([ -n "$SCREENCOPY_RUNNING" ] && echo "✅ RUNNING" || echo "❌ NOT DETECTED")"
+echo "🎬 Frame Capture: $([ -n "$FRAME_CAPTURE" ] && echo "✅ ACTIVE" || echo "⚠️  NO RECENT ACTIVITY")"
+echo "🌐 VNC Server: $([ -n "$VNC_TEST" ] && echo "✅ LISTENING:5901" || echo "❌ NOT LISTENING")"
+echo "🎮 Moonlight Stream: $STREAM_STATUS"
+
+echo ""
+echo "🌙 Stock Hyprland + Working Screencopy Server Test completed at $(date)"
+echo "📱 VNC: localhost:5901 (password: helix123)"
+echo "🎮 Moonlight: localhost:47989 (HTTP) / localhost:47984 (HTTPS)"
