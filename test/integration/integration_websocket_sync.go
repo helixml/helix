@@ -23,7 +23,7 @@ const (
 )
 
 var testRunnerToken string
-var userAPIKey = "hl-iDRmJmT-PqUtqd_DI_xbaYYOZTVRhmkywlFesftgOkE="
+var userAPIKey = "hl-MosW5lLzHvZRLNOeX4HzQacqRqmk-XGiJ741TejPSCQ="
 
 // Helix API types
 type CreateSessionRequest struct {
@@ -276,7 +276,7 @@ func createHelixSessionWithZedApp() (*Session, error) {
 		Type:      "text",
 		Mode:      "inference",
 		ModelName: "claude-3.5-sonnet",
-		AppID:     "app_01k4mef7fxx9cn65z3rndvv0yj", // Use the existing Zed app
+		AppID:     "app_01k5p8c7tmkz2p4959hvpqgwn3", // Use the existing Zed app
 		Messages: []Message{
 			{
 				Role: "user",
@@ -393,7 +393,7 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 		Type:      "text",
 		Mode:      "inference",
 		ModelName: "claude-3.5-sonnet",
-		AppID:     "app_01k4mef7fxx9cn65z3rndvv0yj", // Use the existing Zed app
+		AppID:     "app_01k5p8c7tmkz2p4959hvpqgwn3", // Use the existing Zed app
 		Stream:    true,                             // This initial request should be streamed
 		AgentType: "zed_external",                   // Mark this as a Zed external agent session
 		Messages: []Message{
