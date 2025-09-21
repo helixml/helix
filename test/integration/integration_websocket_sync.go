@@ -33,6 +33,8 @@ type CreateSessionRequest struct {
 	Mode            string            `json:"mode"`
 	ModelName       string            `json:"model_name"`
 	AppID           string            `json:"app_id,omitempty"`
+	Stream          bool              `json:"stream,omitempty"`
+	AgentType       string            `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
 	Metadata        map[string]string `json:"metadata,omitempty"`
 	Messages        []Message         `json:"messages"`
 	ExternalAgentID string            `json:"external_agent_id,omitempty"`
@@ -142,23 +144,23 @@ func main() {
 	fmt.Println("")
 	fmt.Println("🖥️  Zed window should now be visible with AI panel open!")
 	fmt.Println("👀 You can observe the Zed interface and AI conversation...")
-	
+
 	// Verify Zed conversations state
 	fmt.Println("")
 	if err := verifyZedConversations(); err != nil {
 		fmt.Printf("⚠️  Zed conversation verification failed: %v\n", err)
 		fmt.Println("   This indicates the WebSocket sync may not be creating AI threads in Zed")
 	}
-	
+
 	fmt.Println("⏰ Keeping Zed running for 60 seconds for observation...")
-	
+
 	// Keep Zed running for 60 seconds so user can observe the AI panel
 	for i := 60; i > 0; i-- {
 		if i%10 == 0 || i <= 5 {
 			fmt.Printf("⏳ Zed will close in %d seconds...\n", i)
 		}
 		time.Sleep(1 * time.Second)
-		
+
 		// Re-verify conversations every 15 seconds
 		if i%15 == 0 && i < 60 {
 			fmt.Println("")
@@ -392,9 +394,8 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 		Mode:      "inference",
 		ModelName: "claude-3.5-sonnet",
 		AppID:     "app_01k4mef7fxx9cn65z3rndvv0yj", // Use the existing Zed app
-		Metadata: map[string]string{
-			"agent_type": "zed_external", // Mark this as a Zed external agent session
-		},
+		Stream:    true,                             // This initial request should be streamed
+		AgentType: "zed_external",                   // Mark this as a Zed external agent session
 		Messages: []Message{
 			{
 				Role: "system",
@@ -442,7 +443,9 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 func sendHelixMessage(sessionID, message string) error {
 	// Send a message to an existing Helix session using the chat endpoint
 	chatReq := CreateSessionRequest{
-		SessionID: sessionID, // Continue existing session
+		SessionID: sessionID,      // Continue existing session
+		Stream:    true,           // External agents require streaming
+		AgentType: "zed_external", // Ensure external agent type is maintained
 		Messages: []Message{
 			{
 				Role: "user",
@@ -925,12 +928,12 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 	// Create isolated config and data directories
 	testConfigDir := "/home/luke/pm/helix/test-zed-config/config"
 	testDataDir := "/home/luke/pm/helix/test-zed-config/data"
-	
+
 	// Set environment variables for WebSocket sync, AI panel, and isolation
 	cmd.Env = append(os.Environ(),
 		"RUST_LOG=info,external_websocket_sync=debug",
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
-		"ZED_WEBSOCKET_SYNC_ENABLED=true", 
+		"ZED_WEBSOCKET_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=localhost:8080",
 		"ZED_HELIX_TOKEN="+testRunnerToken,
 		"ZED_HELIX_TLS=false",
@@ -967,26 +970,26 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 func verifyZedConversations() error {
 	testDataDir := "/home/luke/pm/helix/test-zed-config/data"
 	conversationsDir := testDataDir + "/conversations"
-	
+
 	fmt.Println("🔍 Verifying Zed AI conversations state...")
 	fmt.Printf("   Checking directory: %s\n", conversationsDir)
-	
+
 	// Check if conversations directory exists
 	if _, err := os.Stat(conversationsDir); os.IsNotExist(err) {
 		fmt.Println("   ❌ Conversations directory doesn't exist")
 		return fmt.Errorf("conversations directory not found: %s", conversationsDir)
 	}
-	
+
 	// List conversation files
 	files, err := os.ReadDir(conversationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read conversations directory: %w", err)
 	}
-	
+
 	fmt.Printf("   📁 Found %d conversation files:\n", len(files))
 	for _, file := range files {
 		fmt.Printf("      - %s\n", file.Name())
-		
+
 		// Try to read and parse the conversation file
 		filePath := conversationsDir + "/" + file.Name()
 		content, err := os.ReadFile(filePath)
@@ -994,15 +997,15 @@ func verifyZedConversations() error {
 			fmt.Printf("      ❌ Failed to read %s: %v\n", file.Name(), err)
 			continue
 		}
-		
+
 		fmt.Printf("      📝 Content preview: %s\n", truncateString(string(content), 100))
 	}
-	
+
 	if len(files) == 0 {
 		fmt.Println("   ⚠️  No conversation files found - Helix sessions may not be syncing to Zed AI")
 		return fmt.Errorf("no conversations found in Zed")
 	}
-	
+
 	fmt.Printf("   ✅ Found %d conversations in Zed\n", len(files))
 	return nil
 }
