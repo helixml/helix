@@ -28,6 +28,7 @@ import (
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -36,7 +37,6 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -88,6 +88,7 @@ type HelixAPIServer struct {
 	externalAgentExecutor      external_agent.Executor
 	externalAgentWSManager     *ExternalAgentWSManager
 	externalAgentRunnerManager *ExternalAgentRunnerManager
+	contextMappings            map[string]string // Zed context_id -> Helix session_id mapping
 	inferenceServer            *openai.InternalHelixServer
 	knowledgeManager           knowledge.Manager
 	skillManager               *api_skill.Manager
@@ -230,6 +231,7 @@ func NewServer(
 		externalAgentExecutor:      externalAgentExecutor,
 		externalAgentWSManager:     externalAgentWSManager,
 		externalAgentRunnerManager: externalAgentRunnerManager,
+		contextMappings:            make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			oidcClient,
@@ -286,10 +288,10 @@ func NewServer(
 	if publicURL == "" {
 		publicURL = "localhost"
 	}
-	
+
 	apiServer.moonlightProxy = moonlight.NewMoonlightProxy(connectionManager, publicURL)
 	apiServer.moonlightServer = moonlight.NewMoonlightServer(apiServer.moonlightProxy, store, publicURL, authenticator)
-	
+
 	// Start Moonlight proxy
 	if err := apiServer.moonlightProxy.Start(); err != nil {
 		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
@@ -553,6 +555,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
 	// Specific routes must come before parametric routes
 	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
+	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp", apiServer.getExternalAgentRunnerRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
@@ -562,9 +565,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp/proxy", apiServer.startRunnerRDPProxy).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
-
-	// External agent WebSocket sync endpoint
-	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 
 	// Reverse dial endpoint for external agent runners (requires runner token authentication)
 	// This handles both control connections (non-WebSocket) and data connections (WebSocket)
@@ -1245,7 +1245,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 		// Track consecutive WebSocket write failures for circuit breaker pattern
 		var consecutiveFailures int
 		const maxConsecutiveFailures = 3
-		
+
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
 			log.Info().
 				Str("ZED_FLOW_DEBUG", "message_from_nats_stream").
@@ -1305,7 +1305,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 					Str("request_id", envelope.RequestID).
 					Int("consecutive_failures", consecutiveFailures).
 					Msg("❌ ZED_FLOW_DEBUG: [STEP 4 FAILED] Error writing envelope to WebSocket - NAK'ing message but continuing subscription")
-				
+
 				// NAK the message so it can be redelivered to another runner
 				if nakErr := msg.Nak(); nakErr != nil {
 					log.Error().
@@ -1315,7 +1315,7 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 						Str("request_id", envelope.RequestID).
 						Msg("❌ ZED_FLOW_DEBUG: Failed to NAK message after WebSocket write error")
 				}
-				
+
 				// Circuit breaker: if too many consecutive failures, break the subscription
 				// This allows the WebSocket to close cleanly and the runner to reconnect
 				if consecutiveFailures >= maxConsecutiveFailures {
@@ -1327,13 +1327,13 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 						Msg("🔥 ZED_FLOW_DEBUG: Circuit breaker triggered - too many consecutive WebSocket failures, closing connection to allow reconnect")
 					return fmt.Errorf("circuit breaker: %d consecutive WebSocket write failures", consecutiveFailures)
 				}
-				
+
 				// Don't return error for isolated failures - this would break the entire NATS subscription
 				// Instead, let the WebSocket connection detection handle the cleanup
 				// The message will be redelivered to another healthy runner
 				return nil
 			}
-			
+
 			// Reset failure counter on successful write
 			consecutiveFailures = 0
 
@@ -1657,9 +1657,9 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			return true // Allow all origins for now
 		},
 	}
-	
+
 	revDialConnHandler := revdial.ConnHandler(upgrader)
-	
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a WebSocket upgrade request (data connection)
 		if websocket.IsWebSocketUpgrade(r) {
@@ -1668,10 +1668,10 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			revDialConnHandler.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// This is a control connection - proceed with existing logic
 		log.Debug().Msg("Handling revdial control connection")
-		
+
 		// Get authenticated user from middleware (runner token authentication)
 		user := getRequestUser(r)
 		if user == nil || user.TokenType != types.TokenTypeRunner {

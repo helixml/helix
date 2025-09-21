@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:12.13-alpine
+    environment:
+      POSTGRES_DB: helix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - helix
+
+  helix-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - LOG_LEVEL=debug
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=helix
+      - POSTGRES_USERNAME=postgres
+      - POSTGRES_PASSWORD=postgres
+      - RUNNER_TOKEN=test-runner-token
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - SERVER_URL=http://localhost:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - helix
+    volumes:
+      - ./:/workspace
+
+  zed-agent:
+    image: helix/zed-agent:latest
+    environment:
+      - HELIX_API_URL=http://helix-api:8080
+      - VNC_PASSWORD=helix123
+      - DISPLAY=:1
+    ports:
+      - "5901:5901"  # VNC
+      - "6080:6080"  # noVNC web interface
+      - "3030:3030"  # Zed HTTP API (if needed)
+    depends_on:
+      - helix-api
+    networks:
+      - helix
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./workspace:/workspace
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    shm_size: 2g
+
+volumes:
+  postgres_data:
+
+networks:
+  helix:
+    driver: bridge
+
+

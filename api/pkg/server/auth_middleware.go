@@ -138,6 +138,8 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	if token == auth.cfg.runnerToken {
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
+			ID:        "runner-system",  // Add a system user ID for runner tokens
+			Type:      types.OwnerTypeUser,
 			Token:     token,
 			TokenType: types.TokenTypeRunner,
 		}, nil

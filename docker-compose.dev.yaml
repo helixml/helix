@@ -305,6 +305,12 @@ services:
             - /home/luke/pm/dots-hyprland/.config/ags:/home/ubuntu/.config/ags
             # Mount Zed config for persistence
             - ./zed-config:/home/ubuntu/.config/zed
+            # Mount HyprMoon frame dumps for debugging
+            - ./hyprmoon-frame-dumps:/tmp/hyprmoon_frame_dumps
+            # Mount to hyprmoon repo for real desktop captures
+            - ../hyprmoon/desktop-captures:/tmp/desktop_captures
+            # Mount directory for screencopy frame capture proof
+            - ./screencopy-frames:/tmp/screencopy_frames
         # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
         devices:
             - "/dev/dri:/dev/dri"

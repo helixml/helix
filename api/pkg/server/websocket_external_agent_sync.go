@@ -71,7 +71,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 	now := time.Now()
 	// Generate unique connection ID: runnerID + timestamp + microseconds
 	connectionID := fmt.Sprintf("%s-%d-%d", runnerID, now.Unix(), now.Nanosecond()/1000)
-	
+
 	newConnection := &ExternalAgentRunnerConnection{
 		ConnectionID: connectionID,
 		RunnerID:     runnerID,
@@ -90,7 +90,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 		Int("concurrency", concurrency).
 		Int("total_connections", len(manager.runnerConnections[runnerID])).
 		Msg("🔗 External agent runner connection added to manager")
-	
+
 	return connectionID
 }
 
@@ -108,17 +108,17 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			Msg("⚠️ Attempted to remove connection from non-existent runner")
 		return
 	}
-	
+
 	for i, conn := range connections {
 		if conn.ConnectionID == connectionID {
 			// Remove this connection from the slice
 			manager.runnerConnections[runnerID] = append(connections[:i], connections[i+1:]...)
-			
+
 			// If no connections left for this runner, remove the runner entry
 			if len(manager.runnerConnections[runnerID]) == 0 {
 				delete(manager.runnerConnections, runnerID)
 			}
-			
+
 			log.Info().
 				Str("runner_id", runnerID).
 				Str("connection_id", connectionID).
@@ -127,7 +127,7 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			return
 		}
 	}
-	
+
 	log.Warn().
 		Str("runner_id", runnerID).
 		Str("connection_id", connectionID).
@@ -150,14 +150,14 @@ func (manager *ExternalAgentRunnerManager) updatePingByRunner(runnerID string) {
 	// Find the most recent connection for this runner
 	var mostRecentConn *ExternalAgentRunnerConnection
 	var mostRecentTime time.Time
-	
+
 	for _, conn := range connections {
 		if conn.ConnectedAt.After(mostRecentTime) {
 			mostRecentConn = conn
 			mostRecentTime = conn.ConnectedAt
 		}
 	}
-	
+
 	if mostRecentConn != nil {
 		oldPing := mostRecentConn.LastPing
 		mostRecentConn.LastPing = time.Now()
@@ -179,24 +179,24 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 	defer manager.mu.RUnlock()
 
 	connections := make([]types.ExternalAgentConnection, 0, len(manager.runnerConnections))
-	
+
 	// For each runner, find the most recent connection and include it in the list
 	for runnerID, runnerConns := range manager.runnerConnections {
 		if len(runnerConns) == 0 {
 			continue
 		}
-		
+
 		// Find the most recent connection for this runner
 		var mostRecentConn *ExternalAgentRunnerConnection
 		var mostRecentTime time.Time
-		
+
 		for _, conn := range runnerConns {
 			if conn.ConnectedAt.After(mostRecentTime) {
 				mostRecentConn = conn
 				mostRecentTime = conn.ConnectedAt
 			}
 		}
-		
+
 		if mostRecentConn != nil {
 			connections = append(connections, types.ExternalAgentConnection{
 				SessionID:   runnerID, // Use RunnerID as SessionID for consistency
@@ -206,7 +206,7 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 			})
 		}
 	}
-	
+
 	return connections
 }
 
@@ -268,6 +268,44 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 
 	// Handle incoming messages (blocking)
 	apiServer.handleExternalAgentReceiver(ctx, wsConn)
+}
+
+// sendResponseToZed sends a response back to Zed via WebSocket
+func (apiServer *HelixAPIServer) sendResponseToZed(sessionID, contextID, content string, isComplete bool) error {
+	// Get the WebSocket connection for this session
+	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
+	if !exists || wsConn == nil {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	// Determine event type based on completion status
+	eventType := "chat_response_chunk"
+	if isComplete {
+		eventType = "chat_response_done"
+	}
+
+	// Create command to send to Zed
+	command := types.ExternalAgentCommand{
+		Type: eventType,
+		Data: map[string]interface{}{
+			"context_id": contextID,
+			"content":    content,
+			"timestamp":  time.Now(),
+		},
+	}
+
+	// Send the command
+	select {
+	case wsConn.SendChan <- command:
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("context_id", contextID).
+			Str("event_type", eventType).
+			Msg("Sent response to Zed")
+		return nil
+	default:
+		return fmt.Errorf("failed to send response to Zed: channel full")
+	}
 }
 
 // handleExternalAgentReceiver handles incoming messages from external agent
@@ -381,11 +419,48 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 		Str("title", title).
 		Msg("External agent created new context")
 
-	// TODO: Create corresponding interaction in Helix session
-	// This would involve:
-	// 1. Getting the session from the store
-	// 2. Creating a new interaction with the context mapping
-	// 3. Storing the context_id -> interaction_id mapping
+	// Get the external agent session to get user information
+	agentSession, err := apiServer.Controller.GetExternalAgentStatus(context.Background(), sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get external agent session: %w", err)
+	}
+
+	// Create a new Helix session for this Zed context
+	helixSession := types.Session{
+		ID:        "", // Will be generated
+		Name:      title,
+		Owner:     agentSession.UserID,
+		OwnerType: types.OwnerTypeUser,
+		Type:      types.SessionTypeText,
+		Mode:      types.SessionModeInference,
+		ModelName: "claude-3.5-sonnet", // Default model, could be configurable
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Metadata: types.SessionMetadata{
+			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
+			AgentType:    "zed_external",
+		},
+	}
+
+	// Create the session in the store
+	createdSession, err := apiServer.Controller.Options.Store.CreateSession(context.Background(), helixSession)
+	if err != nil {
+		return fmt.Errorf("failed to create Helix session: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("context_id", contextID).
+		Str("helix_session_id", createdSession.ID).
+		Str("title", title).
+		Msg("Created Helix session for Zed context")
+
+	// Store the context mapping for future message routing
+	// We'll use a simple in-memory mapping for now - in production this should be persistent
+	if apiServer.contextMappings == nil {
+		apiServer.contextMappings = make(map[string]string)
+	}
+	apiServer.contextMappings[contextID] = createdSession.ID
 
 	return nil
 }
@@ -402,7 +477,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid message_id")
 	}
 
-	_, ok = syncMsg.Data["content"].(string)
+	content, ok := syncMsg.Data["content"].(string)
 	if !ok {
 		return fmt.Errorf("missing or invalid content")
 	}
@@ -420,12 +495,52 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		Str("role", role).
 		Msg("External agent added message")
 
-	// TODO: Add message to corresponding Helix session interaction
-	// This would involve:
-	// 1. Finding the interaction that maps to this context_id
-	// 2. Adding the message to the interaction
-	// 3. Triggering AI response if this is a user message
-	// 4. Storing message_id mapping for future updates
+	// Find the Helix session that corresponds to this Zed context
+	helixSessionID, exists := apiServer.contextMappings[contextID]
+	if !exists {
+		return fmt.Errorf("no Helix session found for context_id: %s", contextID)
+	}
+
+	// Get the Helix session
+	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+	}
+
+	// Create interaction for this message
+	interaction := &types.Interaction{
+		ID:            "", // Will be generated
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		SessionID:     helixSessionID,
+		UserID:        helixSession.Owner,
+		Mode:          types.SessionModeInference,
+		PromptMessage: content,
+		State:         types.InteractionStateWaiting,
+	}
+
+	// Create the interaction in the store
+	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+	if err != nil {
+		return fmt.Errorf("failed to create interaction: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("context_id", contextID).
+		Str("helix_session_id", helixSessionID).
+		Str("interaction_id", createdInteraction.ID).
+		Str("role", role).
+		Msg("Created Helix interaction for Zed message")
+
+	// If this is a user message, the system will automatically process it
+	// TODO: Hook into session completion to send responses back to Zed
+	if role == "user" || role == "human" {
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", createdInteraction.ID).
+			Msg("User message from Zed will be processed by Helix - response streaming to be implemented")
+	}
 
 	return nil
 }
