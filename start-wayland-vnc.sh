@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Hyprland-only startup script for 4K@60Hz with NVIDIA GPU acceleration
+# Stock Hyprland + HyprMoon external screencopy startup script for 4K@60Hz with NVIDIA GPU acceleration
 
 # Lock file to prevent multiple concurrent executions
 LOCK_FILE="/tmp/start-wayland-vnc.lock"
@@ -25,23 +25,31 @@ echo "HYPRMOON VERSION CHECK - CRITICAL DEBUGGING INFORMATION"
 echo "================================================================"
 echo "Checking what version of HyprMoon/Hyprland is actually installed..."
 
-# Check if hyprmoon package is installed
-if dpkg -l hyprmoon >/dev/null 2>&1; then
-    echo "✅ HYPRMOON PACKAGE FOUND:"
-    dpkg -l hyprmoon | grep "^ii"
+# Check for stock Hyprland and HyprMoon external screencopy
+if dpkg -l hyprland >/dev/null 2>&1; then
+    echo "✅ STOCK HYPRLAND FOUND:"
+    dpkg -l hyprland | grep "^ii" || echo "Package info not available"
     echo ""
-    echo "HyprMoon binary location:"
+    echo "Hyprland binary location:"
     which Hyprland || echo "❌ Hyprland binary not found in PATH"
     ls -la /usr/bin/Hyprland 2>/dev/null || echo "❌ /usr/bin/Hyprland not found"
 else
-    echo "❌ HYPRMOON PACKAGE NOT FOUND!"
-    echo "Checking for Ubuntu hyprland package instead..."
-    if dpkg -l hyprland >/dev/null 2>&1; then
-        echo "⚠️  UBUNTU HYPRLAND PACKAGE FOUND (THIS IS WRONG!):"
-        dpkg -l hyprland | grep "^ii"
+    echo "❌ STOCK HYPRLAND PACKAGE NOT FOUND!"
+    echo "⚠️ Continuing anyway - checking for any Hyprland binary..."
+    if which Hyprland >/dev/null 2>&1; then
+        echo "✅ Found Hyprland binary in PATH"
     else
-        echo "❌ NO HYPRLAND PACKAGE FOUND AT ALL!"
+        echo "❌ No Hyprland binary found anywhere"
+        echo "⚠️ Will continue for debugging purposes"
     fi
+fi
+
+# Check for external screencopy service
+if [ -f "/usr/local/bin/working-screencopy-server.py" ]; then
+    echo "✅ WORKING SCREENCOPY SERVER FOUND:"
+    ls -la /usr/local/bin/working-screencopy-server.py
+else
+    echo "❌ Working screencopy server not found"
 fi
 
 echo ""
@@ -50,7 +58,7 @@ dpkg -l | grep hypr || echo "❌ No hypr packages found"
 echo "================================================================"
 echo ""
 
-echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
+echo "Starting stock Hyprland compositor + Working Screencopy Server with frame capture and NVIDIA GPU acceleration..."
 
 # Set up environment for Wayland GPU acceleration
 # Force OpenGL instead of Vulkan to fix Sunshine wlroots capture (GitHub issue #4050)
@@ -182,6 +190,18 @@ sleep 5
 # Check if Hyprland is running (either our PID or any Hyprland process)
 if pgrep -x \"Hyprland\" >/dev/null 2>&1; then
     echo \"✅ Hyprland is running successfully with NVIDIA GPU acceleration!\"
+
+    # Start Working Screencopy Server with frame capture
+    echo \"🌙 Starting Working Screencopy Server with frame capture...\"
+    if [ -f \"/usr/local/bin/working-screencopy-server.py\" ]; then
+        /usr/local/bin/working-screencopy-server.py &
+        MOONLIGHT_PID=\$!
+        echo \"📡 Working screencopy server started with PID: \$MOONLIGHT_PID\"
+        echo \"🎯 Moonlight streaming available on port 47989 (HTTP)\"
+        echo \"📸 Frame capture every 30 seconds to /tmp/screencopy_frames\"
+    else
+        echo \"❌ Working screencopy server binary not found\"
+    fi
 else
     echo \"❌ Hyprland failed to start with NVIDIA GPU acceleration\"
     # DO NOT EXIT - continue for Moonlight testing
@@ -222,8 +242,8 @@ else
     # DO NOT EXIT - allow Moonlight to work without VNC
 fi
 
-# HyprMoon provides built-in Moonlight streaming - no external Sunshine needed
-echo \"HyprMoon built-in Moonlight manager active\"
+# Working Screencopy Server provides streaming + frame capture - no external Sunshine needed
+echo \"Working Screencopy Server active with frame capture\"
 
 # Keep running to allow Moonlight server to complete initialization
 echo \"Keeping session alive for Moonlight server initialization...\"

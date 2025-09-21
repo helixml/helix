@@ -1,0 +1,114 @@
+00:00:00 - Qt Warning: Qt: Session management error: Could not open network socket
+00:00:00 - SDL Info (0): Compiled with SDL 2.31.0
+00:00:00 - SDL Info (0): Running with SDL 2.31.0
+00:00:00 - Qt Info: No translation available for "en_US"
+00:00:00 - Qt Warning: qrc:/gui/main.qml:13:1: QML ApplicationWindow: ToolTip must be attached to an Item
+00:00:00 - Qt Warning: propsReply "An AppArmor policy prevents this sender from sending this message to this recipient; type=\"method_call\", sender=\":1.415\" (uid=1000 pid=1446058 comm=\"/snap/moonlight/2671/usr/bin/moonlight stream loca\" label=\"snap.moonlight.moonlight (enforce)\") interface=\"org.freedesktop.DBus.Properties\" member=\"GetAll\" error name=\"(unset)\" requested_reply=\"0\" destination=\"org.freedesktop.NetworkManager\" (uid=0 pid=1419 comm=\"/usr/sbin/NetworkManager --no-daemon\" label=\"unconfined\")"
+00:00:00 - Qt Warning: nmReply "An AppArmor policy prevents this sender from sending this message to this recipient; type=\"method_call\", sender=\":1.415\" (uid=1000 pid=1446058 comm=\"/snap/moonlight/2671/usr/bin/moonlight stream loca\" label=\"snap.moonlight.moonlight (enforce)\") interface=\"org.freedesktop.NetworkManager\" member=\"GetDevices\" error name=\"(unset)\" requested_reply=\"0\" destination=\"org.freedesktop.NetworkManager\" (uid=0 pid=1419 comm=\"/usr/sbin/NetworkManager --no-daemon\" label=\"unconfined\")"
+00:00:00 - Qt Warning: "Object path cannot be empty"
+00:00:00 - Qt Info: Found "gamecontrollerdb.txt" at "/home/luke/snap/moonlight/common/.cache/Moonlight Game Streaming Project/Moonlight/gamecontrollerdb.txt"
+00:00:00 - SDL Info (0): Loaded 395 new gamepad mappings
+00:00:00 - SDL Info (0): V-sync disabled
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/dri/nvidia_drv_video.so
+libva info: va_openDriver() returns -1
+00:00:00 - SDL Info (0): Skipping VAAPI fallback driver names on libva 2.20+
+00:00:00 - SDL Error (0): Failed to initialize VAAPI: -1
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/dri/nvidia_drv_video.so
+libva info: va_openDriver() returns -1
+00:00:00 - SDL Info (0): Skipping VAAPI fallback driver names on libva 2.20+
+00:00:00 - SDL Error (0): Failed to initialize VAAPI: -1
+00:00:00 - SDL Warn (0): Vulkan device 'NVIDIA GeForce RTX 4090' does not support HDR10 (ST.2084 PQ)
+00:00:00 - SDL Warn (0): Vulkan device 'llvmpipe (LLVM 15.0.7, 256 bits)' does not support VK_KHR_video_decode_h265
+00:00:00 - SDL Error (0): No suitable HDR-capable Vulkan devices found!
+00:00:02 - SDL Warn (0): libplacebo: Spent 1237.377 ms creating vulkan device (slow!)
+00:00:02 - SDL Info (0): Vulkan rendering device chosen: NVIDIA GeForce RTX 4090
+00:00:02 - SDL Info (0): Using Immediate present mode with V-Sync disabled
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Using device: NVIDIA GeForce RTX 4090
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Alignments:
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40]     optimalBufferCopyRowPitchAlignment: 1
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40]     minMemoryMapAlignment:              64
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40]     nonCoherentAtomSize:                64
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40]     minImportedHostPointerAlignment:    4096
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Using queue family 0 (queues: 1) for graphics
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Using queue family 2 (queues: 1) for compute
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Using queue family 1 (queues: 1) for transfers
+00:00:02 - FFmpeg: [AVHWDeviceContext @ 0x766e602b8f40] Using queue family 3 (queues: 1) for decode
+00:00:02 - SDL Warn (0): Vulkan device 'NVIDIA GeForce RTX 4090' does not support HDR10 (ST.2084 PQ)
+00:00:02 - SDL Warn (0): Vulkan device 'llvmpipe (LLVM 15.0.7, 256 bits)' does not support VK_KHR_video_decode_h265
+00:00:02 - SDL Error (0): No suitable HDR-capable Vulkan devices found!
+00:00:03 - SDL Warn (0): libplacebo: Spent 1266.177 ms creating vulkan device (slow!)
+00:00:03 - SDL Info (0): Vulkan rendering device chosen: NVIDIA GeForce RTX 4090
+00:00:03 - SDL Info (0): Using Immediate present mode with V-Sync disabled
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Using device: NVIDIA GeForce RTX 4090
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Alignments:
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00]     optimalBufferCopyRowPitchAlignment: 1
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00]     minMemoryMapAlignment:              64
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00]     nonCoherentAtomSize:                64
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00]     minImportedHostPointerAlignment:    4096
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Using queue family 0 (queues: 1) for graphics
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Using queue family 2 (queues: 1) for compute
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Using queue family 1 (queues: 1) for transfers
+00:00:03 - FFmpeg: [AVHWDeviceContext @ 0x766e62239c00] Using queue family 3 (queues: 1) for decode
+00:00:03 - SDL Info (0): Using Vulkan video decoding
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 32(VPS), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 33(SPS), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 34(PPS), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 21(CRA_NUT), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 21(CRA_NUT), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 21(CRA_NUT), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] nal_unit_type: 21(CRA_NUT), nuh_layer_id: 0, temporal_id: 0
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoding VPS
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Main 10 profile bitstream
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoding SPS
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Main 10 profile bitstream
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoding VUI
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoding PPS
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Format vulkan chosen by get_format().
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Format vulkan requires hwaccel hevc_vulkan initialisation.
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoder capabilities for hevc profile "Main 10":
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Maximum level: 61 (stream 120)
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Width: from 144 to 8192
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Height: from 144 to 8192
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Width alignment: 16
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Height alignment: 16
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Bitstream offset alignment: 256
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Bitstream size alignment: 256
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Maximum references: 16
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Maximum active references: 16
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Codec header name: 'VK_STD_vulkan_video_codec_h265_decode' (driver), 'VK_STD_vulkan_video_codec_h265_decode' (compiled)
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Codec header version: 1.0.0 (driver), 1.0.0 (compiled)
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Decode modes: reuse_dst_dpb
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     Capability flags: separate_references
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Choosing best pixel format for decoding from 1:
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640]     p010le* (Vulkan ID: 1000156013)
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Chosen frame pixfmt: p010le (Vulkan ID: 1000156013)
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Allocating 4096 bytes in bind index 0 for video session
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Allocating 16384 bytes in bind index 1 for video session
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Allocating 71303168 bytes in bind index 2 for video session
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Allocating 247595008 bytes in bind index 3 for video session
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Vulkan decoder initialization sucessful
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Output frame with POC 3.
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Created frame parameters: 1 SPS 1 PPS 1 VPS
+00:00:03 - FFmpeg: [hevc @ 0x766e6223c640] Decoding frame, 349 bytes, 4 slices
+00:00:03 - SDL Info (0): FFmpeg-based video decoder chosen
+00:00:04 - Qt Info: Found "gamecontrollerdb.txt" at "/home/luke/snap/moonlight/common/.cache/Moonlight Game Streaming Project/Moonlight/gamecontrollerdb.txt"
+00:00:04 - SDL Info (0): Loaded 395 new gamepad mappings
+00:00:04 - Qt Warning: "Hyprland" has no MAC address stored
+00:00:04 - Qt Info: Processing new PC at "localhost:47989" from user with IPv6 address "<NULL>"
+00:00:04 - Qt Info: Executing request: "http://localhost:47989/serverinfo?uniqueid=0123456789ABCDEF&uuid=9bbd5ff6ff544875aca923252c0bf9d4"
+00:00:04 - Qt Info: Executing request: "https://localhost:47984/serverinfo?uniqueid=0123456789ABCDEF&uuid=03137793635d4aa0b0cd80ac20f069ac"
+00:00:04 - Qt Info: "shiny" is now online at "10.1.254.172:47989"
+00:00:04 - Qt Debug: Current Moonlight version: "6.1.0"
+00:00:04 - Qt Info: Gamepad mappings are up to date
+00:00:04 - Qt Info: Discovered mDNS host: "shiny.local."
+00:00:04 - Qt Info: Resolved "shiny.local." to QHostAddress("10.1.254.172")
+00:00:04 - Qt Info: Resolved "shiny.local." to QHostAddress("fe80::3421:1306:5f78:2b9d")
+00:00:04 - Qt Info: Latest supported GFE server: "99.99.99.99"
+00:00:06 - Qt Info: "Hyprland" is now offline
+00:00:06 - Qt Info: Processing new PC at "10.1.254.172:47989" from mDNS with IPv6 address "<NULL>"
+00:00:06 - Qt Info: Executing request: "http://10.1.254.172:47989/serverinfo?uniqueid=0123456789ABCDEF&uuid=13e12042c0a945d387e658d4a4528682"
+00:00:06 - Qt Info: Executing request: "http://10.1.254.172:47989/serverinfo?uniqueid=0123456789ABCDEF&uuid=219615afaceb4b9da6370c56f08fe908"
+00:00:09 - Qt Warning: Aborting timed out request for "https://localhost:47984/serverinfo?uniqueid=0123456789ABCDEF&uuid=03137793635d4aa0b0cd80ac20f069ac"
+00:00:09 - Qt Warning: "serverinfo" request failed with error: QNetworkReply::OperationCanceledError
