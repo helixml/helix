@@ -168,10 +168,17 @@ export HYPRMOON_FRAME_SOURCE=\"$HYPRMOON_FRAME_SOURCE\"
 export HYPRMOON_WAYLAND_DISPLAY=\"$HYPRMOON_WAYLAND_DISPLAY\"
 export HYPRMOON_DEBUG_SAVE_FRAMES=\"$HYPRMOON_DEBUG_SAVE_FRAMES\"
 
-# Start dbus session
+# Start dbus session and capture environment properly
 if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
-    eval \$(dbus-launch --sh-syntax)
+    # Start D-Bus session and capture the environment
+    DBUS_LAUNCH_OUTPUT=\$(dbus-launch --sh-syntax)
+    eval \"\$DBUS_LAUNCH_OUTPUT\"
+    echo \"D-Bus session started: \$DBUS_SESSION_BUS_ADDRESS\"
 fi
+
+# Ensure D-Bus environment is properly exported
+export DBUS_SESSION_BUS_ADDRESS
+export DBUS_SESSION_BUS_PID
 
 # Create crash report directory for Hyprland
 mkdir -p /home/ubuntu/.cache/hyprland
@@ -261,7 +268,7 @@ sleep 1
 
 # Find the actual Wayland display socket and create symlinks
 # Hyprland creates sockets in subdirectories, try to find them
-HYPR_SOCKET_DIR=\$(find \"\$XDG_RUNTIME_DIR/hypr\" -name \"*.sock\" -type s 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+HYPR_SOCKET_DIR=\$(ls -t \"\$XDG_RUNTIME_DIR/hypr/\"*/.socket.sock 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
 if [ -n \"\$HYPR_SOCKET_DIR\" ] && [ -S \"\$HYPR_SOCKET_DIR/.socket.sock\" ]; then
     echo \"Found Hyprland socket: \$HYPR_SOCKET_DIR/.socket.sock\"
 
@@ -271,6 +278,8 @@ if [ -n \"\$HYPR_SOCKET_DIR\" ] && [ -S \"\$HYPR_SOCKET_DIR/.socket.sock\" ]; th
 
     export WAYLAND_DISPLAY=wayland-1
     echo \"Created wayland symlinks, using WAYLAND_DISPLAY=wayland-1\"
+    echo \"Debug: Socket points to \$HYPR_SOCKET_DIR/.socket.sock\"
+    ls -la \"\$XDG_RUNTIME_DIR/wayland-1\" 2>/dev/null || echo \"Symlink creation failed\"
 elif [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
     export WAYLAND_DISPLAY=wayland-1
 elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then
@@ -287,7 +296,7 @@ export WLR_ALLOW_ALL_CLIENTS=1
 
 # Start wayvnc with input enabled and cursor optimizations for VNC
 echo \"Starting wayvnc on port 5901...\"
-wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5901 &
+wayvnc --max-fps 120 --show-performance --disable-resizing 127.0.0.1 5901 &
 WAYVNC_PID=\$!
 
 # Wait a moment and verify wayvnc is running on the correct port
