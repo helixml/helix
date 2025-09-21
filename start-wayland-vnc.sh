@@ -162,8 +162,11 @@ export LIBVA_DRIVERS_PATH=\"\$LIBVA_DRIVERS_PATH\"
 export GPU_RENDER_NODE=\"\$GPU_RENDER_NODE\"
 export GST_GL_DRM_DEVICE=\"\$GST_GL_DRM_DEVICE\"
 
-# Export HyprMoon mode selection
+# Export HyprMoon mode selection and configuration
 export HYPRMOON_MODE=\"$HYPRMOON_MODE\"
+export HYPRMOON_FRAME_SOURCE=\"$HYPRMOON_FRAME_SOURCE\"
+export HYPRMOON_WAYLAND_DISPLAY=\"$HYPRMOON_WAYLAND_DISPLAY\"
+export HYPRMOON_DEBUG_SAVE_FRAMES=\"$HYPRMOON_DEBUG_SAVE_FRAMES\"
 
 # Start dbus session
 if [ -z \"\$DBUS_SESSION_BUS_ADDRESS\" ]; then
@@ -256,12 +259,18 @@ fi
 echo \"Attempting to start wayvnc VNC server...\"
 sleep 1
 
-# Find the actual Wayland display socket
+# Find the actual Wayland display socket and create symlinks
 # Hyprland creates sockets in subdirectories, try to find them
 HYPR_SOCKET_DIR=\$(find \"\$XDG_RUNTIME_DIR/hypr\" -name \"*.sock\" -type s 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
 if [ -n \"\$HYPR_SOCKET_DIR\" ] && [ -S \"\$HYPR_SOCKET_DIR/.socket.sock\" ]; then
-    export WAYLAND_DISPLAY=\"\$HYPR_SOCKET_DIR/.socket.sock\"
-    echo \"Found Hyprland socket: \$WAYLAND_DISPLAY\"
+    echo \"Found Hyprland socket: \$HYPR_SOCKET_DIR/.socket.sock\"
+
+    # Create symlinks for standard wayland socket names for VNC and screencopy
+    ln -sf \"\$HYPR_SOCKET_DIR/.socket.sock\" \"\$XDG_RUNTIME_DIR/wayland-0\" 2>/dev/null || true
+    ln -sf \"\$HYPR_SOCKET_DIR/.socket.sock\" \"\$XDG_RUNTIME_DIR/wayland-1\" 2>/dev/null || true
+
+    export WAYLAND_DISPLAY=wayland-1
+    echo \"Created wayland symlinks, using WAYLAND_DISPLAY=wayland-1\"
 elif [ -S \"\$XDG_RUNTIME_DIR/wayland-1\" ]; then
     export WAYLAND_DISPLAY=wayland-1
 elif [ -S \"\$XDG_RUNTIME_DIR/wayland-0\" ]; then

@@ -277,6 +277,11 @@ services:
             # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
             - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
 
+            # HyprMoon screencopy configuration
+            - HYPRMOON_FRAME_SOURCE=screencopy
+            - HYPRMOON_WAYLAND_DISPLAY=wayland-1
+            - HYPRMOON_DEBUG_SAVE_FRAMES=1
+
             # Wolf-style GPU configuration for container runtime
             - NVIDIA_VISIBLE_DEVICES=all
             - NVIDIA_DRIVER_CAPABILITIES=all
