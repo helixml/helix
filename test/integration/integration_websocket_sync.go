@@ -23,7 +23,7 @@ const (
 )
 
 var testRunnerToken string
-var userAPIKey = "hl-MosW5lLzHvZRLNOeX4HzQacqRqmk-XGiJ741TejPSCQ="
+var userAPIKey = "hl-A_7_46c0-jtUklU1RakIp1o8drgFLz5IZSlqowjrS-g="
 
 // Helix API types
 type CreateSessionRequest struct {
@@ -276,7 +276,7 @@ func createHelixSessionWithZedApp() (*Session, error) {
 		Type:      "text",
 		Mode:      "inference",
 		ModelName: "claude-3.5-sonnet",
-		AppID:     "app_01k5p8c7tmkz2p4959hvpqgwn3", // Use the existing Zed app
+		AppID:     "app_01k5qka10zk6fp4daw3pjwv7xz", // Use the existing Zed app
 		Messages: []Message{
 			{
 				Role: "user",
@@ -393,8 +393,8 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 		Type:      "text",
 		Mode:      "inference",
 		ModelName: "claude-3.5-sonnet",
-		AppID:     "app_01k5p8c7tmkz2p4959hvpqgwn3", // Use the existing Zed app
-		Stream:    true,                             // This initial request should be streamed
+		AppID:     "app_01k5qka10zk6fp4daw3pjwv7xz", // Use the existing Zed app
+		Stream:    false,                            // This initial request should be streamed
 		AgentType: "zed_external",                   // Mark this as a Zed external agent session
 		Messages: []Message{
 			{
@@ -444,7 +444,7 @@ func sendHelixMessage(sessionID, message string) error {
 	// Send a message to an existing Helix session using the chat endpoint
 	chatReq := CreateSessionRequest{
 		SessionID: sessionID,      // Continue existing session
-		Stream:    true,           // External agents require streaming
+		Stream:    false,          // External agents require streaming
 		AgentType: "zed_external", // Ensure external agent type is maintained
 		Messages: []Message{
 			{

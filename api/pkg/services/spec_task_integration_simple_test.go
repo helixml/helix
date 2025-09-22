@@ -258,34 +258,7 @@ func TestResponseTypes(t *testing.T) {
 
 // Helper functions for testing
 
-func parseTestImplementationPlan(plan string) []types.SpecTaskImplementationTask {
-	// Simplified version of the parsing logic for testing
-	tasks := []types.SpecTaskImplementationTask{}
-
-	if plan == "" {
-		return tasks
-	}
-
-	// Simple parsing for test purposes
-	lines := []string{
-		"Database schema", "API endpoints", "Frontend Integration",
-	}
-
-	for i, title := range lines {
-		if title != "" {
-			task := types.SpecTaskImplementationTask{
-				ID:              types.GenerateSpecTaskImplementationTaskID(),
-				Title:           title,
-				Index:           i,
-				EstimatedEffort: "medium",
-				Status:          types.SpecTaskImplementationStatusPending,
-			}
-			tasks = append(tasks, task)
-		}
-	}
-
-	return tasks
-}
+// parseTestImplementationPlan is defined in end_to_end_workflow_test.go
 
 // TestIDGeneration tests ID generation functions
 func TestIDGeneration(t *testing.T) {

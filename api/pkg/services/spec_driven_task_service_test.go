@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -20,12 +21,14 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	// Use nil controller since goroutine testing is complex and not critical for this unit test
 	mockController := (*controller.Controller)(nil)
+	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
 		mockController,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
+		mockPubsub,
 	)
 	service.SetTestMode(true)
 
@@ -74,12 +77,14 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockController := (*controller.Controller)(nil)
+	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
 		mockController,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
+		mockPubsub,
 	)
 	service.SetTestMode(true)
 
@@ -126,12 +131,14 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockController := (*controller.Controller)(nil)
+	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
 		mockController,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
+		mockPubsub,
 	)
 	service.SetTestMode(true)
 
@@ -180,12 +187,14 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockController := (*controller.Controller)(nil)
+	var mockPubsub pubsub.PubSub = nil
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
 		mockController,
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
+		mockPubsub,
 	)
 	service.SetTestMode(true)
 
@@ -227,7 +236,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"})
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{
@@ -250,7 +259,7 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"})
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{
@@ -276,12 +285,12 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"})
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil)
 	agent := service.selectZedAgent()
 	assert.Equal(t, "agent1", agent)
 
 	// Test with no agents
-	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{})
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil)
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)

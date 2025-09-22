@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -15,8 +14,6 @@ import (
 func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 	// This test validates the complete workflow logic without external dependencies
 	// It tests the data flow, state transitions, and coordination mechanisms
-
-	ctx := context.Background()
 
 	// Test data setup
 	userID := "user_dev_123"
@@ -213,7 +210,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 
 		// Simulate progress updates
 		progressUpdates := []float64{0.2, 0.5, 0.8, 0.3, 0.1}
-		for i, ws := range workSessions {
+		for i, _ := range workSessions {
 			// Update progress based on simulated work
 			progress := progressUpdates[i]
 
@@ -295,7 +292,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 
 	t.Run("Phase7_SessionCoordinationAndCommunication", func(t *testing.T) {
 		// Simulate coordination between sessions
-		sessions := createTestWorkSessions("spec_task_auth")
+		_ = createTestWorkSessions("spec_task_auth")
 
 		// Simulate coordination scenarios
 		coordinationScenarios := []struct {
@@ -364,7 +361,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 	t.Run("Phase8_ProgressTrackingAndStatusUpdates", func(t *testing.T) {
 		// Simulate progress tracking across multiple sessions
 		workSessions := createTestWorkSessions("spec_task_auth")
-		implementationTasks := parseTestImplementationPlan(generateComprehensiveImplementationPlan())
+		_ = parseTestImplementationPlan(generateComprehensiveImplementationPlan())
 
 		// Simulate different completion states
 		sessionStates := []struct {
@@ -598,7 +595,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 func TestComplexWorkflowScenarios(t *testing.T) {
 	t.Run("InteractiveCodingSession", func(t *testing.T) {
 		// Test long-running interactive coding session
-		specTask := &types.SpecTask{
+		_ = &types.SpecTask{
 			ID:        "interactive_coding_123",
 			Name:      "Interactive Development Session",
 			Type:      "coding_session",
@@ -1226,19 +1223,7 @@ type ZedInstanceStatus struct {
 	RDPPassword   string
 }
 
-type CoordinationEvent struct {
-	ID             string
-	FromSessionID  string
-	ToSessionID    string
-	EventType      CoordinationEventType
-	Message        string
-	Data           map[string]interface{}
-	Timestamp      time.Time
-	Acknowledged   bool
-	AcknowledgedAt *time.Time
-	Response       string
-}
-
+// Test-specific types
 type SpecGeneration struct {
 	TaskID             string
 	RequirementsSpec   string
@@ -1247,14 +1232,6 @@ type SpecGeneration struct {
 	GeneratedAt        time.Time
 	ModelUsed          string
 	TokensUsed         int
-}
-
-type CreateTaskRequest struct {
-	ProjectID string
-	Prompt    string
-	Type      string
-	Priority  string
-	UserID    string
 }
 
 // Utility functions
