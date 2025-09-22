@@ -71,7 +71,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 	now := time.Now()
 	// Generate unique connection ID: runnerID + timestamp + microseconds
 	connectionID := fmt.Sprintf("%s-%d-%d", runnerID, now.Unix(), now.Nanosecond()/1000)
-
+	
 	newConnection := &ExternalAgentRunnerConnection{
 		ConnectionID: connectionID,
 		RunnerID:     runnerID,
@@ -90,7 +90,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 		Int("concurrency", concurrency).
 		Int("total_connections", len(manager.runnerConnections[runnerID])).
 		Msg("🔗 External agent runner connection added to manager")
-
+	
 	return connectionID
 }
 
@@ -108,17 +108,17 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			Msg("⚠️ Attempted to remove connection from non-existent runner")
 		return
 	}
-
+	
 	for i, conn := range connections {
 		if conn.ConnectionID == connectionID {
 			// Remove this connection from the slice
 			manager.runnerConnections[runnerID] = append(connections[:i], connections[i+1:]...)
-
+			
 			// If no connections left for this runner, remove the runner entry
 			if len(manager.runnerConnections[runnerID]) == 0 {
 				delete(manager.runnerConnections, runnerID)
 			}
-
+			
 			log.Info().
 				Str("runner_id", runnerID).
 				Str("connection_id", connectionID).
@@ -127,7 +127,7 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			return
 		}
 	}
-
+	
 	log.Warn().
 		Str("runner_id", runnerID).
 		Str("connection_id", connectionID).
@@ -150,14 +150,14 @@ func (manager *ExternalAgentRunnerManager) updatePingByRunner(runnerID string) {
 	// Find the most recent connection for this runner
 	var mostRecentConn *ExternalAgentRunnerConnection
 	var mostRecentTime time.Time
-
+	
 	for _, conn := range connections {
 		if conn.ConnectedAt.After(mostRecentTime) {
 			mostRecentConn = conn
 			mostRecentTime = conn.ConnectedAt
 		}
 	}
-
+	
 	if mostRecentConn != nil {
 		oldPing := mostRecentConn.LastPing
 		mostRecentConn.LastPing = time.Now()
@@ -179,24 +179,24 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 	defer manager.mu.RUnlock()
 
 	connections := make([]types.ExternalAgentConnection, 0, len(manager.runnerConnections))
-
+	
 	// For each runner, find the most recent connection and include it in the list
 	for runnerID, runnerConns := range manager.runnerConnections {
 		if len(runnerConns) == 0 {
 			continue
 		}
-
+		
 		// Find the most recent connection for this runner
 		var mostRecentConn *ExternalAgentRunnerConnection
 		var mostRecentTime time.Time
-
+		
 		for _, conn := range runnerConns {
 			if conn.ConnectedAt.After(mostRecentTime) {
 				mostRecentConn = conn
 				mostRecentTime = conn.ConnectedAt
 			}
 		}
-
+		
 		if mostRecentConn != nil {
 			connections = append(connections, types.ExternalAgentConnection{
 				SessionID:   runnerID, // Use RunnerID as SessionID for consistency
@@ -206,7 +206,7 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 			})
 		}
 	}
-
+	
 	return connections
 }
 
