@@ -293,7 +293,6 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		&cfg,
 		suite.store,
 		ps,
-		externalAgentExecutor,
 		providerManager,
 		modelInfoProvider,
 		nil,

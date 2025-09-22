@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) {
@@ -32,6 +32,7 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) 
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 	manager.SetTestMode(true)
@@ -66,7 +67,7 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) 
 			Helix: types.AppHelixConfig{
 				Name: "Test Zed Agent",
 				Assistants: []types.AssistantConfig{
-					{Type: "zed"},
+					{AgentType: "zed"},
 				},
 			},
 		},
@@ -146,6 +147,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 	manager.SetTestMode(true)
@@ -164,7 +166,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 	}
 
 	// Mock parent work session
-	parentWorkSession := &types.SpecTaskWorkSession{
+	_ = &types.SpecTaskWorkSession{
 		ID:         parentSessionID,
 		SpecTaskID: specTaskID,
 		Status:     types.SpecTaskWorkSessionStatusActive,
@@ -205,7 +207,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 		})
 
 	// Mock detail response
-	expectedDetail := &types.SpecTaskWorkSessionDetailResponse{
+	_ = &types.SpecTaskWorkSessionDetailResponse{
 		WorkSession:  *spawnedWorkSession,
 		SpecTask:     *specTask,
 		HelixSession: &types.Session{ID: "spawned-helix-session"},
@@ -246,6 +248,7 @@ func TestSpecTaskMultiSessionManager_UpdateWorkSessionStatus(t *testing.T) {
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -289,6 +292,7 @@ func TestSpecTaskMultiSessionManager_UpdateZedThreadStatus(t *testing.T) {
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -344,6 +348,7 @@ func TestSpecTaskMultiSessionManager_GetMultiSessionOverview(t *testing.T) {
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -387,6 +392,7 @@ func TestSpecTaskMultiSessionManager_GetSpecTaskProgress(t *testing.T) {
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -438,6 +444,7 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions_NotApproved(t 
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -477,6 +484,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession_CannotSpawn(t *testing.T) 
 		mockStore,
 		mockController,
 		specService,
+		nil, // ZedIntegrationService
 		"test-zed-agent",
 	)
 
@@ -489,7 +497,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession_CannotSpawn(t *testing.T) 
 	}
 
 	// Mock parent work session that cannot spawn (completed status)
-	parentWorkSession := &types.SpecTaskWorkSession{
+	_ = &types.SpecTaskWorkSession{
 		ID:     parentSessionID,
 		Status: types.SpecTaskWorkSessionStatusCompleted, // Cannot spawn
 		Phase:  types.SpecTaskPhaseImplementation,
