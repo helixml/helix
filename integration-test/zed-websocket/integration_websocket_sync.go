@@ -968,45 +968,36 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 }
 
 func verifyZedConversations() error {
-	testDataDir := "/home/luke/pm/helix/test-zed-config/data"
-	conversationsDir := testDataDir + "/conversations"
+	testConfigDir := "/home/luke/pm/helix/test-zed-config/zed"
+	threadsDir := testConfigDir + "/threads"
+	threadsDB := threadsDir + "/threads.db"
 
-	fmt.Println("🔍 Verifying Zed AI conversations state...")
-	fmt.Printf("   Checking directory: %s\n", conversationsDir)
+	fmt.Println("🔍 Verifying Zed AI threads state...")
+	fmt.Printf("   Checking database: %s\n", threadsDB)
 
-	// Check if conversations directory exists
-	if _, err := os.Stat(conversationsDir); os.IsNotExist(err) {
-		fmt.Println("   ❌ Conversations directory doesn't exist")
-		return fmt.Errorf("conversations directory not found: %s", conversationsDir)
+	// Check if threads database exists
+	if _, err := os.Stat(threadsDB); os.IsNotExist(err) {
+		fmt.Println("   ❌ Threads database doesn't exist")
+		return fmt.Errorf("threads database not found: %s", threadsDB)
 	}
 
-	// List conversation files
-	files, err := os.ReadDir(conversationsDir)
+	// Query the threads database to count threads
+	cmd := exec.Command("sqlite3", threadsDB, "SELECT COUNT(*) FROM threads;")
+	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to read conversations directory: %w", err)
+		fmt.Printf("   ❌ Failed to query threads database: %v\n", err)
+		return fmt.Errorf("failed to query threads database: %w", err)
 	}
 
-	fmt.Printf("   📁 Found %d conversation files:\n", len(files))
-	for _, file := range files {
-		fmt.Printf("      - %s\n", file.Name())
+	threadCount := strings.TrimSpace(string(output))
+	fmt.Printf("   📊 Found %s thread(s) in database\n", threadCount)
 
-		// Try to read and parse the conversation file
-		filePath := conversationsDir + "/" + file.Name()
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			fmt.Printf("      ❌ Failed to read %s: %v\n", file.Name(), err)
-			continue
-		}
-
-		fmt.Printf("      📝 Content preview: %s\n", truncateString(string(content), 100))
+	if threadCount == "0" {
+		fmt.Println("   ⚠️  No threads found - WebSocket sync may not be creating AI threads")
+		return fmt.Errorf("no threads found in Zed database")
 	}
 
-	if len(files) == 0 {
-		fmt.Println("   ⚠️  No conversation files found - Helix sessions may not be syncing to Zed AI")
-		return fmt.Errorf("no conversations found in Zed")
-	}
-
-	fmt.Printf("   ✅ Found %d conversations in Zed\n", len(files))
+	fmt.Println("   ✅ Threads found in Zed database!")
 	return nil
 }
 

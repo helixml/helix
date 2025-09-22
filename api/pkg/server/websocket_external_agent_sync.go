@@ -633,20 +633,51 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 
 // sendCommandToExternalAgent sends a command to the external agent
 func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, command types.ExternalAgentCommand) error {
+	// Add session_id to the command data for context
+	if command.Data == nil {
+		command.Data = make(map[string]interface{})
+	}
+	command.Data["session_id"] = sessionID
+
 	apiServer.externalAgentWSManager.mu.RLock()
-	conn, exists := apiServer.externalAgentWSManager.connections[sessionID]
+	connections := apiServer.externalAgentWSManager.connections
 	apiServer.externalAgentWSManager.mu.RUnlock()
 
-	if !exists {
-		return fmt.Errorf("no external agent connection for session %s", sessionID)
+	if len(connections) == 0 {
+		return fmt.Errorf("no external agent connections available")
 	}
 
-	select {
-	case conn.SendChan <- command:
-		return nil
-	default:
-		return fmt.Errorf("external agent send channel full for session %s", sessionID)
+	// Broadcast to all connected Zed agents
+	sentCount := 0
+	for agentID, conn := range connections {
+		select {
+		case conn.SendChan <- command:
+			sentCount++
+			log.Debug().
+				Str("agent_id", agentID).
+				Str("session_id", sessionID).
+				Str("command_type", command.Type).
+				Msg("Sent command to external Zed agent")
+		default:
+			log.Warn().
+				Str("agent_id", agentID).
+				Str("session_id", sessionID).
+				Msg("External agent send channel full, skipping")
+		}
 	}
+
+	if sentCount == 0 {
+		return fmt.Errorf("failed to send command to any external agent connections")
+	}
+
+	log.Info().
+		Int("sent_count", sentCount).
+		Int("total_connections", len(connections)).
+		Str("session_id", sessionID).
+		Str("command_type", command.Type).
+		Msg("Broadcasted command to external Zed agents")
+
+	return nil
 }
 
 // registerConnection registers a new external agent connection

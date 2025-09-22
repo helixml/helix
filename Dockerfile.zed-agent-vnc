@@ -353,7 +353,7 @@ ENTRYPOINT ["/start-wayland-vnc.sh"]
 # Removed old Python screencopy server - now using integrated HyprMoon screencopy
 
 # Install HyprMoon integrated with screencopy support
-COPY hyprmoon_0.41.2+ds-1.3+step8.9.192_amd64.deb /tmp/hyprmoon.deb
+COPY hyprmoon_0.41.2+ds-1.3+step8.9.178_amd64.deb /tmp/hyprmoon.deb
 RUN dpkg -i /tmp/hyprmoon.deb || apt-get update && apt-get install -f -y && dpkg -i /tmp/hyprmoon.deb \
     && rm /tmp/hyprmoon.deb \
     && echo "HyprMoon with integrated screencopy installed" > /HYPRMOON_INSTALLED.txt
