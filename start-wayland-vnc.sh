@@ -296,7 +296,7 @@ export WLR_ALLOW_ALL_CLIENTS=1
 
 # Start wayvnc with input enabled and cursor optimizations for VNC
 echo \"Starting wayvnc on port 5901...\"
-wayvnc --max-fps 120 --show-performance --disable-resizing 127.0.0.1 5901 &
+wayvnc --max-fps 120 --show-performance --disable-resizing 0.0.0.0 5901 &
 WAYVNC_PID=\$!
 
 # Wait a moment and verify wayvnc is running on the correct port
