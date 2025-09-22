@@ -52,7 +52,8 @@ if dpkg -l hyprmoon >/dev/null 2>&1; then
     echo "HyprMoon binary location:"
     which Hyprland || echo "❌ Hyprland binary not found in PATH"
     ls -la /usr/bin/Hyprland 2>/dev/null || echo "❌ /usr/bin/Hyprland not found"
-    HYPRMOON_MODE=true
+    echo "🔧 FORCING STOCK HYPRLAND MODE FOR VNC TESTING"
+    HYPRMOON_MODE=false
 else
     echo "❌ HyprMoon not found - falling back to stock Hyprland"
     HYPRMOON_MODE=false

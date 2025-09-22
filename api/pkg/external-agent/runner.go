@@ -244,10 +244,10 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 			return ctx.Err()
 		// ping every 5 seconds to keep the connection alive
 		case <-ticker.C:
-			log.Info().
-				Str("EXTERNAL_AGENT_DEBUG", "sending_ping").
-				Str("runner_id", r.cfg.RunnerID).
-				Msg("🏓 EXTERNAL_AGENT_DEBUG: Sending ping to control plane")
+			// log.Info().
+			// 	Str("EXTERNAL_AGENT_DEBUG", "sending_ping").
+			// 	Str("runner_id", r.cfg.RunnerID).
+			// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Sending ping to control plane")
 
 			err := conn.WriteMessage(websocket.PingMessage, []byte{})
 			if err != nil {
@@ -268,10 +268,10 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 				return fmt.Errorf("failed to write ping message (%w), will auto-reconnect", err)
 			}
 
-			log.Info().
-				Str("EXTERNAL_AGENT_DEBUG", "ping_sent_successfully").
-				Str("runner_id", r.cfg.RunnerID).
-				Msg("🏓 EXTERNAL_AGENT_DEBUG: Ping sent successfully to control plane")
+			// log.Info().
+			// 	Str("EXTERNAL_AGENT_DEBUG", "ping_sent_successfully").
+			// 	Str("runner_id", r.cfg.RunnerID).
+			// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Ping sent successfully to control plane")
 		}
 	}
 }

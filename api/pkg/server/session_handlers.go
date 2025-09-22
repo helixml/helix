@@ -1003,7 +1003,17 @@ func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user 
 	if len(chatCompletionRequest.Messages) > 0 {
 		lastMessage := chatCompletionRequest.Messages[len(chatCompletionRequest.Messages)-1]
 		if lastMessage.Role == "user" {
-			userMessage = lastMessage.Content
+			// Handle both simple content (string) and multi-content (complex structure)
+			if lastMessage.Content != "" {
+				userMessage = lastMessage.Content
+			} else if len(lastMessage.MultiContent) > 0 {
+				// Extract text from multi-content parts
+				for _, part := range lastMessage.MultiContent {
+					if part.Type == openai.ChatMessagePartTypeText {
+						userMessage += part.Text
+					}
+				}
+			}
 		}
 	}
 
@@ -1165,9 +1175,9 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 		case <-ticker.C:
 			attemptCount++
 
-			// Check if WebSocket connection exists
-			_, exists := s.externalAgentWSManager.getConnection(sessionID)
-			if exists {
+			// Check if any external Zed agent WebSocket connections exist
+			connections := s.externalAgentWSManager.listConnections()
+			if len(connections) > 0 {
 				elapsed := time.Since(startTime)
 				log.Info().
 					Str("session_id", sessionID).

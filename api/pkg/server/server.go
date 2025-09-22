@@ -1106,19 +1106,19 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 
 		// Set up ping handler to track when runner sends pings to us
 		wsConn.SetPingHandler(func(appData string) error {
-			log.Info().
-				Str("EXTERNAL_AGENT_DEBUG", "ping_received").
-				Str("runner_id", runnerID).
-				Str("app_data", appData).
-				Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
+			// log.Info().
+			// 	Str("EXTERNAL_AGENT_DEBUG", "ping_received").
+			// 	Str("runner_id", runnerID).
+			// 	Str("app_data", appData).
+			// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
 
 			// Update last ping time in connection manager
 			if apiServer.externalAgentRunnerManager != nil {
 				apiServer.externalAgentRunnerManager.updatePingByRunner(runnerID)
-				log.Info().
-					Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
-					Str("runner_id", runnerID).
-					Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
+				// log.Info().
+				// 	Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
+				// 	Str("runner_id", runnerID).
+				// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
 			} else {
 				log.Error().
 					Str("EXTERNAL_AGENT_DEBUG", "no_connection_manager").
