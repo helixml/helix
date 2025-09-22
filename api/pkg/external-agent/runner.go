@@ -37,7 +37,7 @@ const (
 // and listens for external agent tasks to run (follows GPTScript runner pattern)
 // Also establishes reverse dial connection for RDP proxy
 type ExternalAgentRunner struct {
-	cfg      *config.ExternalAgentRunnerConfig
+	cfg         *config.ExternalAgentRunnerConfig
 	revDialConn net.Conn // Reverse dial connection to control plane for RDP
 }
 
@@ -56,7 +56,7 @@ func (r *ExternalAgentRunner) Run(ctx context.Context) error {
 		Int("concurrency", r.cfg.Concurrency).
 		Int("max_tasks", r.cfg.MaxTasks).
 		Msg("🚀 EXTERNAL_AGENT_DEBUG: Starting external agent runner with auto-reconnect")
-	
+
 	// Persistent retry loop - keep trying to reconnect on failures
 	for {
 		select {
@@ -68,12 +68,12 @@ func (r *ExternalAgentRunner) Run(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
-		
+
 		log.Info().
 			Str("EXTERNAL_AGENT_DEBUG", "connection_attempt").
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔄 EXTERNAL_AGENT_DEBUG: Attempting to connect to control plane")
-		
+
 		err := r.run(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -83,13 +83,13 @@ func (r *ExternalAgentRunner) Run(ctx context.Context) error {
 					Msg("🛑 EXTERNAL_AGENT_DEBUG: Runner cancelled, exiting")
 				return err
 			}
-			
+
 			log.Error().
 				Err(err).
 				Str("EXTERNAL_AGENT_DEBUG", "connection_failed").
 				Str("runner_id", r.cfg.RunnerID).
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Connection failed, will retry in 5 seconds")
-			
+
 			// Wait before retrying
 			select {
 			case <-ctx.Done():
@@ -133,7 +133,7 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 		Str("EXTERNAL_AGENT_DEBUG", "establishing_reverse_dial").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("🔗 EXTERNAL_AGENT_DEBUG: Establishing reverse dial connection for RDP proxy")
-	
+
 	err = r.establishReverseDialConnection(ctx)
 	if err != nil {
 		log.Error().
@@ -142,7 +142,7 @@ func (r *ExternalAgentRunner) run(ctx context.Context) error {
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to establish reverse dial connection, will retry on next reconnect")
 		return fmt.Errorf("failed to establish reverse dial connection: %w", err)
 	}
-	
+
 	defer func() {
 		if r.revDialConn != nil {
 			r.revDialConn.Close()
@@ -336,7 +336,7 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 		Str("EXTERNAL_AGENT_DEBUG", "message_envelope_parsed").
 		Str("request_id", envelope.RequestID).
 		Str("reply", envelope.Reply).
-		Str("type", string(envelope.Type)).
+		Str("type", envelope.Type.String()).
 		Int("payload_length", len(envelope.Payload)).
 		Msg("📦 EXTERNAL_AGENT_DEBUG: Message envelope parsed successfully")
 
@@ -357,7 +357,7 @@ func (r *ExternalAgentRunner) processMessage(ctx context.Context, conn *websocke
 	default:
 		log.Error().
 			Str("EXTERNAL_AGENT_DEBUG", "unknown_message_type").
-			Str("type", string(envelope.Type)).
+			Str("type", envelope.Type.String()).
 			Str("request_id", envelope.RequestID).
 			Msg("❌ EXTERNAL_AGENT_DEBUG: Unknown message type")
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
@@ -446,8 +446,8 @@ func (r *ExternalAgentRunner) startZedAgent(ctx context.Context, agent *types.Ze
 	logger.Info().
 		Str("session_id", agent.SessionID).
 		Msg("Skipping RDP password rotation - using static password for testing")
-	
-	rdpPort := 5900 // Fixed RDP port inside container  
+
+	rdpPort := 5900 // Fixed RDP port inside container
 	if agent.RDPPort != 0 {
 		rdpPort = agent.RDPPort
 	}
@@ -673,7 +673,7 @@ func (r *ExternalAgentRunner) respond(conn *websocket.Conn, reqID, reply string,
 
 // establishReverseDialConnection establishes reverse dial connection to control plane for RDP proxy
 func (r *ExternalAgentRunner) establishReverseDialConnection(ctx context.Context) error {
-	// Build reverse dial URL 
+	// Build reverse dial URL
 	var apiHost string
 	if strings.HasPrefix(r.cfg.APIHost, "https://") {
 		apiHost = strings.Replace(r.cfg.APIHost, "https", "http", 1)
@@ -682,38 +682,38 @@ func (r *ExternalAgentRunner) establishReverseDialConnection(ctx context.Context
 	} else {
 		apiHost = "http://" + r.cfg.APIHost
 	}
-	
+
 	revDialURL := fmt.Sprintf("%s%s?runnerid=%s",
 		apiHost,
 		system.GetAPIPath("/revdial"),
 		url.QueryEscape(r.cfg.RunnerID),
 	)
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connecting").
 		Str("url", revDialURL).
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("🔗 EXTERNAL_AGENT_DEBUG: Establishing reverse dial connection")
-	
+
 	// Create HTTP request with runner token authentication
 	req, err := http.NewRequestWithContext(ctx, "GET", revDialURL, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create reverse dial request: %w", err)
 	}
-	
+
 	// Add Authorization header with runner token
 	req.Header.Set("Authorization", "Bearer "+r.cfg.APIToken)
-	
+
 	// Use a custom transport to get access to the underlying connection
 	// We need to hijack the connection like the control plane does
 	dialer := &net.Dialer{Timeout: 30 * time.Second}
-	
+
 	// Parse URL to get host:port
 	u, err := url.Parse(revDialURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse reverse dial URL: %w", err)
 	}
-	
+
 	host := u.Host
 	if u.Port() == "" {
 		if u.Scheme == "https" {
@@ -722,24 +722,24 @@ func (r *ExternalAgentRunner) establishReverseDialConnection(ctx context.Context
 			host = host + ":80"
 		}
 	}
-	
+
 	// Establish raw TCP connection
 	conn, err := dialer.DialContext(ctx, "tcp", host)
 	if err != nil {
 		return fmt.Errorf("failed to dial control plane: %w", err)
 	}
-	
+
 	// Send HTTP request over the connection
 	reqLine := fmt.Sprintf("GET %s HTTP/1.1\r\n", u.RequestURI())
 	hostHeader := fmt.Sprintf("Host: %s\r\n", u.Host)
 	authHeader := fmt.Sprintf("Authorization: Bearer %s\r\n", r.cfg.APIToken)
 	httpRequest := reqLine + hostHeader + authHeader + "\r\n"
-	
+
 	if _, err := conn.Write([]byte(httpRequest)); err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to send HTTP request: %w", err)
 	}
-	
+
 	// Read HTTP response to confirm connection was hijacked
 	respBytes := make([]byte, 1024)
 	n, err := conn.Read(respBytes)
@@ -747,48 +747,48 @@ func (r *ExternalAgentRunner) establishReverseDialConnection(ctx context.Context
 		conn.Close()
 		return fmt.Errorf("failed to read HTTP response: %w", err)
 	}
-	
+
 	response := string(respBytes[:n])
 	if !strings.Contains(response, "200 OK") {
 		conn.Close()
 		return fmt.Errorf("reverse dial endpoint returned non-200 response: %s", response)
 	}
-	
+
 	// Connection is now hijacked and registered in connman on control plane side
 	r.revDialConn = conn
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_established").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("✅ EXTERNAL_AGENT_DEBUG: Reverse dial connection established")
-	
+
 	// Start handling reverse dial connections in background
 	go r.handleReverseDialForwarding(ctx)
-	
+
 	return nil
 }
 
 // handleReverseDialForwarding handles the reverse dial connection and forwards to XRDP
 func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 	defer r.revDialConn.Close()
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_forwarding_start").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting revdial listener for VNC")
-	
+
 	// Create a dialServer function that creates WebSocket connections back to the control plane
 	// This is used by the revdial protocol for establishing data connections
 	dialServer := func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
 		// Build WebSocket URL for reverse dial data connections
 		wsURL := strings.Replace(r.cfg.APIHost, "http://", "ws://", 1) + path
-		
+
 		log.Debug().
 			Str("EXTERNAL_AGENT_DEBUG", "websocket_dial").
 			Str("url", wsURL).
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔗 EXTERNAL_AGENT_DEBUG: Dialing WebSocket for revdial data connection")
-		
+
 		// Create WebSocket connection with proper headers
 		headers := http.Header{}
 		dialer := websocket.Dialer{}
@@ -801,26 +801,26 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dial WebSocket for revdial")
 			return nil, resp, err
 		}
-		
+
 		log.Debug().
 			Str("EXTERNAL_AGENT_DEBUG", "websocket_connected").
 			Str("url", wsURL).
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("✅ EXTERNAL_AGENT_DEBUG: WebSocket connected for revdial data connection")
-		
+
 		return conn, resp, nil
 	}
-	
+
 	// Create a revdial listener from the established connection
 	// This handles the JSON control protocol and creates logical connections via WebSocket
 	listener := revdial.NewListener(r.revDialConn, dialServer)
 	defer listener.Close()
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_listener_created").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("✅ EXTERNAL_AGENT_DEBUG: Created revdial listener")
-	
+
 	// Accept incoming logical connections and forward each to VNC
 	for {
 		select {
@@ -832,7 +832,7 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 			return
 		default:
 		}
-		
+
 		// Accept an incoming logical connection from the control plane
 		incomingConn, err := listener.Accept()
 		if err != nil {
@@ -843,12 +843,12 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 				Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to accept revdial connection")
 			return
 		}
-		
+
 		log.Info().
 			Str("EXTERNAL_AGENT_DEBUG", "reverse_dial_connection_accepted").
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔗 EXTERNAL_AGENT_DEBUG: Accepted new revdial logical connection")
-		
+
 		// Handle this connection in a goroutine
 		go r.handleSingleVNCForwarding(ctx, incomingConn)
 	}
@@ -857,12 +857,12 @@ func (r *ExternalAgentRunner) handleReverseDialForwarding(ctx context.Context) {
 // handleSingleVNCForwarding handles a single connection by forwarding it to VNC
 func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, incomingConn net.Conn) {
 	defer incomingConn.Close()
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "vnc_forward_start").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("🖥️ EXTERNAL_AGENT_DEBUG: Starting VNC forwarding for single connection")
-	
+
 	// Connect to local VNC server
 	vncConn, err := net.Dial("tcp", "localhost:5902")
 	if err != nil {
@@ -874,15 +874,15 @@ func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, inc
 		return
 	}
 	defer vncConn.Close()
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "vnc_connected").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("✅ EXTERNAL_AGENT_DEBUG: Connected to local VNC server")
-	
+
 	// Simple bidirectional TCP proxy (no protocol conversion)
 	done := make(chan struct{}, 2)
-	
+
 	// Forward control plane → VNC
 	go func() {
 		defer func() { done <- struct{}{} }()
@@ -894,8 +894,8 @@ func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, inc
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
 	}()
-	
-	// Forward VNC → control plane  
+
+	// Forward VNC → control plane
 	go func() {
 		defer func() { done <- struct{}{} }()
 		bytes, err := io.Copy(incomingConn, vncConn)
@@ -906,15 +906,12 @@ func (r *ExternalAgentRunner) handleSingleVNCForwarding(ctx context.Context, inc
 			Str("runner_id", r.cfg.RunnerID).
 			Msg("🔄 EXTERNAL_AGENT_DEBUG: TCP forward completed/ended")
 	}()
-	
+
 	// Wait for either direction to complete
 	<-done
-	
+
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "vnc_forward_complete").
 		Str("runner_id", r.cfg.RunnerID).
 		Msg("🔄 EXTERNAL_AGENT_DEBUG: VNC forwarding completed for single connection")
 }
-
-
-

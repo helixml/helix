@@ -217,7 +217,7 @@ func TestExternalAgentModelParameter(t *testing.T) {
 	}
 
 	// Create test user
-	user, apiKey, err := createUser(t, db, nil, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
+	_, apiKey, err := createUser(t, db, nil, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
 	if err != nil {
 		t.Fatalf("Failed to create user: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestExternalAgentModelParameter(t *testing.T) {
 	// This should not fail with "you must provide a model parameter" error
 	// Note: It may fail for other reasons (like no external agent available)
 	// but we're specifically testing that the model parameter is accepted
-	session, err := apiClient.CreateSession(context.Background(), sessionReq)
+	sessionID, err := apiClient.ChatSession(context.Background(), sessionReq)
 
 	// The session creation might fail due to external agent not being available,
 	// but it should NOT fail with "you must provide a model parameter"
@@ -264,11 +264,8 @@ func TestExternalAgentModelParameter(t *testing.T) {
 		return
 	}
 
-	// If session creation succeeded, verify the model is set correctly
-	if session != nil {
-		if session.ModelName != "external_agent" {
-			t.Errorf("Expected model to be 'external_agent', got '%s'", session.ModelName)
-		}
-		t.Logf("Successfully created external agent session with ID: %s", session.ID)
+	// If session creation succeeded, log the session ID
+	if sessionID != "" {
+		t.Logf("Successfully created external agent session with ID: %s", sessionID)
 	}
 }
