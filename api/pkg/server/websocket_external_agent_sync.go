@@ -71,7 +71,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 	now := time.Now()
 	// Generate unique connection ID: runnerID + timestamp + microseconds
 	connectionID := fmt.Sprintf("%s-%d-%d", runnerID, now.Unix(), now.Nanosecond()/1000)
-	
+
 	newConnection := &ExternalAgentRunnerConnection{
 		ConnectionID: connectionID,
 		RunnerID:     runnerID,
@@ -90,7 +90,7 @@ func (manager *ExternalAgentRunnerManager) addConnection(runnerID string, concur
 		Int("concurrency", concurrency).
 		Int("total_connections", len(manager.runnerConnections[runnerID])).
 		Msg("🔗 External agent runner connection added to manager")
-	
+
 	return connectionID
 }
 
@@ -108,17 +108,17 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			Msg("⚠️ Attempted to remove connection from non-existent runner")
 		return
 	}
-	
+
 	for i, conn := range connections {
 		if conn.ConnectionID == connectionID {
 			// Remove this connection from the slice
 			manager.runnerConnections[runnerID] = append(connections[:i], connections[i+1:]...)
-			
+
 			// If no connections left for this runner, remove the runner entry
 			if len(manager.runnerConnections[runnerID]) == 0 {
 				delete(manager.runnerConnections, runnerID)
 			}
-			
+
 			log.Info().
 				Str("runner_id", runnerID).
 				Str("connection_id", connectionID).
@@ -127,7 +127,7 @@ func (manager *ExternalAgentRunnerManager) removeConnection(runnerID, connection
 			return
 		}
 	}
-	
+
 	log.Warn().
 		Str("runner_id", runnerID).
 		Str("connection_id", connectionID).
@@ -150,14 +150,14 @@ func (manager *ExternalAgentRunnerManager) updatePingByRunner(runnerID string) {
 	// Find the most recent connection for this runner
 	var mostRecentConn *ExternalAgentRunnerConnection
 	var mostRecentTime time.Time
-	
+
 	for _, conn := range connections {
 		if conn.ConnectedAt.After(mostRecentTime) {
 			mostRecentConn = conn
 			mostRecentTime = conn.ConnectedAt
 		}
 	}
-	
+
 	if mostRecentConn != nil {
 		oldPing := mostRecentConn.LastPing
 		mostRecentConn.LastPing = time.Now()
@@ -179,24 +179,24 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 	defer manager.mu.RUnlock()
 
 	connections := make([]types.ExternalAgentConnection, 0, len(manager.runnerConnections))
-	
+
 	// For each runner, find the most recent connection and include it in the list
 	for runnerID, runnerConns := range manager.runnerConnections {
 		if len(runnerConns) == 0 {
 			continue
 		}
-		
+
 		// Find the most recent connection for this runner
 		var mostRecentConn *ExternalAgentRunnerConnection
 		var mostRecentTime time.Time
-		
+
 		for _, conn := range runnerConns {
 			if conn.ConnectedAt.After(mostRecentTime) {
 				mostRecentConn = conn
 				mostRecentTime = conn.ConnectedAt
 			}
 		}
-		
+
 		if mostRecentConn != nil {
 			connections = append(connections, types.ExternalAgentConnection{
 				SessionID:   runnerID, // Use RunnerID as SessionID for consistency
@@ -206,12 +206,17 @@ func (manager *ExternalAgentRunnerManager) listConnections() []types.ExternalAge
 			})
 		}
 	}
-	
+
 	return connections
 }
 
 // handleExternalAgentSync handles WebSocket connections from external agents (Zed instances)
 func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter, req *http.Request) {
+	log.Info().
+		Str("method", req.Method).
+		Str("url", req.URL.String()).
+		Str("remote_addr", req.RemoteAddr).
+		Msg("🔌 [HELIX] External agent WebSocket connection attempt")
 	// Extract agent ID from query parameters (optional - will generate one if not provided)
 	agentID := req.URL.Query().Get("agent_id")
 	if agentID == "" {
@@ -373,6 +378,12 @@ func (apiServer *HelixAPIServer) handleExternalAgentSender(ctx context.Context, 
 
 // processExternalAgentSyncMessage processes incoming sync messages from external agents
 func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("agent_session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("🔄 [HELIX] PROCESSING MESSAGE FROM EXTERNAL AGENT")
+
 	log.Debug().
 		Str("session_id", sessionID).
 		Str("event_type", syncMsg.EventType).
@@ -685,6 +696,10 @@ func (manager *ExternalAgentWSManager) registerConnection(sessionID string, conn
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.connections[sessionID] = conn
+	log.Info().
+		Str("session_id", sessionID).
+		Int("total_connections", len(manager.connections)).
+		Msg("🔗 [HELIX] Registered external agent connection")
 }
 
 // unregisterConnection unregisters an external agent connection
@@ -724,6 +739,11 @@ func (manager *ExternalAgentWSManager) listConnections() []types.ExternalAgentCo
 
 // handleChatResponse processes complete chat response from external agent
 func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("🔵 [HELIX] RECEIVED CHAT_RESPONSE FROM EXTERNAL AGENT")
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
 		log.Warn().Str("session_id", sessionID).Msg("Chat response missing request_id")
@@ -736,16 +756,34 @@ func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *t
 		return nil
 	}
 
+	// CRITICAL FIX: Use the Helix Session ID from the message, not the Agent Session ID
+	helixSessionID := syncMsg.SessionID
+	log.Info().
+		Str("agent_session_id", sessionID).
+		Str("helix_session_id", helixSessionID).
+		Str("request_id", requestID).
+		Msg("🔧 [HELIX] USING HELIX SESSION ID FOR RESPONSE CHANNEL LOOKUP")
+
 	// Handle response via legacy channel handling
-	responseChan, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+	responseChan, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, requestID)
 	if !exists {
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for request")
 		return nil
 	}
 
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Str("content", content).
+		Msg("🔵 [HELIX] SENDING RESPONSE TO RESPONSE CHANNEL")
+
 	// Send content as single chunk
 	select {
 	case responseChan <- content:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("✅ [HELIX] RESPONSE SENT TO CHANNEL SUCCESSFULLY")
 	default:
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Response channel full")
 	}
@@ -793,22 +831,44 @@ func (apiServer *HelixAPIServer) handleChatResponseChunk(sessionID string, syncM
 
 // handleChatResponseDone processes completion signal from external agent
 func (apiServer *HelixAPIServer) handleChatResponseDone(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("🔵 [HELIX] RECEIVED CHAT_RESPONSE_DONE FROM EXTERNAL AGENT")
 	requestID, ok := syncMsg.Data["request_id"].(string)
 	if !ok {
 		log.Warn().Str("session_id", sessionID).Msg("Chat response done missing request_id")
 		return nil
 	}
 
+	// CRITICAL FIX: Use the Helix Session ID from the message, not the Agent Session ID
+	helixSessionID := syncMsg.SessionID
+	log.Info().
+		Str("agent_session_id", sessionID).
+		Str("helix_session_id", helixSessionID).
+		Str("request_id", requestID).
+		Msg("🔧 [HELIX] USING HELIX SESSION ID FOR DONE CHANNEL LOOKUP")
+
 	// Handle response completion via legacy channel handling
-	_, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+	_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, requestID)
 	if !exists {
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("No response channel found for done signal")
 		return nil
 	}
 
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Msg("🔵 [HELIX] SENDING DONE SIGNAL TO DONE CHANNEL")
+
 	// Send completion signal
 	select {
 	case doneChan <- true:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("✅ [HELIX] DONE SIGNAL SENT TO CHANNEL SUCCESSFULLY")
 	default:
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Done channel full")
 	}
