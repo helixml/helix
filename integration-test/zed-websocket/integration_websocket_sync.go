@@ -209,6 +209,11 @@ func main() {
 
 	fmt.Println("🔄 60 seconds elapsed - shutting down Zed...")
 
+	// Verify Helix sessions before cleanup
+	fmt.Println("")
+	fmt.Println("🔍 Verifying Helix sessions...")
+	verifyHelixSessions()
+
 	// Clean up Zed process
 	if zedCmd != nil && zedCmd.Process != nil {
 		zedCmd.Process.Kill()
@@ -1182,6 +1187,102 @@ func verifyZedConversations() error {
 			fmt.Printf("   📄 %s (modified: %s)\n", fileName, fileInfos[i].modTime.Format("15:04:05"))
 		}
 	}
+
+	return nil
+}
+
+func verifyHelixSessions() error {
+	fmt.Println("🔍 Verifying Helix sessions...")
+	fmt.Printf("   Checking for sessions with external agent responses\n")
+
+	// Make a request to list sessions
+	url := "http://localhost:8080/api/v1/sessions"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Printf("   ❌ Failed to create request: %v\n", err)
+		return fmt.Errorf("failed to create sessions request: %w", err)
+	}
+
+	// Add authentication header
+	req.Header.Set("Authorization", "Bearer "+testRunnerToken)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("   ❌ Failed to get sessions: %v\n", err)
+		return fmt.Errorf("failed to get sessions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("   ❌ Sessions API returned status %d: %s\n", resp.StatusCode, string(body))
+		return fmt.Errorf("sessions API returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("   ❌ Failed to read response: %v\n", err)
+		return fmt.Errorf("failed to read sessions response: %w", err)
+	}
+
+	// Parse the sessions response
+	var sessionsResp struct {
+		Sessions []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Mode      string `json:"mode"`
+			Type      string `json:"type"`
+			ModelName string `json:"model_name"`
+			Created   string `json:"created"`
+			Updated   string `json:"updated"`
+		} `json:"sessions"`
+	}
+
+	if err := json.Unmarshal(body, &sessionsResp); err != nil {
+		fmt.Printf("   ❌ Failed to parse sessions response: %v\n", err)
+		return fmt.Errorf("failed to parse sessions response: %w", err)
+	}
+
+	fmt.Printf("   📊 Found %d Helix session(s)\n", len(sessionsResp.Sessions))
+
+	// Look for sessions that might be from our external agent tests
+	externalAgentSessions := 0
+	recentSessions := 0
+	now := time.Now()
+
+	for _, session := range sessionsResp.Sessions {
+		// Parse the created time
+		created, err := time.Parse(time.RFC3339, session.Created)
+		if err != nil {
+			continue
+		}
+
+		// Check if session was created in the last hour (likely from our test)
+		if now.Sub(created) < time.Hour {
+			recentSessions++
+			fmt.Printf("   📄 Recent session: %s (name: %s, type: %s, model: %s)\n",
+				session.ID, session.Name, session.Type, session.ModelName)
+		}
+
+		// Check if this looks like an external agent session
+		if strings.Contains(strings.ToLower(session.Name), "zed") ||
+			strings.Contains(strings.ToLower(session.Name), "websocket") ||
+			strings.Contains(strings.ToLower(session.Name), "external") {
+			externalAgentSessions++
+		}
+	}
+
+	if recentSessions == 0 {
+		fmt.Println("   ⚠️  No recent sessions found - Zed → Helix sync may not be working")
+		return fmt.Errorf("no recent Helix sessions found")
+	}
+
+	fmt.Printf("   ✅ Found %d recent session(s) and %d potential external agent session(s)\n",
+		recentSessions, externalAgentSessions)
+
+	// TODO: Check individual session for AI responses from external agent
+	// This would require getting session details and checking for responses
 
 	return nil
 }
