@@ -1213,6 +1213,18 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	s.storeResponseChannel(session.ID, requestID, responseChan, doneChan, errorChan)
 	defer s.cleanupResponseChannel(session.ID, requestID)
 
+	log.Info().
+		Str("session_id", session.ID).
+		Str("request_id", requestID).
+		Interface("command", command).
+		Msg("🔴 [HELIX] SENDING CHAT_MESSAGE COMMAND TO EXTERNAL AGENT")
+		
+	log.Info().
+		Str("helix_session_id", session.ID).
+		Str("request_id", requestID).
+		Str("user_message", userMessage).
+		Msg("🗂️  [HELIX] SESSION MAPPING: Chat request details")
+
 	// Send command to external agent
 	if err := s.sendCommandToExternalAgent(session.ID, command); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to send command to external agent")
@@ -1327,6 +1339,10 @@ func (s *HelixAPIServer) waitForExternalAgentReady(ctx context.Context, sessionI
 
 			// Check if any external Zed agent WebSocket connections exist
 			connections := s.externalAgentWSManager.listConnections()
+			log.Info().
+				Int("connection_count", len(connections)).
+				Interface("connections", connections).
+				Msg("🔍 [HELIX] Checking external agent connections")
 			if len(connections) > 0 {
 				elapsed := time.Since(startTime)
 				log.Info().
