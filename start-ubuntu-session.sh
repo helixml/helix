@@ -28,6 +28,12 @@ export LIBVA_DRIVERS_PATH="$LIBVA_DRIVERS_PATH"
 export GPU_RENDER_NODE="$GPU_RENDER_NODE"
 export GST_GL_DRM_DEVICE="$GST_GL_DRM_DEVICE"
 
+# Export HyprMoon environment variables
+export HYPRMOON_MODE="${HYPRMOON_MODE:-true}"
+export HYPRMOON_FRAME_SOURCE="${HYPRMOON_FRAME_SOURCE:-screencopy}"
+export HYPRMOON_WAYLAND_DISPLAY="${HYPRMOON_WAYLAND_DISPLAY:-wayland-1}"
+export HYPRMOON_DEBUG_SAVE_FRAMES="${HYPRMOON_DEBUG_SAVE_FRAMES:-1}"
+
 # Start dbus session
 if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
     eval $(dbus-launch --sh-syntax)

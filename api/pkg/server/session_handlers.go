@@ -77,6 +77,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// messageContextLimit - how many messages to keep in the context,
 	// configured by the app
 	var messageContextLimit int
+	var agentType string
 
 	if startReq.AppID == "" {
 		// If organization ID is set, check if user is a member of the organization
@@ -90,6 +91,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		// Setting default message context limit
 		messageContextLimit = s.Cfg.Inference.DefaultContextLimit
+		agentType = startReq.AgentType
 	} else {
 		// If app ID is set, load the app
 		app, err := s.Store.GetAppWithTools(req.Context(), startReq.AppID)
@@ -109,6 +111,31 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Set organization ID if not set yet
 		if app.OrganizationID != "" {
 			startReq.OrganizationID = app.OrganizationID
+		}
+
+		// Determine agent type from assistant configuration
+		agentType = getAgentTypeFromApp(app, startReq)
+		log.Debug().
+			Str("app_id", startReq.AppID).
+			Str("determined_agent_type", agentType).
+			Msg("Determined agent type from app configuration")
+
+		// Load external agent config from app if agent type is external
+		if agentType == "zed_external" && startReq.ExternalAgentConfig == nil {
+			if app.Config.Helix.ExternalAgentConfig != nil {
+				// Check if the config has meaningful values (not just an empty struct)
+				appConfig := app.Config.Helix.ExternalAgentConfig
+				if appConfig.WorkspaceDir != "" || appConfig.ProjectPath != "" || len(appConfig.EnvVars) > 0 {
+					startReq.ExternalAgentConfig = appConfig
+					log.Debug().
+						Str("app_id", startReq.AppID).
+						Msg("Loaded external agent config from app configuration")
+				} else {
+					log.Debug().
+						Str("app_id", startReq.AppID).
+						Msg("App has empty external agent config, will use defaults")
+				}
+			}
 		}
 
 		// If an AssistantID is specified, get the correct assistant from the app
@@ -259,7 +286,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				SystemPrompt:        startReq.SystemPrompt,
 				AssistantID:         startReq.AssistantID,
 				HelixVersion:        data.GetHelixVersion(),
-				AgentType:           startReq.AgentType,
+				AgentType:           agentType,
 				ExternalAgentConfig: startReq.ExternalAgentConfig,
 			},
 		}
@@ -306,7 +333,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	// Validate external agent configuration if specified
-	if startReq.AgentType == "zed_external" {
+	if agentType == "zed_external" {
 		if startReq.ExternalAgentConfig == nil {
 			log.Info().
 				Str("session_id", session.ID).
@@ -340,7 +367,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	// Handle external agent routing if agent type is zed_external
-	if newSession && startReq.AgentType == "zed_external" {
+	if newSession && agentType == "zed_external" {
 		// Register the session in the external agent executor before launching
 		if s.externalAgentExecutor != nil {
 			// Create a ZedAgent struct with session info for registration
@@ -351,15 +378,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				ProjectPath: "workspace", // Use relative path
 			}
 
-			// Apply external agent configuration (guaranteed to exist from validation above)
-			if startReq.ExternalAgentConfig.WorkspaceDir != "" {
-				zedAgent.WorkDir = startReq.ExternalAgentConfig.WorkspaceDir
-			}
-			if startReq.ExternalAgentConfig.ProjectPath != "" {
-				zedAgent.ProjectPath = startReq.ExternalAgentConfig.ProjectPath
-			}
-			if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
-				zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
+			// Apply external agent configuration if provided
+			if startReq.ExternalAgentConfig != nil {
+				if startReq.ExternalAgentConfig.WorkspaceDir != "" {
+					zedAgent.WorkDir = startReq.ExternalAgentConfig.WorkspaceDir
+				}
+				if startReq.ExternalAgentConfig.ProjectPath != "" {
+					zedAgent.ProjectPath = startReq.ExternalAgentConfig.ProjectPath
+				}
+				if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
+					zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
+				}
 			}
 
 			// Register session in executor so RDP endpoint can find it
@@ -388,7 +417,23 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 
 	if newSession {
-		go func() {
+		go func(sessionAgentType string) {
+			// Use default name for external agent sessions instead of generating via LLM
+			if sessionAgentType == "zed_external" {
+				defaultName := "External Agent Session"
+				log.Debug().
+					Str("session_id", session.ID).
+					Str("agent_type", startReq.AgentType).
+					Str("default_name", defaultName).
+					Msg("Using default name for external agent session")
+
+				session.Name = defaultName
+				err := s.Controller.UpdateSessionName(req.Context(), user.ID, session.ID, defaultName)
+				if err != nil {
+					log.Error().Err(err).Msg("error updating session name for external agent")
+				}
+				return
+			}
 
 			var (
 				provider string
@@ -415,7 +460,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			if err != nil {
 				log.Error().Err(err).Msg("error updating session name")
 			}
-		}()
+		}(agentType)
 	}
 
 	ownerID := user.ID
@@ -571,6 +616,29 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	return session, nil
 }
 
+// getAgentTypeFromApp determines the agent type from the app's assistant configuration
+func getAgentTypeFromApp(app *types.App, startReq types.SessionChatRequest) string {
+	// Default to request agent type if no app
+	if app == nil {
+		return startReq.AgentType
+	}
+
+	// Get the assistant configuration
+	var assistant *types.AssistantConfig
+	if startReq.AssistantID != "" {
+		assistant = data.GetAssistant(app, startReq.AssistantID)
+	} else if len(app.Config.Helix.Assistants) > 0 {
+		assistant = &app.Config.Helix.Assistants[0]
+	}
+
+	// Use assistant agent type if available, otherwise fall back to request agent type
+	if assistant != nil {
+		return string(assistant.AgentType)
+	}
+
+	return startReq.AgentType
+}
+
 func getInteractionIndex(interactions []*types.Interaction, req *types.SessionChatRequest) int {
 	// Get last message interaction ID
 	if len(req.Messages) == 0 {
@@ -710,6 +778,16 @@ func (s *HelixAPIServer) handleBlockingSession(
 		Msg("handleBlockingSession: set session ID in context for document tracking")
 
 	start := time.Now()
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType == "zed_external" {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Routing non-streaming session to external agent")
+
+		return s.handleExternalAgentStreaming(ctx, user, session, interaction, chatCompletionRequest, rw, start)
+	}
 
 	// Call the LLM
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)

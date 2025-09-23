@@ -3,6 +3,12 @@ set -e
 
 # Hyprland-only startup script for 4K@60Hz with NVIDIA GPU acceleration
 
+# Export HyprMoon environment variables if available
+export HYPRMOON_MODE="${HYPRMOON_MODE:-true}"
+export HYPRMOON_FRAME_SOURCE="${HYPRMOON_FRAME_SOURCE:-screencopy}"
+export HYPRMOON_WAYLAND_DISPLAY="${HYPRMOON_WAYLAND_DISPLAY:-wayland-1}"
+export HYPRMOON_DEBUG_SAVE_FRAMES="${HYPRMOON_DEBUG_SAVE_FRAMES:-1}"
+
 # Lock file to prevent multiple concurrent executions
 LOCK_FILE="/tmp/start-wayland-vnc.lock"
 

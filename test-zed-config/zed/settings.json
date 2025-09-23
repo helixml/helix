@@ -1,0 +1,23 @@
+{
+  "language_models": {
+    "anthropic": {
+      "available_models": [
+        {
+          "name": "claude-3-5-sonnet-20241022",
+          "display_name": "Claude 3.5 Sonnet",
+          "max_tokens": 200000,
+          "max_output_tokens": 8192
+        }
+      ]
+    }
+  },
+  "agent": {
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20241022"
+    }
+  },
+  "disable_ai": false,
+  "auto_open_ai_panel": true
+}
+
