@@ -24,6 +24,7 @@ const (
 
 var testRunnerToken string
 var userAPIKey = "hl-A_7_46c0-jtUklU1RakIp1o8drgFLz5IZSlqowjrS-g="
+var anthropicAPIKey string
 
 // Helix API types
 type CreateSessionRequest struct {
@@ -94,6 +95,12 @@ func main() {
 		log.Fatalf("❌ Failed to load runner token: %v", err)
 	}
 	fmt.Printf("✅ Loaded runner token: %s\n", testRunnerToken)
+
+	// Load Anthropic API key from .env file
+	if err := loadAnthropicAPIKey(); err != nil {
+		log.Fatalf("❌ Failed to load Anthropic API key: %v", err)
+	}
+	fmt.Printf("✅ Loaded Anthropic API key: %s\n", anthropicAPIKey[:20]+"...")
 
 	// Check if Helix is running
 	if !isHelixRunning() {
@@ -229,6 +236,27 @@ func loadRunnerToken() error {
 	}
 
 	return fmt.Errorf("ZED_AGENT_RUNNER_TOKEN not found in .env file")
+}
+
+func loadAnthropicAPIKey() error {
+	// Read .env file from project root
+	envFile := "../../.env"
+	content, err := os.ReadFile(envFile)
+	if err != nil {
+		return fmt.Errorf("failed to read .env file: %w", err)
+	}
+
+	// Parse the .env file for ANTHROPIC_API_KEY
+	lines := string(content)
+	for _, line := range strings.Split(lines, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ANTHROPIC_API_KEY=") {
+			anthropicAPIKey = strings.TrimPrefix(line, "ANTHROPIC_API_KEY=")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("ANTHROPIC_API_KEY not found in .env file")
 }
 
 func isHelixRunning() bool {
@@ -1006,8 +1034,8 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 		"ZED_HELIX_TLS=false",
 		"ZED_AUTO_OPEN_AI_PANEL=true",
 		"ZED_SHOW_AI_ASSISTANT=true",
-		// Anthropic API key for actual AI responses (from environment)
-		"ANTHROPIC_API_KEY="+os.Getenv("ANTHROPIC_API_KEY"),
+		// Anthropic API key for actual AI responses (from .env file)
+		"ANTHROPIC_API_KEY="+anthropicAPIKey,
 		// Isolate Zed config and data directories
 		"ZED_CONFIG_DIR="+testConfigDir,
 		"ZED_DATA_DIR="+testDataDir,
