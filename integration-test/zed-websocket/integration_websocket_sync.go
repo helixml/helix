@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -1116,35 +1117,72 @@ func createZedSettingsWithAnthropic(configDir string) error {
 
 func verifyZedConversations() error {
 	testConfigDir := "/home/luke/pm/helix/test-zed-config/zed"
-	threadsDir := testConfigDir + "/threads"
-	threadsDB := threadsDir + "/threads.db"
+	conversationsDir := testConfigDir + "/conversations"
 
 	fmt.Println("🔍 Verifying Zed AI threads state...")
-	fmt.Printf("   Checking database: %s\n", threadsDB)
+	fmt.Printf("   Checking ACP conversation files: %s\n", conversationsDir)
 
-	// Check if threads database exists
-	if _, err := os.Stat(threadsDB); os.IsNotExist(err) {
-		fmt.Println("   ❌ Threads database doesn't exist")
-		return fmt.Errorf("threads database not found: %s", threadsDB)
+	// Check if conversations directory exists
+	if _, err := os.Stat(conversationsDir); os.IsNotExist(err) {
+		fmt.Println("   ❌ Conversations directory doesn't exist")
+		return fmt.Errorf("conversations directory not found: %s", conversationsDir)
 	}
 
-	// Query the threads database to count threads
-	cmd := exec.Command("sqlite3", threadsDB, "SELECT COUNT(*) FROM threads;")
-	output, err := cmd.Output()
+	// Count JSON conversation files in the directory
+	files, err := filepath.Glob(filepath.Join(conversationsDir, "*.json"))
 	if err != nil {
-		fmt.Printf("   ❌ Failed to query threads database: %v\n", err)
-		return fmt.Errorf("failed to query threads database: %w", err)
+		fmt.Printf("   ❌ Failed to list conversation files: %v\n", err)
+		return fmt.Errorf("failed to list conversation files: %w", err)
 	}
 
-	threadCount := strings.TrimSpace(string(output))
-	fmt.Printf("   📊 Found %s thread(s) in database\n", threadCount)
+	conversationCount := len(files)
+	fmt.Printf("   📊 Found %d ACP conversation(s) (NativeAgent threads)\n", conversationCount)
 
-	if threadCount == "0" {
-		fmt.Println("   ⚠️  No threads found - WebSocket sync may not be creating AI threads")
-		return fmt.Errorf("no threads found in Zed database")
+	if conversationCount == 0 {
+		fmt.Println("   ⚠️  No conversations found - WebSocket sync may not be creating ACP threads")
+		return fmt.Errorf("no ACP conversations found in Zed")
 	}
 
-	fmt.Println("   ✅ Threads found in Zed database!")
+	// Show details of recent conversations
+	if conversationCount > 0 {
+		fmt.Println("   ✅ ACP conversations found! Recent files:")
+		// Sort files by modification time (most recent first)
+		type fileInfo struct {
+			path    string
+			modTime time.Time
+		}
+		var fileInfos []fileInfo
+
+		for _, file := range files {
+			if info, err := os.Stat(file); err == nil {
+				fileInfos = append(fileInfos, fileInfo{
+					path:    file,
+					modTime: info.ModTime(),
+				})
+			}
+		}
+
+		// Sort by modification time, newest first
+		for i := 0; i < len(fileInfos)-1; i++ {
+			for j := i + 1; j < len(fileInfos); j++ {
+				if fileInfos[j].modTime.After(fileInfos[i].modTime) {
+					fileInfos[i], fileInfos[j] = fileInfos[j], fileInfos[i]
+				}
+			}
+		}
+
+		// Show up to 3 most recent files
+		maxShow := 3
+		if len(fileInfos) < maxShow {
+			maxShow = len(fileInfos)
+		}
+
+		for i := 0; i < maxShow; i++ {
+			fileName := filepath.Base(fileInfos[i].path)
+			fmt.Printf("   📄 %s (modified: %s)\n", fileName, fileInfos[i].modTime.Format("15:04:05"))
+		}
+	}
+
 	return nil
 }
 
