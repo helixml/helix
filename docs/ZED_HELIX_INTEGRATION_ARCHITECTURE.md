@@ -645,3 +645,55 @@ let context_id = self.new_prompt_editor_with_message(window, cx, &request.messag
 ```
 
 **The Zed-Helix integration is now fully operational with proper thread visibility and persistence!** 🎉
+
+---
+
+## 🤯 **ZED'S CONFUSING THREAD ARCHITECTURE**
+
+### **The Mega Confusing Naming Mess**
+
+Zed has an extremely confusing thread architecture with misleading names:
+
+#### **Thread Types**
+1. **"Thread" (UI)** → `ExternalAgent::NativeAgent` → `NativeAgentServer` → **Built-in Zed Agent** (NOT external!)
+2. **"Text Thread" (UI)** → `AgentType::TextThread` → `TextThreadEditor` → Traditional assistant interface
+3. **"External Agents" (UI)** → `ExternalAgent::Gemini`, `ClaudeCode`, etc. → Actual external agents
+
+#### **The Confusion**
+- **`ExternalAgent::NativeAgent`** is **NOT external** - it's the built-in Zed agent!
+- **"New Thread" UI button** creates `NativeAgent` (built-in) not external agents
+- **"New Text Thread" UI button** creates `TextThread` (traditional interface)
+- **"External Agents" section** creates actual external agents like Gemini, Claude Code
+
+#### **What Each Actually Creates**
+```rust
+// UI "New Thread" button → Built-in Zed Agent (terminal-like interface)
+AgentType::NativeAgent → ExternalAgent::NativeAgent → NativeAgentServer 
+→ ActiveView::ExternalAgentThread { AcpThreadView } 
+→ Built-in "Zed Agent" with ACP protocol
+
+// UI "New Text Thread" button → Traditional Zed Assistant (text editor interface)  
+AgentType::TextThread → NewTextThread action → new_prompt_editor()
+→ ActiveView::TextThread { TextThreadEditor + AssistantContext }
+→ Traditional text-based assistant
+
+// UI "External Agents" → Actual external agents
+AgentType::Gemini → ExternalAgent::Gemini → agent_servers::Gemini
+→ ActiveView::ExternalAgentThread { AcpThreadView }
+→ Real external agent via ACP protocol
+```
+
+#### **Default View Setting**
+```rust
+pub enum DefaultAgentView {
+    #[default]
+    Thread,      // → Creates NativeAgent (built-in Zed agent)
+    TextThread,  // → Creates TextThread (traditional assistant)
+}
+```
+
+#### **For Helix Integration**
+We want **"Thread"** (built-in Zed agent) not **"Text Thread"** (traditional assistant) because:
+- Built-in Zed agent has terminal-like interface (more like Cursor)
+- Text Thread has text editor interface (less like CLI)
+- Both use the same underlying AI capabilities, just different UIs
