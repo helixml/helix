@@ -693,7 +693,21 @@ pub enum DefaultAgentView {
 ```
 
 #### **For Helix Integration**
-We want **"Thread"** (built-in Zed agent) not **"Text Thread"** (traditional assistant) because:
-- Built-in Zed agent has terminal-like interface (more like Cursor)
-- Text Thread has text editor interface (less like CLI)
-- Both use the same underlying AI capabilities, just different UIs
+**FINAL DECISION: Use TextThread (Traditional Assistant)**
+
+After extensive testing:
+- **TextThread works perfectly**: ✅ Thread creation, ✅ AI responses, ✅ Persistence, ✅ UI integration
+- **NativeAgent was problematic**: Different storage system, complex ACP protocol, harder message injection
+- **UI Labeling**: Both show as "Zed Agent" in the dropdown, only context menu differs
+
+**The integration is now fully operational using TextThread approach:**
+```rust
+// Working approach in agent_panel.rs:
+let context_id = self.new_prompt_editor_with_message(window, cx, &request.message);
+```
+
+**Key Benefits:**
+- Uses standard `AssistantContext` and `TextThreadStore` 
+- Persists to `/data/threads/threads.db` (same as manual threads)
+- Integrates seamlessly with existing Zed assistant infrastructure
+- AI responses work perfectly via `context.assist(cx)`
