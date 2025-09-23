@@ -402,18 +402,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			log.Info().Str("session_id", session.ID).Msg("External agent session registered successfully")
 		}
 
-		err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
-		if err != nil {
-			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to launch external agent")
-			// Clean up the session since external agent launch failed
-			if _, deleteErr := s.Store.DeleteSession(req.Context(), session.ID); deleteErr != nil {
-				log.Error().Err(deleteErr).Str("session_id", session.ID).Msg("Failed to cleanup session after external agent launch failure")
-			}
-			http.Error(rw, "failed to launch external agent: "+err.Error(), http.StatusInternalServerError)
-			return
-		} else {
-			log.Info().Str("session_id", session.ID).Msg("Successfully launched external Zed agent")
-		}
+		// External agent session created successfully
+		// Message routing will be handled by handleExternalAgentStreaming when messages are sent
+		log.Info().Str("session_id", session.ID).Msg("External agent session created, ready for WebSocket communication")
 	}
 
 	if newSession {
@@ -614,6 +605,87 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	)
 
 	return session, nil
+}
+
+// sendSessionToWebSocketAgents sends a new session request directly to connected WebSocket agents
+// This bypasses NATS routing and sends session communication via WebSocket (NATS is only for lifecycle)
+func (s *HelixAPIServer) sendSessionToWebSocketAgents(ctx context.Context, sessionID string, messageContent interface{}) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Msg("🔄 WEBSOCKET_ROUTING: Sending session to WebSocket agents")
+
+	// Check if any external agents are connected via WebSocket
+	if s.externalAgentWSManager == nil {
+		return fmt.Errorf("WebSocket manager not initialized")
+	}
+
+	connections := s.externalAgentWSManager.listConnections()
+	if len(connections) == 0 {
+		return fmt.Errorf("no external agents connected via WebSocket")
+	}
+
+	log.Info().
+		Int("connection_count", len(connections)).
+		Str("session_id", sessionID).
+		Msg("🔄 WEBSOCKET_ROUTING: Found connected external agents")
+
+	// Extract message content as string
+	var messageText string
+	if content, ok := messageContent.(map[string]interface{}); ok {
+		if parts, exists := content["parts"]; exists {
+			if partsArray, ok := parts.([]interface{}); ok && len(partsArray) > 0 {
+				if firstPart, ok := partsArray[0].(string); ok {
+					messageText = firstPart
+				}
+			}
+		}
+	}
+
+	if messageText == "" {
+		messageText = "Initialize external agent session"
+	}
+
+	// Create thread creation command for external agents
+	command := types.ExternalAgentCommand{
+		Type: "create_thread",
+		Data: map[string]interface{}{
+			"session_id": sessionID,
+			"message":    messageText,
+		},
+	}
+
+	// Send to all connected external agents
+	s.externalAgentWSManager.mu.RLock()
+	defer s.externalAgentWSManager.mu.RUnlock()
+
+	sentCount := 0
+	for agentID, conn := range s.externalAgentWSManager.connections {
+		select {
+		case conn.SendChan <- command:
+			sentCount++
+			log.Info().
+				Str("agent_id", agentID).
+				Str("session_id", sessionID).
+				Str("message", messageText).
+				Msg("🔄 WEBSOCKET_ROUTING: Sent session to external agent")
+		default:
+			log.Warn().
+				Str("agent_id", agentID).
+				Str("session_id", sessionID).
+				Msg("🔄 WEBSOCKET_ROUTING: Failed to send to agent (channel full)")
+		}
+	}
+
+	if sentCount == 0 {
+		return fmt.Errorf("failed to send session to any connected agents")
+	}
+
+	log.Info().
+		Int("sent_count", sentCount).
+		Str("session_id", sessionID).
+		Msg("✅ WEBSOCKET_ROUTING: Successfully sent session to external agents")
+
+	return nil
 }
 
 // getAgentTypeFromApp determines the agent type from the app's assistant configuration
