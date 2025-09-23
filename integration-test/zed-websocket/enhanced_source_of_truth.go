@@ -464,7 +464,7 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 		"ZED_AUTO_OPEN_AI_PANEL=true",
 		"ZED_CONFIG_DIR="+testConfigDir,
 		"ZED_DATA_DIR="+testDataDir,
-		"ANTHROPIC_API_KEY=***REMOVED***",
+		"ANTHROPIC_API_KEY="+os.Getenv("ANTHROPIC_API_KEY"),
 	)
 
 	fmt.Println("  🔧 Environment configuration:")
