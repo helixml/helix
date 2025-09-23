@@ -332,33 +332,46 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		Interface("header", header).
 		Msg("📤 EXTERNAL_AGENT_DEBUG: Sending StreamRequest to NATS")
 
-	// Send to runner pool (runners will compete for the task) - same pattern as GPTScript
-	_, err = c.Options.PubSub.StreamRequest(
-		ctx,
-		pubsub.ZedAgentRunnerStream,
-		pubsub.ZedAgentQueue,
-		data,
-		header,
-		30*time.Second,
-	)
+	// Route to WebSocket connections instead of NATS (NATS is only for lifecycle, WebSocket for sessions)
+	err = c.sendSessionRequestToWebSocketAgents(ctx, sessionID, zedAgent)
 	if err != nil {
 		log.Error().
-			Str("EXTERNAL_AGENT_DEBUG", "stream_request_error").
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_request_error").
 			Err(err).
 			Str("session_id", sessionID).
 			Str("user_id", session.Owner).
-			Str("stream", pubsub.ZedAgentRunnerStream).
-			Str("queue", pubsub.ZedAgentQueue).
-			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dispatch Zed agent to runner pool")
-		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
+			Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to dispatch session to WebSocket agents")
+		return fmt.Errorf("failed to dispatch session to WebSocket agents: %w", err)
 	}
 
 	log.Info().
 		Str("EXTERNAL_AGENT_DEBUG", "stream_request_success").
+		Str("response_length", fmt.Sprintf("%d", len(response))).
 		Msg("✅ EXTERNAL_AGENT_DEBUG: StreamRequest completed successfully")
 
-	// Note: NATS StreamRequest is for lifecycle management only
-	// Session communication happens via WebSocket (handled in session_handlers.go)
+	// Parse the response to get the runner ID and update its password in the store
+	var zedResponse types.ZedAgentResponse
+	if err := json.Unmarshal(response, &zedResponse); err != nil {
+		log.Warn().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to parse ZedAgentResponse")
+	} else if zedResponse.RunnerID != "" && zedResponse.Status == "running" {
+		// Update the agent runner's RDP password in the store with the new password we generated
+		err = c.Options.Store.UpdateAgentRunnerRDPPassword(ctx, zedResponse.RunnerID, newRDPPassword)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Str("runner_id", zedResponse.RunnerID).
+				Msg("Failed to update agent runner RDP password in store")
+		} else {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("runner_id", zedResponse.RunnerID).
+				Msg("Successfully stored rotated RDP password for agent runner")
+		}
+	}
 
 	// Update Zed thread status if this is a multi-session work session
 	if isMultiSession && workSessionContext != nil {

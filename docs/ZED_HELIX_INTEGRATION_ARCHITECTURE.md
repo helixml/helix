@@ -111,36 +111,37 @@ Helix updates session with complete conversation
 4. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
 5. **External Agent Config**: Proper handling of empty/nil configurations
 
-### ❌ **Current Issues**
+### ✅ **FIXED - Session Routing Architecture**
 
-1. **CRITICAL - Session Routing**: `agent_session_manager.go` routes to NATS instead of WebSocket
-   - **Impact**: Integration test CANNOT work - gets "no consumers available" error
-   - **Root Cause**: Session requests go to `pubsub.ZedAgentQueue` (NATS) instead of WebSocket
-   - **Status**: BLOCKING - must fix before any session communication works
+1. **FIXED - Session Routing**: Modified `session_handlers.go` to route directly to WebSocket
+   - **Solution**: Added `sendSessionToWebSocketAgents()` function that bypasses NATS
+   - **Impact**: Session requests now go directly to connected WebSocket agents
+   - **Status**: IMPLEMENTED - integration test should now work!
 
-2. **Response Sync**: Zed → Helix response flow not fully implemented
-3. **Message Content**: Complex message content objects need proper extraction
+### ❌ **Remaining Issues**
 
-### 🔄 **Architecture Fix Needed**
+1. **Response Sync**: Zed → Helix response flow not fully implemented
+2. **Message Content**: Complex message content objects need proper extraction
 
-**Problem**: Session communication goes through NATS
+### ✅ **Architecture Fix Implemented**
+
+**Problem**: Session communication was going through NATS ❌
 ```go
-// WRONG: This sends session requests to NATS
-response, err := c.Options.PubSub.StreamRequest(
-    ctx,
-    pubsub.ZedAgentRunnerStream,
-    pubsub.ZedAgentQueue,  // ← NATS queue
-    data,
-    header,
-    30*time.Second,
-)
+// WRONG: This sent session requests to NATS
+err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
 ```
 
-**Solution**: Session communication should go through WebSocket
+**Solution**: Session communication now goes through WebSocket ✅
 ```go
-// RIGHT: This should send to WebSocket manager
-err := c.sendToWebSocketAgents(ctx, sessionID, messageData)
+// RIGHT: This sends directly to WebSocket manager
+err = s.sendSessionToWebSocketAgents(req.Context(), session.ID, lastMessage.Content)
 ```
+
+**Implementation**: 
+- Modified `session_handlers.go` to bypass controller and NATS
+- Added `sendSessionToWebSocketAgents()` function
+- Routes session requests directly to connected WebSocket agents
+- Extracts message content from complex objects
 
 ## Implementation Plan
 

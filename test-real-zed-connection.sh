@@ -21,7 +21,7 @@ ZED_HELIX_URL=localhost:8080 \
 ZED_HELIX_TOKEN=oh-hallo-insecure-token \
 ZED_HELIX_TLS=false \
 RUST_LOG=error,external_websocket_sync=error \
-timeout 10 ./zed-build/zed --new-window 2>&1 | tee /tmp/zed-real-test.log &
+timeout 10 ./zed-build/zed 2>&1 | tee /tmp/zed-real-test.log &
 
 ZED_PID=$!
 echo "✅ Zed started with PID: $ZED_PID"
