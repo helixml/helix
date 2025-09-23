@@ -101,6 +101,118 @@ WebSocket sends thread state back to Helix
 Helix updates session with complete conversation
 ```
 
+## WebSocket Protocol Documentation
+
+### **Connection Establishment**
+
+**Zed → Helix Connection:**
+```
+URL: ws://localhost:8080/api/v1/external-agents/sync?agent_id={agent_id}
+Agent ID: zed-agent-{timestamp} (e.g., "zed-agent-1758636329")
+```
+
+### **Message Format**
+
+All WebSocket messages use JSON with this structure:
+```json
+{
+  "session_id": "string",     // Helix Session ID for responses, Agent ID for commands
+  "event_type": "string",     // Message type identifier
+  "data": {},                 // Message-specific data
+  "timestamp": "ISO8601"      // Optional timestamp
+}
+```
+
+### **Helix → Zed Commands**
+
+#### 1. Create Thread Command
+```json
+{
+  "type": "create_thread",
+  "data": {
+    "session_id": "ses_01k5ve9xx07c8f02mw61m5sske",  // Helix Session ID
+    "message": "Hello Zed! Please respond.",
+    "request_id": "int_01k5ve9xx14agnhe9n9hn4sak9"
+  }
+}
+```
+
+#### 2. Chat Message Command  
+```json
+{
+  "type": "chat_message",
+  "data": {
+    "session_id": "ses_01k5ve9xx07c8f02mw61m5sske",  // Helix Session ID
+    "message": "Follow-up message",
+    "request_id": "req_1758636341665969549",
+    "role": "user"
+  }
+}
+```
+
+### **Zed → Helix Responses**
+
+#### 1. Context Created Response
+```json
+{
+  "session_id": "ses_01k5ve9xx07c8f02mw61m5sske",  // ✅ CRITICAL: Helix Session ID
+  "event_type": "context_created",
+  "data": {
+    "context_id": "zed-context-1758636341667"
+  },
+  "timestamp": "2025-09-23T14:05:41.667446372Z"
+}
+```
+
+#### 2. Chat Response
+```json
+{
+  "session_id": "ses_01k5ve9xx07c8f02mw61m5sske",  // ✅ CRITICAL: Helix Session ID  
+  "event_type": "chat_response",
+  "data": {
+    "content": "Hello from Zed! I received your message...",
+    "request_id": "req_1758636341665969549"
+  },
+  "timestamp": "2025-09-23T14:05:41.667076503Z"
+}
+```
+
+#### 3. Chat Response Done
+```json
+{
+  "session_id": "ses_01k5ve9xx07c8f02mw61m5sske",  // ✅ CRITICAL: Helix Session ID
+  "event_type": "chat_response_done", 
+  "data": {
+    "request_id": "req_1758636341665969549"
+  },
+  "timestamp": "2025-09-23T14:05:41.667186611Z"
+}
+```
+
+### **CRITICAL SESSION ID MAPPING FIX**
+
+**Problem**: Helix was using Agent ID instead of Helix Session ID for response channel lookup
+```go
+// ❌ WRONG: Used Agent Session ID from WebSocket connection
+responseChan, doneChan, _, exists := apiServer.getResponseChannel(sessionID, requestID)
+```
+
+**Solution**: Use Helix Session ID from the message payload
+```go
+// ✅ FIXED: Use Helix Session ID from the message
+helixSessionID := syncMsg.SessionID
+responseChan, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, requestID)
+```
+
+**Root Cause**: 
+- Helix stores response channels using **Helix Session ID** (`ses_01k5ve9xx07c8f02mw61m5sske`)
+- But was looking them up using **Agent Session ID** (`zed-agent-1758636329`)
+- These are completely different identifiers, so channels were never found
+
+**Files Fixed**:
+- `helix/api/pkg/server/websocket_external_agent_sync.go:768` (handleChatResponse)
+- `helix/api/pkg/server/websocket_external_agent_sync.go:854` (handleChatResponseDone)
+
 ## Current Status & Issues
 
 ### ✅ **Working Components**
@@ -110,6 +222,8 @@ Helix updates session with complete conversation
 3. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
 4. **External Agent Config**: Proper handling of empty/nil configurations
 5. **Security**: API keys properly loaded from .env file, no hardcoded secrets
+6. **Session ID Mapping**: ✅ **FIXED** - Helix now correctly maps Zed responses to the right session
+7. **WebSocket Protocol**: ✅ **DOCUMENTED** - Complete message format specification
 
 ### ❌ **CRITICAL ARCHITECTURAL GAPS**
 
