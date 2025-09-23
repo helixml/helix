@@ -427,14 +427,24 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("failed to create Helix session with external agent, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
+	// Check if response is JSON or plain text error
+	bodyStr := string(body)
+	if strings.Contains(bodyStr, "External agent response timeout") || strings.Contains(bodyStr, "External agent not ready") {
+		return nil, fmt.Errorf("external agent timeout: %s", bodyStr)
+	}
+
 	var session Session
-	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &session); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON response: %w, body: %s", err, bodyStr)
 	}
 
 	return &session, nil
@@ -939,6 +949,8 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 		"ZED_HELIX_TLS=false",
 		"ZED_AUTO_OPEN_AI_PANEL=true",
 		"ZED_SHOW_AI_ASSISTANT=true",
+		// Anthropic API key for actual AI responses
+		"ANTHROPIC_API_KEY=***REMOVED***",
 		// Isolate Zed config and data directories
 		"ZED_CONFIG_DIR="+testConfigDir,
 		"ZED_DATA_DIR="+testDataDir,
@@ -956,15 +968,65 @@ func startZedWithWebSocketAndAIPanel() (*exec.Cmd, error) {
 	fmt.Println("   ZED_SHOW_AI_ASSISTANT=true")
 	fmt.Println("   ZED_CONFIG_DIR=" + testConfigDir)
 	fmt.Println("   ZED_DATA_DIR=" + testDataDir)
+	fmt.Println("   ANTHROPIC_API_KEY=sk-ant-api03-***")
 	fmt.Println("🔒 Using isolated Zed config/data (won't interfere with your personal Zed)")
 
+	// Create Zed settings with Anthropic configuration
+	err := createZedSettingsWithAnthropic(testConfigDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Zed settings: %w", err)
+	}
+	fmt.Println("✅ Created Zed settings with Anthropic configuration")
+
 	// Start Zed in the background
-	err := cmd.Start()
+	err = cmd.Start()
 	if err != nil {
 		return nil, fmt.Errorf("failed to start Zed: %w", err)
 	}
 
 	return cmd, nil
+}
+
+func createZedSettingsWithAnthropic(configDir string) error {
+	// Create the config directory structure
+	zedConfigDir := configDir + "/zed"
+	err := os.MkdirAll(zedConfigDir, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create zed config directory: %w", err)
+	}
+
+	// Create settings.json with Anthropic configuration
+	settingsContent := `{
+  "assistant": {
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-3-5-sonnet-20241022"
+    },
+    "version": "2"
+  },
+  "language_models": {
+    "anthropic": {
+      "version": "1",
+      "api_url": "https://api.anthropic.com"
+    }
+  },
+  "ui_font_size": 16,
+  "buffer_font_size": 14,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  }
+}`
+
+	settingsPath := zedConfigDir + "/settings.json"
+	err = os.WriteFile(settingsPath, []byte(settingsContent), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write settings.json: %w", err)
+	}
+
+	fmt.Printf("✅ Created Zed settings at: %s\n", settingsPath)
+	return nil
 }
 
 func verifyZedConversations() error {
