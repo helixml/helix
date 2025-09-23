@@ -105,23 +105,68 @@ Helix updates session with complete conversation
 
 ### ✅ **Working Components**
 
-1. **Zed WebSocket Connection**: Successfully connects to Helix
-2. **Thread Creation**: Helix can create threads in Zed
-3. **AI Integration**: Zed processes messages with real AI (Anthropic)
-4. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
-5. **External Agent Config**: Proper handling of empty/nil configurations
+1. **Zed WebSocket Connection**: Successfully connects to Helix WebSocket endpoint
+2. **WebSocket Routing**: Helix correctly routes external agent sessions via WebSocket (not NATS)
+3. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
+4. **External Agent Config**: Proper handling of empty/nil configurations
+5. **Security**: API keys properly loaded from .env file, no hardcoded secrets
 
-### ✅ **FIXED - Session Routing Architecture**
+### ❌ **CRITICAL ARCHITECTURAL GAPS**
 
-1. **FIXED - Session Routing**: Modified `session_handlers.go` to route directly to WebSocket
-   - **Solution**: Added `sendSessionToWebSocketAgents()` function that bypasses NATS
-   - **Impact**: Session requests now go directly to connected WebSocket agents
-   - **Status**: IMPLEMENTED - integration test should now work!
+After extensive debugging, the integration is **fundamentally broken** due to these issues:
 
-### ❌ **Remaining Issues**
+#### 1. **Session Creation Flow is Wrong**
+**Problem**: Helix expects external agents to respond to session creation requests, but Zed never does.
+```
+Helix: "Create session with external agent" → WebSocket → Zed
+Zed: (receives message, creates thread, but NEVER responds back)
+Helix: (times out waiting for response, never creates session)
+Result: No Helix session = No URL to view = No way to send messages
+```
 
-1. **Response Sync**: Zed → Helix response flow not fully implemented
-2. **Message Content**: Complex message content objects need proper extraction
+#### 2. **Zed UI Integration Missing**
+**Problem**: Zed WebSocket sync creates AssistantContext but doesn't integrate with UI
+- AI panel doesn't open automatically
+- Threads don't appear in UI
+- No visual indication that external messages arrived
+- AssistantContext exists in memory but not in UI
+
+#### 3. **Message Flow Architecture Mismatch**
+**Current Flow (Broken)**:
+```
+1. Helix tries to create session → Sends WebSocket message → Zed
+2. Zed receives message → Creates thread → STOPS HERE
+3. Helix times out → No session created → Dead end
+```
+
+**Needed Flow**:
+```
+1. Helix creates session immediately (no external agent dependency)
+2. Helix sends message → WebSocket → Zed  
+3. Zed creates thread → Shows in UI → Triggers AI
+4. Zed sends AI response → WebSocket → Helix
+5. Helix updates session with response
+```
+
+#### 4. **Agent Readiness Protocol Missing**
+**Problem**: No handshake protocol for external agent availability
+- Helix doesn't know if external agents are ready
+- No way to distinguish "agent busy" vs "agent available"
+- No graceful fallback if external agent unavailable
+
+#### 5. **Bidirectional Sync Incomplete**
+**Problem**: Only Helix → Zed works, Zed → Helix is missing
+- Zed creates threads but never sends responses back
+- No event listeners for AssistantContext changes
+- No mechanism to sync AI responses back to Helix
+
+### ❌ **SPECIFIC TECHNICAL ISSUES**
+
+1. **Zed Agent Panel Integration**: WebSocket sync bypasses normal UI flow
+2. **Context Event Handling**: No listeners for AI response completion
+3. **Session Lifecycle**: Helix session creation depends on external agent response
+4. **Message Serialization**: Complex message content objects not properly handled
+5. **Thread Persistence**: Threads created in memory but not persisted to Zed's database
 
 ### ✅ **Architecture Fix Implemented**
 
@@ -143,22 +188,92 @@ err = s.sendSessionToWebSocketAgents(req.Context(), session.ID, lastMessage.Cont
 - Routes session requests directly to connected WebSocket agents
 - Extracts message content from complex objects
 
-## Implementation Plan
+## Architectural Solutions Required
 
-### Phase 1: Fix Session Routing
-- [ ] Modify `agent_session_manager.go` to route sessions via WebSocket
-- [ ] Add WebSocket routing logic for external agents
-- [ ] Ensure both lifecycle (NATS) and session (WebSocket) paths work correctly
+### **SOLUTION 1: Fix Session Creation Flow**
 
-### Phase 2: Complete Response Flow  
-- [ ] Implement full Zed → Helix sync in `external_websocket_sync`
-- [ ] Handle AssistantContext events and extract complete thread state
-- [ ] Update Helix sessions with Zed's conversation state
+**Change Helix behavior**: Don't wait for external agent response during session creation
+```go
+// CURRENT (Broken): Wait for external agent response
+if agentType == "zed_external" {
+    // Send to WebSocket and WAIT for response
+    err = waitForExternalAgentResponse(sessionID)  // ❌ This times out
+}
 
-### Phase 3: Production Readiness
-- [ ] Add proper error handling and reconnection logic
-- [ ] Implement authentication and authorization
-- [ ] Add monitoring and observability
+// FIXED: Create session immediately, send message separately  
+if agentType == "zed_external" {
+    // Create session immediately
+    session := createSessionNow()
+    // Send initial message async (don't wait for response)
+    go sendToExternalAgentAsync(session.ID, initialMessage)
+}
+```
+
+### **SOLUTION 2: Fix Zed UI Integration**
+
+**Problem**: WebSocket sync creates threads but doesn't show them in UI
+**Solution**: Integrate WebSocket sync with AgentPanel properly
+
+```rust
+// CURRENT: Creates context but doesn't show in UI
+let context = self.context_store.create(cx);  // ❌ Hidden
+
+// NEEDED: Create context AND show in UI
+let context = self.context_store.create(cx);
+self.agent_panel.show_context(context);       // ✅ Visible
+self.agent_panel.open_ai_panel();             // ✅ Panel opens
+```
+
+### **SOLUTION 3: Implement Agent Readiness Protocol**
+
+**Add handshake protocol**:
+```
+1. Zed connects → Sends "agent_ready" message
+2. Helix marks agent as available
+3. Session creation checks agent availability
+4. If available: route to agent, if not: fallback to internal
+```
+
+### **SOLUTION 4: Complete Bidirectional Sync**
+
+**Add response flow from Zed → Helix**:
+```rust
+// Listen for AI response completion
+context.on_response_complete(|response| {
+    let sync_message = SyncMessage {
+        session_id: external_session_id,
+        event_type: "ai_response",
+        data: response.content,
+    };
+    websocket_sync.send_to_helix(sync_message);
+});
+```
+
+## Implementation Plan (Revised)
+
+### **Phase 1: Fix Session Creation (Critical)**
+- [ ] Remove external agent dependency from session creation
+- [ ] Create sessions immediately for external agents  
+- [ ] Send initial messages asynchronously after session creation
+- [ ] Add proper error handling for agent unavailable
+
+### **Phase 2: Fix Zed UI Integration (Critical)**
+- [ ] Make WebSocket-created threads visible in Agent Panel
+- [ ] Auto-open AI panel when external messages arrive
+- [ ] Ensure threads persist to Zed's database
+- [ ] Add visual indicators for external agent activity
+
+### **Phase 3: Complete Response Flow**
+- [ ] Add event listeners for AssistantContext changes in Zed
+- [ ] Implement Zed → Helix response sync via WebSocket
+- [ ] Handle AI response streaming back to Helix
+- [ ] Update Helix sessions with complete conversation state
+
+### **Phase 4: Add Agent Readiness Protocol**
+- [ ] Implement agent registration/heartbeat system
+- [ ] Add agent availability checking in Helix
+- [ ] Graceful fallback when external agents unavailable
+- [ ] Agent status monitoring and reconnection logic
 
 ## Key Files
 
