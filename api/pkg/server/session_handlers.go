@@ -1184,9 +1184,26 @@ func (s *HelixAPIServer) handleExternalAgentStreaming(ctx context.Context, user 
 
 // streamFromExternalAgent sends a message to the external agent and streams the response
 func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *types.Session, userMessage string, chatCompletionRequest openai.ChatCompletionRequest, rw http.ResponseWriter) error {
+	// Get the last interaction to update with the response
+	if len(session.Interactions) == 0 {
+		log.Error().Str("session_id", session.ID).Msg("No interactions found in session")
+		return fmt.Errorf("no interactions found in session")
+	}
+	
+	interaction := session.Interactions[len(session.Interactions)-1]
+	start := time.Now()
+	
 	// Wait for external agent to be ready (WebSocket connection established)
 	if err := s.waitForExternalAgentReady(ctx, session.ID, 30*time.Second); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
+		
+		// Update interaction with error
+		interaction.Error = fmt.Sprintf("External agent not ready: %s", err.Error())
+		interaction.State = types.InteractionStateError
+		interaction.Completed = time.Now()
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
+		s.Controller.UpdateInteraction(ctx, session, interaction)
+		
 		http.Error(rw, fmt.Sprintf("External agent not ready: %s", err.Error()), http.StatusServiceUnavailable)
 		return err
 	}
@@ -1238,12 +1255,18 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Str("message", userMessage).
 		Msg("Sent message to external agent")
 
+	// Accumulate the full response for updating the interaction
+	var fullResponse string
+
 	// Stream response chunks as they arrive
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case chunk := <-responseChan:
+			// Accumulate the response
+			fullResponse += chunk
+			
 			response := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
@@ -1270,6 +1293,21 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			}
 
 		case <-doneChan:
+			// Update the interaction with the complete response
+			interaction.ResponseMessage = fullResponse
+			interaction.Completed = time.Now()
+			interaction.State = types.InteractionStateComplete
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+
+			// Create new context with a timeout for persisting session to the database
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err := s.Controller.UpdateInteraction(updateCtx, session, interaction)
+			if err != nil {
+				log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to update interaction")
+			}
+
 			// Send completion signal
 			response := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
@@ -1294,14 +1332,39 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 				log.Error().Err(err).Msg("failed to write done signal")
 			}
 
-			log.Info().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response completed")
+			log.Info().
+				Str("session_id", session.ID).
+				Str("request_id", requestID).
+				Str("response_message", fullResponse).
+				Int("duration_ms", interaction.DurationMs).
+				Msg("External agent response completed and interaction updated")
 			return nil
 
 		case err := <-errorChan:
+			// Update interaction with error
+			interaction.Error = err.Error()
+			interaction.State = types.InteractionStateError
+			interaction.Completed = time.Now()
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+			
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.Controller.UpdateInteraction(updateCtx, session, interaction)
+			
 			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
 			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
 
 		case <-time.After(30 * time.Second):
+			// Update interaction with timeout error
+			interaction.Error = "External agent response timeout"
+			interaction.State = types.InteractionStateError
+			interaction.Completed = time.Now()
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
+			
+			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.Controller.UpdateInteraction(updateCtx, session, interaction)
+			
 			log.Warn().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response timeout")
 			return s.writeErrorResponse(rw, "External agent response timeout")
 		}
