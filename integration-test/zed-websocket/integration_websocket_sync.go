@@ -274,7 +274,7 @@ func startZedWithWebSocket() (*exec.Cmd, error) {
 	fmt.Printf("🚀 Starting Zed from: %s\n", zedBinary)
 
 	// Set environment variables to configure Zed WebSocket sync
-	cmd := exec.Command(zedBinary, "--new-window") // Force new window to avoid conflicts
+	cmd := exec.Command(zedBinary, "--allow-multiple-instances") // Allow multiple instances to avoid conflicts
 	cmd.Env = append(os.Environ(),
 		// Logging
 		"RUST_LOG=info,external_websocket_sync=debug",
@@ -299,13 +299,29 @@ func startZedWithWebSocket() (*exec.Cmd, error) {
 	fmt.Printf("   ZED_AUTO_OPEN_AI_PANEL=true\n")
 	fmt.Printf("   ZED_SHOW_AI_ASSISTANT=true\n")
 
+	// CRITICAL FIX: Capture Zed stdout/stderr to debug crashes
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Println("🚀 Starting Zed with log capture...")
+
 	// Start Zed in background
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start Zed: %w", err)
 	}
 
 	// Give Zed a moment to start up
+	fmt.Println("⏳ Waiting for Zed to initialize...")
 	time.Sleep(3 * time.Second)
+
+	// Check if Zed process is still running
+	if cmd.Process != nil {
+		// Non-blocking check to see if process exited
+		if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+			return nil, fmt.Errorf("Zed process exited unexpectedly during startup")
+		}
+		fmt.Println("✅ Zed process running successfully")
+	}
 
 	return cmd, nil
 }
