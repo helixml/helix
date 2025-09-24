@@ -16,6 +16,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	
+	// Import actual Helix types
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 const (
@@ -52,23 +55,9 @@ type MessageContent struct {
 	Parts       []interface{} `json:"parts"`
 }
 
-type Session struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Owner     string `json:"owner"`
-	Type      string `json:"type"`
-	Mode      string `json:"mode"`
-	ModelName string `json:"model_name"`
-}
-
-type Interaction struct {
-	ID              string `json:"id"`
-	Role            string `json:"role"`
-	Message         string `json:"message,omitempty"`
-	PromptMessage   string `json:"prompt_message,omitempty"`
-	ResponseMessage string `json:"response_message,omitempty"`
-	Created         string `json:"created"`
-}
+// Use actual Helix types instead of redefining them
+type Session = types.Session
+type Interaction = types.Interaction
 
 type CreateInteractionRequest struct {
 	Message string `json:"message"`
@@ -724,15 +713,19 @@ processMessages:
 	} else {
 		fmt.Printf("📋 Helix session now has %d interaction(s):\n", len(interactions))
 		for i, interaction := range interactions {
-			role := interaction.Role
-			if role == "" {
-				role = "user" // Default for user messages
+			// Show basic interaction info
+			prompt := interaction.PromptMessage
+			response := interaction.ResponseMessage
+			state := interaction.State
+			
+			fmt.Printf("   %d. State: %s", i+1, state)
+			if prompt != "" {
+				fmt.Printf(", Prompt: %s", truncateString(prompt, 50))
 			}
-			message := interaction.Message
-			if message == "" {
-				message = interaction.PromptMessage
+			if response != "" {
+				fmt.Printf(", Response: %s", truncateString(response, 50))
 			}
-			fmt.Printf("   %d. [%s]: %s\n", i+1, role, truncateString(message, 100))
+			fmt.Printf("\n")
 		}
 	}
 
@@ -779,24 +772,28 @@ processMessages:
 	} else {
 		fmt.Printf("📋 Final conversation state (%d interactions):\n", len(finalInteractions))
 		for i, interaction := range finalInteractions {
-			role := interaction.Role
-			if role == "" {
-				role = "user"
+			// Show interaction state and content
+			fmt.Printf("   %d. State: %s", i+1, interaction.State)
+			if interaction.PromptMessage != "" {
+				fmt.Printf(", Prompt: %s", truncateString(interaction.PromptMessage, 50))
 			}
-			message := interaction.Message
-			if message == "" {
-				message = interaction.PromptMessage
+			if interaction.ResponseMessage != "" {
+				fmt.Printf(", Response: %s", truncateString(interaction.ResponseMessage, 50))
 			}
-			fmt.Printf("   %d. [%s]: %s\n", i+1, role, truncateString(message, 150))
+			if interaction.DurationMs > 0 {
+				fmt.Printf(", Duration: %dms", interaction.DurationMs)
+			}
+			fmt.Printf("\n")
 		}
 
 		// Verify we have both user and assistant messages
 		userCount := 0
 		assistantCount := 0
 		for _, interaction := range finalInteractions {
-			if interaction.Role == "assistant" || interaction.ResponseMessage != "" {
+			// Count interactions based on whether they have responses
+			if interaction.ResponseMessage != "" {
 				assistantCount++
-			} else {
+			} else if interaction.PromptMessage != "" {
 				userCount++
 			}
 		}
@@ -854,7 +851,7 @@ func testHelixToZedFlow() error {
 	if err != nil {
 		return fmt.Errorf("failed to send message to Helix session: %w", err)
 	}
-	fmt.Printf("✅ Sent message to Helix session: '%s'\n", interaction.Message)
+	fmt.Printf("✅ Sent message to Helix session: '%s'\n", interaction.PromptMessage)
 
 	// Step 3: Monitor WebSocket to see if Helix sends commands to Zed
 	fmt.Println("👂 Monitoring WebSocket for Helix -> Zed commands...")
@@ -1205,7 +1202,7 @@ func verifyInteractionState(sessionID string) error {
 	fmt.Printf("🔍 Verifying interaction state for session: %s\n", sessionID)
 	
 	// Poll the session to check if interaction state changes from "waiting" to "complete"
-	maxAttempts := 30 // 30 seconds with 1 second intervals
+	maxAttempts := 120 // 120 seconds with 1 second intervals (AI responses can take time)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Get session details
 		url := fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s", sessionID)
