@@ -431,17 +431,15 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 		Str("title", title).
 		Msg("External agent created new context")
 
-	// Get the external agent session to get user information
-	agentSession, err := apiServer.Controller.GetExternalAgentStatus(context.Background(), sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get external agent session: %w", err)
-	}
+	// For external agents, we'll use a default user since the sessionID here is the agent connection ID
+	// In a production system, this should be mapped to the actual user who authorized the agent
+	defaultUserID := "external-agent-user" // TODO: Map to actual user who authorized this agent
 
 	// Create a new Helix session for this Zed context
 	helixSession := types.Session{
 		ID:        "", // Will be generated
 		Name:      title,
-		Owner:     agentSession.UserID,
+		Owner:     defaultUserID,
 		OwnerType: types.OwnerTypeUser,
 		Type:      types.SessionTypeText,
 		Mode:      types.SessionModeInference,
@@ -590,39 +588,72 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 	}
 
-	// Create interaction for this message
-	interaction := &types.Interaction{
-		ID:            "", // Will be generated
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		SessionID:     helixSessionID,
-		UserID:        helixSession.Owner,
-		Mode:          types.SessionModeInference,
-		PromptMessage: content,
-		State:         types.InteractionStateWaiting,
-	}
+	if role == "assistant" {
+		// For assistant messages, update the most recent waiting interaction instead of creating new one
+		// The session already includes interactions from GetSession
+		interactions := helixSession.Interactions
 
-	// Create the interaction in the store
-	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
-	if err != nil {
-		return fmt.Errorf("failed to create interaction: %w", err)
-	}
+		// Find the most recent interaction that's still waiting for a response
+		var targetInteraction *types.Interaction
+		for i := len(interactions) - 1; i >= 0; i-- {
+			if interactions[i].State == types.InteractionStateWaiting {
+				targetInteraction = interactions[i]
+				break
+			}
+		}
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("context_id", contextID).
-		Str("helix_session_id", helixSessionID).
-		Str("interaction_id", createdInteraction.ID).
-		Str("role", role).
-		Msg("Created Helix interaction for Zed message")
+		if targetInteraction != nil {
+			// Update the existing interaction with the real AI response
+			targetInteraction.ResponseMessage = content
+			targetInteraction.State = types.InteractionStateComplete
+			targetInteraction.Completed = time.Now()
+			targetInteraction.Updated = time.Now()
 
-	// If this is a user message, the system will automatically process it
-	// TODO: Hook into session completion to send responses back to Zed
-	if role == "user" || role == "human" {
+			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
+			if err != nil {
+				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+			}
+
+			log.Info().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", targetInteraction.ID).
+				Str("role", role).
+				Msg("Updated existing Helix interaction with real AI response from Zed")
+		} else {
+			log.Warn().
+				Str("session_id", sessionID).
+				Str("context_id", contextID).
+				Str("helix_session_id", helixSessionID).
+				Msg("No waiting interaction found to update with assistant response")
+		}
+	} else {
+		// For user messages, create new interaction
+		interaction := &types.Interaction{
+			ID:            "", // Will be generated
+			Created:       time.Now(),
+			Updated:       time.Now(),
+			SessionID:     helixSessionID,
+			UserID:        helixSession.Owner,
+			Mode:          types.SessionModeInference,
+			PromptMessage: content,
+			State:         types.InteractionStateWaiting,
+		}
+
+		// Create the interaction in the store
+		createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+		if err != nil {
+			return fmt.Errorf("failed to create interaction: %w", err)
+		}
+
 		log.Info().
+			Str("session_id", sessionID).
+			Str("context_id", contextID).
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", createdInteraction.ID).
-			Msg("User message from Zed will be processed by Helix - response streaming to be implemented")
+			Str("role", role).
+			Msg("Created Helix interaction for Zed user message")
 	}
 
 	return nil
@@ -753,6 +784,15 @@ func (apiServer *HelixAPIServer) handleChatResponse(sessionID string, syncMsg *t
 	content, ok := syncMsg.Data["content"].(string)
 	if !ok {
 		log.Warn().Str("session_id", sessionID).Str("request_id", requestID).Msg("Chat response missing content")
+		return nil
+	}
+
+	// Skip placeholder acknowledgment responses - they should not trigger completion
+	if content == "🤖 Processing your request with AI... (Real response will follow via async system)" {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Skipping placeholder acknowledgment response - waiting for real AI response")
 		return nil
 	}
 
