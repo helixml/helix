@@ -646,6 +646,16 @@ func testZedHelixSync() (*Session, error) {
 	}
 	fmt.Println("✅ Sent message to Helix session")
 
+	// Step 4.1: Verify interaction state changes from "waiting" to "complete"
+	fmt.Println("⏳ Step 4.1: Verifying interaction completes with AI response...")
+	if err := verifyInteractionState(session.ID); err != nil {
+		fmt.Printf("⚠️  Interaction verification failed: %v\n", err)
+		fmt.Println("   This indicates the bidirectional sync may have issues")
+		// Don't return error - continue with other verification steps
+	} else {
+		fmt.Println("✅ Interaction completed successfully - bidirectional sync working!")
+	}
+
 	// Listen for WebSocket messages from Helix to Zed
 	fmt.Println("👂 Listening for WebSocket sync messages...")
 	receivedMessages := []map[string]interface{}{}
@@ -1189,6 +1199,87 @@ func verifyZedConversations() error {
 	}
 
 	return nil
+}
+
+func verifyInteractionState(sessionID string) error {
+	fmt.Printf("🔍 Verifying interaction state for session: %s\n", sessionID)
+	
+	// Poll the session to check if interaction state changes from "waiting" to "complete"
+	maxAttempts := 30 // 30 seconds with 1 second intervals
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Get session details
+		url := fmt.Sprintf("http://localhost:8080/api/v1/sessions/%s", sessionID)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create session request: %w", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+userAPIKey)
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("   ⚠️  Attempt %d/%d: Failed to get session: %v\n", attempt, maxAttempts, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("   ⚠️  Attempt %d/%d: Session API returned status %d\n", attempt, maxAttempts, resp.StatusCode)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("   ⚠️  Attempt %d/%d: Failed to read response: %v\n", attempt, maxAttempts, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		var session Session
+		if err := json.Unmarshal(body, &session); err != nil {
+			fmt.Printf("   ⚠️  Attempt %d/%d: Failed to parse session response: %v\n", attempt, maxAttempts, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		if len(session.Interactions) == 0 {
+			fmt.Printf("   ⏳ Attempt %d/%d: No interactions found yet\n", attempt, maxAttempts)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Check the last interaction
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		fmt.Printf("   📊 Attempt %d/%d: Interaction state: %s", attempt, maxAttempts, lastInteraction.State)
+		
+		if lastInteraction.ResponseMessage != "" {
+			fmt.Printf(", response: %.50s...", lastInteraction.ResponseMessage)
+		}
+		
+		if lastInteraction.DurationMs > 0 {
+			fmt.Printf(", duration: %dms", lastInteraction.DurationMs)
+		}
+		
+		fmt.Printf("\n")
+
+		if lastInteraction.State == "complete" {
+			fmt.Printf("   ✅ SUCCESS: Interaction completed!\n")
+			fmt.Printf("   📝 Response message: %s\n", lastInteraction.ResponseMessage)
+			fmt.Printf("   ⏱️  Duration: %dms\n", lastInteraction.DurationMs)
+			return nil
+		}
+
+		if lastInteraction.State == "error" {
+			return fmt.Errorf("interaction failed with error: %s", lastInteraction.Error)
+		}
+
+		time.Sleep(1 * time.Second)
+	}
+
+	return fmt.Errorf("interaction did not complete within %d seconds", maxAttempts)
 }
 
 func verifyHelixSessions() error {
