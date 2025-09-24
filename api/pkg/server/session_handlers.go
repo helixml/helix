@@ -1354,7 +1354,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
 			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
 
-		case <-time.After(30 * time.Second):
+		case <-time.After(90 * time.Second):
 			// Update interaction with timeout error
 			interaction.Error = "External agent response timeout"
 			interaction.State = types.InteractionStateError
