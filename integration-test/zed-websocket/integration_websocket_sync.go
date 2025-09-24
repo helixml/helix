@@ -21,6 +21,33 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// prefixWriter adds a prefix to each line of output for better log visibility
+type prefixWriter struct {
+	prefix  string
+	writer  io.Writer
+	logFile *os.File
+}
+
+func (pw *prefixWriter) Write(p []byte) (n int, err error) {
+	lines := strings.Split(string(p), "\n")
+	for i, line := range lines {
+		if i == len(lines)-1 && line == "" {
+			break // Skip empty last line from split
+		}
+		// Write to console
+		_, err = fmt.Fprintf(pw.writer, "%s%s\n", pw.prefix, line)
+		if err != nil {
+			return 0, err
+		}
+		// Also write to log file if available
+		if pw.logFile != nil {
+			fmt.Fprintf(pw.logFile, "%s%s\n", pw.prefix, line)
+			pw.logFile.Sync() // Ensure immediate write
+		}
+	}
+	return len(p), nil
+}
+
 const (
 	helixAPIURL = "http://localhost:8080"
 	helixWSURL  = "ws://localhost:8080/api/v1/external-agents/sync"
@@ -276,8 +303,9 @@ func startZedWithWebSocket() (*exec.Cmd, error) {
 	// Set environment variables to configure Zed WebSocket sync
 	cmd := exec.Command(zedBinary, "--allow-multiple-instances") // Allow multiple instances to avoid conflicts
 	cmd.Env = append(os.Environ(),
-		// Logging
-		"RUST_LOG=info,external_websocket_sync=debug",
+		// Logging - ZED_LOG takes priority over RUST_LOG in Zed
+		"ZED_LOG=debug,external_websocket_sync=trace",
+		"RUST_LOG=debug,external_websocket_sync=trace",
 		// Enable external sync
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_WEBSOCKET_SYNC_ENABLED=true",
@@ -299,11 +327,21 @@ func startZedWithWebSocket() (*exec.Cmd, error) {
 	fmt.Printf("   ZED_AUTO_OPEN_AI_PANEL=true\n")
 	fmt.Printf("   ZED_SHOW_AI_ASSISTANT=true\n")
 
-	// CRITICAL FIX: Capture Zed stdout/stderr to debug crashes
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Open log file for Zed output
+	logFile, err := os.OpenFile("/tmp/zed-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Could not open /tmp/zed-debug.log: %v\n", err)
+		logFile = nil
+	} else {
+		fmt.Printf("📝 Zed logs will be appended to: /tmp/zed-debug.log\n")
+	}
 
-	fmt.Println("🚀 Starting Zed with log capture...")
+	// CRITICAL FIX: Capture Zed stdout/stderr to debug crashes
+	// Pipe Zed logs to both console and log file
+	cmd.Stdout = &prefixWriter{prefix: "[ZED-OUT] ", writer: os.Stdout, logFile: logFile}
+	cmd.Stderr = &prefixWriter{prefix: "[ZED-ERR] ", writer: os.Stderr, logFile: logFile}
+
+	fmt.Println("🚀 Starting Zed with log capture (watch for [ZED-OUT]/[ZED-ERR] prefixed logs or tail /tmp/zed-debug.log)...")
 
 	// Start Zed in background
 	if err := cmd.Start(); err != nil {
