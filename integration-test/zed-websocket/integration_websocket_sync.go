@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	
+
 	// Import actual Helix types
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -119,22 +119,10 @@ func main() {
 	// Test Zed ↔ Helix synchronization
 	session, err := testZedHelixSync()
 	if err != nil {
-		log.Printf("⚠️  Zed ↔ Helix sync test had issues: %v", err)
-		fmt.Println("🔍 But continuing with debugging session to observe behavior...")
-
-		// Even if sync failed, try to create a session for debugging
-		fmt.Println("🔄 Attempting to create a session for debugging purposes...")
-		debugSession, debugErr := createHelixSessionWithExternalAgent("")
-		if debugErr == nil {
-			fmt.Printf("✅ Debug session created: %s\n", debugSession.ID)
-			fmt.Printf("🌐 Helix session URL: http://localhost:8080/session/%s\n", debugSession.ID)
-			session = debugSession
-		} else {
-			fmt.Printf("⚠️  Could not create debug session: %v\n", debugErr)
-		}
-	} else {
-		fmt.Println("✅ Zed ↔ Helix sync test passed!")
+		log.Fatalf("❌ Zed ↔ Helix sync test failed: %v", err)
 	}
+
+	fmt.Println("✅ Zed ↔ Helix sync test passed!")
 
 	if session != nil {
 		fmt.Println("")
@@ -489,12 +477,39 @@ func createHelixSessionWithExternalAgent(agentSessionID string) (*Session, error
 		return nil, fmt.Errorf("failed to create Helix session with external agent, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	// Check if response is JSON or plain text error
 	bodyStr := string(body)
+
+	// Check if response is JSON or plain text error
 	if strings.Contains(bodyStr, "External agent response timeout") || strings.Contains(bodyStr, "External agent not ready") {
 		return nil, fmt.Errorf("external agent timeout: %s", bodyStr)
 	}
 
+	// Handle Server-Sent Events (SSE) response format
+	if strings.HasPrefix(bodyStr, "data:") {
+		fmt.Println("📡 Received SSE streaming response - extracting session info...")
+
+		// For now, let's create a simple session object since we know the streaming worked
+		// The important part is that the WebSocket integration is working
+		sessionID := extractSessionIDFromSSE(bodyStr)
+		if sessionID == "" {
+			return nil, fmt.Errorf("could not extract session ID from SSE response")
+		}
+
+		// Create a basic session object for testing purposes
+		session := &Session{
+			ID:           sessionID,
+			Name:         "Zed External Agent Session",
+			ModelName:    "claude-3.5-sonnet",
+			Mode:         "inference",
+			Type:         "text",
+			Interactions: []*types.Interaction{}, // Will be populated when we check later
+		}
+
+		fmt.Printf("✅ Successfully parsed SSE response, session ID: %s\n", sessionID)
+		return session, nil
+	}
+
+	// Handle regular JSON response
 	var session Session
 	if err := json.Unmarshal(body, &session); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON response: %w, body: %s", err, bodyStr)
@@ -574,6 +589,38 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+func extractSessionIDFromSSE(sseData string) string {
+	// Look for session ID in the SSE data
+	// Format is typically: data: {"id":"ses_01k5x0bwjab8qsvcab12rhw7rh",...}
+	lines := strings.Split(sseData, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data: {") {
+			// Try to parse the JSON to extract ID
+			jsonStr := strings.TrimPrefix(line, "data: ")
+			var chunk map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonStr), &chunk); err == nil {
+				if id, ok := chunk["id"].(string); ok && strings.HasPrefix(id, "ses_") {
+					fmt.Printf("📋 Extracted session ID from SSE: %s\n", id)
+					return id
+				}
+			}
+		}
+	}
+	fmt.Printf("⚠️  Could not find session ID in SSE data. Sample lines:\n")
+	for i, line := range lines[:min(5, len(lines))] {
+		fmt.Printf("   Line %d: %s\n", i+1, truncateString(line, 80))
+	}
+	return ""
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func testZedHelixSync() (*Session, error) {
 	fmt.Println("🔌 Testing comprehensive Zed ↔ Helix thread synchronization...")
 	fmt.Println("   This test will:")
@@ -591,8 +638,37 @@ func testZedHelixSync() (*Session, error) {
 		return nil, fmt.Errorf("failed to create Helix session: %w", err)
 	}
 	fmt.Printf("✅ Created Helix session: %s\n", session.ID)
-	fmt.Printf("🌐 Helix session URL: http://localhost:8080/session/%s\n", session.ID)
-	fmt.Println("👀 Open this URL in your browser to watch the Helix side!")
+	sessionURL := fmt.Sprintf("http://localhost:8080/session/%s", session.ID)
+	fmt.Printf("🌐 Helix session URL: %s\n", sessionURL)
+	fmt.Println("👀 Attempting to auto-open session URL in browser...")
+	openCmd := exec.Command("xdg-open", sessionURL)
+	openCmd.Stdout = os.Stdout
+	openCmd.Stderr = os.Stderr
+	if err := openCmd.Start(); err != nil {
+		fmt.Printf("⚠️ Could not auto-open browser with xdg-open: %v\n", err)
+		// Try alternative browser opening methods
+		fmt.Println("🔄 Trying alternative browser opening methods...")
+		alternatives := [][]string{
+			{"google-chrome", sessionURL},
+			{"firefox", sessionURL},
+			{"chromium", sessionURL},
+			{"sensible-browser", sessionURL},
+		}
+		opened := false
+		for _, cmd := range alternatives {
+			if altCmd := exec.Command(cmd[0], cmd[1:]...); altCmd.Start() == nil {
+				fmt.Printf("✅ Opened with %s\n", cmd[0])
+				opened = true
+				break
+			}
+		}
+		if !opened {
+			fmt.Println("👀 Please manually open this URL in your browser to watch the Helix side!")
+			fmt.Printf("🌐 URL: %s\n", sessionURL)
+		}
+	} else {
+		fmt.Println("✅ Session URL opened in browser with xdg-open")
+	}
 
 	// Step 2: Connect to the external agent WebSocket using the Helix session ID
 	fmt.Println("🔗 Step 2: Connecting to external agent WebSocket...")
@@ -637,12 +713,14 @@ func testZedHelixSync() (*Session, error) {
 
 	// Step 4.1: Verify interaction state changes from "waiting" to "complete"
 	fmt.Println("⏳ Step 4.1: Verifying interaction completes with AI response...")
+	fmt.Println("   ⚠️  NOTE: This may take 30-120 seconds for the AI to respond via Zed")
 	if err := verifyInteractionState(session.ID); err != nil {
-		fmt.Printf("⚠️  Interaction verification failed: %v\n", err)
-		fmt.Println("   This indicates the bidirectional sync may have issues")
-		// Don't return error - continue with other verification steps
+		fmt.Printf("❌ Interaction verification failed: %v\n", err)
+		fmt.Println("   This indicates the bidirectional sync has issues - AI response did not complete")
+		return nil, fmt.Errorf("AI response did not complete: %w", err)
 	} else {
 		fmt.Println("✅ Interaction completed successfully - bidirectional sync working!")
+		fmt.Println("   🎉 This means Helix → Zed → AI → Helix flow is working!")
 	}
 
 	// Listen for WebSocket messages from Helix to Zed
@@ -717,7 +795,7 @@ processMessages:
 			prompt := interaction.PromptMessage
 			response := interaction.ResponseMessage
 			state := interaction.State
-			
+
 			fmt.Printf("   %d. State: %s", i+1, state)
 			if prompt != "" {
 				fmt.Printf(", Prompt: %s", truncateString(prompt, 50))
@@ -1200,7 +1278,7 @@ func verifyZedConversations() error {
 
 func verifyInteractionState(sessionID string) error {
 	fmt.Printf("🔍 Verifying interaction state for session: %s\n", sessionID)
-	
+
 	// Poll the session to check if interaction state changes from "waiting" to "complete"
 	maxAttempts := 120 // 120 seconds with 1 second intervals (AI responses can take time)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -1251,15 +1329,15 @@ func verifyInteractionState(sessionID string) error {
 		// Check the last interaction
 		lastInteraction := session.Interactions[len(session.Interactions)-1]
 		fmt.Printf("   📊 Attempt %d/%d: Interaction state: %s", attempt, maxAttempts, lastInteraction.State)
-		
+
 		if lastInteraction.ResponseMessage != "" {
 			fmt.Printf(", response: %.50s...", lastInteraction.ResponseMessage)
 		}
-		
+
 		if lastInteraction.DurationMs > 0 {
 			fmt.Printf(", duration: %dms", lastInteraction.DurationMs)
 		}
-		
+
 		fmt.Printf("\n")
 
 		if lastInteraction.State == "complete" {
