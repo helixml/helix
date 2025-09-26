@@ -61,7 +61,14 @@ type AppRunner struct {
 	BaseCreateJSON string   `json:"base_create_json,omitempty"` // Docker create options
 }
 
-// Session represents a Wolf streaming session
+// SessionCreateRequest represents the minimal Wolf session creation request
+type SessionCreateRequest struct {
+	AppID    string `json:"app_id"`
+	ClientID string `json:"client_id"`
+	ClientIP string `json:"client_ip"`
+}
+
+// Session represents a Wolf streaming session (full structure for internal use)
 type Session struct {
 	AppID             string         `json:"app_id"`
 	ClientID          string         `json:"client_id"`
@@ -251,6 +258,7 @@ func (c *Client) RemoveApp(ctx context.Context, appID string) error {
 
 // CreateSession creates a new streaming session
 func (c *Client) CreateSession(ctx context.Context, session *Session) (string, error) {
+	// Wolf expects all session fields for this version
 	body, err := json.Marshal(session)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal session: %w", err)
