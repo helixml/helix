@@ -2,6 +2,9 @@ config_version = 5
 hostname = 'Helix'
 uuid = '5a3f1809-8854-4e7a-8646-07fab869745a'
 
+[api]
+socket_path = '/var/run/wolf/wolf.sock'
+
 [gstreamer.audio]
 default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
 default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
