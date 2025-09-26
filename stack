@@ -346,7 +346,7 @@ function start() {
 
   # Middle row (3-5): Wolf Logs, Zed Process, GPU Runner/Demos
   tmux select-pane -t 3 -T "Wolf Logs"
-  tmux send-keys -t 3 'echo "Monitoring Wolf logs..." && tail -f /tmp/wolf-*.log 2>/dev/null || echo "No Wolf logs found yet - logs will appear here when Wolf is running"' C-m
+  tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
 
   tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
   tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
@@ -469,15 +469,15 @@ function up() {
 
 function build-zed-agent() {
   echo "🔨 Building Zed agent Docker image..."
-  
+
   # Build the Docker image using the Zed binary we built
   if [ ! -f "./zed-build/zed" ]; then
     echo "❌ Zed binary not found. Run './stack build-zed' first."
     return 1
   fi
-  
+
   docker build -t helix/zed-agent:latest -f Dockerfile.zed-agent-vnc .
-  
+
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
   else
