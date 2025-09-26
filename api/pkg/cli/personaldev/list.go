@@ -29,6 +29,7 @@ var listCmd = &cobra.Command{
 			return fmt.Errorf("failed to list personal dev environments: %w", err)
 		}
 
+
 		if jsonOutput {
 			fmt.Println(string(resp))
 			return nil

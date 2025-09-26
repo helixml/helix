@@ -37,6 +37,16 @@ type CompletePairingRequest struct {
 }
 
 // listPersonalDevEnvironments handles GET /api/v1/personal-dev-environments
+// @Summary List personal development environments
+// @Description Get all personal development environments for the current user
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Success 200 {array} PersonalDevEnvironmentResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments [get]
 func (apiServer *HelixAPIServer) listPersonalDevEnvironments(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -72,6 +82,18 @@ func (apiServer *HelixAPIServer) listPersonalDevEnvironments(res http.ResponseWr
 }
 
 // createPersonalDevEnvironment handles POST /api/v1/personal-dev-environments
+// @Summary Create a personal development environment
+// @Description Create a new personal development environment with the specified configuration
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Param request body CreatePersonalDevEnvironmentRequest true "Personal dev environment configuration"
+// @Success 201 {object} PersonalDevEnvironmentResponse
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments [post]
 func (apiServer *HelixAPIServer) createPersonalDevEnvironment(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -227,6 +249,18 @@ func (apiServer *HelixAPIServer) updatePersonalDevEnvironment(res http.ResponseW
 }
 
 // deletePersonalDevEnvironment handles DELETE /api/v1/personal-dev-environments/{environmentID}
+// @Summary Delete a personal development environment
+// @Description Delete a personal development environment by ID
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Param environmentID path string true "Environment ID"
+// @Success 204 "No Content"
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments/{environmentID} [delete]
 func (apiServer *HelixAPIServer) deletePersonalDevEnvironment(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -263,6 +297,18 @@ func (apiServer *HelixAPIServer) deletePersonalDevEnvironment(res http.ResponseW
 }
 
 // startPersonalDevEnvironment handles POST /api/v1/personal-dev-environments/{environmentID}/start
+// @Summary Start a personal development environment
+// @Description Start a personal development environment by ID
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Param environmentID path string true "Environment ID"
+// @Success 200 {object} PersonalDevEnvironmentResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments/{environmentID}/start [post]
 func (apiServer *HelixAPIServer) startPersonalDevEnvironment(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
@@ -306,6 +352,18 @@ func (apiServer *HelixAPIServer) startPersonalDevEnvironment(res http.ResponseWr
 }
 
 // stopPersonalDevEnvironment handles POST /api/v1/personal-dev-environments/{environmentID}/stop
+// @Summary Stop a personal development environment
+// @Description Stop a personal development environment by ID
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Param environmentID path string true "Environment ID"
+// @Success 200 {object} PersonalDevEnvironmentResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments/{environmentID}/stop [post]
 func (apiServer *HelixAPIServer) stopPersonalDevEnvironment(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {

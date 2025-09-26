@@ -3,6 +3,8 @@ package external_agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,17 +25,21 @@ type WolfExecutor struct {
 	zedImage      string
 	helixAPIURL   string
 	helixAPIToken string
+
+	// Workspace configuration for dev stack
+	workspaceBasePath string
 }
 
 // NewWolfExecutor creates a new Wolf-based executor
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string) *WolfExecutor {
 	return &WolfExecutor{
-		wolfClient:    wolf.NewClient(wolfSocketPath),
-		sessions:      make(map[string]*ZedSession),
-		instances:     make(map[string]*ZedInstanceInfo),
-		zedImage:      zedImage,
-		helixAPIURL:   helixAPIURL,
-		helixAPIToken: helixAPIToken,
+		wolfClient:        wolf.NewClient(wolfSocketPath),
+		sessions:          make(map[string]*ZedSession),
+		instances:         make(map[string]*ZedInstanceInfo),
+		zedImage:          zedImage,
+		helixAPIURL:       helixAPIURL,
+		helixAPIToken:     helixAPIToken,
+		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
 	}
 }
 
@@ -345,6 +351,17 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		Str("environment_name", environmentName).
 		Msg("Creating personal development environment via Wolf")
 
+	// Create persistent workspace directory
+	workspaceDir, err := w.createWorkspaceDirectory(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	log.Info().
+		Str("instance_id", instanceID).
+		Str("workspace_dir", workspaceDir).
+		Msg("Created persistent workspace directory")
+
 	// Create Wolf app for this personal dev environment
 	wolfAppID := fmt.Sprintf("helix-personal-dev-%s", instanceID)
 
@@ -358,8 +375,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		fmt.Sprintf("ZED_USER_ID=%s", userID),
 		fmt.Sprintf("ZED_APP_ID=%s", appID),
 		fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
-		fmt.Sprintf("ZED_WORK_DIR=/workspace"),
+		fmt.Sprintf("ZED_WORK_DIR=/home/user/work"),
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"HELIX_STARTUP_SCRIPT=/home/user/work/startup.sh",
 	}
 
 	app := &wolf.App{
@@ -381,6 +399,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 			Env:   envVars,
 			Mounts: []string{
 				"./zed-build:/zed-build", // Mount Zed binary for updates
+				fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace
 			},
 			Devices: []string{
 				"/dev/dri:/dev/dri",    // GPU access for rendering
@@ -391,16 +410,17 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
   "HostConfig": {
     "IpcMode": "host",
     "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN", "SETUID", "SETGID"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
-  }
+  },
+  "User": "root"
 }`,
 		},
 	}
 
 	// Add the app to Wolf
-	err := w.wolfClient.AddApp(ctx, app)
+	err = w.wolfClient.AddApp(ctx, app)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add personal dev app to Wolf: %w", err)
 	}
@@ -572,6 +592,103 @@ func (w *WolfExecutor) GetPersonalDevEnvironment(ctx context.Context, userID, en
 	}
 
 	return instance, nil
+}
+
+// createWorkspaceDirectory creates a persistent workspace directory for an instance
+func (w *WolfExecutor) createWorkspaceDirectory(instanceID string) (string, error) {
+	workspaceDir := filepath.Join(w.workspaceBasePath, instanceID)
+
+	// Create the workspace directory
+	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Create a startup script template
+	startupScriptPath := filepath.Join(workspaceDir, "startup.sh")
+	if _, err := os.Stat(startupScriptPath); os.IsNotExist(err) {
+		startupScript := `#!/bin/bash
+# Personal Development Environment Startup Script
+# This script runs when your dev environment starts up
+# You can add commands here to install packages, configure tools, etc.
+
+echo "Starting up personal dev environment: ` + instanceID + `"
+
+# Install JupyterLab and OnlyOffice
+echo "Installing JupyterLab and OnlyOffice..."
+sudo apt update
+sudo apt install -y python3-pip
+pip3 install jupyterlab
+
+# Install OnlyOffice
+sudo apt install -y snapd
+sudo snap install onlyoffice-desktopeditors
+
+# Example: Configure git
+# git config --global user.name "Your Name"
+# git config --global user.email "your.email@example.com"
+
+# Example: Install development tools
+# curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+# sudo apt install -y nodejs
+
+echo "Startup script completed!"
+echo "JupyterLab can be started with: jupyter lab --ip=0.0.0.0 --allow-root"
+echo "OnlyOffice is available in applications menu"
+`
+		if err := os.WriteFile(startupScriptPath, []byte(startupScript), 0755); err != nil {
+			return "", fmt.Errorf("failed to create startup script: %w", err)
+		}
+	}
+
+	// Create a README explaining the workspace
+	readmePath := filepath.Join(workspaceDir, "README.md")
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		readme := `# Personal Development Environment Workspace
+
+This is your persistent workspace directory for instance: ` + instanceID + `
+
+## Contents
+
+- **startup.sh**: Custom startup script that runs when your environment starts
+- **Your files**: Any files you create here will persist across environment restarts
+
+## Pre-installed Tools
+
+Your environment comes with:
+- **JupyterLab**: Web-based interactive development environment for notebooks
+- **OnlyOffice**: Full office suite for documents, spreadsheets, and presentations
+
+## Startup Script
+
+Edit the ` + "`startup.sh`" + ` file to customize your environment:
+- Install additional packages with ` + "`sudo apt install`" + `
+- Configure development tools
+- Set up environment variables
+- Clone repositories
+- Run initialization commands
+
+The startup script runs with sudo privileges, so you can install system packages.
+
+## Persistence
+
+This entire directory is mounted as ` + "`/home/user/work`" + ` in your development environment.
+All files and changes you make here will persist even if you stop and restart the environment.
+
+## Tips
+
+- Use ` + "`sudo apt update && sudo apt install package-name`" + ` to install new packages
+- Your startup script runs every time the environment starts, so make commands idempotent
+- Large files and dependencies installed via the startup script will persist
+- Consider using package managers like npm, pip, cargo for language-specific tools
+- Start JupyterLab with: ` + "`jupyter lab --ip=0.0.0.0 --allow-root`" + `
+- OnlyOffice applications are available in the desktop applications menu
+`
+		if err := os.WriteFile(readmePath, []byte(readme), 0644); err != nil {
+			return "", fmt.Errorf("failed to create README: %w", err)
+		}
+	}
+
+	return workspaceDir, nil
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
