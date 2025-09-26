@@ -264,6 +264,7 @@ func (c *Client) CreateSession(ctx context.Context, session *Session) (string, e
 		return "", fmt.Errorf("failed to marshal session: %w", err)
 	}
 
+
 	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1/sessions/add", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
