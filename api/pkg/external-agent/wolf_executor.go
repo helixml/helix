@@ -80,7 +80,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Create a Wolf session for this app
 	session := &wolf.Session{
 		AppID:             appID,
-		ClientID:          fmt.Sprintf("helix-client-%s", agent.SessionID),
+		ClientID:          "342532221405053742", // Use valid paired client ID from Wolf config
 		ClientIP:          "127.0.0.1",
 		VideoWidth:        1920,
 		VideoHeight:       1080,
@@ -408,7 +408,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	// Create a Wolf session for this app
 	session := &wolf.Session{
 		AppID:             wolfAppID,
-		ClientID:          fmt.Sprintf("helix-personal-dev-%s", instanceID),
+		ClientID:          "342532221405053742", // Use valid paired client ID from Wolf config
 		ClientIP:          "127.0.0.1",
 		VideoWidth:        1920,
 		VideoHeight:       1080,
