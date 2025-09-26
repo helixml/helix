@@ -57,7 +57,7 @@ type AppRunner struct {
 	Env            []string `json:"env,omitempty"`              // Environment variables
 	Mounts         []string `json:"mounts,omitempty"`           // Volume mounts
 	Devices        []string `json:"devices,omitempty"`          // Device mappings
-	Ports          []string `json:"ports,omitempty"`            // Port mappings
+	Ports          []string `json:"ports"`                      // Port mappings
 	BaseCreateJSON string   `json:"base_create_json,omitempty"` // Docker create options
 }
 
@@ -71,6 +71,9 @@ type Session struct {
 	VideoRefreshRate  int            `json:"video_refresh_rate"`
 	AudioChannelCount int            `json:"audio_channel_count"`
 	ClientSettings    ClientSettings `json:"client_settings"`
+	AESKey            string         `json:"aes_key"`
+	AESIV             string         `json:"aes_iv"`
+	RTSPFakeIP        string         `json:"rtsp_fake_ip"`
 }
 
 // ClientSettings represents client-specific settings

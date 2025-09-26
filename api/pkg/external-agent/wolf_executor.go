@@ -94,6 +94,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			VScrollAcceleration: 1.0,
 			ControllersOverride: []string{},
 		},
+		AESKey:     "0123456789abcdef", // 16-byte AES key for streaming encryption
+		AESIV:      "12345678",         // 8-byte initialization vector
+		RTSPFakeIP: "192.168.1.100",    // Fake IP address for RTSP streaming
 	}
 
 	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
@@ -380,8 +383,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 				"./zed-build:/zed-build", // Mount Zed binary for updates
 			},
 			Devices: []string{
-				"/dev/dri",    // GPU access for rendering
-				"/dev/input",  // Input devices
+				"/dev/dri:/dev/dri",    // GPU access for rendering
+				"/dev/input:/dev/input", // Input devices
 			},
 			Ports: []string{}, // No external ports needed for personal dev environments
 			BaseCreateJSON: `{
@@ -419,6 +422,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 			VScrollAcceleration: 1.0,
 			ControllersOverride: []string{},
 		},
+		AESKey:     "0123456789abcdef", // 16-byte AES key for streaming encryption
+		AESIV:      "12345678",         // 8-byte initialization vector
+		RTSPFakeIP: "192.168.1.100",    // Fake IP address for RTSP streaming
 	}
 
 	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
