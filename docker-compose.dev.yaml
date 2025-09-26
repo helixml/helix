@@ -94,12 +94,16 @@ services:
             - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
             # Direct VNC proxy for local development (bypasses reverse dial)
             - DIRECT_VNC_PROXY=${DIRECT_VNC_PROXY:-true}
+            # Wolf integration for external agents
+            - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+            - ZED_IMAGE=${ZED_IMAGE:-helix/zed-agent:latest}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
             - ./api:/app/api
             - ${FILESTORE_DATA:-helix-filestore}:/filestore
             - helix-socket:/socket
+            - wolf-socket:/var/run/wolf
         depends_on:
             - postgres
             - keycloak
@@ -235,11 +239,13 @@ services:
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
+        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
+        - wolf-socket:/var/run/wolf
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -507,6 +513,7 @@ volumes:
     helix-filestore:
     helix-typesense-db:
     helix-socket:
+    wolf-socket:
     zed-work:
 
     go-pkg-mod: # Go module cache

@@ -1,0 +1,176 @@
+# syntax=docker/dockerfile:1.4
+ARG BASE_APP_IMAGE
+
+# hadolint ignore=DL3006
+FROM ${BASE_APP_IMAGE}
+
+# List taken from https://wiki.hypr.land/Getting-Started/Installation/#packages
+ARG HYPRLAND_PACKAGES="meson wget build-essential ninja-build cmake-extras cmake gettext gettext-base fontconfig libfontconfig-dev libffi-dev libxml2-dev libdrm-dev libxkbcommon-x11-dev libxkbregistry-dev libxkbcommon-dev libpixman-1-dev libudev-dev libseat-dev seatd libxcb-dri3-dev libegl-dev libgles2 libegl1-mesa-dev glslang-tools libxcb-composite0-dev libavutil-dev libavcodec-dev libavformat-dev libxcb-ewmh2 libxcb-ewmh-dev libxcb-present-dev libxcb-icccm4-dev libxcb-render-util0-dev libxcb-res0-dev libxcb-xinput-dev libtomlplusplus3 libre2-dev libxcursor-dev"
+ARG BUILD_PACKAGES="git curl libzip-dev librsvg2-dev libtomlplusplus-dev libpugixml-dev libseat-dev libdisplay-info-dev hwdata libre2-dev libmagic-dev libjxl-dev wayland-protocols libwayland-dev libgbm-dev libxcb-errors-dev qt6-base-dev qt6-base-private-dev qt6-wayland-dev qt6-declarative-dev qt6-declarative-private-dev qt6-wayland-private-dev libspng-dev libpolkit-agent-1-dev libpolkit-qt6-1-dev qt6-tools-dev libqt6core5compat6-dev libspa-0.2-dev libpipewire-0.3-dev libsdbus-c++-dev"
+ARG LIBINPUT_EXTRA_PACKAGES="libudev-dev libevdev-dev"
+
+RUN apt-get update -y && \
+    apt-get install -y ${HYPRLAND_PACKAGES} ${BUILD_PACKAGES} ${LIBINPUT_EXTRA_PACKAGES} && \
+        apt clean && \
+        rm -rf \
+            /config/.cache \
+            /var/lib/apt/lists/* \
+            /var/tmp/* \
+            /tmp/*
+
+ARG HYPRLAND_VERSION="v0.51.1"
+# TODO: pin those deps
+ARG HYPRUTILS_TAG="main"
+ARG HYPRLANG_TAG="main"
+ARG HYPRCURSOR_TAG="main"
+ARG HYPRWAYLAND_SCANNER_TAG="main"
+ARG HYPRGRAPHICS_TAG="main"
+ARG AQUAMARINE_TAG="v0.9.4"
+ARG WAYLAND_PROTOCOLS_TAG="main"
+ARG HYPRLAND_QTUTILS_VERSION="v0.1.4"
+ARG HYPRLAND_QT_SUPPORT_VERSION="v0.1.0"
+ARG XDPH_VERSION="v1.3.10"
+ARG LIBINPUT_VERSION="1.29.1"
+
+RUN <<_INSTALL_DEPENDENCIES
+#!/bin/bash
+set -e
+
+mkdir ~/hyprsource
+cd ~/hyprsource
+
+echo "Build libinput"
+git clone --branch ${LIBINPUT_VERSION} https://gitlab.freedesktop.org/libinput/libinput
+cd ./libinput
+  meson setup --prefix=/usr -Ddocumentation=false -Dtests=false -Ddebug-gui=false -Dlibwacom=false builddir/
+  ninja -C builddir/
+  ninja -C builddir/ install
+cd ~/hyprsource
+
+echo "Build wayland-protocols"
+git clone --depth 1 --branch ${WAYLAND_PROTOCOLS_TAG} https://gitlab.freedesktop.org/wayland/wayland-protocols.git
+cd ./wayland-protocols
+    mkdir ./build && cd ./build
+    meson setup --prefix=/usr --buildtype=release
+    ninja
+    ninja install
+cd ~/hyprsource
+
+echo "Build hyprutils"
+git clone --depth 1 --branch ${HYPRUTILS_TAG} https://github.com/hyprwm/hyprutils.git
+cd ./hyprutils
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "Build hyprlang"
+git clone --depth 1 --branch ${HYPRLANG_TAG} https://github.com/hyprwm/hyprlang.git
+cd ./hyprlang
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target hyprlang -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprcursor"
+git clone --depth 1 --branch ${HYPRCURSOR_TAG} https://github.com/hyprwm/hyprcursor.git
+cd ./hyprcursor
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+
+echo "hyprwayland-scanner"
+git clone --depth 1 --branch ${HYPRWAYLAND_SCANNER_TAG} https://github.com/hyprwm/hyprwayland-scanner.git
+cd ./hyprwayland-scanner
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "aquamarine"
+git clone --depth 1 --branch ${AQUAMARINE_TAG} https://github.com/hyprwm/aquamarine.git
+cd ./aquamarine
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprgraphics"
+git clone --depth 1 --branch ${HYPRGRAPHICS_TAG} https://github.com/hyprwm/hyprgraphics.git
+cd ./hyprgraphics
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprland-qt-support"
+git clone --branch ${HYPRLAND_QT_SUPPORT_VERSION} https://github.com/hyprwm/hyprland-qt-support
+cd hyprland-qt-support
+  cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -DINSTALL_QML_PREFIX=/lib/qt6/qml -S . -B ./build
+  cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+  cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprland-qtutils"
+git clone --branch ${HYPRLAND_QTUTILS_VERSION} https://github.com/hyprwm/hyprland-qtutils
+cd hyprland-qtutils
+  cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+  cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+  cmake --install ./build
+cd ~/hyprsource
+
+echo "xdg-desktop-portal-hyprland"
+git clone --branch ${XDPH_VERSION} --recursive https://github.com/hyprwm/xdg-desktop-portal-hyprland
+cd xdg-desktop-portal-hyprland
+  cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -DCMAKE_INSTALL_PREFIX=/usr -B build
+  cmake --build build
+  cmake --install build
+cd ~/hyprsource
+
+# Cleanup
+rm -r ~/hyprsource
+_INSTALL_DEPENDENCIES
+
+RUN <<_INSTALL_HYPRLAND
+#!/bin/bash
+set -e
+# Enable gcc 15
+apt-get update -y
+apt-get install -y g++-15
+update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100
+update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+
+# Get sources
+git clone --recursive https://github.com/hyprwm/Hyprland
+cd Hyprland
+git checkout ${HYPRLAND_VERSION}
+
+# Build debug build (it's the requirement needed to enable nested wayland)
+# And disable systemd
+cmake --no-warn-unused-cli -DNO_SYSTEMD=true -DCMAKE_BUILD_TYPE:STRING=Debug -DCMAKE_INSTALL_PREFIX:STRING=${PREFIX} -S . -B ./build
+cmake --build ./build --config Debug --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+cmake --install ./build
+
+# Cleanup
+cd ..
+rm -r Hyprland
+_INSTALL_HYPRLAND
+
+ARG RUN_PACKAGES="xwayland kitty nano waybar fonts-font-awesome qtwayland5"
+RUN apt-get update -y && \
+    apt-get install -y ${RUN_PACKAGES} && \
+        apt clean && \
+        rm -rf \
+            /config/.cache \
+            /var/lib/apt/lists/* \
+            /var/tmp/* \
+            /tmp/*
+
+# Replace launch scripts
+COPY --chmod=777 scripts/startup.sh /opt/gow/
+COPY --chmod=777 --chown=retro:retro config/hyprlandd.conf /cfg/hypr/hyprlandd.conf
+
+ARG IMAGE_SOURCE
+LABEL org.opencontainers.image.source=$IMAGE_SOURCE
