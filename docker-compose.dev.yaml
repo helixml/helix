@@ -236,7 +236,7 @@ services:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
       volumes:
-        - /etc/wolf/:/etc/wolf
+        - ./wolf/:/etc/wolf/cfg/
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
