@@ -230,113 +230,137 @@ services:
         # ports:
         #   - 7317:7317
 
+    wolf:
+      image: ghcr.io/games-on-whales/wolf:stable
+      environment:
+        - NVIDIA_DRIVER_CAPABILITIES=all
+        - NVIDIA_VISIBLE_DEVICES=all
+      volumes:
+        - /etc/wolf/:/etc/wolf
+        - /var/run/docker.sock:/var/run/docker.sock:rw
+        - /dev/:/dev/:rw
+        - /run/udev:/run/udev:rw
+      device_cgroup_rules:
+        - 'c 13:* rmw'
+      devices:
+        - /dev/dri
+        - /dev/uinput
+        - /dev/uhid
+      runtime: nvidia
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - capabilities: [gpu]
+      network_mode: host
+      restart: unless-stopped
 
     # Zed Agent Task Runner Pool (replaces gptscript runner entirely)
     # Scale with: docker-compose up --scale zed-runner=5
-    zed-runner:
-        build:
-            context: .
-            dockerfile: Dockerfile.zed-agent-vnc
-            args:
-                - BUILD_TYPE=release
-        ports:
-            - "5901:5901"  # Expose VNC for direct testing
-            # Moonlight/Sunshine ports for direct client testing
-            #- "47989:47989"  # Moonlight HTTP/HTTPS main port
-            #- "47990:47990"  # Sunshine web UI (HTTPS config interface)
-            #- "47984:47984"  # Moonlight HTTPS control
-            #- "47999:47999"  # Moonlight control port (TCP)
-            #- "47999:47999/udp"  # Moonlight control port (UDP)
-            #- "48010:48010"  # Moonlight RTSP (TCP)
-            #- "48010:48010/udp"  # Moonlight RTSP (UDP)
-            #- "47998:47998/udp"  # Moonlight video RTP stream (actual streaming port)
-            #- "48000:48000/udp"  # Moonlight audio RTP stream (actual streaming port)
-            #- "48100:48100"  # Moonlight video ping/discovery (TCP)
-            #- "48100:48100/udp"  # Moonlight video ping/discovery (UDP)
-            #- "48200:48200"  # Moonlight audio ping/discovery (TCP)
-            #- "48200:48200/udp"  # Moonlight audio ping/discovery (UDP)
-        environment:
-            # Control plane connection
-            - API_HOST=http://api:8080
-            - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-            - LOG_LEVEL=debug
+    # zed-runner:
+    #     build:
+    #         context: .
+    #         dockerfile: Dockerfile.zed-agent-vnc
+    #         args:
+    #             - BUILD_TYPE=release
+    #     ports:
+    #         - "5901:5901"  # Expose VNC for direct testing
+    #         # Moonlight/Sunshine ports for direct client testing
+    #         #- "47989:47989"  # Moonlight HTTP/HTTPS main port
+    #         #- "47990:47990"  # Sunshine web UI (HTTPS config interface)
+    #         #- "47984:47984"  # Moonlight HTTPS control
+    #         #- "47999:47999"  # Moonlight control port (TCP)
+    #         #- "47999:47999/udp"  # Moonlight control port (UDP)
+    #         #- "48010:48010"  # Moonlight RTSP (TCP)
+    #         #- "48010:48010/udp"  # Moonlight RTSP (UDP)
+    #         #- "47998:47998/udp"  # Moonlight video RTP stream (actual streaming port)
+    #         #- "48000:48000/udp"  # Moonlight audio RTP stream (actual streaming port)
+    #         #- "48100:48100"  # Moonlight video ping/discovery (TCP)
+    #         #- "48100:48100/udp"  # Moonlight video ping/discovery (UDP)
+    #         #- "48200:48200"  # Moonlight audio ping/discovery (TCP)
+    #         #- "48200:48200/udp"  # Moonlight audio ping/discovery (UDP)
+    #     environment:
+    #         # Control plane connection
+    #         - API_HOST=http://api:8080
+    #         - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+    #         - LOG_LEVEL=debug
 
-            # Zed runner configuration - one session per container, then exit
-            - CONCURRENCY=1
-            - MAX_TASKS=0  # 0 means unlimited tasks - stay alive for multiple requests
-            - SESSION_TIMEOUT=3600
+    #         # Zed runner configuration - one session per container, then exit
+    #         - CONCURRENCY=1
+    #         - MAX_TASKS=0  # 0 means unlimited tasks - stay alive for multiple requests
+    #         - SESSION_TIMEOUT=3600
 
-            # Container uses fixed settings since each container is isolated
-            - WORKSPACE_DIR=/tmp/workspace
-            - WAYLAND_DISPLAY=wayland-0
-            - WLR_RENDERER=gles2
-            - WLR_BACKENDS=headless
-            - WLR_HEADLESS_OUTPUTS=1
-            - WLR_NO_HARDWARE_CURSORS=1
-            - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
-            # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
-            - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
+    #         # Container uses fixed settings since each container is isolated
+    #         - WORKSPACE_DIR=/tmp/workspace
+    #         - WAYLAND_DISPLAY=wayland-0
+    #         - WLR_RENDERER=gles2
+    #         - WLR_BACKENDS=headless
+    #         - WLR_HEADLESS_OUTPUTS=1
+    #         - WLR_NO_HARDWARE_CURSORS=1
+    #         - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
+    #         # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
+    #         - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
 
-            # HyprMoon screencopy configuration
-            - HYPRMOON_FRAME_SOURCE=screencopy
-            - HYPRMOON_WAYLAND_DISPLAY=wayland-1
-            - HYPRMOON_DEBUG_SAVE_FRAMES=1
+    #         # HyprMoon screencopy configuration
+    #         - HYPRMOON_FRAME_SOURCE=screencopy
+    #         - HYPRMOON_WAYLAND_DISPLAY=wayland-1
+    #         - HYPRMOON_DEBUG_SAVE_FRAMES=1
 
-            # Wolf-style GPU configuration for container runtime
-            - NVIDIA_VISIBLE_DEVICES=all
-            - NVIDIA_DRIVER_CAPABILITIES=all
-            - WOLF_RENDER_NODE=/dev/dri/renderD128
-            - GST_GL_DRM_DEVICE=/dev/dri/renderD128
-        volumes:
-            # Mount source code for hot reloading during development
-            - .:/workspace/helix
-            # Persistence for user data in zed environment
-            - zed-work:/home/ubuntu/work
-            # Go caches for faster development
-            - go-pkg-mod:/go/pkg/mod
-            - go-build-cache:/root/.cache/go-build
-            # Mount Zed launcher scripts for easy iteration
-            - ./zed.sh:/usr/local/bin/zed.sh
-            - ./zed-vgl.sh:/usr/local/bin/zed-vgl.sh
-            - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
-            # Mount zed-build directory for live binary updates
-            - ./zed-build:/zed-build
-            # Mount startup script for fast iteration without rebuilds
-            - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
-            - ./start-ubuntu-session.sh:/start-ubuntu-session.sh
-            # Mount Hyprland config for fast iteration
-            - ./hypr-config:/home/ubuntu/.config/hypr
-            # Mount AGS config from dots-hyprland for fast iteration
-            - /home/luke/pm/dots-hyprland/.config/ags:/home/ubuntu/.config/ags
-            # Mount screencopy frame captures for debugging/monitoring
-            - ./screencopy-frames:/tmp/hyprmoon_frame_dumps
-            # Mount Zed config for persistence
-            - ./zed-config:/home/ubuntu/.config/zed
-        # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
-        devices:
-            - "/dev/dri:/dev/dri"
-            - "/dev/nvidia0:/dev/nvidia0"
-            - "/dev/nvidiactl:/dev/nvidiactl"
-            - "/dev/nvidia-modeset:/dev/nvidia-modeset"
-            - "/dev/nvidia-uvm:/dev/nvidia-uvm"
-            - "/dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools"
-        # Enable privileged mode for better GPU access
-        privileged: true
-        # Explicitly use nvidia runtime for full GPU support
-        runtime: nvidia
-        # No port mapping needed - RDP proxied over WebSocket connection
-        restart: always
-        depends_on:
-            - api
-        deploy:
-            # Default to 1 runner, scale with --scale zed-runner=N
-            replicas: 1
-            resources:
-                reservations:
-                    devices:
-                        - driver: nvidia
-                          count: all
-                          capabilities: [gpu]
+    #         # Wolf-style GPU configuration for container runtime
+    #         - NVIDIA_VISIBLE_DEVICES=all
+    #         - NVIDIA_DRIVER_CAPABILITIES=all
+    #         - WOLF_RENDER_NODE=/dev/dri/renderD128
+    #         - GST_GL_DRM_DEVICE=/dev/dri/renderD128
+    #     volumes:
+    #         # Mount source code for hot reloading during development
+    #         - .:/workspace/helix
+    #         # Persistence for user data in zed environment
+    #         - zed-work:/home/ubuntu/work
+    #         # Go caches for faster development
+    #         - go-pkg-mod:/go/pkg/mod
+    #         - go-build-cache:/root/.cache/go-build
+    #         # Mount Zed launcher scripts for easy iteration
+    #         - ./zed.sh:/usr/local/bin/zed.sh
+    #         - ./zed-vgl.sh:/usr/local/bin/zed-vgl.sh
+    #         - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
+    #         # Mount zed-build directory for live binary updates
+    #         - ./zed-build:/zed-build
+    #         # Mount startup script for fast iteration without rebuilds
+    #         - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
+    #         - ./start-ubuntu-session.sh:/start-ubuntu-session.sh
+    #         # Mount Hyprland config for fast iteration
+    #         - ./hypr-config:/home/ubuntu/.config/hypr
+    #         # Mount AGS config from dots-hyprland for fast iteration
+    #         - /home/luke/pm/dots-hyprland/.config/ags:/home/ubuntu/.config/ags
+    #         # Mount screencopy frame captures for debugging/monitoring
+    #         - ./screencopy-frames:/tmp/hyprmoon_frame_dumps
+    #         # Mount Zed config for persistence
+    #         - ./zed-config:/home/ubuntu/.config/zed
+    #     # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
+    #     devices:
+    #         - "/dev/dri:/dev/dri"
+    #         - "/dev/nvidia0:/dev/nvidia0"
+    #         - "/dev/nvidiactl:/dev/nvidiactl"
+    #         - "/dev/nvidia-modeset:/dev/nvidia-modeset"
+    #         - "/dev/nvidia-uvm:/dev/nvidia-uvm"
+    #         - "/dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools"
+    #     # Enable privileged mode for better GPU access
+    #     privileged: true
+    #     # Explicitly use nvidia runtime for full GPU support
+    #     runtime: nvidia
+    #     # No port mapping needed - RDP proxied over WebSocket connection
+    #     restart: always
+    #     depends_on:
+    #         - api
+    #     deploy:
+    #         # Default to 1 runner, scale with --scale zed-runner=N
+    #         replicas: 1
+    #         resources:
+    #             reservations:
+    #                 devices:
+    #                     - driver: nvidia
+    #                       count: all
+    #                       capabilities: [gpu]
 
     # GPU-enabled runner (for LLM inference)
     runner_gpu:

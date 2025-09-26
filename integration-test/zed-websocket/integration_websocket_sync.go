@@ -303,6 +303,10 @@ func loadAnthropicAPIKey() error {
 			anthropicAPIKey = strings.TrimPrefix(line, "ANTHROPIC_API_KEY=")
 			return nil
 		}
+		if strings.HasPrefix(line, "export ANTHROPIC_API_KEY=") {
+			anthropicAPIKey = strings.TrimPrefix(line, "export ANTHROPIC_API_KEY=")
+			return nil
+		}
 	}
 
 	return fmt.Errorf("ANTHROPIC_API_KEY not found in .env file")
