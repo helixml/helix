@@ -94,9 +94,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			VScrollAcceleration: 1.0,
 			ControllersOverride: []string{},
 		},
-		AESKey:     "0123456789abcdef", // 16-byte AES key for streaming encryption
-		AESIV:      "12345678",         // 8-byte initialization vector
-		RTSPFakeIP: "192.168.1.100",    // Fake IP address for RTSP streaming
+		AESKey:     "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex string for 16-byte AES key
+		AESIV:      "0123456789abcdef",                 // 16-char hex string for 8-byte IV
+		RTSPFakeIP: "192.168.1.100",                   // Fake IP address for RTSP streaming
 	}
 
 	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
@@ -422,9 +422,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 			VScrollAcceleration: 1.0,
 			ControllersOverride: []string{},
 		},
-		AESKey:     "0123456789abcdef", // 16-byte AES key for streaming encryption
-		AESIV:      "12345678",         // 8-byte initialization vector
-		RTSPFakeIP: "192.168.1.100",    // Fake IP address for RTSP streaming
+		AESKey:     "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex string for 16-byte AES key
+		AESIV:      "0123456789abcdef",                 // 16-char hex string for 8-byte IV
+		RTSPFakeIP: "192.168.1.100",                   // Fake IP address for RTSP streaming
 	}
 
 	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
