@@ -344,9 +344,9 @@ function start() {
   tmux select-pane -t 2 -T "Haystack Logs"
   tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
-  # Middle row (3-5): Zed Agent, Zed Process, GPU Runner/Demos
-  tmux select-pane -t 3 -T "Zed Agent Runner"
-  tmux send-keys -t 3 'echo "Monitoring Zed Agent Runner logs..." && sleep 2 && docker compose -f docker-compose.dev.yaml logs -f zed-runner' C-m
+  # Middle row (3-5): Wolf Logs, Zed Process, GPU Runner/Demos
+  tmux select-pane -t 3 -T "Wolf Logs"
+  tmux send-keys -t 3 'echo "Monitoring Wolf logs..." && tail -f /tmp/wolf-*.log 2>/dev/null || echo "No Wolf logs found yet - logs will appear here when Wolf is running"' C-m
 
   tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
   tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
