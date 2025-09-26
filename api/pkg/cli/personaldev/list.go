@@ -45,11 +45,11 @@ var listCmd = &cobra.Command{
 		fmt.Fprintln(w, "ID\tNAME\tSTATUS\tCREATED\tLAST_ACTIVITY")
 
 		for _, env := range environments {
-			id := getStringField(env, "instance_id")
+			id := getStringField(env, "InstanceID")
 			name := getStringField(env, "environment_name")
-			status := getStringField(env, "status")
-			created := getStringField(env, "created_at")
-			lastActivity := getStringField(env, "last_activity")
+			status := getStringField(env, "Status")
+			created := getStringField(env, "CreatedAt")
+			lastActivity := getStringField(env, "LastActivity")
 
 			// Parse and format dates
 			createdTime := parseTimeString(created)
