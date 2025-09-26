@@ -10,43 +10,12 @@ definitions:
       model_id:
         type: string
     type: object
-  github_com_helixml_helix_api_pkg_types.AgentType:
-    enum:
-    - helix_basic
-    - helix_agent
-    - zed_external
-    type: string
-    x-enum-comments:
-      AgentTypeHelixAgent: Standard Helix agent with skills
-      AgentTypeHelixBasic: Basic Helix agent
-      AgentTypeZedExternal: Zed-integrated agent
-    x-enum-varnames:
-    - AgentTypeHelixBasic
-    - AgentTypeHelixAgent
-    - AgentTypeZedExternal
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
         items:
           $ref: '#/definitions/types.Rule'
         type: array
-    type: object
-  github_com_helixml_helix_api_pkg_types.ZedInstanceStatus:
-    properties:
-      active_threads:
-        type: integer
-      last_activity:
-        type: string
-      project_path:
-        type: string
-      spec_task_id:
-        type: string
-      status:
-        type: string
-      thread_count:
-        type: integer
-      zed_instance_id:
-        type: string
     type: object
   gorm.DeletedAt:
     properties:
@@ -798,6 +767,15 @@ definitions:
       total_events:
         type: integer
     type: object
+  server.CreatePersonalDevEnvironmentRequest:
+    properties:
+      app_id:
+        type: string
+      description:
+        type: string
+      environment_name:
+        type: string
+    type: object
   server.CreateSampleRepositoryRequest:
     properties:
       description:
@@ -933,6 +911,53 @@ definitions:
       original_provider:
         type: string
       reason:
+        type: string
+    type: object
+  server.PersonalDevEnvironmentResponse:
+    properties:
+      appID:
+        description: Helix App ID for configuration (MCP servers, tools, etc.)
+        type: string
+      configured_tools:
+        description: MCP servers enabled
+        items:
+          type: string
+        type: array
+      createdAt:
+        type: string
+      data_sources:
+        description: Connected data sources
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      environment_name:
+        description: User-friendly name
+        type: string
+      instanceID:
+        type: string
+      instanceType:
+        description: '"spec_task", "personal_dev", "shared_workspace"'
+        type: string
+      is_personal_env:
+        description: Personal dev environment specific
+        type: boolean
+      lastActivity:
+        type: string
+      projectPath:
+        type: string
+      specTaskID:
+        description: Optional - null for personal dev environments
+        type: string
+      status:
+        type: string
+      stream_url:
+        type: string
+      threadCount:
+        type: integer
+      userID:
+        description: Always required
         type: string
     type: object
   server.PhaseProgress:
@@ -1770,6 +1795,10 @@ definitions:
         items:
           $ref: '#/definitions/types.AgentSessionStatus'
         type: array
+      external_agent_runners:
+        items:
+          $ref: '#/definitions/types.ExternalAgentConnection'
+        type: array
       last_updated:
         type: string
       pending_reviews:
@@ -1869,6 +1898,20 @@ definitions:
       total:
         type: integer
     type: object
+  types.AgentType:
+    enum:
+    - helix_basic
+    - helix_agent
+    - zed_external
+    type: string
+    x-enum-comments:
+      AgentTypeHelixAgent: Standard Helix agent with skills
+      AgentTypeHelixBasic: Basic Helix agent
+      AgentTypeZedExternal: Zed-integrated agent
+    x-enum-varnames:
+    - AgentTypeHelixBasic
+    - AgentTypeHelixAgent
+    - AgentTypeZedExternal
   types.AgentWorkConfig:
     properties:
       environment:
@@ -2233,7 +2276,7 @@ definitions:
         type: string
       default_agent_type:
         allOf:
-        - $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.AgentType'
+        - $ref: '#/definitions/types.AgentType'
         description: Agent configuration
       description:
         type: string
@@ -2336,7 +2379,7 @@ definitions:
         type: boolean
       agent_type:
         allOf:
-        - $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.AgentType'
+        - $ref: '#/definitions/types.AgentType'
         description: AgentType specifies the type of agent to use
       apis:
         items:
@@ -2801,6 +2844,17 @@ definitions:
         type: string
       workspace_dir:
         description: Custom working directory
+        type: string
+    type: object
+  types.ExternalAgentConnection:
+    properties:
+      connected_at:
+        type: string
+      last_ping:
+        type: string
+      session_id:
+        type: string
+      status:
         type: string
     type: object
   types.Firecrawl:
@@ -6260,6 +6314,23 @@ definitions:
       timestamp:
         type: string
     type: object
+  types.ZedInstanceStatus:
+    properties:
+      active_threads:
+        type: integer
+      last_activity:
+        type: string
+      project_path:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        type: string
+      thread_count:
+        type: integer
+      zed_instance_id:
+        type: string
+    type: object
 host: app.helix.ml
 info:
   contact:
@@ -8255,6 +8326,172 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
+  /api/v1/personal-dev-environments:
+    get:
+      consumes:
+      - application/json
+      description: Get all personal development environments for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List personal development environments
+      tags:
+      - PersonalDevEnvironments
+    post:
+      consumes:
+      - application/json
+      description: Create a new personal development environment with the specified
+        configuration
+      parameters:
+      - description: Personal dev environment configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreatePersonalDevEnvironmentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create a personal development environment
+      tags:
+      - PersonalDevEnvironments
+  /api/v1/personal-dev-environments/{environmentID}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a personal development environment by ID
+      parameters:
+      - description: Environment ID
+        in: path
+        name: environmentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a personal development environment
+      tags:
+      - PersonalDevEnvironments
+  /api/v1/personal-dev-environments/{environmentID}/start:
+    post:
+      consumes:
+      - application/json
+      description: Start a personal development environment by ID
+      parameters:
+      - description: Environment ID
+        in: path
+        name: environmentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Start a personal development environment
+      tags:
+      - PersonalDevEnvironments
+  /api/v1/personal-dev-environments/{environmentID}/stop:
+    post:
+      consumes:
+      - application/json
+      description: Stop a personal development environment by ID
+      parameters:
+      - description: Environment ID
+        in: path
+        name: environmentID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Stop a personal development environment
+      tags:
+      - PersonalDevEnvironments
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -8888,6 +9125,26 @@ paths:
       summary: Get an interaction by ID
       tags:
       - interactions
+  /api/v1/sessions/{id}/rdp-connection:
+    get:
+      description: Get RDP connection details for accessing a session via RDP
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get RDP connection info for a session
+      tags:
+      - sessions
   /api/v1/sessions/{id}/step-info:
     get:
       responses:
@@ -9719,7 +9976,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.ZedInstanceStatus'
+            $ref: '#/definitions/types.ZedInstanceStatus'
         "404":
           description: Not Found
           schema:

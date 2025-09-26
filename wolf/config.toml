@@ -2,9 +2,6 @@ config_version = 5
 hostname = 'Helix'
 uuid = '5a3f1809-8854-4e7a-8646-07fab869745a'
 
-[api]
-socket_path = '/var/run/wolf/wolf.sock'
-
 [gstreamer.audio]
 default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
 default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
@@ -367,6 +364,35 @@ y4SE4EWRNE2P44PSLMx0QRU4pR9Kgc8x8FULKOuhGy9U05w2rrIGQFo8G74ui8bu
 i/2hR1epcaIhtVqzls2Tar/jAi7syZeAJT54RW5zewcoLqGj7tkc47Mg6r0B+DVg
 /sfFFwD+G1mIQwN6BGp+TiBNbnKdPfHtW8QTPUki04kIhioBWWPKA3GFdY23T5qv
 r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '4094921142328756447'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMTA0ODMxWhcNNDUwOTE4MTA0
+ODMxWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDQM+u3BFtowiAybUmFb4cjN3zhyioO
+S/MzVLYBUEb3S1ZGmeSaGeVERtvnnQLO+4vb4gqK5n64Y7kbCXCMEwEUWzL6xJan
+c3LXLr5+9Q74VZCpEmikJGR4Jap/eS3SZA4e4e1LSJwBEl/MWsylW4iH1KYrAion
+tcfHPVqjeS79TZIvQVpEAGz+1RPt4p7EtwOf4f41zsM5aniXAde3PJGVBmBfTCnI
+GAP8ZGsKw2u/1Muqgsfv9EekrC9Y7+AUVl2wif1xBmZ125/+Z0ergRMEbiVRGfpL
+36rYUrmiN2jhfo/PR4aguyboU+fNZ9Ma1julTO5fPfwyB4Uli9has4QTAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAK0OionU0fgAanYkCDU+Ec5H8n7XG+GEyftr5mO+
+lyBw4AQNmk8ywE0zurM8D2xaoKBp3EfAYx2gQbBkImcm727k2hCRe24iaj68eUKB
+3En48mYXUNaSliGeoFaY/2jCc58UB+iu8E2OEiOojFuA/KCZaBp199p+HDhaSkmP
+Lgo/Utu765rbXJubqDNE8KKASX65hscjwuyK3T7pnkIIKpGH7FwBfyCZtqR/7JZ8
+D45M6X40Xb55fWtsNfmYcvHJKfF6Msoju9VUG7wwLxCRf/b74YpbRIOvinDgO/c5
+HDKDoeza2xCkTX348NHNn9kJ7yxzxvbtKx3GWdklmjtn0AU=
 -----END CERTIFICATE-----
 '''
 

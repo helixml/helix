@@ -107,6 +107,7 @@ docker ps | grep helix
 **CRITICAL BUILD REQUIREMENTS:**
 - **MANDATORY FOREGROUND ONLY**: NEVER use `run_in_background: true` - ALL builds must run in foreground with full output visible
 - **CRITICAL: 15-MINUTE TIMEOUT**: ALWAYS use 15-minute timeout (900000ms) for builds - the default 2-minute timeout is too short and causes hanging with tail -f commands
+- **WAIT DURING LONG BUILDS**: For Docker container builds that take several minutes, use `sleep 60` between status checks instead of continuously monitoring. Check completion with `docker images | grep {image_name}` after sleeping
 - **ONE BUILD AT A TIME**: Never run multiple concurrent builds - wait for completion before starting another
 - **CRITICAL: DEPENDENCY SYNCHRONIZATION**: When adding new dependencies to `debian/control`, ALWAYS also add them to `Dockerfile.build` in the same session. Both files must be kept in sync to ensure build environment has all required packages.
 - **BUILD CACHE ENABLED**: debian/rules has been modified to disable `make clear` - this preserves build cache between runs for much faster iterations
@@ -222,6 +223,120 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 3. **Direct function calls** simpler than complex event coordination
 4. **Fix include paths systematically** when integrating Wolf code
 5. **Test each server component individually** before full integration
+
+## Using Generated TypeScript Client and React Query
+
+**IMPORTANT: Always use the generated TypeScript client instead of manual API calls**
+
+### Regenerating the TypeScript Client
+When adding new API endpoints with swagger annotations:
+```bash
+./stack update_openapi
+```
+
+This generates:
+- Swagger documentation from Go code
+- TypeScript client with proper types in `frontend/src/api/api.ts`
+- Type-safe API methods matching the backend exactly
+
+### Required Swagger Annotations for API Endpoints
+All API handlers must include proper swagger annotations for client generation:
+
+```go
+// @Summary List personal development environments
+// @Description Get all personal development environments for the current user
+// @Tags PersonalDevEnvironments
+// @Accept json
+// @Produce json
+// @Success 200 {array} PersonalDevEnvironmentResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/personal-dev-environments [get]
+func (apiServer *HelixAPIServer) listPersonalDevEnvironments(res http.ResponseWriter, req *http.Request) {
+```
+
+### Using the Generated Client with React Query (MANDATORY)
+**CRITICAL: ALL frontend API interactions MUST use React Query**
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ServerPersonalDevEnvironmentResponse, ServerCreatePersonalDevEnvironmentRequest } from '../api/api'
+import useApi from '../hooks/useApi'
+
+const api = useApi()
+const apiClient = api.getApiClient() // Get the generated API client
+
+// Use React Query for data fetching
+const { data: environments = [], isLoading, error } = useQuery({
+  queryKey: ['personal-dev-environments'],
+  queryFn: () => apiClient.v1PersonalDevEnvironmentsList(),
+  select: (response) => response.data || [],
+  enabled: !!account.user
+})
+
+// Use React Query for mutations
+const queryClient = useQueryClient()
+const createEnvironmentMutation = useMutation({
+  mutationFn: (request: ServerCreatePersonalDevEnvironmentRequest) =>
+    apiClient.v1PersonalDevEnvironmentsCreate(request),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
+  }
+})
+
+// Trigger mutations
+const handleCreate = () => {
+  createEnvironmentMutation.mutate({
+    environment_name: 'test-env',
+    app_id: 'app-123'
+  })
+}
+```
+
+### React Query Requirements and Conventions
+- **MUST use React Query** for all API calls (queries and mutations)
+- **ALWAYS refactor existing code** to use React Query when touching API-related components
+- **Use proper query keys** for cache management
+- **Invalidate queries** after mutations to refresh data
+- **Handle loading and error states** through React Query hooks
+
+### Common Usage Patterns
+```typescript
+// Error handling with proper type checking
+{error && (
+  <Alert severity="error" sx={{ mb: 2 }}>
+    {error instanceof Error ? error.message : 'Default error message'}
+  </Alert>
+)}
+
+// Refresh button using query invalidation
+<IconButton
+  onClick={() => queryClient.invalidateQueries({ queryKey: ['query-key'] })}
+  disabled={loading}
+>
+  <RefreshIcon />
+</IconButton>
+
+// Handle mutation errors separately
+{createMutation.error && (
+  <Alert severity="error" sx={{ mb: 2 }}>
+    {createMutation.error instanceof Error
+      ? createMutation.error.message
+      : 'Failed to create item'}
+  </Alert>
+)}
+
+// Use optional chaining for nullable generated types
+environment.instanceID || ''
+environment.configured_tools && environment.configured_tools.length > 0
+```
+
+### Key Benefits
+- **Type Safety**: Automatic TypeScript types matching backend structs
+- **API Consistency**: Generated methods match exact backend endpoints
+- **Field Name Accuracy**: No manual field name mismatches (PascalCase vs snake_case)
+- **Automatic Updates**: Regenerating updates all types and methods
 
 This file must be kept up to date with any critical lessons learned during development.
 

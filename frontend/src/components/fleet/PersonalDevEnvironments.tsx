@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState } from 'react'
 import {
   Box,
   Typography,
@@ -39,25 +39,13 @@ import {
   Link as LinkIcon,
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
+import { ServerPersonalDevEnvironmentResponse, ServerCreatePersonalDevEnvironmentRequest } from '../../api/api'
 import MoonlightPairingOverlay from './MoonlightPairingOverlay'
-
-// Personal dev environment types
-interface PersonalDevEnvironment {
-  instance_id: string
-  user_id: string
-  app_id: string
-  environment_name: string
-  status: string
-  created_at: string
-  last_activity: string
-  stream_url?: string
-  configured_tools: string[]
-  data_sources: string[]
-}
 
 interface PersonalDevEnvironmentsProps {
   apps: IApp[]
@@ -67,16 +55,14 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
   const theme = useTheme()
   const api = useApi()
   const account = useAccount()
+  const queryClient = useQueryClient()
 
-  const [environments, setEnvironments] = useState<PersonalDevEnvironment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [newEnvironmentName, setNewEnvironmentName] = useState('')
   const [selectedAppId, setSelectedAppId] = useState('')
   const [description, setDescription] = useState('')
   const [actionMenuAnchor, setActionMenuAnchor] = useState<null | HTMLElement>(null)
-  const [selectedEnvironment, setSelectedEnvironment] = useState<PersonalDevEnvironment | null>(null)
+  const [selectedEnvironment, setSelectedEnvironment] = useState<ServerPersonalDevEnvironmentResponse | null>(null)
   const [pairingOverlayOpen, setPairingOverlayOpen] = useState(false)
   const [createAgentDialogOpen, setCreateAgentDialogOpen] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
@@ -86,48 +72,42 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
     app.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL
   )
 
-  const loadEnvironments = async () => {
-    try {
-      setLoading(true)
-      setError(null)
+  // Get the API client
+  const apiClient = api.getApiClient()
 
-      const response = await api.get('/api/v1/personal-dev-environments')
-      setEnvironments(response.data || [])
-    } catch (err: any) {
-      console.error('Failed to load personal dev environments:', err)
-      setError(err.message || 'Failed to load personal dev environments')
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Use React Query for data fetching
+  const { data: environments = [], isLoading: loading, error } = useQuery({
+    queryKey: ['personal-dev-environments'],
+    queryFn: () => apiClient.v1PersonalDevEnvironmentsList(),
+    select: (response) => response.data || [],
+    enabled: !!account.user
+  })
 
-  useEffect(() => {
-    if (account.user) {
-      loadEnvironments()
-    }
-  }, [account.user])
-
-  const handleCreateEnvironment = async () => {
-    if (!newEnvironmentName.trim() || !selectedAppId) {
-      return
-    }
-
-    try {
-      await api.post('/api/v1/personal-dev-environments', {
-        environment_name: newEnvironmentName,
-        app_id: selectedAppId,
-        description: description,
-      })
-
+  // Create environment mutation
+  const createEnvironmentMutation = useMutation({
+    mutationFn: (request: ServerCreatePersonalDevEnvironmentRequest) =>
+      apiClient.v1PersonalDevEnvironmentsCreate(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
       setCreateDialogOpen(false)
       setNewEnvironmentName('')
       setSelectedAppId('')
       setDescription('')
-      await loadEnvironments()
-    } catch (err: any) {
-      console.error('Failed to create personal dev environment:', err)
-      setError(err.message || 'Failed to create environment')
     }
+  })
+
+  const handleCreateEnvironment = () => {
+    if (!newEnvironmentName.trim() || !selectedAppId) {
+      return
+    }
+
+    const request: ServerCreatePersonalDevEnvironmentRequest = {
+      environment_name: newEnvironmentName,
+      app_id: selectedAppId,
+      description: description,
+    }
+
+    createEnvironmentMutation.mutate(request)
   }
 
   const handleCreateZedAgent = async () => {
@@ -174,38 +154,46 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
     }
   }
 
-  const handleStartEnvironment = async (environmentId: string) => {
-    try {
-      await api.post(`/api/v1/personal-dev-environments/${environmentId}/start`)
-      await loadEnvironments()
-    } catch (err: any) {
-      console.error('Failed to start environment:', err)
-      setError(err.message || 'Failed to start environment')
+  // Start environment mutation
+  const startEnvironmentMutation = useMutation({
+    mutationFn: (environmentId: string) =>
+      apiClient.v1PersonalDevEnvironmentsStartCreate(environmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
     }
+  })
+
+  // Stop environment mutation
+  const stopEnvironmentMutation = useMutation({
+    mutationFn: (environmentId: string) =>
+      apiClient.v1PersonalDevEnvironmentsStopCreate(environmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
+    }
+  })
+
+  // Delete environment mutation
+  const deleteEnvironmentMutation = useMutation({
+    mutationFn: (environmentId: string) =>
+      apiClient.v1PersonalDevEnvironmentsDelete(environmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
+    }
+  })
+
+  const handleStartEnvironment = (environmentId: string) => {
+    startEnvironmentMutation.mutate(environmentId)
   }
 
-  const handleStopEnvironment = async (environmentId: string) => {
-    try {
-      await api.post(`/api/v1/personal-dev-environments/${environmentId}/stop`)
-      await loadEnvironments()
-    } catch (err: any) {
-      console.error('Failed to stop environment:', err)
-      setError(err.message || 'Failed to stop environment')
-    }
+  const handleStopEnvironment = (environmentId: string) => {
+    stopEnvironmentMutation.mutate(environmentId)
   }
 
-  const handleDeleteEnvironment = async (environmentId: string) => {
+  const handleDeleteEnvironment = (environmentId: string) => {
     if (!confirm('Are you sure you want to delete this personal dev environment?')) {
       return
     }
-
-    try {
-      await api.delete(`/api/v1/personal-dev-environments/${environmentId}`)
-      await loadEnvironments()
-    } catch (err: any) {
-      console.error('Failed to delete environment:', err)
-      setError(err.message || 'Failed to delete environment')
-    }
+    deleteEnvironmentMutation.mutate(environmentId)
   }
 
   const handleConnectToEnvironment = (environment: PersonalDevEnvironment) => {
@@ -261,7 +249,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
           Personal Dev Environments
         </Typography>
         <Box>
-          <IconButton onClick={loadEnvironments} disabled={loading}>
+          <IconButton onClick={() => queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })} disabled={loading}>
             <RefreshIcon />
           </IconButton>
           <Button
@@ -285,7 +273,39 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {error instanceof Error ? error.message : 'Failed to load personal dev environments'}
+        </Alert>
+      )}
+
+      {createEnvironmentMutation.error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {createEnvironmentMutation.error instanceof Error
+            ? createEnvironmentMutation.error.message
+            : 'Failed to create environment'}
+        </Alert>
+      )}
+
+      {startEnvironmentMutation.error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {startEnvironmentMutation.error instanceof Error
+            ? startEnvironmentMutation.error.message
+            : 'Failed to start environment'}
+        </Alert>
+      )}
+
+      {stopEnvironmentMutation.error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {stopEnvironmentMutation.error instanceof Error
+            ? stopEnvironmentMutation.error.message
+            : 'Failed to stop environment'}
+        </Alert>
+      )}
+
+      {deleteEnvironmentMutation.error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {deleteEnvironmentMutation.error instanceof Error
+            ? deleteEnvironmentMutation.error.message
+            : 'Failed to delete environment'}
         </Alert>
       )}
 
@@ -316,9 +336,9 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
             </Grid>
           ) : (
             environments.map((environment) => {
-              const app = apps.find(a => a.id === environment.app_id)
+              const app = apps.find(a => a.id === environment.appID)
               return (
-                <Grid item xs={12} md={6} lg={4} key={environment.instance_id}>
+                <Grid item xs={12} md={6} lg={4} key={environment.instanceID}>
                   <Card>
                     <CardHeader
                       title={environment.environment_name}
@@ -340,14 +360,14 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                       </Box>
                       
                       <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Created: {new Date(environment.created_at).toLocaleDateString()}
-                      </Typography>
-                      
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Last Activity: {new Date(environment.last_activity).toLocaleDateString()}
+                        Created: {new Date(environment.createdAt || '').toLocaleDateString()}
                       </Typography>
 
-                      {environment.configured_tools.length > 0 && (
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Last Activity: {new Date(environment.lastActivity || '').toLocaleDateString()}
+                      </Typography>
+
+                      {environment.configured_tools && environment.configured_tools.length > 0 && (
                         <Box mt={2}>
                           <Typography variant="caption" color="text.secondary">
                             Tools:
@@ -375,19 +395,20 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                           <Button
                             size="small"
                             startIcon={<StopIcon />}
-                            onClick={() => handleStopEnvironment(environment.instance_id)}
+                            onClick={() => handleStopEnvironment(environment.instanceID || '')}
+                            disabled={stopEnvironmentMutation.isPending}
                           >
-                            Stop
+                            {stopEnvironmentMutation.isPending ? 'Stopping...' : 'Stop'}
                           </Button>
                         </>
                       ) : (
                         <Button
                           size="small"
                           startIcon={<PlayArrowIcon />}
-                          onClick={() => handleStartEnvironment(environment.instance_id)}
-                          disabled={environment.status === 'starting' || environment.status === 'creating'}
+                          onClick={() => handleStartEnvironment(environment.instanceID || '')}
+                          disabled={environment.status === 'starting' || environment.status === 'creating' || startEnvironmentMutation.isPending}
                         >
-                          Start
+                          {startEnvironmentMutation.isPending ? 'Starting...' : 'Start'}
                         </Button>
                       )}
                     </CardActions>
@@ -407,7 +428,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
       >
         <MenuItem onClick={() => {
           if (selectedEnvironment) {
-            handleDeleteEnvironment(selectedEnvironment.instance_id)
+            handleDeleteEnvironment(selectedEnvironment.instanceID || '')
           }
           handleActionMenuClose()
         }}>
@@ -483,7 +504,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
           <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
           <Button
             onClick={handleCreateEnvironment}
-            disabled={!selectedAppId}
+            disabled={!selectedAppId || createEnvironmentMutation.isPending}
             variant="contained"
           >
             Create Environment
@@ -528,7 +549,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
         open={pairingOverlayOpen}
         onClose={() => setPairingOverlayOpen(false)}
         onPairingComplete={() => {
-          loadEnvironments() // Refresh environments after pairing
+          queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] }) // Refresh environments after pairing
         }}
       />
     </Box>

@@ -47,16 +47,16 @@ type PoolExecutor struct {
 
 // ZedInstanceInfo tracks information about a Zed instance
 type ZedInstanceInfo struct {
-	InstanceID   string
-	SpecTaskID   string // Optional - null for personal dev environments
-	UserID       string // Always required
-	AppID        string // Helix App ID for configuration (MCP servers, tools, etc.)
-	InstanceType string // "spec_task", "personal_dev", "shared_workspace"
-	Status       string
-	CreatedAt    time.Time
-	LastActivity time.Time
-	ProjectPath  string
-	ThreadCount  int
+	InstanceID   string    `json:"instanceID"`
+	SpecTaskID   string    `json:"specTaskID"`   // Optional - null for personal dev environments
+	UserID       string    `json:"userID"`       // Always required
+	AppID        string    `json:"appID"`        // Helix App ID for configuration (MCP servers, tools, etc.)
+	InstanceType string    `json:"instanceType"` // "spec_task", "personal_dev", "shared_workspace"
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"createdAt"`
+	LastActivity time.Time `json:"lastActivity"`
+	ProjectPath  string    `json:"projectPath"`
+	ThreadCount  int       `json:"threadCount"`
 
 	// Personal dev environment specific
 	IsPersonalEnv   bool     `json:"is_personal_env"`
