@@ -206,9 +206,24 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	// Initialize external agent executor with pool executor
-	// Using empty runner IDs array as runners connect dynamically via WebSocket
-	externalAgentExecutor := external_agent.NewPoolExecutor(cfg.WebServer.URL, cfg.WebServer.RunnerToken, []string{})
+	// Initialize external agent executor with Wolf executor
+	// Wolf will spawn Zed agents in containers and stream them via moonlight
+	wolfSocketPath := os.Getenv("WOLF_SOCKET_PATH")
+	if wolfSocketPath == "" {
+		wolfSocketPath = "/var/run/wolf/wolf.sock"
+	}
+
+	zedImage := os.Getenv("ZED_IMAGE")
+	if zedImage == "" {
+		zedImage = "helix/zed-agent:latest"
+	}
+
+	externalAgentExecutor := external_agent.NewWolfExecutor(
+		wolfSocketPath,
+		zedImage,
+		cfg.WebServer.URL,
+		cfg.WebServer.RunnerToken,
+	)
 
 	// Initialize external agent WebSocket manager
 	externalAgentWSManager := NewExternalAgentWSManager()
@@ -565,6 +580,19 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp/proxy", apiServer.startRunnerRDPProxy).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
+
+	// Personal dev environment routes
+	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")
+	authRouter.HandleFunc("/personal-dev-environments", apiServer.createPersonalDevEnvironment).Methods("POST")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.getPersonalDevEnvironment).Methods("GET")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.updatePersonalDevEnvironment).Methods("PUT")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.deletePersonalDevEnvironment).Methods("DELETE")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
+
+	// Wolf pairing routes
+	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
+	authRouter.HandleFunc("/wolf/pairing/complete", apiServer.completeWolfPairing).Methods("POST")
 
 	// Reverse dial endpoint for external agent runners (requires runner token authentication)
 	// This handles both control connections (non-WebSocket) and data connections (WebSocket)

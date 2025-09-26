@@ -48,14 +48,22 @@ type PoolExecutor struct {
 // ZedInstanceInfo tracks information about a Zed instance
 type ZedInstanceInfo struct {
 	InstanceID   string
-	SpecTaskID   string
+	SpecTaskID   string // Optional - null for personal dev environments
+	UserID       string // Always required
+	AppID        string // Helix App ID for configuration (MCP servers, tools, etc.)
+	InstanceType string // "spec_task", "personal_dev", "shared_workspace"
 	Status       string
 	CreatedAt    time.Time
 	LastActivity time.Time
 	ProjectPath  string
 	ThreadCount  int
-	RDPURL       string
-	RDPPassword  string
+
+	// Personal dev environment specific
+	IsPersonalEnv   bool     `json:"is_personal_env"`
+	EnvironmentName string   `json:"environment_name,omitempty"` // User-friendly name
+	ConfiguredTools []string `json:"configured_tools,omitempty"` // MCP servers enabled
+	DataSources     []string `json:"data_sources,omitempty"`     // Connected data sources
+	StreamURL       string   `json:"stream_url,omitempty"`       // Wolf streaming URL
 }
 
 // ZedInstanceStatus represents the current status of a Zed instance
@@ -67,8 +75,6 @@ type ZedInstanceStatus struct {
 	ActiveThreads int        `json:"active_threads"`
 	LastActivity  *time.Time `json:"last_activity,omitempty"`
 	ProjectPath   string     `json:"project_path,omitempty"`
-	RDPURL        string     `json:"rdp_url,omitempty"`
-	RDPPassword   string     `json:"rdp_password,omitempty"`
 }
 
 // ZedThreadInfo represents information about a thread within an instance
@@ -192,8 +198,6 @@ func (pe *PoolExecutor) handleMultiSessionRequest(ctx context.Context, agent *ty
 			LastActivity: time.Now(),
 			ProjectPath:  agent.ProjectPath,
 			ThreadCount:  0,
-			RDPURL:       fmt.Sprintf("rdp://zed-instance/%s", agent.InstanceID),
-			RDPPassword:  generatePassword(),
 		}
 		pe.instances[agent.InstanceID] = instance
 
@@ -222,9 +226,8 @@ func (pe *PoolExecutor) handleMultiSessionRequest(ctx context.Context, agent *ty
 	}
 
 	return &types.ZedAgentResponse{
-		SessionID:   agent.SessionID,
-		RDPURL:      instance.RDPURL,
-		RDPPassword: instance.RDPPassword,
+		SessionID: agent.SessionID,
+		// Wolf handles streaming via Moonlight protocol
 	}, nil
 }
 
@@ -312,8 +315,6 @@ func (pe *PoolExecutor) GetInstanceStatus(instanceID string) (*ZedInstanceStatus
 		ThreadCount:  instance.ThreadCount,
 		LastActivity: &instance.LastActivity,
 		ProjectPath:  instance.ProjectPath,
-		RDPURL:       instance.RDPURL,
-		RDPPassword:  instance.RDPPassword,
 	}, nil
 }
 
