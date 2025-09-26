@@ -9,21 +9,43 @@ import (
 )
 
 var pairCmd = &cobra.Command{
-	Use:   "pair [pair-secret] [pin]",
+	Use:   "pair [pin]",
 	Short: "Complete Moonlight client pairing",
-	Long: `Complete the pairing process for a Moonlight client using the pair secret and PIN.
+	Long: `Complete the pairing process for a Moonlight client using the PIN.
 
-The pair secret can be obtained from 'helix moonlight list-pending' and the PIN
-is displayed on the Moonlight client during the pairing process.`,
-	Args: cobra.ExactArgs(2),
+The PIN is displayed on the Moonlight client during the pairing process.
+This command will automatically find and pair with pending pairing requests.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return fmt.Errorf("failed to create API client: %w", err)
 		}
 
-		pairSecret := args[0]
-		pin := args[1]
+		pin := args[0]
+
+		// First, get pending pairing requests
+		fmt.Println("Getting pending pairing requests...")
+		resp, err := apiClient.GetWolfPendingPairRequests(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to get pending pair requests: %w", err)
+		}
+
+		// Parse pending requests
+		var requests []map[string]interface{}
+		if err := json.Unmarshal(resp, &requests); err != nil {
+			return fmt.Errorf("failed to parse pending requests: %w", err)
+		}
+
+		if len(requests) == 0 {
+			return fmt.Errorf("no pending pairing requests found. Please start the pairing process on your Moonlight client first")
+		}
+
+		// If multiple requests, use the first one (or we could ask user to choose)
+		pairSecret := getStringField(requests[0], "pair_secret")
+		if pairSecret == "" {
+			return fmt.Errorf("invalid pairing request: missing pair_secret")
+		}
 
 		// Create request payload
 		payload := map[string]interface{}{
@@ -36,16 +58,16 @@ is displayed on the Moonlight client during the pairing process.`,
 			return fmt.Errorf("failed to marshal request: %w", err)
 		}
 
-		fmt.Printf("Pairing Moonlight client with secret '%s' and PIN '%s'...\n", pairSecret, pin)
+		fmt.Printf("Pairing Moonlight client with PIN '%s'...\n", pin)
 
-		resp, err := apiClient.CompleteWolfPairing(cmd.Context(), payloadBytes)
+		pairResp, err := apiClient.CompleteWolfPairing(cmd.Context(), payloadBytes)
 		if err != nil {
 			return fmt.Errorf("failed to complete pairing: %w", err)
 		}
 
 		// Parse response
 		var response map[string]interface{}
-		if err := json.Unmarshal(resp, &response); err != nil {
+		if err := json.Unmarshal(pairResp, &response); err != nil {
 			return fmt.Errorf("failed to parse response: %w", err)
 		}
 
