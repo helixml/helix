@@ -372,7 +372,33 @@ export WAYLAND_DISPLAY=wayland-1
 exec /usr/local/bin/helix external-agent-runner
 EOF
 
-RUN chmod +x /start-helix-agent.sh
+# Create entrypoint script that executes user startup script if available
+COPY <<EOF /entrypoint-with-startup.sh
+#!/bin/bash
+set -e
+
+echo "Helix Personal Dev Environment Starting..."
+
+# Check if we have a user startup script
+if [[ -n "\$HELIX_STARTUP_SCRIPT" && -f "\$HELIX_STARTUP_SCRIPT" ]]; then
+    echo "Running user startup script: \$HELIX_STARTUP_SCRIPT"
+    chmod +x "\$HELIX_STARTUP_SCRIPT"
+    # Run as root to enable sudo usage
+    bash "\$HELIX_STARTUP_SCRIPT"
+    echo "User startup script completed"
+fi
+
+# Ensure work directory exists and has proper ownership
+if [[ -d "/home/user/work" ]]; then
+    chown -R retro:retro /home/user/work
+    echo "Work directory set up with proper ownership"
+fi
+
+# Execute original entrypoint with all arguments
+exec "\$@"
+EOF
+
+RUN chmod +x /start-helix-agent.sh /entrypoint-with-startup.sh
 
 # Environment variables for Wayland and Wolf
 ENV WAYLAND_DISPLAY=wayland-1 \
@@ -394,6 +420,14 @@ COPY --chmod=777 --chown=retro:retro wolf/hyperlandd.conf /cfg/hypr/hyprlandd.co
 COPY --from=go-build-env /usr/local/go /usr/local/go
 COPY --from=go-build-env /go/bin/air /usr/local/bin/air
 COPY --from=go-build-env /helix /usr/local/bin/helix
+
+# Enable sudo capabilities for the container
+RUN apt-get update && apt-get install -y sudo && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set the entrypoint to run startup script first
+ENTRYPOINT ["/entrypoint-with-startup.sh"]
 
 ARG IMAGE_SOURCE
 LABEL org.opencontainers.image.source=$IMAGE_SOURCE

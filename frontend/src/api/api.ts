@@ -16,24 +16,8 @@ export interface ControllerMemoryEstimationResponse {
   model_id?: string;
 }
 
-export enum GithubComHelixmlHelixApiPkgTypesAgentType {
-  AgentTypeHelixBasic = "helix_basic",
-  AgentTypeHelixAgent = "helix_agent",
-  AgentTypeZedExternal = "zed_external",
-}
-
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
-}
-
-export interface GithubComHelixmlHelixApiPkgTypesZedInstanceStatus {
-  active_threads?: number;
-  last_activity?: string;
-  project_path?: string;
-  spec_task_id?: string;
-  status?: string;
-  thread_count?: number;
-  zed_instance_id?: string;
 }
 
 export interface GormDeletedAt {
@@ -518,6 +502,12 @@ export interface ServerCoordinationLogResponse {
   total_events?: number;
 }
 
+export interface ServerCreatePersonalDevEnvironmentRequest {
+  app_id?: string;
+  description?: string;
+  environment_name?: string;
+}
+
 export interface ServerCreateSampleRepositoryRequest {
   description?: string;
   name?: string;
@@ -598,6 +588,33 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
+}
+
+export interface ServerPersonalDevEnvironmentResponse {
+  /** Helix App ID for configuration (MCP servers, tools, etc.) */
+  appID?: string;
+  /** MCP servers enabled */
+  configured_tools?: string[];
+  createdAt?: string;
+  /** Connected data sources */
+  data_sources?: string[];
+  description?: string;
+  /** User-friendly name */
+  environment_name?: string;
+  instanceID?: string;
+  /** "spec_task", "personal_dev", "shared_workspace" */
+  instanceType?: string;
+  /** Personal dev environment specific */
+  is_personal_env?: boolean;
+  lastActivity?: string;
+  projectPath?: string;
+  /** Optional - null for personal dev environments */
+  specTaskID?: string;
+  status?: string;
+  stream_url?: string;
+  threadCount?: number;
+  /** Always required */
+  userID?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -1031,6 +1048,7 @@ export interface TypesAgentDashboardSummary {
 export interface TypesAgentFleetSummary {
   active_help_requests?: TypesHelpRequest[];
   active_sessions?: TypesAgentSessionStatus[];
+  external_agent_runners?: TypesExternalAgentConnection[];
   last_updated?: string;
   pending_reviews?: TypesJobCompletion[];
   pending_work?: TypesAgentWorkItem[];
@@ -1074,6 +1092,12 @@ export interface TypesAgentSessionsResponse {
   page_size?: number;
   sessions?: TypesAgentSessionStatus[];
   total?: number;
+}
+
+export enum TypesAgentType {
+  AgentTypeHelixBasic = "helix_basic",
+  AgentTypeHelixAgent = "helix_agent",
+  AgentTypeZedExternal = "zed_external",
 }
 
 export interface TypesAgentWorkConfig {
@@ -1267,7 +1291,7 @@ export interface TypesAppHelixConfig {
   avatar?: string;
   avatar_content_type?: string;
   /** Agent configuration */
-  default_agent_type?: GithubComHelixmlHelixApiPkgTypesAgentType;
+  default_agent_type?: TypesAgentType;
   description?: string;
   external_agent_config?: TypesExternalAgentConfig;
   external_agent_enabled?: boolean;
@@ -1327,7 +1351,7 @@ export interface TypesAssistantConfig {
   /** AgentMode triggers the use of the agent loop (deprecated - use AgentType instead) */
   agent_mode?: boolean;
   /** AgentType specifies the type of agent to use */
-  agent_type?: GithubComHelixmlHelixApiPkgTypesAgentType;
+  agent_type?: TypesAgentType;
   apis?: TypesAssistantAPI[];
   avatar?: string;
   azure_devops?: TypesAssistantAzureDevOps;
@@ -1616,6 +1640,13 @@ export interface TypesExternalAgentConfig {
   project_path?: string;
   /** Custom working directory */
   workspace_dir?: string;
+}
+
+export interface TypesExternalAgentConnection {
+  connected_at?: string;
+  last_ping?: string;
+  session_id?: string;
+  status?: string;
 }
 
 export interface TypesFirecrawl {
@@ -3608,6 +3639,16 @@ export interface TypesZedInstanceEvent {
   timestamp?: string;
 }
 
+export interface TypesZedInstanceStatus {
+  active_threads?: number;
+  last_activity?: string;
+  project_path?: string;
+  spec_task_id?: string;
+  status?: string;
+  thread_count?: number;
+  zed_instance_id?: string;
+}
+
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
 import axios from "axios";
 
@@ -5583,6 +5624,101 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get all personal development environments for the current user
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsList
+     * @summary List personal development environments
+     * @request GET:/api/v1/personal-dev-environments
+     * @secure
+     */
+    v1PersonalDevEnvironmentsList: (params: RequestParams = {}) =>
+      this.request<ServerPersonalDevEnvironmentResponse[], SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new personal development environment with the specified configuration
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsCreate
+     * @summary Create a personal development environment
+     * @request POST:/api/v1/personal-dev-environments
+     * @secure
+     */
+    v1PersonalDevEnvironmentsCreate: (request: ServerCreatePersonalDevEnvironmentRequest, params: RequestParams = {}) =>
+      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a personal development environment by ID
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsDelete
+     * @summary Delete a personal development environment
+     * @request DELETE:/api/v1/personal-dev-environments/{environmentID}
+     * @secure
+     */
+    v1PersonalDevEnvironmentsDelete: (environmentId: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments/${environmentId}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Start a personal development environment by ID
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsStartCreate
+     * @summary Start a personal development environment
+     * @request POST:/api/v1/personal-dev-environments/{environmentID}/start
+     * @secure
+     */
+    v1PersonalDevEnvironmentsStartCreate: (environmentId: string, params: RequestParams = {}) =>
+      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments/${environmentId}/start`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop a personal development environment by ID
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsStopCreate
+     * @summary Stop a personal development environment
+     * @request POST:/api/v1/personal-dev-environments/{environmentID}/stop
+     * @secure
+     */
+    v1PersonalDevEnvironmentsStopCreate: (environmentId: string, params: RequestParams = {}) =>
+      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments/${environmentId}/stop`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -6132,6 +6268,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get RDP connection details for accessing a session via RDP
+     *
+     * @tags sessions
+     * @name V1SessionsRdpConnectionDetail
+     * @summary Get RDP connection info for a session
+     * @request GET:/api/v1/sessions/{id}/rdp-connection
+     * @secure
+     */
+    v1SessionsRdpConnectionDetail: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/sessions/${id}/rdp-connection`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -6694,7 +6847,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SpecTasksZedInstanceDetail: (taskId: string, params: RequestParams = {}) =>
-      this.request<GithubComHelixmlHelixApiPkgTypesZedInstanceStatus, TypesAPIError>({
+      this.request<TypesZedInstanceStatus, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/zed-instance`,
         method: "GET",
         secure: true,

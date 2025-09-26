@@ -3176,6 +3176,266 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/personal-dev-environments": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all personal development environments for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "List personal development environments",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new personal development environment with the specified configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Create a personal development environment",
+                "parameters": [
+                    {
+                        "description": "Personal dev environment configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreatePersonalDevEnvironmentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Delete a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}/start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Start a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Start a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}/stop": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Stop a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints": {
             "get": {
                 "security": [
@@ -4214,6 +4474,38 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Interaction"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/rdp-connection": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get RDP connection details for accessing a session via RDP",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get RDP connection info for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -5473,7 +5765,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ZedInstanceStatus"
+                            "$ref": "#/definitions/types.ZedInstanceStatus"
                         }
                     },
                     "404": {
@@ -7110,24 +7402,6 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_helixml_helix_api_pkg_types.AgentType": {
-            "type": "string",
-            "enum": [
-                "helix_basic",
-                "helix_agent",
-                "zed_external"
-            ],
-            "x-enum-comments": {
-                "AgentTypeHelixAgent": "Standard Helix agent with skills",
-                "AgentTypeHelixBasic": "Basic Helix agent",
-                "AgentTypeZedExternal": "Zed-integrated agent"
-            },
-            "x-enum-varnames": [
-                "AgentTypeHelixBasic",
-                "AgentTypeHelixAgent",
-                "AgentTypeZedExternal"
-            ]
-        },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
             "properties": {
@@ -7136,32 +7410,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Rule"
                     }
-                }
-            }
-        },
-        "github_com_helixml_helix_api_pkg_types.ZedInstanceStatus": {
-            "type": "object",
-            "properties": {
-                "active_threads": {
-                    "type": "integer"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "project_path": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "thread_count": {
-                    "type": "integer"
-                },
-                "zed_instance_id": {
-                    "type": "string"
                 }
             }
         },
@@ -8189,6 +8437,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.CreatePersonalDevEnvironmentRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_name": {
+                    "type": "string"
+                }
+            }
+        },
         "server.CreateSampleRepositoryRequest": {
             "type": "object",
             "properties": {
@@ -8396,6 +8658,73 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PersonalDevEnvironmentResponse": {
+            "type": "object",
+            "properties": {
+                "appID": {
+                    "description": "Helix App ID for configuration (MCP servers, tools, etc.)",
+                    "type": "string"
+                },
+                "configured_tools": {
+                    "description": "MCP servers enabled",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "data_sources": {
+                    "description": "Connected data sources",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_name": {
+                    "description": "User-friendly name",
+                    "type": "string"
+                },
+                "instanceID": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "description": "\"spec_task\", \"personal_dev\", \"shared_workspace\"",
+                    "type": "string"
+                },
+                "is_personal_env": {
+                    "description": "Personal dev environment specific",
+                    "type": "boolean"
+                },
+                "lastActivity": {
+                    "type": "string"
+                },
+                "projectPath": {
+                    "type": "string"
+                },
+                "specTaskID": {
+                    "description": "Optional - null for personal dev environments",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stream_url": {
+                    "type": "string"
+                },
+                "threadCount": {
+                    "type": "integer"
+                },
+                "userID": {
+                    "description": "Always required",
                     "type": "string"
                 }
             }
@@ -9627,6 +9956,12 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.AgentSessionStatus"
                     }
                 },
+                "external_agent_runners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ExternalAgentConnection"
+                    }
+                },
                 "last_updated": {
                     "type": "string"
                 },
@@ -9773,6 +10108,24 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "types.AgentType": {
+            "type": "string",
+            "enum": [
+                "helix_basic",
+                "helix_agent",
+                "zed_external"
+            ],
+            "x-enum-comments": {
+                "AgentTypeHelixAgent": "Standard Helix agent with skills",
+                "AgentTypeHelixBasic": "Basic Helix agent",
+                "AgentTypeZedExternal": "Zed-integrated agent"
+            },
+            "x-enum-varnames": [
+                "AgentTypeHelixBasic",
+                "AgentTypeHelixAgent",
+                "AgentTypeZedExternal"
+            ]
         },
         "types.AgentWorkConfig": {
             "type": "object",
@@ -10319,7 +10672,7 @@ const docTemplate = `{
                     "description": "Agent configuration",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.AgentType"
+                            "$ref": "#/definitions/types.AgentType"
                         }
                     ]
                 },
@@ -10464,7 +10817,7 @@ const docTemplate = `{
                     "description": "AgentType specifies the type of agent to use",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.AgentType"
+                            "$ref": "#/definitions/types.AgentType"
                         }
                     ]
                 },
@@ -11108,6 +11461,23 @@ const docTemplate = `{
                 },
                 "workspace_dir": {
                     "description": "Custom working directory",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ExternalAgentConnection": {
+            "type": "object",
+            "properties": {
+                "connected_at": {
+                    "type": "string"
+                },
+                "last_ping": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }
@@ -16065,6 +16435,32 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ZedInstanceStatus": {
+            "type": "object",
+            "properties": {
+                "active_threads": {
+                    "type": "integer"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "thread_count": {
+                    "type": "integer"
+                },
+                "zed_instance_id": {
                     "type": "string"
                 }
             }
