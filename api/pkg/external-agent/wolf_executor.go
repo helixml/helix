@@ -3,6 +3,7 @@ package external_agent
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -888,9 +889,11 @@ func (w *WolfExecutor) createBackgroundSession(ctx context.Context, wolfAppID, i
 		Str("instance_id", instanceID).
 		Msg("Creating background session for Personal Dev environment")
 
-	// Try to use an existing paired client ID from Wolf's configuration
-	// If no clients exist, we'll create a virtual one
-	clientID := "342532221405053742" // Use the client ID from Wolf's config.toml
+	// First, check if we have any existing paired clients, otherwise create a virtual one
+	clientID, err := w.ensureVirtualClient(ctx, instanceID)
+	if err != nil {
+		return "", fmt.Errorf("failed to ensure virtual client: %w", err)
+	}
 
 	// Create session using Wolf's existing session creation API
 	session := &wolf.Session{
@@ -921,6 +924,7 @@ func (w *WolfExecutor) createBackgroundSession(ctx context.Context, wolfAppID, i
 
 	log.Info().
 		Str("session_id", sessionID).
+		Str("client_id", clientID).
 		Str("wolf_app_id", wolfAppID).
 		Msg("Background session created successfully")
 
@@ -929,6 +933,74 @@ func (w *WolfExecutor) createBackgroundSession(ctx context.Context, wolfAppID, i
 	// enough to trigger container startup, and a real Moonlight client can connect later.
 
 	return sessionID, nil
+}
+
+// ensureVirtualClient ensures there's a paired client available for session creation
+// Either returns an existing client ID or returns an error if no real clients exist
+func (w *WolfExecutor) ensureVirtualClient(ctx context.Context, instanceID string) (string, error) {
+	// First, try to get existing paired clients from Wolf
+	pairedClients, err := w.getPairedClients(ctx)
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get paired clients")
+		return "", fmt.Errorf("no paired clients available and cannot create virtual clients: %w", err)
+	}
+
+	if len(pairedClients) > 0 {
+		// Use the first existing paired client
+		clientID := pairedClients[0].ClientID
+		log.Info().
+			Str("client_id", clientID).
+			Msg("Using existing paired client for background session")
+		return clientID, nil
+	}
+
+	// No existing clients - Wolf requires real paired clients for sessions
+	log.Info().Msg("No existing paired clients found - background session creation requires a real Moonlight client to be paired first")
+	return "", fmt.Errorf("no paired clients available - background sessions require at least one Moonlight client to be paired with Wolf")
+}
+
+// getPairedClients retrieves existing paired clients from Wolf
+func (w *WolfExecutor) getPairedClients(ctx context.Context) ([]PairedClientInfo, error) {
+	// Use Wolf's API to get paired clients via the GetPairedClients method
+	// This returns all currently paired Moonlight clients
+
+	// We need to add this method to the Wolf client
+	// For now, make a direct API call to Wolf's paired clients endpoint
+
+	// Call Wolf's /api/v1/clients endpoint to get paired clients
+	clients, err := w.wolfClient.GetPairedClients(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get paired clients from Wolf: %w", err)
+	}
+
+	// Convert Wolf's client format to our internal format
+	var pairedClients []PairedClientInfo
+	for _, client := range clients {
+		pairedClients = append(pairedClients, PairedClientInfo{
+			ClientID:       client.ClientID,
+			AppStateFolder: client.AppStateFolder,
+		})
+	}
+
+	log.Debug().
+		Int("client_count", len(pairedClients)).
+		Msg("Retrieved paired clients from Wolf")
+
+	return pairedClients, nil
+}
+
+// PairedClientInfo represents information about a paired Moonlight client
+type PairedClientInfo struct {
+	ClientID        string `json:"client_id"`
+	AppStateFolder  string `json:"app_state_folder"`
+}
+
+// hashClientCert creates a hash of a client certificate (mimics Wolf's get_client_id function)
+func hashClientCert(cert string) uint64 {
+	// Use Go's built-in hash function to mimic Wolf's std::hash<std::string>
+	h := fnv.New64a()
+	h.Write([]byte(cert))
+	return h.Sum64()
 }
 
 // generateRandomIP generates a unique fake IP address for RTSP routing
