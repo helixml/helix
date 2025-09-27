@@ -3,6 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}

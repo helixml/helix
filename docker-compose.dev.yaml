@@ -97,6 +97,7 @@ services:
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
             - ZED_IMAGE=${ZED_IMAGE:-helix/zed-agent:latest}
+            - HELIX_HOST_HOME=${HELIX_HOST_HOME}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
