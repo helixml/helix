@@ -311,10 +311,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
 	}
-	// Keep mounts simple like XFCE - only mount workspace, skip Zed binary for now
-	// TODO: Figure out proper host path mapping for Zed binary updates
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace only
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		"/home/luke/pm/helix/zed-build/zed:/usr/local/bin/zed:ro", // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
@@ -331,7 +330,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
 		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"ghcr.io/games-on-whales/xfce:edge", // Image
+		"helix-xfce:latest", // Custom XFCE image with passwordless sudo and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,
@@ -868,9 +867,9 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
 	}
-	// Keep mounts simple - only workspace directory
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		"/home/luke/pm/helix/zed-build/zed:/usr/local/bin/zed:ro", // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
@@ -887,7 +886,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
 		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"ghcr.io/games-on-whales/xfce:edge", // Image
+		"helix-xfce:latest", // Custom XFCE image with passwordless sudo and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,

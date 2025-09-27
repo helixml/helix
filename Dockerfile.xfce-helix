@@ -1,0 +1,38 @@
+FROM ghcr.io/games-on-whales/xfce:edge
+
+# Add passwordless sudo and wget for downloading background
+RUN apt-get update && \
+    apt-get install -y sudo wget && \
+    # Add passwordless sudo for all users in group 1000 (retro/user will be in this group)
+    echo "%sudo ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    # Clean up apt cache
+    rm -rf /var/lib/apt/lists/*
+
+# Download and set Helix logo as background
+RUN mkdir -p /usr/share/backgrounds && \
+    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png && \
+    # Set background for retro user
+    mkdir -p /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    echo '<?xml version="1.0" encoding="UTF-8"?>' > /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '<channel name="xfce4-desktop" version="1.0">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '  <property name="backdrop" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '    <property name="screen0" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '      <property name="monitorVirtual1" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '        <property name="workspace0" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '          <property name="last-image" type="string" value="/usr/share/backgrounds/helix-logo.png"/>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '          <property name="image-style" type="int" value="5"/>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '        </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '      </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '    </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '  </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    echo '</channel>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
+    # Set background for user user as well
+    mkdir -p /home/user/.config/xfce4/xfconf/xfce-perchannel-xml && \
+    cp /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml /home/user/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+
+# Create work directories (users are created at runtime by the base image)
+RUN mkdir -p /home/retro/work /home/user/work && \
+    chmod 755 /home/retro /home/user && \
+    chmod 755 /home/retro/work /home/user/work

@@ -574,6 +574,24 @@ function rebuild-wolf() {
   echo "🐺 Wolf is ready for testing with latest source code changes"
 }
 
+function build-xfce() {
+  echo "🖥️  Building custom XFCE container with passwordless sudo..."
+
+  # Build the custom XFCE image
+  echo "🔨 Building helix-xfce:latest container..."
+  if docker build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+    echo "✅ XFCE container built successfully"
+    echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Passwordless sudo for retro and user accounts"
+    echo "  - Proper work directory permissions"
+  else
+    echo "❌ Failed to build XFCE container"
+    exit 1
+  fi
+}
+
 function db() {
   local subcommand="${1-cli}"
   shift
@@ -915,6 +933,7 @@ function help() {
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
   echo "  rebuild-wolf       - Rebuild Wolf container with latest source code"
+  echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [debug|release] - Build Zed with External WebSocket Thread Sync (default: debug)"
