@@ -285,3 +285,42 @@ func (c *Client) StopSession(ctx context.Context, sessionID string) error {
 
 	return nil
 }
+
+// WolfPairedClient represents a paired Moonlight client from Wolf API
+type WolfPairedClient struct {
+	ClientID       string `json:"client_id"`
+	AppStateFolder string `json:"app_state_folder"`
+}
+
+// GetPairedClients retrieves all paired Moonlight clients from Wolf
+func (c *Client) GetPairedClients(ctx context.Context) ([]WolfPairedClient, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/v1/clients", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success bool               `json:"success"`
+		Clients []WolfPairedClient `json:"clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return result.Clients, nil
+}
