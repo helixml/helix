@@ -300,3 +300,32 @@ r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
     run_gid = 1000
     run_uid = 1000
     v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '342532221405053742'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTA5MTMzMzExWhcNNDUwOTA0MTMz
+MzExWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC2AI5H3f3Dq/ngGPhnLWT2NiUtqgMZ
+MDLrJC3dAnezndYsJOqxEe5U5pjsU6L3xSvjNwevs1yNCIM7YeT6yoLLZ5GADwCW
+SV+VOMWPdgZYMup6qTXhZ+8PFgJ1IwnzNulJOIMbCzr3pvJpkLFsBa/RZCCaHVci
+iJwjQhADl+/EJrPqR1J71ftkY/w921c90kO/qrdavSgZeXQV9JhT04jfXq79oaSK
+bYaXowfQoByAy0zGBPWuYZbMEFDaby6iEPpSsafBCPoDBVlhku2/DmXg1G3UJUN4
+0/NlQZA5MAURn78nJWZjknTNgiIm99qqKaT8mK3yQ9JI1J6RA2/XkJ57AgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAGVw+RQy5YLV6xU6ZekBySOqQuJDs3qlu+D3i/Kz
+rp3sS6jVsQOCXhmGvB7UGTzaHsQXdwk42Zn6pHtuY2YAonsuIQvbjYE0bq0+ECrE
+y4SE4EWRNE2P44PSLMx0QRU4pR9Kgc8x8FULKOuhGy9U05w2rrIGQFo8G74ui8bu
+i/2hR1epcaIhtVqzls2Tar/jAi7syZeAJT54RW5zewcoLqGj7tkc47Mg6r0B+DVg
+/sfFFwD+G1mIQwN6BGp+TiBNbnKdPfHtW8QTPUki04kIhioBWWPKA3GFdY23T5qv
+r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0

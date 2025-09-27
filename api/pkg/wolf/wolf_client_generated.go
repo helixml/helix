@@ -114,6 +114,10 @@ func StringPtr(s string) *string {
 	return &s
 }
 
+func BoolPtr(b bool) *bool {
+	return &b
+}
+
 // Helper constructors to ensure required fields are set
 
 // NewDockerApp creates a new Docker-based Wolf app with all required fields

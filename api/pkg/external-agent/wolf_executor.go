@@ -311,14 +311,10 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
 	}
-	// Get the actual host path - Wolf needs host paths since it has docker socket access
-	helixHostPath, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current directory: %w", err)
-	}
+	// Keep mounts simple like XFCE - only mount workspace, skip Zed binary for now
+	// TODO: Figure out proper host path mapping for Zed binary updates
 	mounts := []string{
-		fmt.Sprintf("%s/zed-build:/zed-build", helixHostPath), // Mount Zed binary for updates
-		fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace
+		fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace only
 	}
 	baseCreateJSON := `{
   "HostConfig": {
@@ -333,8 +329,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
-		fmt.Sprintf("Personal Dev %s", environmentName), // Title (no colon to avoid Docker volume syntax issues)
-		fmt.Sprintf("WolfXFCE_%s", instanceID), // Name
+		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
+		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
 		"ghcr.io/games-on-whales/xfce:edge", // Image
 		env,
 		mounts,
@@ -354,7 +350,14 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		return nil, fmt.Errorf("failed to add personal dev app to Wolf: %w", err)
 	}
 
-	// Create a Wolf session for this app
+	// TODO: Don't auto-create session - let Moonlight client initiate the session
+	// Issue: Something weird happens when we start the app in Wolf without the user
+	// actually loading it via the Moonlight client. We should only create the app
+	// definition and let the Moonlight client handle session creation.
+
+	// Commented out automatic session creation - this was causing issues
+	// Keep this as reference for when we need to implement proper session creation
+	/*
 	session := &wolf.Session{
 		AppID:             wolfAppID,
 		ClientID:          "342532221405053742", // Use valid paired client ID from Wolf config
@@ -382,6 +385,10 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		w.wolfClient.RemoveApp(ctx, wolfAppID)
 		return nil, fmt.Errorf("failed to create Wolf session: %w", err)
 	}
+	*/
+
+	// Temporarily disable automatic session creation
+	var wolfSessionID string = "" // Empty session ID since no session created yet
 
 	// Create instance info
 	instance := &ZedInstanceInfo{
@@ -861,13 +868,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
 	}
-	// Get the actual host path - Wolf needs host paths since it has docker socket access
-	helixHostPath, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
+	// Keep mounts simple - only workspace directory
 	mounts := []string{
-		fmt.Sprintf("%s/zed-build:/zed-build", helixHostPath), // Mount Zed binary for updates
 		fmt.Sprintf("%s:/home/user/work", workspaceDir),
 	}
 	baseCreateJSON := `{
@@ -884,7 +886,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		fmt.Sprintf("WolfXFCE_%s", instance.InstanceID), // Name
+		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
 		"ghcr.io/games-on-whales/xfce:edge", // Image
 		env,
 		mounts,
@@ -892,7 +894,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	)
 
 	// Try to remove any existing app first to avoid conflicts
-	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
+	err := w.wolfClient.RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
 	}
