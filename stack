@@ -259,6 +259,15 @@ function start() {
     }
   fi
 
+  # Check if Wolf container exists, build if needed
+  if ! docker image inspect wolf:helix-fixed &> /dev/null; then
+    echo "🐺 Wolf container not found, building automatically..."
+    rebuild-wolf || {
+      echo "❌ Failed to build Wolf. Please check the error messages above."
+      exit 1
+    }
+  fi
+
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
@@ -525,6 +534,44 @@ function zed-agent-logs() {
 
 function rebuild() {
   docker compose -f docker-compose.dev.yaml up -d --build $@
+}
+
+function rebuild-wolf() {
+  echo "🐺 Rebuilding Wolf container with latest source code..."
+
+  # Check if Wolf source directory exists
+  if [ ! -d "../wolf" ]; then
+    echo "❌ ERROR: Wolf source code not found at ../wolf/"
+    echo ""
+    echo "The Wolf integration requires the Wolf source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  cd helix"
+    echo "  ./stack rebuild-wolf"
+    exit 1
+  fi
+
+  # Build Wolf container with fixed source code
+  echo "🔨 Building Wolf container from source..."
+  cd ../wolf
+  if docker build -f docker/wolf.Dockerfile -t wolf:helix-fixed .; then
+    echo "✅ Wolf container built successfully"
+  else
+    echo "❌ Failed to build Wolf container"
+    cd - > /dev/null
+    return 1
+  fi
+  cd - > /dev/null
+
+  # Remove and recreate Wolf container to use updated image
+  echo "🔄 Removing old Wolf container and recreating with updated image..."
+  docker compose -f docker-compose.dev.yaml rm -f wolf
+  docker compose -f docker-compose.dev.yaml up -d wolf
+
+  echo "✅ Wolf container rebuilt and restarted successfully"
+  echo "🐺 Wolf is ready for testing with latest source code changes"
 }
 
 function db() {
@@ -867,6 +914,7 @@ function help() {
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
+  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code"
   echo ""
   echo "Zed Agent commands:"
   echo "  build-zed [debug|release] - Build Zed with External WebSocket Thread Sync (default: debug)"
