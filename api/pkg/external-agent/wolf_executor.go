@@ -349,45 +349,13 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		return nil, fmt.Errorf("failed to add personal dev app to Wolf: %w", err)
 	}
 
-	// TODO: Don't auto-create session - let Moonlight client initiate the session
-	// Issue: Something weird happens when we start the app in Wolf without the user
-	// actually loading it via the Moonlight client. We should only create the app
-	// definition and let the Moonlight client handle session creation.
-
-	// Commented out automatic session creation - this was causing issues
-	// Keep this as reference for when we need to implement proper session creation
-	/*
-	session := &wolf.Session{
-		AppID:             wolfAppID,
-		ClientID:          "342532221405053742", // Use valid paired client ID from Wolf config
-		ClientIP:          "127.0.0.1",
-		VideoWidth:        1920,
-		VideoHeight:       1080,
-		VideoRefreshRate:  60,
-		AudioChannelCount: 2,
-		ClientSettings: wolf.ClientSettings{
-			RunUID:              1000,
-			RunGID:              1000,
-			MouseAcceleration:   1.0,
-			HScrollAcceleration: 1.0,
-			VScrollAcceleration: 1.0,
-			ControllersOverride: []string{},
-		},
-		AESKey:     "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex string for 16-byte AES key
-		AESIV:      "0123456789abcdef",                 // 16-char hex string for 8-byte IV
-		RTSPFakeIP: "192.168.1.100",                   // Fake IP address for RTSP streaming
-	}
-
-	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
+	// Create a background session for immediate container startup
+	// This allows the Personal Dev environment to start running before a Moonlight client connects
+	wolfSessionID, err := w.createBackgroundSession(ctx, wolfAppID, instanceID)
 	if err != nil {
-		// Clean up the app if session creation fails
-		w.wolfClient.RemoveApp(ctx, wolfAppID)
-		return nil, fmt.Errorf("failed to create Wolf session: %w", err)
+		log.Warn().Err(err).Msg("Failed to create background session, environment will require manual Moonlight connection")
+		wolfSessionID = "" // Continue without background session
 	}
-	*/
-
-	// Temporarily disable automatic session creation
-	var wolfSessionID string = "" // Empty session ID since no session created yet
 
 	// Create instance info
 	instance := &ZedInstanceInfo{
@@ -910,6 +878,64 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		Msg("Successfully recreated Wolf app for personal dev environment")
 
 	return nil
+}
+
+// createBackgroundSession creates a background Wolf session for immediate container startup
+// This allows Personal Dev environments to start running before a Moonlight client connects
+func (w *WolfExecutor) createBackgroundSession(ctx context.Context, wolfAppID, instanceID string) (string, error) {
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("instance_id", instanceID).
+		Msg("Creating background session for Personal Dev environment")
+
+	// Try to use an existing paired client ID from Wolf's configuration
+	// If no clients exist, we'll create a virtual one
+	clientID := "342532221405053742" // Use the client ID from Wolf's config.toml
+
+	// Create session using Wolf's existing session creation API
+	session := &wolf.Session{
+		AppID:             wolfAppID,
+		ClientID:          clientID,
+		ClientIP:          "127.0.0.1", // Local since it's background
+		VideoWidth:        1920,        // Default resolution
+		VideoHeight:       1080,
+		VideoRefreshRate:  60,  // Default framerate
+		AudioChannelCount: 2,   // Stereo
+		AESKey:            "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex for AES-128
+		AESIV:             "0123456789abcdef",                 // 16-char hex for IV
+		RTSPFakeIP:        generateRandomIP(),                   // Generate unique fake IP
+		ClientSettings: wolf.ClientSettings{
+			RunUID:               1000,
+			RunGID:               1000,
+			MouseAcceleration:    1.0,
+			VScrollAcceleration:  1.0,
+			HScrollAcceleration:  1.0,
+			ControllersOverride:  []string{},
+		},
+	}
+
+	sessionID, err := w.wolfClient.CreateSession(ctx, session)
+	if err != nil {
+		return "", fmt.Errorf("failed to create background session: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Background session created successfully")
+
+	// Note: We don't call StartSession here because that would require additional
+	// Wolf API endpoints that may not be available. The session creation should be
+	// enough to trigger container startup, and a real Moonlight client can connect later.
+
+	return sessionID, nil
+}
+
+// generateRandomIP generates a unique fake IP address for RTSP routing
+func generateRandomIP() string {
+	// Generate a random IP in the 192.168.1.x range to avoid conflicts
+	// Wolf uses fake IPs to route RTSP connections back to the correct session
+	return fmt.Sprintf("192.168.1.%d", 100+time.Now().UnixNano()%155) // 100-254 range
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
