@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -362,23 +363,32 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		Str("workspace_dir", workspaceDir).
 		Msg("Created persistent workspace directory")
 
+	// Create Sway configuration for this personal dev environment
+	err = w.createSwayConfig(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Sway config: %w", err)
+	}
+
+	log.Info().
+		Str("instance_id", instanceID).
+		Msg("Created Sway compositor configuration")
+
 	// Create Wolf app for this personal dev environment
 	wolfAppID := fmt.Sprintf("helix-personal-dev-%s", instanceID)
 
-	// Note: Zed command is built via Docker container configuration
-
-	// Build environment variables for the personal dev environment
-	envVars := []string{
-		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
-		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
-		fmt.Sprintf("ZED_INSTANCE_ID=%s", instanceID),
-		fmt.Sprintf("ZED_USER_ID=%s", userID),
-		fmt.Sprintf("ZED_APP_ID=%s", appID),
-		fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
-		fmt.Sprintf("ZED_WORK_DIR=/home/user/work"),
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-		"HELIX_STARTUP_SCRIPT=/home/user/work/startup.sh",
-	}
+	// Note: Using exact XFCE configuration for stability
+	// TODO: Re-enable custom environment variables once XFCE baseline is working
+	// envVars := []string{
+	//	fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
+	//	fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+	//	fmt.Sprintf("ZED_INSTANCE_ID=%s", instanceID),
+	//	fmt.Sprintf("ZED_USER_ID=%s", userID),
+	//	fmt.Sprintf("ZED_APP_ID=%s", appID),
+	//	fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
+	//	fmt.Sprintf("ZED_WORK_DIR=/home/user/work"),
+	//	"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+	//	"HELIX_STARTUP_SCRIPT=/home/user/work/startup.sh",
+	// }
 
 	app := &wolf.App{
 		ID:                     wolfAppID,
@@ -394,29 +404,34 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		SupportHDR:             false,
 		Runner: wolf.AppRunner{
 			Type:  "docker",
-			Image: "helix/hyprland-wolf-zed:latest",
-			Name:  fmt.Sprintf("HelixPersonalDev_%s", instanceID),
-			Env:   envVars,
+			Image: "ghcr.io/games-on-whales/xfce:edge", // Use exact same XFCE image as working config
+			Name:  fmt.Sprintf("WolfXFCE_%s", instanceID),  // Use similar naming pattern
+			Env: []string{
+				"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
+			},
 			Mounts: []string{
 				"./zed-build:/zed-build", // Mount Zed binary for updates
 				fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace
 			},
-			Devices: []string{
-				"/dev/dri:/dev/dri",    // GPU access for rendering
-				"/dev/input:/dev/input", // Input devices
-			},
-			Ports: []string{}, // No external ports needed for personal dev environments
+			Devices: []string{}, // Use empty devices array like XFCE config
+			Ports:   []string{}, // No external ports needed for personal dev environments
 			BaseCreateJSON: `{
   "HostConfig": {
     "IpcMode": "host",
     "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN", "SETUID", "SETGID"],
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
-  },
-  "User": "root"
+  }
 }`,
 		},
+	}
+
+	// Try to remove any existing app with the same ID to prevent duplicates
+	log.Info().Str("wolf_app_id", wolfAppID).Msg("Attempting to remove any existing Wolf app to prevent duplicates")
+	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
+	if err != nil {
+		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
 	}
 
 	// Add the app to Wolf
@@ -562,13 +577,21 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 		// Continue with cleanup even if removal fails
 	}
 
+	// Clean up Sway configuration file
+	swayConfigPath := fmt.Sprintf("/tmp/sway-config-%s", instanceID)
+	if err := os.Remove(swayConfigPath); err != nil {
+		log.Warn().Err(err).Str("config_path", swayConfigPath).Msg("Failed to remove Sway config file")
+	} else {
+		log.Info().Str("config_path", swayConfigPath).Msg("Removed Sway config file")
+	}
+
 	// Update instance status
 	instance.Status = "stopped"
 
 	// Remove from our tracking
 	delete(w.instances, instanceID)
 
-	log.Info().Str("instance_id", instanceID).Msg("Personal dev environment stopped successfully")
+	log.Info().Str("instance_id", instanceID).Msg("Personal dev environment stopped and cleaned up successfully")
 
 	return nil
 }
@@ -592,6 +615,49 @@ func (w *WolfExecutor) GetPersonalDevEnvironment(ctx context.Context, userID, en
 	}
 
 	return instance, nil
+}
+
+// ReconcilePersonalDevEnvironments cleans up orphaned configuration files
+func (w *WolfExecutor) ReconcilePersonalDevEnvironments(ctx context.Context) error {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	log.Info().Msg("Starting personal dev environment reconciliation (config cleanup)")
+
+	// Clean up orphaned Sway config files
+	orphanedConfigs := 0
+	configPattern := "/tmp/sway-config-personal-dev-*"
+	configFiles, err := filepath.Glob(configPattern)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to find Sway config files for cleanup")
+	} else {
+		for _, configFile := range configFiles {
+			// Extract instance ID from config filename
+			basename := filepath.Base(configFile)
+			instanceID := strings.TrimPrefix(basename, "sway-config-")
+
+			// Check if we have this instance tracked
+			if _, exists := w.instances[instanceID]; !exists {
+				log.Info().
+					Str("config_file", configFile).
+					Str("instance_id", instanceID).
+					Msg("Found orphaned Sway config file, removing")
+
+				err = os.Remove(configFile)
+				if err != nil {
+					log.Error().Err(err).Str("config_file", configFile).Msg("Failed to remove orphaned Sway config")
+				} else {
+					orphanedConfigs++
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Int("orphaned_configs", orphanedConfigs).
+		Msg("Personal dev environment reconciliation completed")
+
+	return nil
 }
 
 // createWorkspaceDirectory creates a persistent workspace directory for an instance
@@ -689,6 +755,114 @@ All files and changes you make here will persist even if you stop and restart th
 	}
 
 	return workspaceDir, nil
+}
+
+// createSwayConfig creates a Sway compositor configuration for the personal dev environment
+func (w *WolfExecutor) createSwayConfig(instanceID string) error {
+	swayConfigPath := fmt.Sprintf("/tmp/sway-config-%s", instanceID)
+
+	swayConfig := `# Sway configuration for Helix Personal Dev Environment
+# Generated for instance: ` + instanceID + `
+
+# Set mod key to Super (Windows key)
+set $mod Mod4
+
+# Font for window titles
+font pango:Monospace 8
+
+# Use Mouse+$mod to drag floating windows
+floating_modifier $mod
+
+# Start a terminal
+bindsym $mod+Return exec kitty
+
+# Kill focused window
+bindsym $mod+Shift+q kill
+
+# Start launcher (fuzzel for Wayland)
+bindsym $mod+d exec fuzzel
+
+# Change focus
+bindsym $mod+j focus left
+bindsym $mod+k focus down
+bindsym $mod+l focus up
+bindsym $mod+semicolon focus right
+
+# Move focused window
+bindsym $mod+Shift+j move left
+bindsym $mod+Shift+k move down
+bindsym $mod+Shift+l move up
+bindsym $mod+Shift+semicolon move right
+
+# Split orientation
+bindsym $mod+h split h
+bindsym $mod+v split v
+
+# Fullscreen mode
+bindsym $mod+f fullscreen toggle
+
+# Change container layout
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+e layout toggle split
+
+# Toggle floating
+bindsym $mod+Shift+space floating toggle
+
+# Workspaces
+set $ws1 "1"
+set $ws2 "2"
+set $ws3 "3"
+set $ws4 "4"
+
+# Switch to workspace
+bindsym $mod+1 workspace $ws1
+bindsym $mod+2 workspace $ws2
+bindsym $mod+3 workspace $ws3
+bindsym $mod+4 workspace $ws4
+
+# Move focused container to workspace
+bindsym $mod+Shift+1 move container to workspace $ws1
+bindsym $mod+Shift+2 move container to workspace $ws2
+bindsym $mod+Shift+3 move container to workspace $ws3
+bindsym $mod+Shift+4 move container to workspace $ws4
+
+# Reload configuration
+bindsym $mod+Shift+c reload
+
+# Restart Sway
+bindsym $mod+Shift+r restart
+
+# Exit Sway
+bindsym $mod+Shift+e exec swaynag -t warning -m 'Exit Sway?' -b 'Yes' 'swaymsg exit'
+
+# Auto-start applications for development
+exec kitty --working-directory=/home/user/work
+exec --no-startup-id swaybg -c "#2e3440"
+
+# Window rules
+for_window [app_id="kitty"] focus
+for_window [app_id="zed"] focus
+
+# Output configuration for Wolf streaming
+output * {
+    mode 1920x1080@60Hz
+    pos 0 0
+}
+
+# Input configuration
+input * {
+    xkb_layout "us"
+    xkb_variant ""
+    xkb_options ""
+}
+`
+
+	if err := os.WriteFile(swayConfigPath, []byte(swayConfig), 0644); err != nil {
+		return fmt.Errorf("failed to create Sway config: %w", err)
+	}
+
+	return nil
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
