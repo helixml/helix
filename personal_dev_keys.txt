@@ -1,0 +1,13 @@
+[
+  "av1_gst_pipeline",
+  "h264_gst_pipeline",
+  "hevc_gst_pipeline",
+  "id",
+  "opus_gst_pipeline",
+  "render_node",
+  "runner",
+  "start_audio_server",
+  "start_virtual_compositor",
+  "support_hdr",
+  "title"
+]

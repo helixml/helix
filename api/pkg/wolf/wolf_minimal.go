@@ -1,27 +1,29 @@
-// Minimal Wolf app types that exactly match the working XFCE configuration
+// Complete Wolf app structure with working GStreamer pipelines from XFCE
 package wolf
 
-// MinimalWolfApp represents the minimal Wolf app structure that actually works
-// Based on the working XFCE configuration from Wolf's config.toml
-// Includes required top-level fields but uses minimal runner
-// MinimalWolfApp exactly matches wolf-ui's working App model
-// Omits problematic GStreamer pipeline fields that cause syntax errors
+// MinimalWolfApp represents a complete Wolf app structure with working GStreamer pipelines
+// Uses exact pipeline strings from the working XFCE configuration to avoid empty pipeline errors
 type MinimalWolfApp struct {
-	// Core required fields (wolf-ui pattern)
+	// Core required fields
 	Title                  string            `json:"title"`
 	ID                     string            `json:"id"`
 	Runner                 MinimalWolfRunner `json:"runner"`
-	StartVirtualCompositor bool              `json:"start_virtual_compositor"` // NOT nullable in wolf-ui
+	StartVirtualCompositor bool              `json:"start_virtual_compositor"`
 
-	// Optional fields that wolf-ui includes
-	RenderNode  *string `json:"render_node,omitempty"`  // Nullable like wolf-ui
+	// Optional fields
+	RenderNode  *string `json:"render_node,omitempty"`
 	IconPngPath *string `json:"icon_png_path,omitempty"`
+	SupportHDR  *bool   `json:"support_hdr,omitempty"`
 
-	// Required field for proper GStreamer pipeline generation
+	// Video pipeline fields - use working XFCE pipelines to avoid empty pipeline errors
 	VideoProducerBufferCaps *string `json:"video_producer_buffer_caps,omitempty"`
+	H264GstPipeline         *string `json:"h264_gst_pipeline,omitempty"`
+	HEVCGstPipeline         *string `json:"hevc_gst_pipeline,omitempty"`
+	AV1GstPipeline          *string `json:"av1_gst_pipeline,omitempty"`
+	OpusGstPipeline         *string `json:"opus_gst_pipeline,omitempty"`
 
-	// OMITTED: h264_gst_pipeline, hevc_gst_pipeline, av1_gst_pipeline, opus_gst_pipeline, support_hdr
-	// Wolf-ui successfully omits these fields and Wolf uses internal defaults
+	// Audio/compositor settings
+	StartAudioServer bool `json:"start_audio_server"` // Always send this field as direct bool
 }
 
 // MinimalWolfRunner represents the minimal Docker runner based on working wolf-ui implementation
@@ -38,17 +40,28 @@ type MinimalWolfRunner struct {
 	RunCmd         *string   `json:"run_cmd,omitempty"`
 }
 
-// NewMinimalDockerApp creates a minimal Docker app using wolf-ui's successful pattern
-// Omits problematic GStreamer pipeline fields that wolf-ui doesn't send
+// NewMinimalDockerApp creates a Docker app with complete working GStreamer pipelines
+// Uses exact pipeline strings from working XFCE configuration to avoid empty pipeline errors
 func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, baseCreateJSON string) *MinimalWolfApp {
 	return &MinimalWolfApp{
-		// Core fields that wolf-ui always sends
+		// Core fields
 		Title:                  title,
-		ID:                     id, // Use the provided consistent ID
-		StartVirtualCompositor: true, // Required non-nullable field
+		ID:                     id,
+		StartVirtualCompositor: true,
 
-		// Set video buffer caps - use simple format to avoid GPU issues
-		VideoProducerBufferCaps: StringPtr("video/x-raw"),
+		// Complete GStreamer pipeline configuration (copied from working XFCE app)
+		VideoProducerBufferCaps: StringPtr("video/x-raw(memory:DMABuf)"),
+		H264GstPipeline: StringPtr("interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream !\nglupload !\nglcolorconvert !\nvideo/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1 !\nnvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !\nh264parse !\nvideo/x-h264, profile=main, stream-format=byte-stream !\nrtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !\nappsink sync=false name=wolf_udp_sink\n"),
+		HEVCGstPipeline: StringPtr("interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream !\nglupload !\nglcolorconvert !\nvideo/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1 !\nnvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !\nh265parse !\nvideo/x-h265, profile=main, stream-format=byte-stream !\nrtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !\nappsink sync=false name=wolf_udp_sink\n"),
+		AV1GstPipeline: StringPtr("interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream !\nglupload !\nglcolorconvert !\nvideo/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1 !\nnvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !\nav1parse !\nvideo/x-av1, stream-format=obu-stream, alignment=frame, profile=main !\nrtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !\nappsink sync=false name=wolf_udp_sink\n"),
+		OpusGstPipeline: StringPtr("interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false !\nqueue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert !\nopusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400 !\nrtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key=\"{aes_key}\" aes_iv=\"{aes_iv}\" !\nappsink name=wolf_udp_sink"),
+
+		// Settings that match XFCE working config
+		StartAudioServer: true,
+		SupportHDR:       BoolPtr(false),
+		RenderNode:       StringPtr("/dev/dri/renderD128"),
+		// IconPngPath:      StringPtr("https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png"), // Removed icon to avoid conflicts
+
 		Runner: MinimalWolfRunner{
 			Type:           "docker",
 			Name:           StringPtr(name),
@@ -59,12 +72,5 @@ func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, ba
 			Ports:          &[]string{},
 			BaseCreateJSON: StringPtr(baseCreateJSON),
 		},
-		// Optional fields (wolf-ui leaves these as nil for defaults)
-		RenderNode:  nil, // Let Wolf use internal defaults
-		IconPngPath: nil, // Let Wolf use internal defaults
-
-		// OMITTED (like wolf-ui): h264_gst_pipeline, hevc_gst_pipeline, av1_gst_pipeline,
-		// opus_gst_pipeline, support_hdr, start_audio_server
-		// Wolf will use its internal configuration defaults for these
 	}
 }
