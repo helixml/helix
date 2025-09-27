@@ -314,7 +314,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	// Keep mounts simple like XFCE - only mount workspace, skip Zed binary for now
 	// TODO: Figure out proper host path mapping for Zed binary updates
 	mounts := []string{
-		fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace only
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace only
 	}
 	baseCreateJSON := `{
   "HostConfig": {
@@ -870,7 +870,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	}
 	// Keep mounts simple - only workspace directory
 	mounts := []string{
-		fmt.Sprintf("%s:/home/user/work", workspaceDir),
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),
 	}
 	baseCreateJSON := `{
   "HostConfig": {
