@@ -32,77 +32,33 @@ func NewClient(socketPath string) *Client {
 	}
 }
 
-// App represents a Wolf application configuration
-type App struct {
-	ID                     string    `json:"id"`
-	Title                  string    `json:"title"`
-	IconPngPath            *string   `json:"icon_png_path"`
-	H264GstPipeline        string    `json:"h264_gst_pipeline"`
-	HEVCGstPipeline        string    `json:"hevc_gst_pipeline"`
-	AV1GstPipeline         string    `json:"av1_gst_pipeline"`
-	OpusGstPipeline        string    `json:"opus_gst_pipeline"`
-	RenderNode             string    `json:"render_node"`
-	StartVirtualCompositor bool      `json:"start_virtual_compositor"`
-	StartAudioServer       bool      `json:"start_audio_server"`
-	SupportHDR             bool      `json:"support_hdr"`
-	Runner                 AppRunner `json:"runner"`
-}
+// Use minimal types that exactly match the working XFCE configuration
+type App = MinimalWolfApp
+type AppRunner = MinimalWolfRunner
 
-// AppRunner defines how the app should be executed
-type AppRunner struct {
-	Type           string   `json:"type"`
-	RunCmd         string   `json:"run_cmd,omitempty"`
-	Image          string   `json:"image,omitempty"`            // Docker image
-	Name           string   `json:"name,omitempty"`             // Container name
-	Env            []string `json:"env,omitempty"`              // Environment variables
-	Mounts         []string `json:"mounts,omitempty"`           // Volume mounts
-	Devices        []string `json:"devices,omitempty"`          // Device mappings
-	Ports          []string `json:"ports"`                      // Port mappings
-	BaseCreateJSON string   `json:"base_create_json,omitempty"` // Docker create options
-}
+// Deprecated: Use WolfStreamSession from wolf_client_generated.go instead
+// Kept for backward compatibility - will be removed in future version
+type Session = WolfStreamSession
+
+// Deprecated: Use WolfClientSettings from wolf_client_generated.go instead
+// Kept for backward compatibility - will be removed in future version
+type ClientSettings = WolfClientSettings
 
 // SessionCreateRequest represents the minimal Wolf session creation request
+// This is a simplified request structure for backwards compatibility
 type SessionCreateRequest struct {
 	AppID    string `json:"app_id"`
 	ClientID string `json:"client_id"`
 	ClientIP string `json:"client_ip"`
 }
 
-// Session represents a Wolf streaming session (full structure for internal use)
-type Session struct {
-	AppID             string         `json:"app_id"`
-	ClientID          string         `json:"client_id"`
-	ClientIP          string         `json:"client_ip"`
-	VideoWidth        int            `json:"video_width"`
-	VideoHeight       int            `json:"video_height"`
-	VideoRefreshRate  int            `json:"video_refresh_rate"`
-	AudioChannelCount int            `json:"audio_channel_count"`
-	ClientSettings    ClientSettings `json:"client_settings"`
-	AESKey            string         `json:"aes_key"`
-	AESIV             string         `json:"aes_iv"`
-	RTSPFakeIP        string         `json:"rtsp_fake_ip"`
-}
+// Deprecated: Use WolfSessionResponse from wolf_client_generated.go instead
+// Kept for backward compatibility - will be removed in future version
+type SessionResponse = WolfSessionResponse
 
-// ClientSettings represents client-specific settings
-type ClientSettings struct {
-	RunUID              int      `json:"run_uid"`
-	RunGID              int      `json:"run_gid"`
-	MouseAcceleration   float64  `json:"mouse_acceleration"`
-	HScrollAcceleration float64  `json:"h_scroll_acceleration"`
-	VScrollAcceleration float64  `json:"v_scroll_acceleration"`
-	ControllersOverride []string `json:"controllers_override"`
-}
-
-// SessionResponse represents the response from creating a session
-type SessionResponse struct {
-	Success   bool   `json:"success"`
-	SessionID string `json:"session_id"`
-}
-
-// GenericResponse represents a generic Wolf API response
-type GenericResponse struct {
-	Success bool `json:"success"`
-}
+// Deprecated: Use WolfGenericResponse from wolf_client_generated.go instead
+// Kept for backward compatibility - will be removed in future version
+type GenericResponse = WolfGenericResponse
 
 // AddApp adds a new application to Wolf
 func (c *Client) AddApp(ctx context.Context, app *App) error {

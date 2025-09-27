@@ -12,6 +12,17 @@ Before taking any action, ALWAYS read and follow the current `/home/luke/pm/hypr
 - Methodical approach phases and steps
 - Success criteria
 
+## Hot Reloading Development Stack
+
+The Helix development stack has hot reloading enabled in multiple components for fast iteration:
+
+- **Frontend**: Vite-based hot reloading for React/TypeScript changes
+- **API Server**: Air-based hot reloading for Go API changes
+- **GPU Runner**: Live code reloading for runner modifications
+- **Wolf Integration**: Real-time config and code updates
+
+This means you often don't need to rebuild containers - just save files and changes are picked up automatically.
+
 ## Key Development Rules (from design.md)
 
 ### ALWAYS Follow These Rules:
@@ -19,6 +30,7 @@ Before taking any action, ALWAYS read and follow the current `/home/luke/pm/hypr
 2. **CRITICAL: NEVER USE BACKGROUND BUILDS**: ALWAYS run builds in foreground only. NEVER use `run_in_background: true` or `&` with build commands. Builds MUST be run synchronously with full output visible. This prevents confusion and lost builds.
 3. **CRITICAL: ONLY ONE BUILD AT A TIME**: Never run multiple builds simultaneously. Always wait for current build to complete before starting another.
 4. **CRITICAL: HOST ≠ CONTAINER ENVIRONMENTS**: NEVER check package availability on host system. Host runs Ubuntu 24.04, containers run Ubuntu 25.04 - completely different package sets. ALWAYS check package availability using container commands like `docker run ubuntu:25.04 apt search package`. The host system has NO relevance to what's available in build containers.
+5. **CRITICAL: NEVER USE --no-cache**: NEVER use `--no-cache` with Docker builds. We trust Docker's caching system completely and --no-cache is wasteful and unnecessary. Docker's layer caching is reliable and speeds up builds significantly.
 3. **Build caches are critical**: Without ccache/meson cache, iteration takes too long
 4. **Test after every change**: Big-bang approaches are impossible to debug
 5. **Use exact Ubuntu source**: Don't deviate from what Ubuntu ships
@@ -128,6 +140,23 @@ docker ps | grep helix
 3. Provide VNC connection details (port 5901)
 4. Only then ask user to manually test via VNC
 
+## CRITICAL: Wolf API Testing
+**MANDATORY: Wolf API calls must be made from INSIDE the Wolf container using the Unix socket**
+
+To query Wolf APIs properly:
+```bash
+# Install curl in Wolf container first (one-time setup)
+docker compose -f docker-compose.dev.yaml exec wolf bash -c "apt update && apt install -y curl jq"
+
+# Query Wolf API via Unix socket (correct method)
+docker compose -f docker-compose.dev.yaml exec wolf bash -c "curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps" | jq '.'
+
+# NOT from host (this will fail):
+curl "http://localhost:47989/api/v1/apps"  # Wrong - external API doesn't exist
+```
+
+This is required because Wolf's internal API is only accessible via Unix socket from within the container.
+
 ## CRITICAL: ALWAYS CHECK REFERENCE IMPLEMENTATIONS FOR MISSING CODE
 
 **MANDATORY ORDER when encountering missing files, headers, or dependencies:**
@@ -154,6 +183,30 @@ docker ps | grep helix
 - **Original Wolf source**: `~/pm/wolf/` (battle-tested Wolf moonlight implementation)
 - Use these as authoritative references for patterns, includes, and integration points
 - Specifically useful for Step 3: Global Manager Integration and all Wolf components
+
+## Wolf Development Workflow
+
+**Wolf Integration Development Commands:**
+
+```bash
+# Rebuild Wolf container with latest source code changes
+./stack rebuild-wolf
+
+# Auto-build Wolf during development startup (built into ./stack start)
+./stack start
+```
+
+### Wolf Development Process:
+1. **Make changes** to Wolf source code in `../wolf/src/`
+2. **Rebuild Wolf**: `./stack rebuild-wolf` (builds and restarts Wolf container)
+3. **Test integration**: Wolf changes are immediately available to Helix API
+4. **Iterate quickly**: No need to restart entire stack, just rebuild Wolf
+
+### Key Benefits:
+- ✅ **Fast iteration**: Rebuild only Wolf container (~30 seconds)
+- ✅ **Automatic startup**: `./stack start` builds Wolf if container missing
+- ✅ **Source integration**: Uses latest Wolf source code with fixes
+- ✅ **Hot reloading ready**: Integrates with existing Helix hot reloading stack
 
 ## ENHANCED BUILD SYSTEM WITH COMMIT TRACKING
 
@@ -467,3 +520,19 @@ Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
 NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+## CRITICAL: Docker Compose File Usage
+
+**MANDATORY: Always use the development compose file for helix operations:**
+
+```bash
+# Correct way to manage helix services:
+docker compose -f docker-compose.dev.yaml restart wolf
+docker compose -f docker-compose.dev.yaml logs wolf
+docker compose -f docker-compose.dev.yaml ps
+
+# WRONG - will fail:
+docker compose restart wolf  # Missing -f docker-compose.dev.yaml
+```
+
+**This applies to all docker compose commands in the helix directory.**

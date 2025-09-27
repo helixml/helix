@@ -64,6 +64,7 @@ type ZedInstanceInfo struct {
 	ConfiguredTools []string `json:"configured_tools,omitempty"` // MCP servers enabled
 	DataSources     []string `json:"data_sources,omitempty"`     // Connected data sources
 	StreamURL       string   `json:"stream_url,omitempty"`       // Wolf streaming URL
+	WolfSessionID   string   `json:"wolf_session_id,omitempty"`  // Wolf's numeric session ID for API calls
 }
 
 // ZedInstanceStatus represents the current status of a Zed instance
