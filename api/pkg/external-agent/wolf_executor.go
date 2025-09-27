@@ -31,6 +31,20 @@ type WolfExecutor struct {
 	workspaceBasePath string
 }
 
+// generateWolfAppID creates a consistent, numeric Wolf-compatible app ID
+// Uses user ID and environment name to ensure the same environment always gets the same ID
+// Wolf expects numeric-only IDs for Moonlight protocol compatibility
+func (w *WolfExecutor) generateWolfAppID(userID, environmentName string) string {
+	stableKey := fmt.Sprintf("%s-%s", userID, environmentName)
+	// Create a numeric hash by summing byte values
+	var numericHash uint64
+	for _, b := range []byte(stableKey) {
+		numericHash = numericHash*31 + uint64(b)
+	}
+	// Convert to string and limit to reasonable length for Wolf
+	return fmt.Sprintf("%d", numericHash%1000000000) // Max 9 digits
+}
+
 // NewWolfExecutor creates a new Wolf-based executor
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string) *WolfExecutor {
 	return &WolfExecutor{
@@ -54,92 +68,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting Zed agent via Wolf")
 
-	// Create Wolf app for this Zed instance
-	appID := fmt.Sprintf("zed-agent-%s", agent.SessionID)
-
-	// Build Zed command with environment variables
-	zedCmd := w.buildZedCommand(agent)
-
-	app := &wolf.App{
-		ID:                     appID,
-		Title:                  fmt.Sprintf("Zed Agent - %s", agent.SessionID),
-		IconPngPath:            nil,
-		H264GstPipeline:        "", // Use Wolf defaults
-		HEVCGstPipeline:        "", // Use Wolf defaults
-		AV1GstPipeline:         "", // Use Wolf defaults
-		OpusGstPipeline:        "", // Use Wolf defaults
-		RenderNode:             "", // Use Wolf defaults
-		StartVirtualCompositor: true,
-		StartAudioServer:       true,
-		SupportHDR:             false,
-		Runner: wolf.AppRunner{
-			Type:   "process",
-			RunCmd: zedCmd,
-		},
-	}
-
-	// Add the app to Wolf
-	err := w.wolfClient.AddApp(ctx, app)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add Zed app to Wolf: %w", err)
-	}
-
-	// Create a Wolf session for this app
-	session := &wolf.Session{
-		AppID:             appID,
-		ClientID:          "342532221405053742", // Use valid paired client ID from Wolf config
-		ClientIP:          "127.0.0.1",
-		VideoWidth:        1920,
-		VideoHeight:       1080,
-		VideoRefreshRate:  60,
-		AudioChannelCount: 2,
-		ClientSettings: wolf.ClientSettings{
-			RunUID:              1000,
-			RunGID:              1000,
-			MouseAcceleration:   1.0,
-			HScrollAcceleration: 1.0,
-			VScrollAcceleration: 1.0,
-			ControllersOverride: []string{},
-		},
-		AESKey:     "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex string for 16-byte AES key
-		AESIV:      "0123456789abcdef",                 // 16-char hex string for 8-byte IV
-		RTSPFakeIP: "192.168.1.100",                   // Fake IP address for RTSP streaming
-	}
-
-	wolfSessionID, err := w.wolfClient.CreateSession(ctx, session)
-	if err != nil {
-		// Clean up the app if session creation fails
-		w.wolfClient.RemoveApp(ctx, appID)
-		return nil, fmt.Errorf("failed to create Wolf session: %w", err)
-	}
-
-	// Store session info
-	zedSession := &ZedSession{
-		SessionID:   agent.SessionID,
-		UserID:      agent.UserID,
-		Status:      "running",
-		StartTime:   time.Now(),
-		LastAccess:  time.Now(),
-		ProjectPath: agent.ProjectPath,
-		// RDP URL would come from Wolf streaming - for now we'll use a placeholder
-		RDPURL:      fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
-		RDPPassword: "", // Wolf handles auth differently
-	}
-
-	w.sessions[agent.SessionID] = zedSession
-
-	log.Info().
-		Str("session_id", agent.SessionID).
-		Str("wolf_session_id", wolfSessionID).
-		Str("app_id", appID).
-		Msg("Zed agent started successfully via Wolf")
-
-	return &types.ZedAgentResponse{
-		SessionID: agent.SessionID,
-		RDPURL:    zedSession.RDPURL,
-		Status:    "running",
-		PID:       0, // Wolf manages the process
-	}, nil
+	// For now, skip Zed process apps since we're focusing on the Docker personal dev environments
+	// TODO: Create a minimal process app constructor if needed
+	return nil, fmt.Errorf("Zed process apps not supported with minimal Wolf client - use personal dev environments instead")
 }
 
 // buildZedCommand constructs the Zed execution command with proper environment variables
@@ -374,48 +305,22 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		Msg("Created Sway compositor configuration")
 
 	// Create Wolf app for this personal dev environment
-	wolfAppID := fmt.Sprintf("helix-personal-dev-%s", instanceID)
+	wolfAppID := w.generateWolfAppID(userID, environmentName)
 
-	// Note: Using exact XFCE configuration for stability
-	// TODO: Re-enable custom environment variables once XFCE baseline is working
-	// envVars := []string{
-	//	fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
-	//	fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
-	//	fmt.Sprintf("ZED_INSTANCE_ID=%s", instanceID),
-	//	fmt.Sprintf("ZED_USER_ID=%s", userID),
-	//	fmt.Sprintf("ZED_APP_ID=%s", appID),
-	//	fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
-	//	fmt.Sprintf("ZED_WORK_DIR=/home/user/work"),
-	//	"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-	//	"HELIX_STARTUP_SCRIPT=/home/user/work/startup.sh",
-	// }
-
-	app := &wolf.App{
-		ID:                     wolfAppID,
-		Title:                  fmt.Sprintf("Personal Dev: %s", environmentName),
-		IconPngPath:            nil,
-		H264GstPipeline:        "", // Use Wolf defaults
-		HEVCGstPipeline:        "", // Use Wolf defaults
-		AV1GstPipeline:         "", // Use Wolf defaults
-		OpusGstPipeline:        "", // Use Wolf defaults
-		RenderNode:             "", // Use Wolf defaults
-		StartVirtualCompositor: true,
-		StartAudioServer:       true,
-		SupportHDR:             false,
-		Runner: wolf.AppRunner{
-			Type:  "docker",
-			Image: "ghcr.io/games-on-whales/xfce:edge", // Use exact same XFCE image as working config
-			Name:  fmt.Sprintf("WolfXFCE_%s", instanceID),  // Use similar naming pattern
-			Env: []string{
-				"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
-			},
-			Mounts: []string{
-				"./zed-build:/zed-build", // Mount Zed binary for updates
-				fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace
-			},
-			Devices: []string{}, // Use empty devices array like XFCE config
-			Ports:   []string{}, // No external ports needed for personal dev environments
-			BaseCreateJSON: `{
+	// Use the OpenAPI-based constructor with custom Docker configuration
+	env := []string{
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
+	}
+	// Get the actual host path - Wolf needs host paths since it has docker socket access
+	helixHostPath, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current directory: %w", err)
+	}
+	mounts := []string{
+		fmt.Sprintf("%s/zed-build:/zed-build", helixHostPath), // Mount Zed binary for updates
+		fmt.Sprintf("%s:/home/user/work", workspaceDir), // Mount persistent workspace
+	}
+	baseCreateJSON := `{
   "HostConfig": {
     "IpcMode": "host",
     "Privileged": false,
@@ -423,9 +328,18 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
   }
-}`,
-		},
-	}
+}`
+
+	// Use minimal app creation that exactly matches the working XFCE configuration
+	app := wolf.NewMinimalDockerApp(
+		wolfAppID, // ID
+		fmt.Sprintf("Personal Dev %s", environmentName), // Title (no colon to avoid Docker volume syntax issues)
+		fmt.Sprintf("WolfXFCE_%s", instanceID), // Name
+		"ghcr.io/games-on-whales/xfce:edge", // Image
+		env,
+		mounts,
+		baseCreateJSON,
+	)
 
 	// Try to remove any existing app with the same ID to prevent duplicates
 	log.Info().Str("wolf_app_id", wolfAppID).Msg("Attempting to remove any existing Wolf app to prevent duplicates")
@@ -486,6 +400,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		ConfiguredTools: []string{}, // TODO: Load from App configuration
 		DataSources:     []string{}, // TODO: Load from App configuration
 		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
+		WolfSessionID:   wolfSessionID, // Store Wolf's session ID for later API calls
 	}
 
 	w.instances[instanceID] = instance
@@ -561,17 +476,22 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 
 	log.Info().Str("instance_id", instanceID).Msg("Stopping personal dev environment via Wolf")
 
-	wolfAppID := fmt.Sprintf("helix-personal-dev-%s", instanceID)
+	// Use consistent ID generation
+	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
 
-	// Stop Wolf session
-	err := w.wolfClient.StopSession(ctx, instanceID)
-	if err != nil {
-		log.Error().Err(err).Str("instance_id", instanceID).Msg("Failed to stop Wolf session")
-		// Continue with cleanup even if stop fails
+	// Stop Wolf session using the stored Wolf session ID
+	if instance.WolfSessionID != "" {
+		err := w.wolfClient.StopSession(ctx, instance.WolfSessionID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_session_id", instance.WolfSessionID).Str("instance_id", instanceID).Msg("Failed to stop Wolf session")
+			// Continue with cleanup even if stop fails
+		}
+	} else {
+		log.Warn().Str("instance_id", instanceID).Msg("No Wolf session ID stored, cannot stop Wolf session")
 	}
 
 	// Remove the app from Wolf
-	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
+	err := w.wolfClient.RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to remove Wolf app")
 		// Continue with cleanup even if removal fails
@@ -622,7 +542,14 @@ func (w *WolfExecutor) ReconcilePersonalDevEnvironments(ctx context.Context) err
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	log.Info().Msg("Starting personal dev environment reconciliation (config cleanup)")
+	log.Info().Msg("Starting personal dev environment reconciliation (Wolf apps + config cleanup)")
+
+	// Step 1: Reconcile Wolf apps against Helix instances
+	err := w.reconcileWolfApps(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to reconcile Wolf apps")
+		// Continue with config cleanup even if Wolf reconciliation fails
+	}
 
 	// Clean up orphaned Sway config files
 	orphanedConfigs := 0
@@ -861,6 +788,125 @@ input * {
 	if err := os.WriteFile(swayConfigPath, []byte(swayConfig), 0644); err != nil {
 		return fmt.Errorf("failed to create Sway config: %w", err)
 	}
+
+	return nil
+}
+
+// reconcileWolfApps ensures Wolf has apps for all running personal dev environments
+func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
+	log.Info().Msg("Reconciling Wolf apps against Helix personal dev environments")
+
+	// We check each instance individually and try to recreate Wolf apps as needed
+	reconciledCount := 0
+	recreatedCount := 0
+
+	for instanceID, instance := range w.instances {
+		if !instance.IsPersonalEnv {
+			continue // Skip non-personal dev environments
+		}
+
+		if instance.Status != "running" && instance.Status != "starting" {
+			continue // Skip stopped environments
+		}
+
+		// Check if Wolf app exists by trying to create it (Wolf will reject duplicates)
+		// Use consistent ID generation (from instance lookup)
+	instance, exists := w.instances[instanceID]
+	if !exists {
+		return fmt.Errorf("instance not found: %s", instanceID)
+	}
+	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
+
+		log.Info().
+			Str("instance_id", instanceID).
+			Str("wolf_app_id", wolfAppID).
+			Str("status", instance.Status).
+			Msg("Checking if Wolf app exists for personal dev environment")
+
+		// Try to recreate the Wolf app for this instance
+		err := w.recreateWolfAppForInstance(ctx, instance)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("instance_id", instanceID).
+				Msg("Failed to recreate Wolf app for personal dev environment")
+			// Mark instance as stopped since Wolf app creation failed
+			instance.Status = "stopped"
+		} else {
+			log.Info().
+				Str("instance_id", instanceID).
+				Msg("Successfully ensured Wolf app exists for personal dev environment")
+			recreatedCount++
+		}
+		reconciledCount++
+	}
+
+	log.Info().
+		Int("reconciled_count", reconciledCount).
+		Int("recreated_count", recreatedCount).
+		Msg("Completed Wolf app reconciliation")
+
+	return nil
+}
+
+// recreateWolfAppForInstance recreates a Wolf app for an existing personal dev environment instance
+func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance *ZedInstanceInfo) error {
+	// Use consistent ID generation
+	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
+
+	// Get workspace directory (should already exist)
+	workspaceDir := filepath.Join(w.workspaceBasePath, instance.InstanceID)
+
+	// Create Wolf app using the same XFCE configuration as the main creation function
+	env := []string{
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+	}
+	// Get the actual host path - Wolf needs host paths since it has docker socket access
+	helixHostPath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+	mounts := []string{
+		fmt.Sprintf("%s/zed-build:/zed-build", helixHostPath), // Mount Zed binary for updates
+		fmt.Sprintf("%s:/home/user/work", workspaceDir),
+	}
+	baseCreateJSON := `{
+  "HostConfig": {
+    "IpcMode": "host",
+    "Privileged": false,
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}`
+
+	// Use minimal app creation that exactly matches the working XFCE configuration
+	app := wolf.NewMinimalDockerApp(
+		wolfAppID, // ID
+		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
+		fmt.Sprintf("WolfXFCE_%s", instance.InstanceID), // Name
+		"ghcr.io/games-on-whales/xfce:edge", // Image
+		env,
+		mounts,
+		baseCreateJSON,
+	)
+
+	// Try to remove any existing app first to avoid conflicts
+	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
+	if err != nil {
+		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
+	}
+
+	// Add the app to Wolf
+	err = w.wolfClient.AddApp(ctx, app)
+	if err != nil {
+		return fmt.Errorf("failed to recreate Wolf app: %w", err)
+	}
+
+	log.Info().
+		Str("instance_id", instance.InstanceID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Successfully recreated Wolf app for personal dev environment")
 
 	return nil
 }

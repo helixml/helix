@@ -339,7 +339,7 @@ func NewServer(
 	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
 	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
 		go func() {
-			// Small delay to ensure Wolf is ready
+			// Initial reconciliation on startup
 			time.Sleep(5 * time.Second)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -347,6 +347,38 @@ func NewServer(
 			if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
 				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
 			}
+
+			// DISABLED: Periodic reconciliation to reduce Wolf API pressure
+			// The constant API calls were causing Wolf mutex deadlocks and "operation canceled" errors
+			// Uncomment the code below to re-enable periodic reconciliation
+			log.Info().Msg("Periodic reconciliation disabled - only startup reconciliation performed")
+
+			// TODO: Re-enable periodic reconciliation once Wolf stability issues are resolved
+			/*
+			// Start periodic reconciliation to detect Wolf restarts
+			ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+			defer ticker.Stop()
+
+			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 30s)")
+
+			for {
+				select {
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
+						log.Error().Err(err).Msg("Failed during periodic reconciliation")
+					}
+					cancel()
+				case <-controller.Ctx.Done():
+					log.Info().Msg("Stopping periodic reconciliation due to server shutdown")
+					return
+				}
+			}
+			*/
+
+			// Wait for server shutdown
+			<-controller.Ctx.Done()
+			log.Info().Msg("Stopping reconciliation goroutine due to server shutdown")
 		}()
 	}
 

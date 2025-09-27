@@ -235,11 +235,20 @@ services:
         #   - 7317:7317
 
     wolf:
-      image: ghcr.io/games-on-whales/wolf:stable
+      image: wolf:helix-fixed
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+        # Debug logging for HTTPS connection issues
+        - WOLF_LOG_LEVEL=DEBUG
+        - GST_DEBUG=2
+        # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
+        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+        - WOLF_INTERNAL_IP=127.0.0.1
+        # Fix HTTPS SSL certificate paths for proper SSL operation
+        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         - /var/run/docker.sock:/var/run/docker.sock:rw
