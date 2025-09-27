@@ -340,6 +340,128 @@ environment.configured_tools && environment.configured_tools.length > 0
 
 This file must be kept up to date with any critical lessons learned during development.
 
+## Wolf Streaming Platform Operations and Debugging
+
+### CRITICAL: Wolf App Management and Persistence
+
+**Wolf App Storage Behavior:**
+- **Static apps** are defined in `/home/luke/pm/helix/wolf/config.toml` and persist across restarts
+- **Dynamic apps** (created via API) are stored in Wolf's internal state and **cleared on restart**
+- **Restarting Wolf is safe** and clears broken dynamic apps while preserving working static configuration
+
+### Wolf API Access (MANDATORY METHOD)
+
+**CRITICAL: Always access Wolf API from inside API container via shared socket:**
+
+```bash
+# ✅ CORRECT: Access Wolf API from API container
+docker compose -f docker-compose.dev.yaml exec api curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
+
+# ❌ WRONG: Direct host access (socket not mounted to host)
+curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
+```
+
+**Key Wolf API Endpoints:**
+- `/api/v1/apps` - List all applications in Wolf
+- `/api/v1/sessions` - List active streaming sessions
+- `/api/v1/openapi-schema` - Get API documentation
+
+**Socket Configuration:**
+- Wolf socket: `/var/run/wolf/wolf.sock` (inside containers)
+- Shared via `wolf-socket` Docker volume between `api` and `wolf` services
+- Socket NOT accessible from host filesystem
+
+### Wolf Crash Debugging Process
+
+**When Wolf shows errors in logs:**
+
+1. **Check for backtrace files**: `ls -la /home/luke/pm/helix/wolf/*.dump`
+2. **Extract crash info**: `strings /path/to/backtrace.dump | head -50`
+3. **Look for specific crash patterns**:
+   ```bash
+   docker compose -f docker-compose.dev.yaml logs wolf | grep -E "(CRASH|FATAL|create_frame|waylanddisplaycore)"
+   ```
+
+**Common Wolf Issues:**
+- **Wayland display rendering crashes**: Usually caused by incorrect container GPU access
+- **GStreamer pipeline syntax errors**: Often from empty or malformed pipeline configurations
+- **HTTPS `/serverinfo` timeouts**: Indicates streaming session creation failures
+
+### Wolf Configuration Management
+
+**Working XFCE Configuration Pattern (TESTED):**
+```json
+{
+  "type": "docker",
+  "image": "ghcr.io/games-on-whales/xfce:edge",
+  "env": ["GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*"],
+  "devices": [],
+  "mounts": [],
+  "base_create_json": {
+    "HostConfig": {
+      "IpcMode": "host",
+      "Privileged": false,
+      "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+      "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+      "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    }
+  }
+}
+```
+
+**Configuration Development Strategy:**
+1. **Start with proven working config** (XFCE above)
+2. **Make incremental changes** one at a time
+3. **Test each change** before proceeding
+4. **Restart Wolf** to clear broken apps between tests
+5. **Use Wolf API** to verify app creation success
+
+### Personal Dev Environment Debugging
+
+**Configuration Changes Workflow:**
+1. **Modify wolf_executor.go** with new configuration
+2. **Restart API**: `docker compose -f docker-compose.dev.yaml restart api`
+3. **Restart Wolf**: `docker compose -f docker-compose.dev.yaml restart wolf` (clears broken apps)
+4. **Check Wolf apps**: `docker compose -f docker-compose.dev.yaml exec api curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps`
+5. **Test app creation** via frontend or API
+6. **Monitor Wolf logs** for crashes: `docker compose -f docker-compose.dev.yaml logs --tail 50 wolf`
+
+**CRITICAL: Always restart Wolf when testing configuration changes** - This clears any broken dynamic apps that might interfere with new tests.
+
+### Container Image Strategy
+
+**Working Images (Verified):**
+- **XFCE Desktop**: `ghcr.io/games-on-whales/xfce:edge` (proven stable)
+- **Custom Sway**: `helix/sway-dev:latest` (may cause Wayland rendering issues)
+
+**Image Testing Process:**
+1. **Start with proven XFCE image**
+2. **Verify streaming works end-to-end**
+3. **Gradually substitute custom components**
+4. **Identify exact breaking point**
+
+### Stack Operation Best Practices
+
+**Before Major Configuration Changes:**
+- **Document current working state**
+- **Backup configuration files**
+- **Test with minimal changes first**
+
+**When Things Break:**
+- **Check Wolf backtrace files first**
+- **Restart Wolf to clear broken state**
+- **Revert to last known working configuration**
+- **Use Wolf API to inspect current state**
+
+**Development Iteration Cycle:**
+1. **Make single configuration change**
+2. **Restart affected services**
+3. **Test immediately**
+4. **Document results**
+5. **Commit working states**
+
+This operational knowledge is critical for effective Wolf debugging and configuration management.
+
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
