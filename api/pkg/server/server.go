@@ -336,6 +336,20 @@ func NewServer(
 		"/workspace", // Default workspace path for Zed agents
 	)
 
+	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
+	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
+		go func() {
+			// Small delay to ensure Wolf is ready
+			time.Sleep(5 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
+				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
+			}
+		}()
+	}
+
 	return apiServer, nil
 }
 
