@@ -313,7 +313,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
-		"/home/luke/pm/helix/zed-build/zed:/usr/local/bin/zed:ro", // Mount Zed binary from host path
+		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
@@ -869,7 +869,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
-		"/home/luke/pm/helix/zed-build/zed:/usr/local/bin/zed:ro", // Mount Zed binary from host path
+		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
