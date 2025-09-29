@@ -37,3 +37,4 @@ Hyprland-*
 *.deb
 sunshine-*
 test-zed-config/
+*.dump

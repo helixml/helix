@@ -70,6 +70,10 @@ type ZedInstanceInfo struct {
 	DisplayWidth  int `json:"display_width,omitempty"`  // Streaming resolution width
 	DisplayHeight int `json:"display_height,omitempty"` // Streaming resolution height
 	DisplayFPS    int `json:"display_fps,omitempty"`    // Streaming framerate
+
+	// Container information for direct network access
+	ContainerName string `json:"container_name,omitempty"` // Docker container name (PersonalDev_{wolfAppID})
+	VNCPort       int    `json:"vnc_port,omitempty"`       // VNC port inside container (5901)
 }
 
 // ZedInstanceStatus represents the current status of a Zed instance
