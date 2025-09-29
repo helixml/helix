@@ -17,6 +17,11 @@ type CreatePersonalDevEnvironmentRequest struct {
 	EnvironmentName string `json:"environment_name"`
 	AppID           string `json:"app_id"`
 	Description     string `json:"description,omitempty"`
+
+	// Display configuration for the streaming session
+	DisplayWidth    int `json:"display_width,omitempty"`    // Default: 2360 (iPad Pro)
+	DisplayHeight   int `json:"display_height,omitempty"`   // Default: 1640 (iPad Pro)
+	DisplayFPS      int `json:"display_fps,omitempty"`      // Default: 120
 }
 
 type UpdatePersonalDevEnvironmentRequest struct {
@@ -125,14 +130,31 @@ func (apiServer *HelixAPIServer) createPersonalDevEnvironment(res http.ResponseW
 		return
 	}
 
+	// Set default display parameters if not provided
+	displayWidth := createReq.DisplayWidth
+	if displayWidth == 0 {
+		displayWidth = 2360 // iPad Pro width
+	}
+	displayHeight := createReq.DisplayHeight
+	if displayHeight == 0 {
+		displayHeight = 1640 // iPad Pro height
+	}
+	displayFPS := createReq.DisplayFPS
+	if displayFPS == 0 {
+		displayFPS = 120 // High refresh rate
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("environment_name", createReq.EnvironmentName).
 		Str("app_id", createReq.AppID).
+		Int("display_width", displayWidth).
+		Int("display_height", displayHeight).
+		Int("display_fps", displayFPS).
 		Msg("Creating personal dev environment")
 
-	// Create the environment
-	environment, err := wolfExecutor.CreatePersonalDevEnvironment(req.Context(), user.ID, createReq.AppID, createReq.EnvironmentName)
+	// Create the environment with display configuration
+	environment, err := wolfExecutor.CreatePersonalDevEnvironmentWithDisplay(req.Context(), user.ID, createReq.AppID, createReq.EnvironmentName, displayWidth, displayHeight, displayFPS)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).

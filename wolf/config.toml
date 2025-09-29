@@ -161,6 +161,9 @@ videorate !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
 chroma-site={color_range}, colorimetry={color_space}'''
 
+[session_management]
+auto_persistent_sessions = true
+
 [[apps]]
 icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png'
 title = 'Desktop (xfce)'
@@ -319,6 +322,93 @@ y4SE4EWRNE2P44PSLMx0QRU4pR9Kgc8x8FULKOuhGy9U05w2rrIGQFo8G74ui8bu
 i/2hR1epcaIhtVqzls2Tar/jAi7syZeAJT54RW5zewcoLqGj7tkc47Mg6r0B+DVg
 /sfFFwD+G1mIQwN6BGp+TiBNbnKdPfHtW8QTPUki04kIhioBWWPKA3GFdY23T5qv
 r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '13167995418182798030'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMDkwNzUxWhcNNDUwOTE4MDkw
+NzUxWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC/8m4LzcR1olm414iGSe78HYS7n2Ni
+6+vlZtxtjwruEmCmKzAzviIYY5A+Zqu4s+9ZsoURGSVL70DCsjfowmBViKWKl/y2
+llPIh70wVQaSzYR4Ddf3HHPk7XVgSdeyw6S4BlTQ1WOTHEAa2Pia5+m3r9JXtS4D
+hKaz6NCq1HG0ORG9E4HqmZ98TMWQmjbWROJOBxCOwaqso4sIOoDwaQIJ558uUwK3
+/n7eY66JaRGunRGnKG8br0GMyEve1ALJpaorTPyVaU2A/tMMre6f5b6//B2ew/bA
+VwMnK9yDZEOQSr+gjwT08UVGh/MLLBxCzB8XlV2Fl+qHLPEb4drD7I4LAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBADJDHKWzPr8IFw6jqSNXQ/y19CQ1LGNh2sjWBILJ
+pwH3/tSF6SA7/KXCueFFKj8UY1aXcaf05J/SBBJDlGhhv+KoadR9zRWzPBX7hCrb
+JC0H8IT4VPeVYQ9JdQrTyllnNfx3t8ur2yvMalTPIWRuZeu1XtXB7GmBkZCqTCfI
+jbl63Irq9l3Z41Zd3LL6iptmp7lswliTDHlFk9xKQPi40aj+gQ6XlwBZ2AiSbg6K
+Ybr4Rdr7BQO8lkS6FIPwGDVse25rNmNAlyFjCGlz7u3RijbUgrfZv/aDkWPUqTcg
+8aFOz8oaymRnCC7wdEQgsY/Q+nyVQQA+gXq04e0t+O6pyLs=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '16531021386011371178'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTEwMTUzNjU3WhcNNDUwOTA1MTUz
+NjU3WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCv9oEfy61EehfOwPqpOwjPLuGks9LQ
+OG0D+CwLB1lwWAibo+Ge2DmVZ2Rir56rLuxru+5bfs4YnhxQGWhphPvbPe64flMU
+j3tansOUf+974qhcn33B46/tOBqQL3nNLU2zA5Acq5fvoCwA+79xlzWtX3kjeMtb
+G0FvNRYJ1JeoJodmMJNTPb7wZVVp1rvcYXz/qH3G4BNyfAGISMCgsQAp4zIJY+YC
+oyPWjNWV1ytM6GV9CmgsW3IhS/K51NZcPsd1s37kOr7eG0qHLq9J30lB5mS+NqsM
+aOMZhfeHJss/k0OWustTh9gf8iVojXbw91GHsgOYGsXIlhjBGA/6SSa3AgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAEZBLK9atq3HbmzB4vpm/pzlw/xsbtmFOhAmOCI/
+bsVkon8QBmzvo1tjf1ouZNF94zyllxGVfsfk8WqQ1OsXA9BV7a2baX5PDCUTEM8z
+Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
+DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
+o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
+VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '16531021386011371178'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTEwMTUzNjU3WhcNNDUwOTA1MTUz
+NjU3WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCv9oEfy61EehfOwPqpOwjPLuGks9LQ
+OG0D+CwLB1lwWAibo+Ge2DmVZ2Rir56rLuxru+5bfs4YnhxQGWhphPvbPe64flMU
+j3tansOUf+974qhcn33B46/tOBqQL3nNLU2zA5Acq5fvoCwA+79xlzWtX3kjeMtb
+G0FvNRYJ1JeoJodmMJNTPb7wZVVp1rvcYXz/qH3G4BNyfAGISMCgsQAp4zIJY+YC
+oyPWjNWV1ytM6GV9CmgsW3IhS/K51NZcPsd1s37kOr7eG0qHLq9J30lB5mS+NqsM
+aOMZhfeHJss/k0OWustTh9gf8iVojXbw91GHsgOYGsXIlhjBGA/6SSa3AgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAEZBLK9atq3HbmzB4vpm/pzlw/xsbtmFOhAmOCI/
+bsVkon8QBmzvo1tjf1ouZNF94zyllxGVfsfk8WqQ1OsXA9BV7a2baX5PDCUTEM8z
+Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
+DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
+o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
+VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
 -----END CERTIFICATE-----
 '''
 

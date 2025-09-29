@@ -348,13 +348,6 @@ func NewServer(
 				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
 			}
 
-			// DISABLED: Periodic reconciliation to reduce Wolf API pressure
-			// The constant API calls were causing Wolf mutex deadlocks and "operation canceled" errors
-			// Uncomment the code below to re-enable periodic reconciliation
-			log.Info().Msg("Periodic reconciliation disabled - only startup reconciliation performed")
-
-			// TODO: Re-enable periodic reconciliation once Wolf stability issues are resolved
-			/*
 			// Start periodic reconciliation to detect Wolf restarts
 			ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
 			defer ticker.Stop()
@@ -374,7 +367,6 @@ func NewServer(
 					return
 				}
 			}
-			*/
 
 			// Wait for server shutdown
 			<-controller.Ctx.Done()

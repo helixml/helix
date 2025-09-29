@@ -8446,6 +8446,18 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "display_fps": {
+                    "description": "Default: 120",
+                    "type": "integer"
+                },
+                "display_height": {
+                    "description": "Default: 1640 (iPad Pro)",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Display configuration for the streaming session",
+                    "type": "integer"
+                },
                 "environment_name": {
                     "type": "string"
                 }
@@ -8689,6 +8701,18 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "display_fps": {
+                    "description": "Streaming framerate",
+                    "type": "integer"
+                },
+                "display_height": {
+                    "description": "Streaming resolution height",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Display configuration for streaming",
+                    "type": "integer"
+                },
                 "environment_name": {
                     "description": "User-friendly name",
                     "type": "string"
@@ -8725,6 +8749,10 @@ const docTemplate = `{
                 },
                 "userID": {
                     "description": "Always required",
+                    "type": "string"
+                },
+                "wolf_session_id": {
+                    "description": "Wolf's numeric session ID for API calls",
                     "type": "string"
                 }
             }
@@ -16081,16 +16109,16 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

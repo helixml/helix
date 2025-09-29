@@ -3,7 +3,6 @@ package external_agent
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -270,10 +269,20 @@ func (w *WolfExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo,
 
 // Personal Development Environment Management
 
-// CreatePersonalDevEnvironment creates a new personal development environment
+// CreatePersonalDevEnvironment creates a new personal development environment with default display settings
 func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
+	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 2360, 1640, 120)
+}
+
+// CreatePersonalDevEnvironmentWithDisplay creates a new personal development environment with custom display settings
+func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
+
+	// Validate display parameters
+	if err := validateDisplayParams(displayWidth, displayHeight, displayFPS); err != nil {
+		return nil, fmt.Errorf("invalid display configuration: %w", err)
+	}
 
 	instanceID := fmt.Sprintf("personal-dev-%s-%d", userID, time.Now().Unix())
 
@@ -282,6 +291,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		Str("user_id", userID).
 		Str("app_id", appID).
 		Str("environment_name", environmentName).
+		Int("display_width", displayWidth).
+		Int("display_height", displayHeight).
+		Int("display_fps", displayFPS).
 		Msg("Creating personal development environment via Wolf")
 
 	// Create persistent workspace directory
@@ -335,6 +347,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		env,
 		mounts,
 		baseCreateJSON,
+		displayWidth,  // Pass user-configured display width
+		displayHeight, // Pass user-configured display height
+		displayFPS,    // Pass user-configured display FPS
 	)
 
 	// Try to remove any existing app with the same ID to prevent duplicates
@@ -350,13 +365,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		return nil, fmt.Errorf("failed to add personal dev app to Wolf: %w", err)
 	}
 
-	// Create a background session for immediate container startup
-	// This allows the Personal Dev environment to start running before a Moonlight client connects
-	wolfSessionID, err := w.createBackgroundSession(ctx, wolfAppID, instanceID)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to create background session, environment will require manual Moonlight connection")
-		wolfSessionID = "" // Continue without background session
-	}
+	// Wolf will auto-start the container when the app is added (if auto_start_containers = true)
+	// No need for fake client background sessions - Wolf handles container lifecycle directly
+	wolfSessionID := "" // No session ID needed for auto-started containers
 
 	// Create instance info
 	instance := &ZedInstanceInfo{
@@ -376,6 +387,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 		DataSources:     []string{}, // TODO: Load from App configuration
 		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
 		WolfSessionID:   wolfSessionID, // Store Wolf's session ID for later API calls
+		DisplayWidth:    displayWidth,  // Store user-configured display resolution
+		DisplayHeight:   displayHeight,
+		DisplayFPS:      displayFPS,
 	}
 
 	w.instances[instanceID] = instance
@@ -784,19 +798,42 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 			continue // Skip stopped environments
 		}
 
-		// Check if Wolf app exists by trying to create it (Wolf will reject duplicates)
+		// Check if Wolf app exists before trying to create it
 		// Use consistent ID generation (from instance lookup)
-	instance, exists := w.instances[instanceID]
-	if !exists {
-		return fmt.Errorf("instance not found: %s", instanceID)
-	}
-	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
+		instance, exists := w.instances[instanceID]
+		if !exists {
+			return fmt.Errorf("instance not found: %s", instanceID)
+		}
+		wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
 
 		log.Info().
 			Str("instance_id", instanceID).
 			Str("wolf_app_id", wolfAppID).
 			Str("status", instance.Status).
 			Msg("Checking if Wolf app exists for personal dev environment")
+
+		// First check if Wolf app already exists
+		appExists, checkErr := w.checkWolfAppExists(ctx, wolfAppID)
+		if checkErr != nil {
+			log.Error().
+				Err(checkErr).
+				Str("wolf_app_id", wolfAppID).
+				Msg("Failed to check if Wolf app exists")
+			continue // Skip this instance and continue with others
+		}
+
+		if appExists {
+			log.Debug().
+				Str("instance_id", instanceID).
+				Str("wolf_app_id", wolfAppID).
+				Msg("Wolf app already exists, skipping recreation")
+			continue // App exists, no need to recreate
+		}
+
+		log.Info().
+			Str("instance_id", instanceID).
+			Str("wolf_app_id", wolfAppID).
+			Msg("Wolf app missing, recreating")
 
 		// Try to recreate the Wolf app for this instance
 		err := w.recreateWolfAppForInstance(ctx, instance)
@@ -859,6 +896,9 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		env,
 		mounts,
 		baseCreateJSON,
+		instance.DisplayWidth,  // Use stored display configuration
+		instance.DisplayHeight, // Use stored display configuration
+		instance.DisplayFPS,    // Use stored display configuration
 	)
 
 	// Try to remove any existing app first to avoid conflicts
@@ -881,127 +921,11 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	return nil
 }
 
-// createBackgroundSession creates a background Wolf session for immediate container startup
-// This allows Personal Dev environments to start running before a Moonlight client connects
-func (w *WolfExecutor) createBackgroundSession(ctx context.Context, wolfAppID, instanceID string) (string, error) {
-	log.Info().
-		Str("wolf_app_id", wolfAppID).
-		Str("instance_id", instanceID).
-		Msg("Creating background session for Personal Dev environment")
+// NOTE: Background session creation has been moved to Wolf's native auto_persistent_sessions feature.
+// Wolf now handles container lifecycle directly through auto_start_containers = true configuration.
+// No need for Helix to create fake background sessions - Wolf automatically starts containers
+// when apps are added, and real Moonlight clients can connect to running containers seamlessly.
 
-	// First, check if we have any existing paired clients, otherwise create a virtual one
-	clientID, err := w.ensureVirtualClient(ctx, instanceID)
-	if err != nil {
-		return "", fmt.Errorf("failed to ensure virtual client: %w", err)
-	}
-
-	// Create session using Wolf's existing session creation API
-	session := &wolf.Session{
-		AppID:             wolfAppID,
-		ClientID:          clientID,
-		ClientIP:          "127.0.0.1", // Local since it's background
-		VideoWidth:        1920,        // Default resolution
-		VideoHeight:       1080,
-		VideoRefreshRate:  60,  // Default framerate
-		AudioChannelCount: 2,   // Stereo
-		AESKey:            "9d804e47a6aa6624b7d4b502b32cc522", // 32-char hex for AES-128
-		AESIV:             "0123456789abcdef",                 // 16-char hex for IV
-		RTSPFakeIP:        generateRandomIP(),                   // Generate unique fake IP
-		ClientSettings: wolf.ClientSettings{
-			RunUID:               1000,
-			RunGID:               1000,
-			MouseAcceleration:    1.0,
-			VScrollAcceleration:  1.0,
-			HScrollAcceleration:  1.0,
-			ControllersOverride:  []string{},
-		},
-	}
-
-	sessionID, err := w.wolfClient.CreateSession(ctx, session)
-	if err != nil {
-		return "", fmt.Errorf("failed to create background session: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("client_id", clientID).
-		Str("wolf_app_id", wolfAppID).
-		Msg("Background session created successfully")
-
-	// Note: We don't call StartSession here because that would require additional
-	// Wolf API endpoints that may not be available. The session creation should be
-	// enough to trigger container startup, and a real Moonlight client can connect later.
-
-	return sessionID, nil
-}
-
-// ensureVirtualClient ensures there's a paired client available for session creation
-// Either returns an existing client ID or returns an error if no real clients exist
-func (w *WolfExecutor) ensureVirtualClient(ctx context.Context, instanceID string) (string, error) {
-	// First, try to get existing paired clients from Wolf
-	pairedClients, err := w.getPairedClients(ctx)
-	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get paired clients")
-		return "", fmt.Errorf("no paired clients available and cannot create virtual clients: %w", err)
-	}
-
-	if len(pairedClients) > 0 {
-		// Use the first existing paired client
-		clientID := pairedClients[0].ClientID
-		log.Info().
-			Str("client_id", clientID).
-			Msg("Using existing paired client for background session")
-		return clientID, nil
-	}
-
-	// No existing clients - Wolf requires real paired clients for sessions
-	log.Info().Msg("No existing paired clients found - background session creation requires a real Moonlight client to be paired first")
-	return "", fmt.Errorf("no paired clients available - background sessions require at least one Moonlight client to be paired with Wolf")
-}
-
-// getPairedClients retrieves existing paired clients from Wolf
-func (w *WolfExecutor) getPairedClients(ctx context.Context) ([]PairedClientInfo, error) {
-	// Use Wolf's API to get paired clients via the GetPairedClients method
-	// This returns all currently paired Moonlight clients
-
-	// We need to add this method to the Wolf client
-	// For now, make a direct API call to Wolf's paired clients endpoint
-
-	// Call Wolf's /api/v1/clients endpoint to get paired clients
-	clients, err := w.wolfClient.GetPairedClients(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get paired clients from Wolf: %w", err)
-	}
-
-	// Convert Wolf's client format to our internal format
-	var pairedClients []PairedClientInfo
-	for _, client := range clients {
-		pairedClients = append(pairedClients, PairedClientInfo{
-			ClientID:       client.ClientID,
-			AppStateFolder: client.AppStateFolder,
-		})
-	}
-
-	log.Debug().
-		Int("client_count", len(pairedClients)).
-		Msg("Retrieved paired clients from Wolf")
-
-	return pairedClients, nil
-}
-
-// PairedClientInfo represents information about a paired Moonlight client
-type PairedClientInfo struct {
-	ClientID        string `json:"client_id"`
-	AppStateFolder  string `json:"app_state_folder"`
-}
-
-// hashClientCert creates a hash of a client certificate (mimics Wolf's get_client_id function)
-func hashClientCert(cert string) uint64 {
-	// Use Go's built-in hash function to mimic Wolf's std::hash<std::string>
-	h := fnv.New64a()
-	h.Write([]byte(cert))
-	return h.Sum64()
-}
 
 // generateRandomIP generates a unique fake IP address for RTSP routing
 func generateRandomIP() string {
@@ -1010,7 +934,44 @@ func generateRandomIP() string {
 	return fmt.Sprintf("192.168.1.%d", 100+time.Now().UnixNano()%155) // 100-254 range
 }
 
+// checkWolfAppExists checks if a Wolf app with the given ID already exists
+func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
+	apps, err := w.wolfClient.ListApps(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list Wolf apps: %w", err)
+	}
+
+	for _, app := range apps {
+		if app.ID == appID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // GetWolfClient returns the Wolf client for direct access to Wolf API
 func (w *WolfExecutor) GetWolfClient() *wolf.Client {
 	return w.wolfClient
+}
+
+// validateDisplayParams validates display configuration parameters
+func validateDisplayParams(width, height, fps int) error {
+	if width < 800 || width > 7680 {
+		return fmt.Errorf("invalid display width: %d (must be 800-7680)", width)
+	}
+	if height < 600 || height > 4320 {
+		return fmt.Errorf("invalid display height: %d (must be 600-4320)", height)
+	}
+	if fps < 30 || fps > 144 {
+		return fmt.Errorf("invalid display fps: %d (must be 30-144)", fps)
+	}
+
+	// Validate aspect ratio is reasonable
+	aspectRatio := float64(width) / float64(height)
+	if aspectRatio < 0.5 || aspectRatio > 4.0 {
+		return fmt.Errorf("invalid aspect ratio: %.2f (must be 0.5-4.0)", aspectRatio)
+	}
+
+	return nil
 }

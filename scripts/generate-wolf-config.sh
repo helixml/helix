@@ -77,7 +77,7 @@ fi
 # Add the rest of the configuration
 cat >> "$WOLF_CFG_DIR/config.toml" <<EOF
 [video]
-resolution = ["3840x2160", "2560x1440", "1920x1080"]
+resolution = ["2360x1640", "1920x1080", "1280x720"]
 fps = [60, 120]
 
 # GPU configuration - matches your NVIDIA setup  

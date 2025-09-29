@@ -24,6 +24,12 @@ type MinimalWolfApp struct {
 
 	// Audio/compositor settings
 	StartAudioServer bool `json:"start_audio_server"` // Always send this field as direct bool
+
+	// Default display configuration for Personal Dev Environments
+	// Used when auto_start_containers=true OR when no client preferences available
+	DefaultDisplayWidth  *int `json:"default_display_width,omitempty"`  // Default streaming resolution width
+	DefaultDisplayHeight *int `json:"default_display_height,omitempty"` // Default streaming resolution height
+	DefaultDisplayFPS    *int `json:"default_display_fps,omitempty"`    // Default streaming framerate
 }
 
 // MinimalWolfRunner represents the minimal Docker runner based on working wolf-ui implementation
@@ -42,7 +48,7 @@ type MinimalWolfRunner struct {
 
 // NewMinimalDockerApp creates a Docker app with complete working GStreamer pipelines
 // Uses exact pipeline strings from working XFCE configuration to avoid empty pipeline errors
-func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, baseCreateJSON string) *MinimalWolfApp {
+func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, baseCreateJSON string, displayWidth, displayHeight, displayFPS int) *MinimalWolfApp {
 	return &MinimalWolfApp{
 		// Core fields
 		Title:                  title,
@@ -62,6 +68,11 @@ func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, ba
 		RenderNode:       StringPtr("/dev/dri/renderD128"),
 		// IconPngPath:      StringPtr("https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png"), // Removed icon to avoid conflicts
 
+		// Default display configuration for Personal Dev Environments
+		DefaultDisplayWidth:  IntPtr(displayWidth),
+		DefaultDisplayHeight: IntPtr(displayHeight),
+		DefaultDisplayFPS:    IntPtr(displayFPS),
+
 		Runner: MinimalWolfRunner{
 			Type:           "docker",
 			Name:           StringPtr(name),
@@ -73,4 +84,9 @@ func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, ba
 			BaseCreateJSON: StringPtr(baseCreateJSON),
 		},
 	}
+}
+
+// IntPtr creates a pointer to an int value
+func IntPtr(i int) *int {
+	return &i
 }
