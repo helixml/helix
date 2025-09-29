@@ -7,6 +7,6 @@ echo "Starting Helix Personal Dev Environment with Sway..."
 # Wait a moment for the system to stabilize
 sleep 2
 
-# Start Sway window manager
-echo "Starting Sway window manager..."
-exec sway
+# Use GOW's launch-comp.sh which handles NVIDIA compatibility
+echo "Starting Sway window manager via GOW launch-comp.sh..."
+exec /opt/gow/launch-comp.sh
