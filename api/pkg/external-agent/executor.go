@@ -65,6 +65,11 @@ type ZedInstanceInfo struct {
 	DataSources     []string `json:"data_sources,omitempty"`     // Connected data sources
 	StreamURL       string   `json:"stream_url,omitempty"`       // Wolf streaming URL
 	WolfSessionID   string   `json:"wolf_session_id,omitempty"`  // Wolf's numeric session ID for API calls
+
+	// Display configuration for streaming
+	DisplayWidth  int `json:"display_width,omitempty"`  // Streaming resolution width
+	DisplayHeight int `json:"display_height,omitempty"` // Streaming resolution height
+	DisplayFPS    int `json:"display_fps,omitempty"`    // Streaming framerate
 }
 
 // ZedInstanceStatus represents the current status of a Zed instance

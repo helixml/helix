@@ -1,7 +1,7 @@
 # Clean Hyprland configuration for headless VNC with GPU acceleration
 
 # Monitor configuration 
-monitor = HEADLESS-2,3840x2160@120,0x0,1
+monitor = HEADLESS-2,2360x1640@120,0x0,1
 
 # NVIDIA GPU environment variables
 env = NVIDIA_VISIBLE_DEVICES,all
