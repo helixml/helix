@@ -12,27 +12,25 @@ RUN apt-get update && \
 
 # Download and set Helix logo as background
 RUN mkdir -p /usr/share/backgrounds && \
-    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png && \
-    # Set background for retro user
-    mkdir -p /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml && \
-    echo '<?xml version="1.0" encoding="UTF-8"?>' > /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '<channel name="xfce4-desktop" version="1.0">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '  <property name="backdrop" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '    <property name="screen0" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '      <property name="monitorVirtual1" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '        <property name="workspace0" type="empty">' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '          <property name="last-image" type="string" value="/usr/share/backgrounds/helix-logo.png"/>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '          <property name="image-style" type="int" value="5"/>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '        </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '      </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '    </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '  </property>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    echo '</channel>' >> /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml && \
-    # Set background for user user as well
-    mkdir -p /home/user/.config/xfce4/xfconf/xfce-perchannel-xml && \
-    cp /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml /home/user/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+    wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
 
-# Create work directories (users are created at runtime by the base image)
-RUN mkdir -p /home/retro/work /home/user/work && \
-    chmod 755 /home/retro /home/user && \
-    chmod 755 /home/retro/work /home/user/work
+# Create directory structure for both users
+RUN mkdir -p /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml \
+             /home/retro/.config/autostart \
+             /home/retro/work \
+             /home/user/.config/xfce4/xfconf/xfce-perchannel-xml \
+             /home/user/.config/autostart \
+             /home/user/work && \
+    chmod 755 /home/retro /home/user /home/retro/work /home/user/work
+
+# Copy XFCE configuration files
+ADD wolf/xfce-config/xfce4-desktop.xml /home/retro/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+ADD wolf/xfce-config/xfce4-desktop.xml /home/user/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml
+
+# Copy autostart configuration for both users
+ADD wolf/xfce-config/zed-helix.desktop /home/retro/.config/autostart/zed-helix.desktop
+ADD wolf/xfce-config/zed-helix.desktop /home/user/.config/autostart/zed-helix.desktop
+
+# Copy and setup Zed startup script
+ADD wolf/xfce-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+RUN chmod +x /usr/local/bin/start-zed-helix.sh
