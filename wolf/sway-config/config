@@ -4,10 +4,12 @@
 # Set Helix wallpaper
 output * bg /usr/share/backgrounds/helix-logo.png fill
 
+# Configure HiDPI scaling for display WL-1
+output WL-1 scale 2
+
 # Additional key bindings for our tools
 bindsym $mod+Shift+Return exec ghostty
 bindsym $mod+Shift+c exec google-chrome-stable
 bindsym $mod+Shift+o exec onlyoffice-desktopeditors
 
-# Auto-launch Zed on startup
-exec /usr/local/bin/start-zed-helix.sh
+# Zed will be launched by GOW launcher
