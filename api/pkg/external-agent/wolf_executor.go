@@ -331,12 +331,13 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
 		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
     "IpcMode": "host",
+    "NetworkMode": "helix_default",
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
@@ -348,8 +349,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
-		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
+		fmt.Sprintf("PersonalDev_%s", wolfAppID),                    // Name - shorter but unique using Wolf app ID
+		"helix-sway:latest",                                         // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,
@@ -396,6 +397,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		DisplayWidth:    displayWidth,  // Store user-configured display resolution
 		DisplayHeight:   displayHeight,
 		DisplayFPS:      displayFPS,
+		ContainerName:   fmt.Sprintf("PersonalDev_%s", wolfAppID), // Store container name for direct network access
+		VNCPort:         5901,                                     // VNC port inside container
 	}
 
 	w.instances[instanceID] = instance
@@ -889,12 +892,13 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
 		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
 	baseCreateJSON := `{
   "HostConfig": {
     "IpcMode": "host",
+    "NetworkMode": "helix_default",
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
@@ -906,8 +910,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
+		fmt.Sprintf("PersonalDev_%s", wolfAppID),                 // Name - shorter but unique using Wolf app ID
+		"helix-sway:latest",                                      // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,
@@ -940,7 +944,6 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 // Wolf now handles container lifecycle directly through auto_start_containers = true configuration.
 // No need for Helix to create fake background sessions - Wolf automatically starts containers
 // when apps are added, and real Moonlight clients can connect to running containers seamlessly.
-
 
 // generateRandomIP generates a unique fake IP address for RTSP routing
 func generateRandomIP() string {

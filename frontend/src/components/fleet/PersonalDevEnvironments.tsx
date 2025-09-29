@@ -25,6 +25,7 @@ import {
   ListItemIcon,
   ListItemText,
   Tooltip,
+  Collapse,
 } from '@mui/material'
 import {
   Add as AddIcon,
@@ -37,6 +38,8 @@ import {
   OpenInNew as OpenInNewIcon,
   Refresh as RefreshIcon,
   Link as LinkIcon,
+  ExpandMore as ExpandMoreIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -46,6 +49,7 @@ import useAccount from '../../hooks/useAccount'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { ServerPersonalDevEnvironmentResponse, ServerCreatePersonalDevEnvironmentRequest } from '../../api/api'
 import MoonlightPairingOverlay from './MoonlightPairingOverlay'
+import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
 
 interface PersonalDevEnvironmentsProps {
   apps: IApp[]
@@ -72,6 +76,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
   const [pairingOverlayOpen, setPairingOverlayOpen] = useState(false)
   const [createAgentDialogOpen, setCreateAgentDialogOpen] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
+  const [expandedEnvironments, setExpandedEnvironments] = useState<Set<string>>(new Set())
 
   // Filter apps to only show those with zed_external agent type
   const zedAgentApps = apps.filter(app =>
@@ -274,6 +279,18 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
     setSelectedEnvironment(null)
   }
 
+  const toggleEnvironmentExpansion = (environmentId: string) => {
+    setExpandedEnvironments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(environmentId)) {
+        newSet.delete(environmentId)
+      } else {
+        newSet.add(environmentId)
+      }
+      return newSet
+    })
+  }
+
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
@@ -425,11 +442,18 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                         <>
                           <Button
                             size="small"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => toggleEnvironmentExpansion(environment.instanceID || '')}
+                          >
+                            {expandedEnvironments.has(environment.instanceID || '') ? 'Hide VNC' : 'Show VNC'}
+                          </Button>
+                          <Button
+                            size="small"
                             startIcon={<OpenInNewIcon />}
                             onClick={() => handleConnectToEnvironment(environment)}
                             disabled={!environment.stream_url}
                           >
-                            Connect
+                            Moonlight
                           </Button>
                           <Button
                             size="small"
@@ -451,6 +475,18 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                         </Button>
                       )}
                     </CardActions>
+
+                    {/* VNC Viewer - Collapsible */}
+                    <Collapse in={expandedEnvironments.has(environment.instanceID || '')} timeout="auto" unmountOnExit>
+                      <Box sx={{ p: 2, pt: 0, height: 600, backgroundColor: '#000' }}>
+                        <GuacamoleIframeClient
+                          sessionId={environment.instanceID || ''}
+                          isPersonalDevEnvironment={true}
+                          width={environment.display_width || 1920}
+                          height={environment.display_height || 1080}
+                        />
+                      </Box>
+                    </Collapse>
                   </Card>
                 </Grid>
               )
