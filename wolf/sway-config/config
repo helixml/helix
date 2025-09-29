@@ -1,42 +1,12 @@
-# Sway configuration for Helix Personal Dev Environment
-# Based on GOW base-app with Zed auto-launch
+# Helix Personal Dev Environment custom Sway configuration
+# This gets included by the base GOW Sway config
 
-# Set wallpaper
+# Set Helix wallpaper
 output * bg /usr/share/backgrounds/helix-logo.png fill
 
-# Default window manager settings
-set $mod Mod4
-font pango:DejaVu Sans Mono 10
-
-# Use pactl to adjust volume in PulseAudio.
-bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +10%
-bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10%
-bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle
-
-# Basic key bindings
-bindsym $mod+Return exec foot
-bindsym $mod+q kill
-bindsym $mod+d exec wofi --show drun
-
-# Window management
-bindsym $mod+Left focus left
-bindsym $mod+Down focus down
-bindsym $mod+Up focus up
-bindsym $mod+Right focus right
-
-bindsym $mod+Shift+Left move left
-bindsym $mod+Shift+Down move down
-bindsym $mod+Shift+Up move up
-bindsym $mod+Shift+Right move right
-
-# Layout
-bindsym $mod+h splith
-bindsym $mod+v splitv
-bindsym $mod+f fullscreen toggle
-bindsym $mod+space layout toggle split
-
-# Restart sway
-bindsym $mod+Shift+c reload
+# Additional key bindings for our tools
+bindsym $mod+Shift+Return exec ghostty
+bindsym $mod+Shift+c exec google-chrome-stable
 
 # Auto-launch Zed on startup
 exec /usr/local/bin/start-zed-helix.sh
