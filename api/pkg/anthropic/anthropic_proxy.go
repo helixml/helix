@@ -123,12 +123,13 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 				line, err := reader.ReadBytes('\n')
 				if err != nil {
 					// Log the final assembled message for billing
-					if len(respMessage.Content) > 0 {
-						bts, err := json.Marshal(respMessage)
-						if err != nil {
-							log.Error().Err(err).Any("resp_message", respMessage).Msg("failed to marshal resp message")
-						}
+					// Always log, even if no content (for debugging)
+					bts, err := json.Marshal(respMessage)
+					if err != nil {
+						log.Error().Err(err).Any("resp_message", respMessage).Msg("failed to marshal resp message")
+					} else {
 						s.logLLMCall(response.Request.Context(), time.Now(), bts, nil, true, time.Since(start).Milliseconds())
+						log.Debug().Msg("XX logging full")
 					}
 					return
 				}
@@ -141,9 +142,12 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 
 					// Skip empty data and [DONE] markers
 					if data == "" || data == "[DONE]" {
+						log.Debug().Str("data", data).Msg("skipping empty or done marker")
 						_, _ = pw.Write(line)
 						continue
 					}
+
+					log.Debug().Str("data", data).Msg("processing streaming data")
 
 					// Parse the JSON data as a streaming event
 					var event anthropic.MessageStreamEventUnion
@@ -153,36 +157,11 @@ func (s *Proxy) anthropicAPIProxyModifyResponse(response *http.Response) error {
 						continue
 					}
 
-					// Handle different event types
-					switch event.Type {
-					case "message_start":
-						startEvent := event.AsMessageStart()
-						respMessage = startEvent.Message
-						log.Debug().Str("message_id", respMessage.ID).Msg("message started")
-
-					case "message_delta":
-						deltaEvent := event.AsMessageDelta()
-						// Create a partial message from the delta
-						chunk := &anthropic.Message{
-							ID:           respMessage.ID,
-							Model:        respMessage.Model,
-							Role:         respMessage.Role,
-							StopReason:   deltaEvent.Delta.StopReason,
-							StopSequence: deltaEvent.Delta.StopSequence,
-							Usage: anthropic.Usage{
-								InputTokens:  deltaEvent.Usage.InputTokens,
-								OutputTokens: deltaEvent.Usage.OutputTokens,
-							},
-						}
-						appendChunk(&respMessage, chunk)
-
-					case "message_stop":
-						log.Debug().Str("message_id", respMessage.ID).Msg("message completed")
-
-					case "content_block_start", "content_block_delta", "content_block_stop":
-						// These events contain content blocks that are already handled
-						// by the message_delta events, so we can skip them for now
-						log.Debug().Str("event_type", event.Type).Msg("content block event")
+					err = respMessage.Accumulate(event)
+					if err != nil {
+						log.Error().Err(err).Msg("failed to accumulate event")
+						_, _ = pw.Write(line)
+						continue
 					}
 				}
 
@@ -297,7 +276,7 @@ func (s *Proxy) logLLMCall(ctx context.Context, createdAt time.Time, resp []byte
 		OriginalRequest:  vals.OriginalRequest,
 		Request:          vals.OriginalRequest,
 		Response:         resp,
-		Provider:         provider.Name,
+		Provider:         provider.ID,
 		DurationMs:       durationMs,
 		PromptTokens:     usage.InputTokens,
 		CompletionTokens: usage.OutputTokens,
