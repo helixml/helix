@@ -374,36 +374,3 @@ func isNumeric(s string) bool {
 	}
 	return true
 }
-
-// appendChunk appends content from a streaming chunk to the response message
-func appendChunk(resp *anthropic.Message, chunk *anthropic.Message) {
-	if chunk == nil {
-		return
-	}
-
-	// Initialize response message fields from the first chunk if not set
-	if resp.ID == "" {
-		resp.ID = chunk.ID
-	}
-	if resp.Model == "" {
-		resp.Model = chunk.Model
-	}
-	if resp.Role == "" {
-		resp.Role = chunk.Role
-	}
-	if resp.StopReason == "" {
-		resp.StopReason = chunk.StopReason
-	}
-	if resp.StopSequence == "" {
-		resp.StopSequence = chunk.StopSequence
-	}
-
-	// Append content blocks
-	resp.Content = append(resp.Content, chunk.Content...)
-
-	// Accumulate usage information
-	if chunk.Usage.InputTokens > 0 || chunk.Usage.OutputTokens > 0 {
-		resp.Usage.InputTokens += chunk.Usage.InputTokens
-		resp.Usage.OutputTokens += chunk.Usage.OutputTokens
-	}
-}
