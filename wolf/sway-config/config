@@ -7,6 +7,7 @@ output * bg /usr/share/backgrounds/helix-logo.png fill
 # Additional key bindings for our tools
 bindsym $mod+Shift+Return exec ghostty
 bindsym $mod+Shift+c exec google-chrome-stable
+bindsym $mod+Shift+o exec onlyoffice-desktopeditors
 
 # Auto-launch Zed on startup
 exec /usr/local/bin/start-zed-helix.sh
