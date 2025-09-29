@@ -61,6 +61,12 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
   const [newEnvironmentName, setNewEnvironmentName] = useState('')
   const [selectedAppId, setSelectedAppId] = useState('')
   const [description, setDescription] = useState('')
+
+  // Display configuration state
+  const [displayPreset, setDisplayPreset] = useState('ipad') // 'ipad', 'macbook-pro', 'iphone', '4k', 'custom'
+  const [customWidth, setCustomWidth] = useState(3024)
+  const [customHeight, setCustomHeight] = useState(1964)
+  const [customFPS, setCustomFPS] = useState(120)
   const [actionMenuAnchor, setActionMenuAnchor] = useState<null | HTMLElement>(null)
   const [selectedEnvironment, setSelectedEnvironment] = useState<ServerPersonalDevEnvironmentResponse | null>(null)
   const [pairingOverlayOpen, setPairingOverlayOpen] = useState(false)
@@ -83,6 +89,24 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
     enabled: !!account.user
   })
 
+  // Display preset configurations
+  const getDisplayConfig = () => {
+    switch (displayPreset) {
+      case 'ipad':
+        return { width: 2360, height: 1640, fps: 120 }
+      case 'macbook-pro':
+        return { width: 3024, height: 1964, fps: 120 } // 14" MacBook Pro (16:10, no notch area)
+      case 'iphone':
+        return { width: 2556, height: 1179, fps: 120 } // iPhone resolution
+      case '4k':
+        return { width: 3840, height: 2160, fps: 120 }
+      case 'custom':
+        return { width: customWidth, height: customHeight, fps: customFPS }
+      default:
+        return { width: 2360, height: 1640, fps: 120 }
+    }
+  }
+
   // Create environment mutation
   const createEnvironmentMutation = useMutation({
     mutationFn: (request: ServerCreatePersonalDevEnvironmentRequest) =>
@@ -93,6 +117,10 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
       setNewEnvironmentName('')
       setSelectedAppId('')
       setDescription('')
+      setDisplayPreset('ipad')
+      setCustomWidth(3024)
+      setCustomHeight(1964)
+      setCustomFPS(120)
     }
   })
 
@@ -101,10 +129,14 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
       return
     }
 
+    const displayConfig = getDisplayConfig()
     const request: ServerCreatePersonalDevEnvironmentRequest = {
       environment_name: newEnvironmentName,
       app_id: selectedAppId,
       description: description,
+      display_width: displayConfig.width,
+      display_height: displayConfig.height,
+      display_fps: displayConfig.fps,
     }
 
     createEnvironmentMutation.mutate(request)
@@ -367,6 +399,13 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                         Last Activity: {new Date(environment.lastActivity || '').toLocaleDateString()}
                       </Typography>
 
+                      {/* Display Configuration */}
+                      {(environment.display_width && environment.display_height) && (
+                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                          Display: {environment.display_width}×{environment.display_height} @ {environment.display_fps || 60}fps
+                        </Typography>
+                      )}
+
                       {environment.configured_tools && environment.configured_tools.length > 0 && (
                         <Box mt={2}>
                           <Typography variant="caption" color="text.secondary">
@@ -493,11 +532,64 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
             variant="outlined"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            sx={{ mb: 3 }}
           />
+
+          {/* Display Configuration Section */}
+          <FormControl fullWidth sx={{ mb: 3 }}>
+            <InputLabel>Streaming Resolution</InputLabel>
+            <Select
+              value={displayPreset}
+              onChange={(e) => setDisplayPreset(e.target.value)}
+              label="Streaming Resolution"
+            >
+              <MenuItem value="ipad">iPad (2360×1640 @ 120fps) - ~16:11 aspect ratio</MenuItem>
+              <MenuItem value="macbook-pro">MacBook Pro (3024×1964 @ 120fps) - ~16:10 aspect ratio</MenuItem>
+              <MenuItem value="iphone">iPhone (2556×1179 @ 120fps) - ~21:10 aspect ratio</MenuItem>
+              <MenuItem value="4k">4K (3840×2160 @ 120fps) - 16:9 aspect ratio</MenuItem>
+              <MenuItem value="custom">Custom resolution</MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* Custom resolution fields */}
+          {displayPreset === 'custom' && (
+            <Grid container spacing={2} sx={{ mt: 1 }}>
+                <Grid item xs={4}>
+                  <TextField
+                    label="Width"
+                    type="number"
+                    size="small"
+                    value={customWidth}
+                    onChange={(e) => setCustomWidth(parseInt(e.target.value) || 1920)}
+                    inputProps={{ min: 800, max: 7680 }}
+                  />
+                </Grid>
+                <Grid item xs={4}>
+                  <TextField
+                    label="Height"
+                    type="number"
+                    size="small"
+                    value={customHeight}
+                    onChange={(e) => setCustomHeight(parseInt(e.target.value) || 1080)}
+                    inputProps={{ min: 600, max: 4320 }}
+                  />
+                </Grid>
+                <Grid item xs={4}>
+                  <TextField
+                    label="FPS"
+                    type="number"
+                    size="small"
+                    value={customFPS}
+                    onChange={(e) => setCustomFPS(parseInt(e.target.value) || 60)}
+                    inputProps={{ min: 30, max: 144 }}
+                  />
+                </Grid>
+            </Grid>
+          )}
 
           <Alert severity="info" sx={{ mt: 2 }}>
             This will create a new personal development environment based on the selected Helix Agent's configuration.
-            You'll be able to access it via Moonlight streaming.
+            You'll be able to access it via Moonlight streaming with the selected resolution settings.
           </Alert>
         </DialogContent>
         <DialogActions>

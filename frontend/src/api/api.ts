@@ -505,6 +505,12 @@ export interface ServerCoordinationLogResponse {
 export interface ServerCreatePersonalDevEnvironmentRequest {
   app_id?: string;
   description?: string;
+  /** Default: 120 */
+  display_fps?: number;
+  /** Default: 1640 (iPad Pro) */
+  display_height?: number;
+  /** Display configuration for the streaming session */
+  display_width?: number;
   environment_name?: string;
 }
 
@@ -599,6 +605,12 @@ export interface ServerPersonalDevEnvironmentResponse {
   /** Connected data sources */
   data_sources?: string[];
   description?: string;
+  /** Streaming framerate */
+  display_fps?: number;
+  /** Streaming resolution height */
+  display_height?: number;
+  /** Display configuration for streaming */
+  display_width?: number;
   /** User-friendly name */
   environment_name?: string;
   instanceID?: string;
@@ -615,6 +627,8 @@ export interface ServerPersonalDevEnvironmentResponse {
   threadCount?: number;
   /** Always required */
   userID?: string;
+  /** Wolf's numeric session ID for API calls */
+  wolf_session_id?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -3494,10 +3508,10 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
