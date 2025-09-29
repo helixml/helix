@@ -323,6 +323,14 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// Use the OpenAPI-based constructor with custom Docker configuration
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
+		// Pass through API keys for Zed AI functionality
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
+		fmt.Sprintf("TOGETHER_API_KEY=%s", os.Getenv("TOGETHER_API_KEY")),
+		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
+		// Additional environment variables for development
+		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
+		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
@@ -872,6 +880,14 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	// Create Wolf app using the same XFCE configuration as the main creation function
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		// Pass through API keys for Zed AI functionality
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
+		fmt.Sprintf("TOGETHER_API_KEY=%s", os.Getenv("TOGETHER_API_KEY")),
+		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
+		// Additional environment variables for development
+		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
+		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
