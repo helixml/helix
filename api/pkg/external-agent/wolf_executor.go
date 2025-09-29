@@ -323,6 +323,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// Use the OpenAPI-based constructor with custom Docker configuration
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
+		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API key for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		// Additional environment variables for Helix integration
@@ -874,9 +875,10 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	// Get workspace directory (should already exist)
 	workspaceDir := filepath.Join(w.workspaceBasePath, instance.InstanceID)
 
-	// Create Wolf app using the same XFCE configuration as the main creation function
+	// Create Wolf app using the same Sway configuration as the main creation function
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
