@@ -7,7 +7,8 @@ import { useRDPConnection } from '../../hooks/useRDPConnection';
 
 interface GuacamoleIframeClientProps {
   sessionId: string;
-  isRunner?: boolean; // true for fleet page runners, false for sessions
+  isRunner?: boolean; // true for fleet page runners, false for sessions/personal dev environments
+  isPersonalDevEnvironment?: boolean; // true for personal dev environments
   onConnectionChange?: (isConnected: boolean) => void;
   onError?: (error: string) => void;
   width?: number;
@@ -23,6 +24,7 @@ interface GuacamoleMessage {
 const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
   sessionId,
   isRunner = false,
+  isPersonalDevEnvironment = false,
   onConnectionChange,
   onError,
   width = 1024,
@@ -130,9 +132,11 @@ const GuacamoleIframeClient: React.FC<GuacamoleIframeClientProps> = ({
 
     try {
       // Get Guacamole connection ID from our API
-      const endpoint = isRunner 
-        ? `/api/v1/external-agents/runners/${sessionId}/guacamole-connection-id`
-        : `/api/v1/sessions/${sessionId}/guacamole-connection-id`;
+      const endpoint = isPersonalDevEnvironment
+        ? `/api/v1/personal-dev-environments/${sessionId}/guacamole-connection-id`
+        : isRunner
+          ? `/api/v1/external-agents/runners/${sessionId}/guacamole-connection-id`
+          : `/api/v1/sessions/${sessionId}/guacamole-connection-id`;
       
       console.log('📡 Fetching Guacamole connection ID from:', endpoint);
       

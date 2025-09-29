@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -520,6 +522,110 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 	response := map[string]interface{}{
 		"success": true,
 		"message": "Pairing completed successfully",
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
+}
+
+// getPersonalDevEnvironmentGuacamoleConnectionID handles GET /api/v1/personal-dev-environments/{environmentID}/guacamole-connection-id
+func (apiServer *HelixAPIServer) getPersonalDevEnvironmentGuacamoleConnectionID(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	environmentID := vars["environmentID"]
+
+	// Get the Personal Dev Environment instance
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	instance, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get Personal Dev Environment")
+		http.Error(res, "Personal dev environment not found", http.StatusNotFound)
+		return
+	}
+
+	// Authenticate with Guacamole
+	authToken, err := apiServer.authenticateWithGuacamole()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to authenticate with Guacamole")
+		http.Error(res, "failed to authenticate with Guacamole", http.StatusInternalServerError)
+		return
+	}
+
+	// Create VNC connection configuration using container name on helix_default network
+	config := map[string]interface{}{
+		"parentIdentifier": "ROOT",
+		"name":             fmt.Sprintf("Personal Dev: %s", instance.EnvironmentName),
+		"protocol":         "vnc",
+		"parameters": map[string]string{
+			"hostname": instance.ContainerName, // Use Docker container name on helix_default network
+			"port":     "5901",                  // VNC port inside container
+			"password": "helix123",              // VNC password
+		},
+		"attributes": map[string]string{
+			"max-connections":          "5",
+			"max-connections-per-user": "5",
+		},
+	}
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal Guacamole connection config")
+		http.Error(res, "failed to create connection config", http.StatusInternalServerError)
+		return
+	}
+
+	guacamoleURL := fmt.Sprintf("%s/guacamole/api/session/data/postgresql/connections?token=%s",
+		apiServer.guacamoleProxy.guacamoleServerURL, authToken)
+
+	resp, err := http.Post(guacamoleURL, "application/json", strings.NewReader(string(configJSON)))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create Guacamole connection")
+		http.Error(res, "failed to create Guacamole connection", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Error().
+			Int("status", resp.StatusCode).
+			Str("body", string(body)).
+			Msg("Failed to create Guacamole connection")
+		http.Error(res, "failed to create Guacamole connection", http.StatusInternalServerError)
+		return
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Error().Err(err).Msg("Failed to decode Guacamole response")
+		http.Error(res, "failed to decode response", http.StatusInternalServerError)
+		return
+	}
+
+	guacConnectionID := result["identifier"].(string)
+	guacamoleClientURL := fmt.Sprintf("http://localhost:8080/guacamole/#/client/%s", guacConnectionID)
+
+	log.Info().
+		Str("environment_id", environmentID).
+		Str("container_name", instance.ContainerName).
+		Str("guac_connection_id", guacConnectionID).
+		Msg("Created Guacamole VNC connection for Personal Dev Environment")
+
+	response := map[string]interface{}{
+		"guacamole_connection_id": guacConnectionID,
+		"guacamole_url":          guacamoleClientURL,
+		"container_name":         instance.ContainerName,
+		"vnc_port":               instance.VNCPort,
 	}
 
 	res.Header().Set("Content-Type", "application/json")
