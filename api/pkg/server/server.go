@@ -349,15 +349,15 @@ func NewServer(
 			}
 
 			// Start periodic reconciliation to detect Wolf restarts
-			ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+			ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
 			defer ticker.Stop()
 
-			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 30s)")
+			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 5s)")
 
 			for {
 				select {
 				case <-ticker.C:
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
 						log.Error().Err(err).Msg("Failed during periodic reconciliation")
 					}

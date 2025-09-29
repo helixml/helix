@@ -2,9 +2,6 @@
 # Startup script for Zed editor connected to Helix controlplane (Sway version)
 set -e
 
-# Wait for Sway to be ready
-sleep 5
-
 # Check if Zed binary exists
 if [ ! -f "/usr/local/bin/zed" ]; then
     echo "Zed binary not found at /usr/local/bin/zed - cannot start Zed agent"
