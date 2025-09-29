@@ -256,9 +256,6 @@ services:
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         - wolf-socket:/var/run/wolf
-        # Add host paths that Wolf needs to mount into Personal Dev Environment containers
-        - /opt/helix/filestore/workspaces:/opt/helix/filestore/workspaces:rw
-        - ./zed-build/zed:/home/luke/pm/helix/zed-build/zed:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
