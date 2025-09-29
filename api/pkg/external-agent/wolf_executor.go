@@ -348,7 +348,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
 		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"helix-xfce:latest", // Custom XFCE image with passwordless sudo and Helix branding
+		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,
@@ -905,7 +905,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
 		fmt.Sprintf("PersonalDev_%s", wolfAppID), // Name - shorter but unique using Wolf app ID
-		"helix-xfce:latest", // Custom XFCE image with passwordless sudo and Helix branding
+		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,
