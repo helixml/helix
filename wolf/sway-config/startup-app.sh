@@ -7,7 +7,8 @@ echo "Starting Helix Personal Dev Environment with Sway..."
 # Start screenshot server in background (if binary exists)
 if [ -f /usr/local/bin/screenshot-server ]; then
     echo "Starting screenshot server..."
-    /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1 &
+    # Use wayland-2 (Sway compositor) for screenshots
+    WAYLAND_DISPLAY=wayland-2 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1 &
     echo "Screenshot server started"
 fi
 
