@@ -347,10 +347,6 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
   }
 }`
 
-	// Add startup script bind mount for fast iteration
-	mounts = append(mounts, fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")))
-	// Mount Docker socket for full host Docker access
-	mounts = append(mounts, "/var/run/docker.sock:/var/run/docker.sock")
 
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
