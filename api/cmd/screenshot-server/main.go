@@ -40,10 +40,18 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(filename)
 
 	// Run grim to capture screenshot
-	cmd := exec.Command("grim", "-o", filename)
+	// Use wayland-2 (Sway compositor) instead of wayland-1 (Wolf compositor)
+	// Wolf's compositor doesn't support wlr-screencopy-unstable-v1
+	cmd := exec.Command("grim", filename)
+
+	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntimeDir == "" {
+		xdgRuntimeDir = "/run/user/wolf"
+	}
+
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("WAYLAND_DISPLAY=%s", os.Getenv("WAYLAND_DISPLAY")),
-		fmt.Sprintf("XDG_RUNTIME_DIR=%s", os.Getenv("XDG_RUNTIME_DIR")),
+		"WAYLAND_DISPLAY=wayland-2",
+		fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
 	)
 
 	output, err := cmd.CombinedOutput()
