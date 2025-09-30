@@ -34,7 +34,6 @@ type ServerConfig struct {
 	Search             Search
 	SSL                SSL
 	Organizations      Organizations
-	Guacamole          Guacamole
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -475,12 +474,6 @@ type Apps struct {
 	Enabled  bool           `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
 	Provider types.Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
 	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
-}
-
-type Guacamole struct {
-	ServerURL string `envconfig:"GUACAMOLE_SERVER_URL" default:"http://guacamole-client:8080" description:"Guacamole server URL"`
-	Username  string `envconfig:"GUACAMOLE_USERNAME" default:"guacadmin" description:"Guacamole admin username"`
-	Password  string `envconfig:"GUACAMOLE_PASSWORD" default:"guacadmin" description:"Guacamole admin password"`
 }
 
 type Triggers struct {

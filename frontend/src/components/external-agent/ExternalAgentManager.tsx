@@ -38,7 +38,7 @@ import {
   Info,
   ArrowBack,
 } from '@mui/icons-material';
-import GuacamoleIframeClient from './GuacamoleIframeClient';
+import ScreenshotViewer from './ScreenshotViewer';
 
 interface ExternalAgent {
   session_id: string;
@@ -222,7 +222,7 @@ const ExternalAgentManager: React.FC = () => {
           <ArrowBack />
         </IconButton>
         
-        <GuacamoleIframeClient
+        <ScreenshotViewer
           sessionId={viewerRunnerId}
           isRunner={true}
           onConnectionChange={(connected) => {

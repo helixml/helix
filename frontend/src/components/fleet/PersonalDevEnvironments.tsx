@@ -49,7 +49,7 @@ import useAccount from '../../hooks/useAccount'
 import { IApp, AGENT_TYPE_ZED_EXTERNAL } from '../../types'
 import { ServerPersonalDevEnvironmentResponse, ServerCreatePersonalDevEnvironmentRequest } from '../../api/api'
 import MoonlightPairingOverlay from './MoonlightPairingOverlay'
-import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
+import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 
 interface PersonalDevEnvironmentsProps {
   apps: IApp[]
@@ -561,7 +561,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                     {/* VNC Viewer - Collapsible */}
                     <Collapse in={expandedEnvironments.has(environment.instanceID || '')} timeout="auto" unmountOnExit>
                       <Box sx={{ p: 2, pt: 0, height: 600, backgroundColor: '#000' }}>
-                        <GuacamoleIframeClient
+                        <ScreenshotViewer
                           sessionId={environment.instanceID || ''}
                           isPersonalDevEnvironment={true}
                           width={environment.display_width || 1920}

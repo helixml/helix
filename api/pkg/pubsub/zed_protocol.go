@@ -96,11 +96,8 @@ type ZedInstanceCreateRequest struct {
 type ZedInstanceCreateResponse struct {
 	InstanceID    string    `json:"instance_id"`
 	Status        string    `json:"status"`
-	RDPURL        string    `json:"rdp_url"`
-	RDPPassword   string    `json:"rdp_password"`
 	WebSocketURL  string    `json:"websocket_url,omitempty"`
 	AuthToken     string    `json:"auth_token,omitempty"`
-	ProjectPath   string    `json:"project_path"`
 	CreatedAt     time.Time `json:"created_at"`
 	EstimatedTime int       `json:"estimated_startup_time_seconds"`
 }
@@ -451,10 +448,9 @@ func ConvertZedAgentToInstanceRequest(agent *types.ZedAgent) *ZedInstanceCreateR
 func ConvertInstanceResponseToZedAgentResponse(resp *ZedInstanceCreateResponse, sessionID string) *types.ZedAgentResponse {
 	return &types.ZedAgentResponse{
 		SessionID:    sessionID,
-		RDPURL:       resp.RDPURL,
-		RDPPassword:  resp.RDPPassword,
 		WebSocketURL: resp.WebSocketURL,
 		AuthToken:    resp.AuthToken,
+		Status:       resp.Status,
 	}
 }
 

@@ -64,7 +64,7 @@ import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
 import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
 import { useFloatingModal } from '../../contexts/floatingModal'
-import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
+import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 import MoonlightConnectionButton from '../external-agent/MoonlightConnectionButton'
 
 // Using generated API types instead of local interfaces
@@ -1264,7 +1264,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
         </DialogTitle>
         <DialogContent sx={{ p: 0, height: '100%' }}>
           {runnerRDPViewerOpen && (
-            <GuacamoleIframeClient
+            <ScreenshotViewer
               sessionId={runnerRDPViewerOpen}
               isRunner={true}
               onConnectionChange={(connected) => {

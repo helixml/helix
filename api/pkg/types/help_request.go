@@ -54,12 +54,6 @@ type AgentSession struct {
 	Config      datatypes.JSON `json:"config"` // Agent configuration
 	State       datatypes.JSON `json:"state"`  // Current agent state/context
 
-	// RDP connection fields for secure session access
-	RDPURL      string `json:"rdp_url,omitempty"`      // RDP connection URL
-	RDPPassword string `json:"rdp_password,omitempty"` // Session-specific secure RDP password
-	RDPPort     int    `json:"rdp_port,omitempty"`     // RDP port number
-	RDPUsername string `json:"rdp_username,omitempty"` // RDP username (typically "zed")
-
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	LastActivity time.Time      `json:"last_activity"` // Last time the agent was active

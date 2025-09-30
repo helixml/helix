@@ -14,7 +14,7 @@ import {
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
 import LogViewerModal from './LogViewerModal'
-import GuacamoleIframeClient from '../external-agent/GuacamoleIframeClient'
+import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 
 interface FloatingModalProps {
   onClose?: () => void
@@ -238,7 +238,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
               />
             )}
             {modalConfig.type === 'rdp' && modalConfig.sessionId && (
-              <GuacamoleIframeClient
+              <ScreenshotViewer
                 sessionId={modalConfig.sessionId}
                 isRunner={true}
                 onConnectionChange={(connected) => {
