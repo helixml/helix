@@ -1282,8 +1282,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             </Box>
           )}
 
-          {/* Test RDP Mode Toggle */}
-          {!isExternalAgent && (
+          {/* Test RDP Mode Toggle - only show for app-connected sessions */}
+          {!isExternalAgent && appID && (
             <Box sx={{ px: 2, pb: 1 }}>
               <Button
                 variant="outlined"

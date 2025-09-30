@@ -275,7 +275,7 @@ const MultiSessionDashboard: React.FC<MultiSessionDashboardProps> = ({
                       <Chip
                         label={session.status}
                         size="small"
-                        color={getSessionStatusColor(session.status) as any}
+                        color={getSessionStatusColor(session.status)}
                       />
                     </TableCell>
                     <TableCell>

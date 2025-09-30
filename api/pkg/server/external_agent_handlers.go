@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -506,24 +507,32 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Get the external agent session to verify ownership and get container name
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get external agent session")
-		http.Error(res, "External agent session not found", http.StatusNotFound)
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	// Use the container name - DNS will resolve via Docker hostname setting
-	containerName := session.ContainerName
-	if containerName == "" {
-		log.Error().Str("session_id", sessionID).Msg("External agent session has no container name")
-		http.Error(res, "External agent container not available", http.StatusServiceUnavailable)
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	containerName, err := wolfExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
 		return
 	}
 

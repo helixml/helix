@@ -235,40 +235,40 @@ export function useSpecTaskRealTimeUpdates(taskId: string) {
 }
 
 // Helper functions
-export function getSessionStatusColor(status: string): string {
+export function getSessionStatusColor(status: string): 'success' | 'primary' | 'error' | 'warning' | 'default' {
   switch (status) {
     case 'active':
-      return 'green';
+      return 'success';
     case 'completed':
-      return 'blue';
+      return 'primary';
     case 'failed':
     case 'cancelled':
-      return 'red';
+      return 'error';
     case 'blocked':
-      return 'orange';
+      return 'warning';
     case 'pending':
     default:
-      return 'gray';
+      return 'default';
   }
 }
 
-export function getSpecTaskStatusColor(status: string): string {
+export function getSpecTaskStatusColor(status: string): 'success' | 'primary' | 'error' | 'warning' | 'default' {
   switch (status) {
     case 'active':
     case 'implementing':
-      return 'green';
+      return 'success';
     case 'completed':
-      return 'blue';
+      return 'primary';
     case 'failed':
     case 'cancelled':
-      return 'red';
+      return 'error';
     case 'blocked':
     case 'pending_approval':
-      return 'orange';
+      return 'warning';
     case 'draft':
     case 'planning':
     default:
-      return 'gray';
+      return 'default';
   }
 }
 

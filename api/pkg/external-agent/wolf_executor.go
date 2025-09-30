@@ -46,6 +46,70 @@ func (w *WolfExecutor) generateWolfAppID(userID, environmentName string) string 
 	return fmt.Sprintf("%d", numericHash%1000000000) // Max 9 digits
 }
 
+// SwayWolfAppConfig contains configuration for creating a Sway-based Wolf app
+type SwayWolfAppConfig struct {
+	WolfAppID         string
+	Title             string
+	ContainerHostname string
+	WorkspaceDir      string
+	ExtraEnv          []string
+	DisplayWidth      int
+	DisplayHeight     int
+	DisplayFPS        int
+}
+
+// createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
+func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
+	// Build base environment variables (common to all Sway apps)
+	env := []string{
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"RUN_SWAY=1",
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		"ZED_EXTERNAL_SYNC_ENABLED=true",
+		"ZED_HELIX_URL=api:8080",
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		"ZED_HELIX_TLS=false",
+	}
+
+	// Add any extra environment variables
+	env = append(env, config.ExtraEnv...)
+
+	// Build standard mounts (common to all Sway apps)
+	mounts := []string{
+		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
+		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
+		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
+		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Standard Docker configuration (same for all Sway apps)
+	baseCreateJSON := fmt.Sprintf(`{
+  "Hostname": "%s",
+  "HostConfig": {
+    "IpcMode": "host",
+    "NetworkMode": "helix_default",
+    "Privileged": false,
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}`, config.ContainerHostname)
+
+	// Create Wolf app
+	return wolf.NewMinimalDockerApp(
+		config.WolfAppID,
+		config.Title,
+		config.ContainerHostname,
+		w.zedImage, // Now uses helix-sway:latest for both PDEs and external agents
+		env,
+		mounts,
+		baseCreateJSON,
+		config.DisplayWidth,
+		config.DisplayHeight,
+		config.DisplayFPS,
+	)
+}
+
 // NewWolfExecutor creates a new Wolf-based executor
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
 	return &WolfExecutor{
@@ -102,59 +166,31 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("workspace_dir", workspaceDir).
 		Msg("Created Sway compositor configuration for external agent")
 
-	// Build environment variables (merge defaults with agent.Env)
-	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-		"RUN_SWAY=1",
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
-		// Zed external websocket sync configuration
-		"ZED_EXTERNAL_SYNC_ENABLED=true",
-		"ZED_HELIX_URL=api:8080",
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
-		"ZED_HELIX_TLS=false",
-		// Session context
+	// Define container hostname for external agent
+	// Use session ID (without ses_ prefix) so we can construct hostname from session ID
+	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
+	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+	// Build extra environment variables specific to external agents
+	extraEnv := []string{
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
+		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts
 	}
-
 	// Add custom env vars from agent request
-	env = append(env, agent.Env...)
+	extraEnv = append(extraEnv, agent.Env...)
 
-	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
-		"/var/run/docker.sock:/var/run/docker.sock",
-	}
-
-	// Use Wolf app ID as container hostname
-	containerHostname := fmt.Sprintf("zed-external-%s", wolfAppID)
-
-	baseCreateJSON := fmt.Sprintf(`{
-  "Hostname": "%s",
-  "HostConfig": {
-    "IpcMode": "host",
-    "NetworkMode": "helix_default",
-    "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
-    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
-  }
-}`, containerHostname)
-
-	// Use Wolf's NewMinimalDockerApp constructor
-	app := wolf.NewMinimalDockerApp(
-		wolfAppID,
-		fmt.Sprintf("External Agent %s", agent.SessionID),
-		containerHostname,
-		w.zedImage,
-		env,
-		mounts,
-		baseCreateJSON,
-		1920, // Default display width
-		1080, // Default display height
-		60,   // Default display FPS
-	)
+	// Create Wolf app using shared Sway configuration
+	app := w.createSwayWolfApp(SwayWolfAppConfig{
+		WolfAppID:         wolfAppID,
+		Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
+		ContainerHostname: containerHostname,
+		WorkspaceDir:      workspaceDir,
+		ExtraEnv:          extraEnv,
+		DisplayWidth:      1920,
+		DisplayHeight:     1080,
+		DisplayFPS:        60,
+	})
 
 	// Try to remove any existing app with the same ID to prevent duplicates
 	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
@@ -455,61 +491,26 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		Str("instance_id", instanceID).
 		Msg("Created Sway compositor configuration")
 
-	// Use the OpenAPI-based constructor with custom Docker configuration
-	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
-		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
-		// Pass through API key for Zed AI functionality
-		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
-		// Zed external websocket sync configuration
-		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
-		"ZED_HELIX_URL=api:8080",         // Use Docker network service name (containers can't reach localhost)
-		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
-		"ZED_HELIX_TLS=false", // Internal Docker network, no TLS needed
-		// Enable user startup script execution
-		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
-	}
-	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                              // Mount persistent workspace
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
-	}
-
 	// Use Wolf app ID as both container name and hostname for predictable DNS
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
-
-	baseCreateJSON := fmt.Sprintf(`{
-  "Hostname": "%s",
-  "HostConfig": {
-    "IpcMode": "host",
-    "NetworkMode": "helix_default",
-    "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
-    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
-  }
-}`, containerHostname)
-
-	// Add startup script bind mount for fast iteration
-	mounts = append(mounts, fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")))
-	// Mount Docker socket for full host Docker access
-	mounts = append(mounts, "/var/run/docker.sock:/var/run/docker.sock")
-
-	// Use Wolf app ID as container name - it's numeric, unique, and matches Wolf's app ID
 	containerName := containerHostname
 
-	// Use minimal app creation that exactly matches the working XFCE configuration
-	app := wolf.NewMinimalDockerApp(
-		wolfAppID, // ID
-		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
-		containerName,                                               // URL-friendly name with hyphens
-		"helix-sway:latest",                                         // Custom Sway image with modern Wayland support and Helix branding
-		env,
-		mounts,
-		baseCreateJSON,
-		displayWidth,  // Pass user-configured display width
-		displayHeight, // Pass user-configured display height
-		displayFPS,    // Pass user-configured display FPS
-	)
+	// Build extra environment variables specific to PDEs
+	extraEnv := []string{
+		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
+	}
+
+	// Create Wolf app using shared Sway configuration
+	app := w.createSwayWolfApp(SwayWolfAppConfig{
+		WolfAppID:         wolfAppID,
+		Title:             fmt.Sprintf("Personal Dev Environment %s", environmentName),
+		ContainerHostname: containerHostname,
+		WorkspaceDir:      workspaceDir,
+		ExtraEnv:          extraEnv,
+		DisplayWidth:      displayWidth,
+		DisplayHeight:     displayHeight,
+		DisplayFPS:        displayFPS,
+	})
 
 	// Try to remove any existing app with the same ID to prevent duplicates
 	log.Info().Str("wolf_app_id", wolfAppID).Msg("Attempting to remove any existing Wolf app to prevent duplicates")
@@ -1256,4 +1257,20 @@ func validateDisplayParams(width, height, fps int) error {
 	}
 
 	return nil
+}
+
+// FindContainerBySessionID finds an external agent container by its Helix session ID
+// External agent containers are named zed-external-{session_id_without_ses_prefix}
+func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, sessionID string) (string, error) {
+	// Container name is derived from session ID: zed-external-01k6d7vaf6s4k5mr3zfm4q6f5y
+	// Strip "ses_" prefix from session ID
+	sessionIDPart := strings.TrimPrefix(sessionID, "ses_")
+	containerName := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_name", containerName).
+		Msg("Constructed external agent container name from session ID")
+
+	return containerName, nil
 }

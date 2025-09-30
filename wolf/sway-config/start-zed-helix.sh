@@ -14,6 +14,10 @@ fi
 # Set workspace to mounted work directory
 cd /home/retro/work || cd /home/user/work || cd /tmp
 
+# Trap signals to prevent script exit when Zed is closed
+# This ensures the loop continues even if Zed receives SIGTERM/SIGINT
+trap 'echo "Caught signal, continuing restart loop..."' SIGTERM SIGINT SIGHUP
+
 # Launch Zed in a restart loop for development
 # When you close Zed (click X), it auto-restarts with the latest binary
 # Perfect for testing rebuilds without recreating the entire container

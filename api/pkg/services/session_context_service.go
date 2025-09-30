@@ -571,7 +571,17 @@ func (s *SessionContextService) GetCoordinationSummary(
 
 	taskContext, exists := s.contextCache[specTaskID]
 	if !exists {
-		return nil, fmt.Errorf("context not found for SpecTask: %s", specTaskID)
+		// Return empty summary for new spec tasks without any sessions yet
+		return &CoordinationSummary{
+			SpecTaskID:        specTaskID,
+			TotalSessions:     0,
+			ActiveSessions:    0,
+			CompletedSessions: 0,
+			TotalEvents:       0,
+			EventsByType:      make(map[CoordinationEventType]int),
+			RecentEvents:      []CoordinationEvent{},
+			LastActivity:      time.Now(),
+		}, nil
 	}
 
 	taskContext.Mutex.RLock()
