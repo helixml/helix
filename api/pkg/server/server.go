@@ -223,6 +223,7 @@ func NewServer(
 		zedImage,
 		cfg.WebServer.URL,
 		cfg.WebServer.RunnerToken,
+		store,
 	)
 
 	// Initialize external agent WebSocket manager
