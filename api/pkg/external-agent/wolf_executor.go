@@ -520,32 +520,27 @@ func (w *WolfExecutor) GetPersonalDevEnvironments(ctx context.Context, userID st
 
 // StopPersonalDevEnvironment stops a personal development environment
 func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, instanceID string) error {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
-	instance, exists := w.instances[instanceID]
-	if !exists {
+	// Read from database
+	pde, err := w.store.GetPersonalDevEnvironment(ctx, instanceID)
+	if err != nil {
 		return fmt.Errorf("personal dev environment %s not found", instanceID)
 	}
 
-	if !instance.IsPersonalEnv {
-		return fmt.Errorf("instance %s is not a personal dev environment", instanceID)
-	}
-
-	if instance.UserID != userID {
+	// Check access
+	if pde.UserID != userID {
 		return fmt.Errorf("access denied: environment belongs to different user")
 	}
 
 	log.Info().Str("instance_id", instanceID).Msg("Stopping personal dev environment via Wolf")
 
 	// Use consistent ID generation
-	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
+	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
 
 	// Stop Wolf session using the stored Wolf session ID
-	if instance.WolfSessionID != "" {
-		err := w.wolfClient.StopSession(ctx, instance.WolfSessionID)
+	if pde.WolfSessionID != "" {
+		err := w.wolfClient.StopSession(ctx, pde.WolfSessionID)
 		if err != nil {
-			log.Error().Err(err).Str("wolf_session_id", instance.WolfSessionID).Str("instance_id", instanceID).Msg("Failed to stop Wolf session")
+			log.Error().Err(err).Str("wolf_session_id", pde.WolfSessionID).Str("instance_id", instanceID).Msg("Failed to stop Wolf session")
 			// Continue with cleanup even if stop fails
 		}
 	} else {
@@ -553,7 +548,7 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 	}
 
 	// Remove the app from Wolf
-	err := w.wolfClient.RemoveApp(ctx, wolfAppID)
+	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to remove Wolf app")
 		// Continue with cleanup even if removal fails
@@ -567,11 +562,12 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 		log.Info().Str("config_path", swayConfigPath).Msg("Removed Sway config file")
 	}
 
-	// Update instance status
-	instance.Status = "stopped"
-
-	// Remove from our tracking
-	delete(w.instances, instanceID)
+	// Delete from database
+	err = w.store.DeletePersonalDevEnvironment(ctx, instanceID)
+	if err != nil {
+		log.Error().Err(err).Str("instance_id", instanceID).Msg("Failed to delete personal dev environment from database")
+		return fmt.Errorf("failed to delete environment from database: %w", err)
+	}
 
 	log.Info().Str("instance_id", instanceID).Msg("Personal dev environment stopped and cleaned up successfully")
 
@@ -580,20 +576,40 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 
 // GetPersonalDevEnvironment returns a specific personal dev environment for a user
 func (w *WolfExecutor) GetPersonalDevEnvironment(ctx context.Context, userID, environmentID string) (*ZedInstanceInfo, error) {
-	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-
-	instance, exists := w.instances[environmentID]
-	if !exists {
+	// Read from database
+	pde, err := w.store.GetPersonalDevEnvironment(ctx, environmentID)
+	if err != nil {
 		return nil, fmt.Errorf("environment not found: %s", environmentID)
 	}
 
-	if !instance.IsPersonalEnv {
-		return nil, fmt.Errorf("instance %s is not a personal dev environment", environmentID)
+	// Check access
+	if pde.UserID != userID {
+		return nil, fmt.Errorf("access denied: environment belongs to different user")
 	}
 
-	if instance.UserID != userID {
-		return nil, fmt.Errorf("access denied: environment belongs to different user")
+	// Convert to ZedInstanceInfo for backward compatibility
+	instance := &ZedInstanceInfo{
+		InstanceID:      pde.ID,
+		SpecTaskID:      "",
+		UserID:          pde.UserID,
+		AppID:           pde.WolfAppID,
+		InstanceType:    "personal_dev",
+		Status:          pde.Status,
+		CreatedAt:       pde.Created,
+		LastActivity:    pde.LastActivity,
+		ProjectPath:     fmt.Sprintf("/workspace/%s", pde.EnvironmentName),
+		ThreadCount:     1,
+		IsPersonalEnv:   true,
+		EnvironmentName: pde.EnvironmentName,
+		ConfiguredTools: []string{},
+		DataSources:     []string{},
+		StreamURL:       pde.StreamURL,
+		WolfSessionID:   pde.WolfSessionID,
+		DisplayWidth:    pde.DisplayWidth,
+		DisplayHeight:   pde.DisplayHeight,
+		DisplayFPS:      pde.DisplayFPS,
+		ContainerName:   pde.ContainerName,
+		VNCPort:         pde.VNCPort,
 	}
 
 	return instance, nil
@@ -841,17 +857,20 @@ input * {
 func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 	log.Info().Msg("Reconciling Wolf apps against Helix personal dev environments")
 
-	// Step 1: Build a set of expected Wolf app IDs from Helix instances
+	// Step 1: Build a set of expected Wolf app IDs from database
+	// List ALL personal dev environments (across all users) for reconciliation
+	allPDEs, err := w.store.ListPersonalDevEnvironments(ctx, "") // Empty userID = all users
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list personal dev environments from database for reconciliation")
+		return fmt.Errorf("failed to list personal dev environments: %w", err)
+	}
+
 	expectedAppIDs := make(map[string]bool)
-	for _, instance := range w.instances {
-		if !instance.IsPersonalEnv {
-			continue // Skip non-personal dev environments
-		}
-		if instance.Status != "running" && instance.Status != "starting" {
+	for _, pde := range allPDEs {
+		if pde.Status != "running" && pde.Status != "starting" {
 			continue // Skip stopped environments
 		}
-		wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
-		expectedAppIDs[wolfAppID] = true
+		expectedAppIDs[pde.WolfAppID] = true
 	}
 
 	// Step 2: Get all Wolf apps and delete orphaned ones
@@ -889,68 +908,69 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 		}
 	}
 
-	// Step 3: Check each instance individually and try to recreate Wolf apps as needed
+	// Step 3: Check each PDE individually and try to recreate Wolf apps as needed
 	reconciledCount := 0
 	recreatedCount := 0
 
-	for instanceID, instance := range w.instances {
-		if !instance.IsPersonalEnv {
-			continue // Skip non-personal dev environments
-		}
-
-		if instance.Status != "running" && instance.Status != "starting" {
+	for _, pde := range allPDEs {
+		if pde.Status != "running" && pde.Status != "starting" {
 			continue // Skip stopped environments
 		}
 
-		// Check if Wolf app exists before trying to create it
-		// Use consistent ID generation (from instance lookup)
-		instance, exists := w.instances[instanceID]
-		if !exists {
-			return fmt.Errorf("instance not found: %s", instanceID)
-		}
-		wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
-
 		log.Info().
-			Str("instance_id", instanceID).
-			Str("wolf_app_id", wolfAppID).
-			Str("status", instance.Status).
+			Str("instance_id", pde.ID).
+			Str("wolf_app_id", pde.WolfAppID).
+			Str("status", pde.Status).
 			Msg("Checking if Wolf app exists for personal dev environment")
 
 		// First check if Wolf app already exists
-		appExists, checkErr := w.checkWolfAppExists(ctx, wolfAppID)
+		appExists, checkErr := w.checkWolfAppExists(ctx, pde.WolfAppID)
 		if checkErr != nil {
 			log.Error().
 				Err(checkErr).
-				Str("wolf_app_id", wolfAppID).
+				Str("wolf_app_id", pde.WolfAppID).
 				Msg("Failed to check if Wolf app exists")
 			continue // Skip this instance and continue with others
 		}
 
 		if appExists {
 			log.Debug().
-				Str("instance_id", instanceID).
-				Str("wolf_app_id", wolfAppID).
+				Str("instance_id", pde.ID).
+				Str("wolf_app_id", pde.WolfAppID).
 				Msg("Wolf app already exists, skipping recreation")
 			continue // App exists, no need to recreate
 		}
 
 		log.Info().
-			Str("instance_id", instanceID).
-			Str("wolf_app_id", wolfAppID).
+			Str("instance_id", pde.ID).
+			Str("wolf_app_id", pde.WolfAppID).
 			Msg("Wolf app missing, recreating")
 
-		// Try to recreate the Wolf app for this instance
+		// Try to recreate the Wolf app for this PDE
+		// Convert to ZedInstanceInfo for backward compatibility with recreateWolfAppForInstance
+		instance := &ZedInstanceInfo{
+			InstanceID:      pde.ID,
+			UserID:          pde.UserID,
+			AppID:           pde.WolfAppID,
+			EnvironmentName: pde.EnvironmentName,
+			DisplayWidth:    pde.DisplayWidth,
+			DisplayHeight:   pde.DisplayHeight,
+			DisplayFPS:      pde.DisplayFPS,
+			IsPersonalEnv:   true,
+		}
+
 		err := w.recreateWolfAppForInstance(ctx, instance)
 		if err != nil {
 			log.Error().
 				Err(err).
-				Str("instance_id", instanceID).
+				Str("instance_id", pde.ID).
 				Msg("Failed to recreate Wolf app for personal dev environment")
-			// Mark instance as stopped since Wolf app creation failed
-			instance.Status = "stopped"
+			// Mark instance as stopped in database since Wolf app creation failed
+			pde.Status = "stopped"
+			w.store.UpdatePersonalDevEnvironment(ctx, pde)
 		} else {
 			log.Info().
-				Str("instance_id", instanceID).
+				Str("instance_id", pde.ID).
 				Msg("Successfully ensured Wolf app exists for personal dev environment")
 			recreatedCount++
 		}
