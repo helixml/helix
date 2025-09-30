@@ -4,6 +4,11 @@ set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
 
+# Start screenshot server in background
+echo "Starting screenshot server..."
+/usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1 &
+echo "Screenshot server started"
+
 # Function to start wayvnc VNC server after Sway is ready
 start_wayvnc() {
     echo "Starting wayvnc VNC server..."
