@@ -326,15 +326,17 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API key for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
-		// Additional environment variables for Helix integration
-		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
-		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+		// Zed external websocket sync configuration
+		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
+		"ZED_HELIX_URL=api:8080",         // Use Docker network service name (containers can't reach localhost)
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		"ZED_HELIX_TLS=false", // Internal Docker network, no TLS needed
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
-		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                              // Mount persistent workspace
+		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
 	}
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
@@ -1001,15 +1003,17 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
 		fmt.Sprintf("TOGETHER_API_KEY=%s", os.Getenv("TOGETHER_API_KEY")),
 		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
-		// Additional environment variables for development
-		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
-		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+		// Zed external websocket sync configuration
+		"ZED_EXTERNAL_SYNC_ENABLED=true", // Enables websocket sync (websocket_enabled defaults to this)
+		"ZED_HELIX_URL=api:8080",         // Use Docker network service name (containers can't reach localhost)
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		"ZED_HELIX_TLS=false", // Internal Docker network, no TLS needed
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
-		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                              // Mount persistent workspace
+		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
 	}
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS

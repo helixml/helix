@@ -20,8 +20,34 @@ The Helix development stack has hot reloading enabled in multiple components for
 - **API Server**: Air-based hot reloading for Go API changes
 - **GPU Runner**: Live code reloading for runner modifications
 - **Wolf Integration**: Real-time config and code updates
+- **Zed Editor**: Directory bind-mount + auto-restart loop for binary updates
 
 This means you often don't need to rebuild containers - just save files and changes are picked up automatically.
+
+## CRITICAL: Zed Editor Build Process
+
+**ALWAYS use the stack command for building Zed - NEVER use cargo directly**
+
+```bash
+# Build Zed (always builds in release mode - only mode that works)
+./stack build-zed
+
+# NEVER use: cargo build --package zed (debug builds crash!)
+```
+
+**Why release mode is mandatory:**
+- Debug builds don't properly embed assets (settings/default.json, keymaps, etc.)
+- Zed will crash at startup with "settings/default.json" panic in debug mode
+- Release builds take ~3-5 minutes but produce working binaries (2.0GB)
+- The stack script enforces release mode - debug mode is blocked
+- Binary is copied to `./zed-build/zed` and bind-mounted into containers
+
+**Zed Hot Reload Workflow:**
+1. Make changes to Zed source code in `~/pm/zed`
+2. Build: `./stack build-zed` (~3-5 minutes)
+3. Inside running PDE: Close Zed window (click X)
+4. Auto-restart script launches updated binary in 2 seconds
+5. No container recreation needed - directory bind-mount survives inode changes
 
 ## Key Development Rules (from design.md)
 
