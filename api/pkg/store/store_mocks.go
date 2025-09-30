@@ -446,6 +446,21 @@ func (mr *MockStoreMockRecorder) CreateOrganizationMembership(ctx, membership an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrganizationMembership", reflect.TypeOf((*MockStore)(nil).CreateOrganizationMembership), ctx, membership)
 }
 
+// CreatePersonalDevEnvironment mocks base method.
+func (m *MockStore) CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreatePersonalDevEnvironment", ctx, pde)
+	ret0, _ := ret[0].(*types.PersonalDevEnvironment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreatePersonalDevEnvironment indicates an expected call of CreatePersonalDevEnvironment.
+func (mr *MockStoreMockRecorder) CreatePersonalDevEnvironment(ctx, pde any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).CreatePersonalDevEnvironment), ctx, pde)
+}
+
 // CreateProject mocks base method.
 func (m *MockStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
 	m.ctrl.T.Helper()
@@ -964,6 +979,20 @@ func (m *MockStore) DeleteOrganizationMembership(ctx context.Context, organizati
 func (mr *MockStoreMockRecorder) DeleteOrganizationMembership(ctx, organizationID, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOrganizationMembership", reflect.TypeOf((*MockStore)(nil).DeleteOrganizationMembership), ctx, organizationID, userID)
+}
+
+// DeletePersonalDevEnvironment mocks base method.
+func (m *MockStore) DeletePersonalDevEnvironment(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePersonalDevEnvironment", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePersonalDevEnvironment indicates an expected call of DeletePersonalDevEnvironment.
+func (mr *MockStoreMockRecorder) DeletePersonalDevEnvironment(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).DeletePersonalDevEnvironment), ctx, id)
 }
 
 // DeleteProviderEndpoint mocks base method.
@@ -1731,6 +1760,36 @@ func (mr *MockStoreMockRecorder) GetPendingReviews(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPendingReviews", reflect.TypeOf((*MockStore)(nil).GetPendingReviews), ctx)
 }
 
+// GetPersonalDevEnvironment mocks base method.
+func (m *MockStore) GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPersonalDevEnvironment", ctx, id)
+	ret0, _ := ret[0].(*types.PersonalDevEnvironment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPersonalDevEnvironment indicates an expected call of GetPersonalDevEnvironment.
+func (mr *MockStoreMockRecorder) GetPersonalDevEnvironment(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).GetPersonalDevEnvironment), ctx, id)
+}
+
+// GetPersonalDevEnvironmentByWolfAppID mocks base method.
+func (m *MockStore) GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPersonalDevEnvironmentByWolfAppID", ctx, wolfAppID)
+	ret0, _ := ret[0].(*types.PersonalDevEnvironment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPersonalDevEnvironmentByWolfAppID indicates an expected call of GetPersonalDevEnvironmentByWolfAppID.
+func (mr *MockStoreMockRecorder) GetPersonalDevEnvironmentByWolfAppID(ctx, wolfAppID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPersonalDevEnvironmentByWolfAppID", reflect.TypeOf((*MockStore)(nil).GetPersonalDevEnvironmentByWolfAppID), ctx, wolfAppID)
+}
+
 // GetProviderDailyUsageMetrics mocks base method.
 func (m *MockStore) GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from, to time.Time) ([]*types.AggregatedUsageMetric, error) {
 	m.ctrl.T.Helper()
@@ -2484,6 +2543,21 @@ func (mr *MockStoreMockRecorder) ListOrganizations(ctx, query any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockStore)(nil).ListOrganizations), ctx, query)
 }
 
+// ListPersonalDevEnvironments mocks base method.
+func (m *MockStore) ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPersonalDevEnvironments", ctx, userID)
+	ret0, _ := ret[0].([]*types.PersonalDevEnvironment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPersonalDevEnvironments indicates an expected call of ListPersonalDevEnvironments.
+func (mr *MockStoreMockRecorder) ListPersonalDevEnvironments(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPersonalDevEnvironments", reflect.TypeOf((*MockStore)(nil).ListPersonalDevEnvironments), ctx, userID)
+}
+
 // ListProviderEndpoints mocks base method.
 func (m *MockStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -3189,6 +3263,21 @@ func (m *MockStore) UpdateOrganizationMembership(ctx context.Context, membership
 func (mr *MockStoreMockRecorder) UpdateOrganizationMembership(ctx, membership any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOrganizationMembership", reflect.TypeOf((*MockStore)(nil).UpdateOrganizationMembership), ctx, membership)
+}
+
+// UpdatePersonalDevEnvironment mocks base method.
+func (m *MockStore) UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePersonalDevEnvironment", ctx, pde)
+	ret0, _ := ret[0].(*types.PersonalDevEnvironment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdatePersonalDevEnvironment indicates an expected call of UpdatePersonalDevEnvironment.
+func (mr *MockStoreMockRecorder) UpdatePersonalDevEnvironment(ctx, pde any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).UpdatePersonalDevEnvironment), ctx, pde)
 }
 
 // UpdateProviderEndpoint mocks base method.
