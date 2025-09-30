@@ -320,9 +320,6 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		Str("instance_id", instanceID).
 		Msg("Created Sway compositor configuration")
 
-	// Create Wolf app for this personal dev environment
-	wolfAppID := w.generateWolfAppID(userID, environmentName)
-
 	// Use the OpenAPI-based constructor with custom Docker configuration
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*", // Exact same as XFCE working config
@@ -641,8 +638,10 @@ func (w *WolfExecutor) ReconcilePersonalDevEnvironments(ctx context.Context) err
 			basename := filepath.Base(configFile)
 			instanceID := strings.TrimPrefix(basename, "sway-config-")
 
-			// Check if we have this instance tracked
-			if _, exists := w.instances[instanceID]; !exists {
+			// Check if this instance exists in database
+			_, dbErr := w.store.GetPersonalDevEnvironment(ctx, instanceID)
+			if dbErr != nil {
+				// Instance not found in database, config is orphaned
 				log.Info().
 					Str("config_file", configFile).
 					Str("instance_id", instanceID).
