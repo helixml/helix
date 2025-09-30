@@ -277,13 +277,13 @@ func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID,
 
 // CreatePersonalDevEnvironmentWithDisplay creates a new personal development environment with custom display settings
 func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	// Validate display parameters
 	if err := validateDisplayParams(displayWidth, displayHeight, displayFPS); err != nil {
 		return nil, fmt.Errorf("invalid display configuration: %w", err)
 	}
+
+	// Create Wolf app for this personal dev environment
+	wolfAppID := w.generateWolfAppID(userID, environmentName)
 
 	// Generate unique timestamp-based ID for this instance
 	timestamp := time.Now().Unix()
@@ -394,38 +394,59 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// No need for fake client background sessions - Wolf handles container lifecycle directly
 	wolfSessionID := "" // No session ID needed for auto-started containers
 
-	// Create instance info
-	instance := &ZedInstanceInfo{
-		InstanceID:      instanceID,
-		SpecTaskID:      "", // Empty for personal dev environments
+	// Save to database
+	pde := &types.PersonalDevEnvironment{
+		ID:              instanceID,
 		UserID:          userID,
-		AppID:           wolfAppID, // Use Wolf's numeric app ID for Wolf API calls
-		InstanceType:    "personal_dev",
-		Status:          "starting",
-		CreatedAt:       time.Now(),
-		LastActivity:    time.Now(),
-		ProjectPath:     fmt.Sprintf("/workspace/%s", environmentName),
-		ThreadCount:     1,
-		IsPersonalEnv:   true,
+		AppID:           appID, // Original Helix App ID for configuration
+		WolfAppID:       wolfAppID,
 		EnvironmentName: environmentName,
-		ConfiguredTools: []string{}, // TODO: Load from App configuration
-		DataSources:     []string{}, // TODO: Load from App configuration
-		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
-		WolfSessionID:   wolfSessionID, // Store Wolf's session ID for later API calls
-		DisplayWidth:    displayWidth, // Store user-configured display resolution
+		Status:          "starting",
+		LastActivity:    time.Now(),
+		DisplayWidth:    displayWidth,
 		DisplayHeight:   displayHeight,
 		DisplayFPS:      displayFPS,
-		ContainerName:   containerName, // Store container name for direct network access
-		VNCPort:         5901,          // VNC port inside container
+		ContainerName:   containerName,
+		VNCPort:         5901,
+		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
+		WolfSessionID:   wolfSessionID,
 	}
 
-	w.instances[instanceID] = instance
+	pde, err = w.store.CreatePersonalDevEnvironment(ctx, pde)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save personal dev environment to database: %w", err)
+	}
 
 	log.Info().
 		Str("instance_id", instanceID).
 		Str("wolf_session_id", wolfSessionID).
 		Str("wolf_app_id", wolfAppID).
 		Msg("Personal development environment created successfully via Wolf")
+
+	// Convert to ZedInstanceInfo for backward compatibility
+	instance := &ZedInstanceInfo{
+		InstanceID:      pde.ID,
+		SpecTaskID:      "",
+		UserID:          pde.UserID,
+		AppID:           pde.WolfAppID,
+		InstanceType:    "personal_dev",
+		Status:          pde.Status,
+		CreatedAt:       pde.Created,
+		LastActivity:    pde.LastActivity,
+		ProjectPath:     fmt.Sprintf("/workspace/%s", environmentName),
+		ThreadCount:     1,
+		IsPersonalEnv:   true,
+		EnvironmentName: pde.EnvironmentName,
+		ConfiguredTools: []string{},
+		DataSources:     []string{},
+		StreamURL:       pde.StreamURL,
+		WolfSessionID:   pde.WolfSessionID,
+		DisplayWidth:    pde.DisplayWidth,
+		DisplayHeight:   pde.DisplayHeight,
+		DisplayFPS:      pde.DisplayFPS,
+		ContainerName:   pde.ContainerName,
+		VNCPort:         pde.VNCPort,
+	}
 
 	return instance, nil
 }
@@ -454,20 +475,45 @@ func (w *WolfExecutor) buildPersonalDevZedCommand(userID, appID, instanceID stri
 
 // GetPersonalDevEnvironments returns all personal dev environments for a user
 func (w *WolfExecutor) GetPersonalDevEnvironments(ctx context.Context, userID string) ([]*ZedInstanceInfo, error) {
-	w.mutex.RLock()
-	defer w.mutex.RUnlock()
+	// Read from database
+	pdes, err := w.store.ListPersonalDevEnvironments(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list personal dev environments from database: %w", err)
+	}
 
+	// Convert to ZedInstanceInfo for backward compatibility
 	var personalEnvs []*ZedInstanceInfo
-	for _, instance := range w.instances {
-		if instance.IsPersonalEnv && instance.UserID == userID {
-			personalEnvs = append(personalEnvs, instance)
+	for _, pde := range pdes {
+		instance := &ZedInstanceInfo{
+			InstanceID:      pde.ID,
+			SpecTaskID:      "",
+			UserID:          pde.UserID,
+			AppID:           pde.WolfAppID,
+			InstanceType:    "personal_dev",
+			Status:          pde.Status,
+			CreatedAt:       pde.Created,
+			LastActivity:    pde.LastActivity,
+			ProjectPath:     fmt.Sprintf("/workspace/%s", pde.EnvironmentName),
+			ThreadCount:     1,
+			IsPersonalEnv:   true,
+			EnvironmentName: pde.EnvironmentName,
+			ConfiguredTools: []string{},
+			DataSources:     []string{},
+			StreamURL:       pde.StreamURL,
+			WolfSessionID:   pde.WolfSessionID,
+			DisplayWidth:    pde.DisplayWidth,
+			DisplayHeight:   pde.DisplayHeight,
+			DisplayFPS:      pde.DisplayFPS,
+			ContainerName:   pde.ContainerName,
+			VNCPort:         pde.VNCPort,
 		}
+		personalEnvs = append(personalEnvs, instance)
 	}
 
 	log.Info().
 		Str("user_id", userID).
 		Int("environment_count", len(personalEnvs)).
-		Msg("Retrieved personal dev environments")
+		Msg("Retrieved personal dev environments from database")
 
 	return personalEnvs, nil
 }
