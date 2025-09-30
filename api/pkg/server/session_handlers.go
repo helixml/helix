@@ -1194,7 +1194,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	start := time.Now()
 	
 	// Wait for external agent to be ready (WebSocket connection established)
-	if err := s.waitForExternalAgentReady(ctx, session.ID, 30*time.Second); err != nil {
+	// Extended timeout to allow time for manual Moonlight client connection to kickstart container
+	if err := s.waitForExternalAgentReady(ctx, session.ID, 300*time.Second); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
 		
 		// Update interaction with error
@@ -1216,6 +1217,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Type: "chat_message",
 		Data: map[string]interface{}{
 			"request_id": requestID,
+			"session_id": session.ID, // Include Helix session ID so Zed can echo it back
 			"message":    userMessage,
 			"role":       "user",
 		},

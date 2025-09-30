@@ -212,7 +212,7 @@ func NewServer(
 
 	zedImage := os.Getenv("ZED_IMAGE")
 	if zedImage == "" {
-		zedImage = "helix/zed-agent:latest"
+		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
 	}
 
 	externalAgentExecutor := external_agent.NewWolfExecutor(
@@ -597,6 +597,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
 
 	// Personal dev environment routes
 	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")

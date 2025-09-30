@@ -309,6 +309,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       parts: currentContentParts,
     };
 
+    // Serialize external agent config to ensure no React elements are included
+    const sanitizedExternalAgentConfig = externalAgentConfig ? {
+      workspace_dir: externalAgentConfig.workspace_dir,
+      project_path: externalAgentConfig.project_path,
+      env_vars: externalAgentConfig.env_vars,
+      auto_connect_rdp: externalAgentConfig.auto_connect_rdp,
+    } : undefined;
+
     // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
       regenerate: regenerate,
@@ -319,10 +327,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       assistant_id: assistantId,
       interaction_id: interactionId,
       provider: provider,
-      model: modelName,      
+      model: modelName,
       session_id: sessionId,
       agent_type: agentType,
-      external_agent_config: externalAgentConfig,
+      external_agent_config: sanitizedExternalAgentConfig,
       messages: [
         {
           role: 'user',

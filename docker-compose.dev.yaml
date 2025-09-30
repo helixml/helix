@@ -96,7 +96,7 @@ services:
             - DIRECT_VNC_PROXY=${DIRECT_VNC_PROXY:-true}
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-            - ZED_IMAGE=${ZED_IMAGE:-helix/zed-agent:latest}
+            - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
         volumes:
             - ./go.mod:/app/go.mod
