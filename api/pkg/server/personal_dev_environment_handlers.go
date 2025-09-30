@@ -657,7 +657,7 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironmentScreenshot(res http.Re
 		return
 	}
 
-	// Use the container name to access screenshot server over Docker network
+	// Use the container name - DNS will resolve via Docker hostname setting
 	containerName := instance.ContainerName
 
 	log.Info().

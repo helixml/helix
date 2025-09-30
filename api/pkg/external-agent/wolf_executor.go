@@ -284,7 +284,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		return nil, fmt.Errorf("invalid display configuration: %w", err)
 	}
 
-	instanceID := fmt.Sprintf("personal-dev-%s-%d", userID, time.Now().Unix())
+	// Generate unique timestamp-based ID for this instance
+	timestamp := time.Now().Unix()
+	instanceID := fmt.Sprintf("personal-dev-%s-%d", userID, timestamp)
 
 	log.Info().
 		Str("instance_id", instanceID).
@@ -336,7 +338,12 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
 		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
-	baseCreateJSON := `{
+
+	// Use Wolf app ID as both container name and hostname for predictable DNS
+	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
+
+	baseCreateJSON := fmt.Sprintf(`{
+  "Hostname": "%s",
   "HostConfig": {
     "IpcMode": "host",
     "NetworkMode": "helix_default",
@@ -345,20 +352,15 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
   }
-}`
+}`, containerHostname)
 
 	// Add startup script bind mount for fast iteration
 	mounts = append(mounts, fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")))
 	// Mount Docker socket for full host Docker access
 	mounts = append(mounts, "/var/run/docker.sock:/var/run/docker.sock")
 
-	// Create a short, URL-friendly container name (hyphens only, no underscores)
-	// Use first 8 chars of instance ID for uniqueness
-	shortID := instanceID
-	if len(instanceID) > 8 {
-		shortID = instanceID[:8]
-	}
-	containerName := fmt.Sprintf("personal-dev-%s", shortID)
+	// Use Wolf app ID as container name - it's numeric, unique, and matches Wolf's app ID
+	containerName := containerHostname
 
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
@@ -788,10 +790,59 @@ input * {
 }
 
 // reconcileWolfApps ensures Wolf has apps for all running personal dev environments
+// and removes orphaned Wolf apps that no longer have corresponding Helix instances
 func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 	log.Info().Msg("Reconciling Wolf apps against Helix personal dev environments")
 
-	// We check each instance individually and try to recreate Wolf apps as needed
+	// Step 1: Build a set of expected Wolf app IDs from Helix instances
+	expectedAppIDs := make(map[string]bool)
+	for _, instance := range w.instances {
+		if !instance.IsPersonalEnv {
+			continue // Skip non-personal dev environments
+		}
+		if instance.Status != "running" && instance.Status != "starting" {
+			continue // Skip stopped environments
+		}
+		wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
+		expectedAppIDs[wolfAppID] = true
+	}
+
+	// Step 2: Get all Wolf apps and delete orphaned ones
+	wolfApps, err := w.wolfClient.ListApps(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Wolf apps for reconciliation")
+		// Continue with creating missing apps even if we couldn't clean up orphaned ones
+	} else {
+		deletedCount := 0
+		for _, app := range wolfApps {
+			// Only reconcile apps managed by Helix (Personal Dev Environments and Agents)
+			// Skip static apps defined in config.toml
+			if strings.HasPrefix(app.Title, "Personal") || strings.HasPrefix(app.Title, "Agent") {
+				// Check if this app ID is expected
+				if !expectedAppIDs[app.ID] {
+					log.Info().
+						Str("wolf_app_id", app.ID).
+						Str("app_title", app.Title).
+						Msg("Found orphaned Wolf app, removing")
+
+					err := w.wolfClient.RemoveApp(ctx, app.ID)
+					if err != nil {
+						log.Error().
+							Err(err).
+							Str("wolf_app_id", app.ID).
+							Msg("Failed to remove orphaned Wolf app")
+					} else {
+						deletedCount++
+					}
+				}
+			}
+		}
+		if deletedCount > 0 {
+			log.Info().Int("deleted_count", deletedCount).Msg("Deleted orphaned Wolf apps")
+		}
+	}
+
+	// Step 3: Check each instance individually and try to recreate Wolf apps as needed
 	reconciledCount := 0
 	recreatedCount := 0
 
@@ -894,7 +945,12 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
 		fmt.Sprintf("%s/zed-build/zed:/usr/local/bin/zed:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed binary from host path
 	}
-	baseCreateJSON := `{
+
+	// Use Wolf app ID as both container name and hostname for predictable DNS
+	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
+
+	baseCreateJSON := fmt.Sprintf(`{
+  "Hostname": "%s",
   "HostConfig": {
     "IpcMode": "host",
     "NetworkMode": "helix_default",
@@ -903,15 +959,10 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
   }
-}`
+}`, containerHostname)
 
-	// Create a short, URL-friendly container name (hyphens only, no underscores)
-	// Use first 8 chars of instance ID for uniqueness
-	shortID := instance.InstanceID
-	if len(instance.InstanceID) > 8 {
-		shortID = instance.InstanceID[:8]
-	}
-	containerName := fmt.Sprintf("personal-dev-%s", shortID)
+	// Use Wolf app ID as container name - matches the app ID for consistency
+	containerName := containerHostname
 
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
