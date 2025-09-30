@@ -329,6 +329,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		// Additional environment variables for Helix integration
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+		// Enable user startup script execution
+		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
@@ -381,7 +383,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		InstanceID:      instanceID,
 		SpecTaskID:      "", // Empty for personal dev environments
 		UserID:          userID,
-		AppID:           appID,
+		AppID:           wolfAppID, // Use Wolf's numeric app ID for Wolf API calls
 		InstanceType:    "personal_dev",
 		Status:          "starting",
 		CreatedAt:       time.Now(),
@@ -631,51 +633,36 @@ echo "OnlyOffice is available in applications menu"
 		}
 	}
 
-	// Create a README explaining the workspace
-	readmePath := filepath.Join(workspaceDir, "README.md")
-	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
-		readme := `# Personal Development Environment Workspace
+	// Copy the welcome README for users to see when they open Zed
+	welcomeReadmePath := filepath.Join(workspaceDir, "README.md")
+	if _, err := os.Stat(welcomeReadmePath); os.IsNotExist(err) {
+		// Read the template README
+		templatePath := "/opt/helix/WORKDIR_README.md"
+		welcomeContent, err := os.ReadFile(templatePath)
+		if err != nil {
+			// Fallback to inline content if template not found
+			welcomeContent = []byte(`# Welcome to HADES! 🚀
 
-This is your persistent workspace directory for instance: ` + instanceID + `
+**Helix Agentic Development Environment Service**
 
-## Contents
+You're running in a **Sway tiling window manager** environment - a keyboard-driven, efficient workspace designed for developers.
 
-- **startup.sh**: Custom startup script that runs when your environment starts
-- **Your files**: Any files you create here will persist across environment restarts
+## Quick Tips
 
-## Pre-installed Tools
+- **Move windows**: ` + "`Alt + Left Drag`" + `
+- **Resize windows**: ` + "`Alt + Right Drag`" + `
+- **Launch apps**: Click the bar at the top
+- **New terminal**: Look for the terminal icon in the top bar
 
-Your environment comes with:
-- **JupyterLab**: Web-based interactive development environment for notebooks
-- **OnlyOffice**: Full office suite for documents, spreadsheets, and presentations
+## What is this?
 
-## Startup Script
+This is your personal development container, complete with a desktop environment accessible via remote streaming. Everything you need to code, test, and deploy - all in one place.
 
-Edit the ` + "`startup.sh`" + ` file to customize your environment:
-- Install additional packages with ` + "`sudo apt install`" + `
-- Configure development tools
-- Set up environment variables
-- Clone repositories
-- Run initialization commands
-
-The startup script runs with sudo privileges, so you can install system packages.
-
-## Persistence
-
-This entire directory is mounted as ` + "`/home/user/work`" + ` in your development environment.
-All files and changes you make here will persist even if you stop and restart the environment.
-
-## Tips
-
-- Use ` + "`sudo apt update && sudo apt install package-name`" + ` to install new packages
-- Your startup script runs every time the environment starts, so make commands idempotent
-- Large files and dependencies installed via the startup script will persist
-- Consider using package managers like npm, pip, cargo for language-specific tools
-- Start JupyterLab with: ` + "`jupyter lab --ip=0.0.0.0 --allow-root`" + `
-- OnlyOffice applications are available in the desktop applications menu
-`
-		if err := os.WriteFile(readmePath, []byte(readme), 0644); err != nil {
-			return "", fmt.Errorf("failed to create README: %w", err)
+**Have fun building! 🛠️**
+`)
+		}
+		if err := os.WriteFile(welcomeReadmePath, welcomeContent, 0644); err != nil {
+			return "", fmt.Errorf("failed to create welcome README: %w", err)
 		}
 	}
 
@@ -890,6 +877,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		// Additional environment variables for development
 		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+		// Enable user startup script execution
+		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                                    // Mount persistent workspace
