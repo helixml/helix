@@ -4,6 +4,35 @@ set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
 
+# Create symlink to Zed binary if not exists
+if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
+    sudo ln -sf /zed-build/zed /usr/local/bin/zed
+    echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
+fi
+
+# Configure Zed settings
+echo "Configuring Zed settings..."
+mkdir -p $HOME/.config/zed
+cat > $HOME/.config/zed/settings.json << 'EOF'
+{
+  "agent": {
+    "default_model": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-latest"
+    },
+    "model_parameters": []
+  },
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "One Dark"
+  }
+}
+EOF
+echo "Zed settings configured"
+
 # Start screenshot server in background (if binary exists)
 if [ -f /usr/local/bin/screenshot-server ]; then
     echo "Starting screenshot server..."
@@ -140,7 +169,7 @@ EOF
     echo "output * bg /usr/share/backgrounds/helix-logo.png fill" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Configure HiDPI scaling for display WL-1" >> $HOME/.config/sway/config
-    echo "output WL-1 scale 2" >> $HOME/.config/sway/config
+    echo "output WL-1 scale 3" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
     echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config
