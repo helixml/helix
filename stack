@@ -593,6 +593,26 @@ function build-xfce() {
   fi
 }
 
+function build-sway() {
+  echo "🪟  Building custom Sway container for Personal Dev Environments..."
+
+  # Build the custom Sway image
+  echo "🔨 Building helix-sway:latest container..."
+  if docker build -f Dockerfile.sway-helix -t helix-sway:latest .; then
+    echo "✅ Sway container built successfully"
+    echo "🪟  Custom Sway image ready: helix-sway:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Sway tiling window manager with waybar"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - wayvnc for VNC access"
+    echo "  - Passwordless sudo for development"
+  else
+    echo "❌ Failed to build Sway container"
+    exit 1
+  fi
+}
+
 function db() {
   local subcommand="${1-cli}"
   shift
