@@ -667,7 +667,6 @@ echo "OnlyOffice is available in applications menu"
 	} else {
 		log.Info().Str("path", welcomeReadmePath).Msg("README already exists, skipping creation")
 	}
-	}
 
 	return workspaceDir, nil
 }
