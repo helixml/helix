@@ -105,9 +105,6 @@ type HelixAPIServer struct {
 	sampleProjectCodeService   *services.SampleProjectCodeService
 	gitRepositoryService       *services.GitRepositoryService
 	zedPlanningService         *services.ZedPlanningService
-	rdpProxyManager            *RDPProxyManager
-	guacamoleProxy             *GuacamoleProxy
-	guacamoleLifecycle         *GuacamoleLifecycleManager
 	moonlightProxy             *moonlight.MoonlightProxy
 	moonlightServer            *moonlight.MoonlightServer
 }
@@ -281,23 +278,7 @@ func NewServer(
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
-		rdpProxyManager: NewRDPProxyManager(
-			cfg.Guacamole.ServerURL+"/guacamole",
-			cfg.Guacamole.Username,
-			cfg.Guacamole.Password,
-			connectionManager,
-		),
-		guacamoleProxy: NewGuacamoleProxy(cfg.Guacamole.ServerURL, cfg.Guacamole.Username, cfg.Guacamole.Password),
 	}
-
-	// Initialize Guacamole lifecycle manager
-	apiServer.guacamoleLifecycle = NewGuacamoleLifecycleManager(
-		apiServer.guacamoleProxy,
-		store,
-		apiServer.rdpProxyManager,
-		controller.Options.RunnerController,
-		ps,
-	)
 
 	// Initialize Moonlight proxy and server
 	publicURL := cfg.WebServer.URL
@@ -610,13 +591,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Specific routes must come before parametric routes
 	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
 	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
-	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp", apiServer.getExternalAgentRunnerRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{session_id}/rdp/proxy", apiServer.startRDPProxy).Methods("GET")
-	authRouter.HandleFunc("/external-agents/runners/{runnerID}/rdp/proxy", apiServer.startRunnerRDPProxy).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
@@ -628,7 +606,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.deletePersonalDevEnvironment).Methods("DELETE")
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/guacamole-connection-id", apiServer.getPersonalDevEnvironmentGuacamoleConnectionID).Methods("GET")
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/screenshot", apiServer.getPersonalDevEnvironmentScreenshot).Methods("GET")
 
 	// Wolf pairing routes
@@ -644,15 +621,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// External agent WebSocket runner endpoint
 	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
-
-	// Session RDP WebSocket proxy endpoint
-	authRouter.HandleFunc("/sessions/{sessionID}/rdp/proxy", apiServer.startSessionRDPProxy).Methods(http.MethodGet)
-
-	// Guacamole proxy routes
-	apiServer.registerGuacamoleProxyRoutes(authRouter)
-
-	// Guacamole web interface proxy for debugging - no auth required since Guacamole handles its own auth
-	router.PathPrefix("/guacamole/").HandlerFunc(apiServer.proxyGuacamoleWebInterface).Methods("GET", "POST", "PUT", "DELETE", "PATCH")
 
 	// Moonlight streaming server routes - no auth required for Moonlight protocol compatibility
 	apiServer.moonlightServer.RegisterRoutes(router)
@@ -1241,13 +1209,6 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 				log.Warn().Err(updateErr).Str("runner_id", runnerID).Msg("Failed to update runner status to offline")
 			}
 
-			// Cleanup Guacamole connection for disconnected runner
-			if apiServer.guacamoleLifecycle != nil {
-				if lifecycleErr := apiServer.guacamoleLifecycle.OnRunnerDisconnect(ctx, runnerID); lifecycleErr != nil {
-					log.Warn().Err(lifecycleErr).Str("runner_id", runnerID).Msg("Failed to cleanup Guacamole connection")
-				}
-			}
-
 			// Remove the connection from the runner manager
 			if connectionID != "" {
 				apiServer.externalAgentRunnerManager.removeConnection(runnerID, connectionID)
@@ -1286,20 +1247,12 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			log.Info().
 				Str("runner_id", runnerID).
 				Str("status", agentRunner.Status).
-				Time("password_rotated", agentRunner.PasswordRotated).
-				Msg("✅ Agent runner created/updated in store with secure RDP password")
+				Msg("✅ Agent runner created/updated in store")
 
 			// Update runner status to online
 			err = apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "online")
 			if err != nil {
 				log.Warn().Err(err).Str("runner_id", runnerID).Msg("Failed to update runner status to online")
-			}
-
-			// Create Guacamole connection for newly connected runner
-			if apiServer.guacamoleLifecycle != nil {
-				if lifecycleErr := apiServer.guacamoleLifecycle.OnRunnerConnect(ctx, runnerID); lifecycleErr != nil {
-					log.Warn().Err(lifecycleErr).Str("runner_id", runnerID).Msg("Failed to create Guacamole connection")
-				}
 			}
 		}
 
@@ -1568,136 +1521,6 @@ func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.
 			}
 		}
 	})
-}
-
-// proxyGuacamoleWebInterface proxies requests to the Guacamole web interface for debugging
-func (apiServer *HelixAPIServer) proxyGuacamoleWebInterface(w http.ResponseWriter, r *http.Request) {
-	// No authentication required here - Guacamole handles its own authentication
-	// This allows direct access to Guacamole's login page and web interface
-
-	// Create reverse proxy to guacamole-client:8080
-	target, err := url.Parse("http://guacamole-client:8080")
-	if err != nil {
-		http.Error(w, "failed to parse guacamole URL", http.StatusInternalServerError)
-		return
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
-	// Handle WebSocket upgrades for Guacamole tunnels
-	if websocket.IsWebSocketUpgrade(r) {
-		apiServer.handleGuacamoleWebSocket(w, r, target)
-		return
-	}
-
-	// Modify the request to handle path correctly
-	originalPath := r.URL.Path
-	r.URL.Path = originalPath // Guacamole expects /guacamole prefix
-	r.URL.Host = target.Host
-	r.URL.Scheme = target.Scheme
-	r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
-	r.Header.Set("X-Forwarded-Proto", "http")
-
-	log.Debug().
-		Str("original_path", originalPath).
-		Str("target_url", target.String()).
-		Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).
-		Msg("Proxying request to Guacamole web interface")
-
-	proxy.ServeHTTP(w, r)
-}
-
-// handleGuacamoleWebSocket handles WebSocket upgrades for Guacamole tunnels
-func (apiServer *HelixAPIServer) handleGuacamoleWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL) {
-	// Build WebSocket URL for Guacamole
-	wsScheme := "ws"
-	if target.Scheme == "https" {
-		wsScheme = "wss"
-	}
-
-	wsURL := fmt.Sprintf("%s://%s%s", wsScheme, target.Host, r.URL.Path)
-	if r.URL.RawQuery != "" {
-		wsURL += "?" + r.URL.RawQuery
-	}
-
-	log.Debug().
-		Str("ws_url", wsURL).
-		Msg("Proxying WebSocket connection to Guacamole")
-
-	// Connect to Guacamole WebSocket
-	guacConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		log.Error().Err(err).Str("ws_url", wsURL).Msg("Failed to connect to Guacamole WebSocket")
-		http.Error(w, "failed to connect to Guacamole WebSocket", http.StatusBadGateway)
-		return
-	}
-	defer guacConn.Close()
-
-	// Upgrade client connection
-	clientConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to upgrade client WebSocket")
-		return
-	}
-	defer clientConn.Close()
-
-	// Bidirectional proxy
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	// Client -> Guacamole
-	go func() {
-		defer cancel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			msgType, data, err := clientConn.ReadMessage()
-			if err != nil {
-				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					log.Debug().Err(err).Msg("Client WebSocket read error")
-				}
-				return
-			}
-
-			if err := guacConn.WriteMessage(msgType, data); err != nil {
-				log.Debug().Err(err).Msg("Guacamole WebSocket write error")
-				return
-			}
-		}
-	}()
-
-	// Guacamole -> Client
-	go func() {
-		defer cancel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			msgType, data, err := guacConn.ReadMessage()
-			if err != nil {
-				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					log.Debug().Err(err).Msg("Guacamole WebSocket read error")
-				}
-				return
-			}
-
-			if err := clientConn.WriteMessage(msgType, data); err != nil {
-				log.Debug().Err(err).Msg("Client WebSocket write error")
-				return
-			}
-		}
-	}()
-
-	// Wait for context cancellation
-	<-ctx.Done()
-	log.Debug().Msg("Guacamole WebSocket proxy connection closed")
 }
 
 // Helper function to get WebSocket message type names for logging

@@ -279,23 +279,10 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		Interface("zed_agent", zedAgent).
 		Msg("📡 EXTERNAL_AGENT_DEBUG: About to dispatch to Zed runner pool")
 
-	// Generate a new RDP password for this session and store it
-	// The runner that picks up this task will use this password
-	newRDPPassword, err := generateSecurePassword()
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Msg("Failed to generate RDP password for session")
-		return fmt.Errorf("failed to generate RDP password: %w", err)
-	}
-
-	// Set the RDP password in the agent request
-	zedAgent.RDPPassword = newRDPPassword
-
+	// Wolf executor will handle authentication via its own mechanisms
 	log.Info().
 		Str("session_id", sessionID).
-		Msg("Generated new RDP password for session")
+		Msg("Dispatching external agent request to Wolf executor")
 
 	// Dispatch to Zed runner pool via pub/sub (following GPTScript pattern)
 	data, err := json.Marshal(zedAgent)

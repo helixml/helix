@@ -1542,8 +1542,8 @@ func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Req
 }
 
 // getSessionRDPConnection godoc
-// @Summary Get RDP connection info for a session
-// @Description Get RDP connection details for accessing a session via RDP
+// @Summary Get Wolf connection info for a session
+// @Description Get Wolf streaming connection details for accessing a session (replaces RDP)
 // @Tags    sessions
 // @Success 200 {object} map[string]interface{}
 // @Param id path string true "Session ID"
@@ -1577,105 +1577,48 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		log.Error().
 			Str("session_id", id).
 			Str("agent_type", session.Metadata.AgentType).
-			Msg("Session is not an external agent session - RDP access not available")
-		http.Error(rw, "RDP access not available for this session", http.StatusNotFound)
+			Msg("Session is not an external agent session - Wolf access not available")
+		http.Error(rw, "Wolf access not available for this session", http.StatusNotFound)
 		return
 	}
 
-	// Find which runner is handling this session by looking up active agent sessions
-	var runnerID string
-	var rdpPassword string
-
-	// Try to get the runner handling this session from external agent executor
-	if s.externalAgentExecutor != nil {
-		agentSession, err := s.externalAgentExecutor.GetSession(id)
-		if err == nil && agentSession.SessionID != "" {
-			// For session connections, we need to find the actual runner ID
-			// The agentSession might contain runner info, but let's also check runner connections
-			if s.externalAgentRunnerManager != nil {
-				connections := s.externalAgentRunnerManager.listConnections()
-				for _, conn := range connections {
-					// Check if this runner might be handling our session
-					// For now, we'll use the first available runner - this should be enhanced
-					// to track session-to-runner mappings
-					runnerID = conn.SessionID // This is actually the runner ID in the connection manager
-					break
-				}
-			}
-		}
-	}
-
-	// If still no runner found, try getting any available runner
-	if runnerID == "" && s.externalAgentRunnerManager != nil {
-		connections := s.externalAgentRunnerManager.listConnections()
-		if len(connections) > 0 {
-			runnerID = connections[0].SessionID // Use first available runner
-			log.Warn().
-				Str("session_id", id).
-				Str("selected_runner", runnerID).
-				Msg("No specific runner mapping found for session, using first available runner")
-		}
-	}
-
-	if runnerID == "" {
-		log.Error().
-			Str("session_id", id).
-			Msg("No runners available to handle session RDP connection")
-		http.Error(rw, "No runners available for RDP connection", http.StatusServiceUnavailable)
+	if s.externalAgentExecutor == nil {
+		http.Error(rw, "external agent executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Get the runner's RDP password from the store
-	password, err := s.Store.GetAgentRunnerRDPPassword(ctx, runnerID)
+	// Get the external agent session info
+	agentSession, err := s.externalAgentExecutor.GetSession(id)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("session_id", id).
-			Str("runner_id", runnerID).
-			Msg("Failed to get RDP password for runner")
-		http.Error(rw, "RDP access not available", http.StatusServiceUnavailable)
-		return
-	}
-	rdpPassword = password
-
-	// Create RDP proxy for this session (maps to the runner)
-	if s.rdpProxyManager == nil {
-		http.Error(rw, "RDP proxy manager not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	proxy, err := s.rdpProxyManager.CreateSessionRDPProxy(ctx, id, runnerID)
-	if err != nil {
-		log.Error().Err(err).
-			Str("session_id", id).
-			Str("runner_id", runnerID).
-			Msg("Failed to create RDP proxy for session")
-		http.Error(rw, fmt.Sprintf("failed to create RDP proxy: %v", err), http.StatusInternalServerError)
+			Msg("Failed to find external agent session")
+		http.Error(rw, fmt.Sprintf("session %s not found: %s", id, err.Error()), http.StatusNotFound)
 		return
 	}
 
 	log.Info().
 		Str("session_id", id).
-		Str("runner_id", runnerID).
-		Int("proxy_port", proxy.LocalPort).
-		Msg("Created session RDP connection mapping to runner")
+		Str("status", agentSession.Status).
+		Msg("Found external agent session (Wolf-based)")
 
-	// Return RDP connection details for the session
-	rdpInfo := map[string]interface{}{
-		"session_id":        id,
-		"runner_id":         runnerID,
-		"rdp_url":           fmt.Sprintf("rdp://localhost:%d", proxy.LocalPort),
-		"rdp_port":          proxy.LocalPort,
-		"rdp_password":      rdpPassword, // Runner's current RDP password
-		"display":           fmt.Sprintf(":%d", 1),
-		"status":            "active",
-		"username":          "zed", // Default RDP username
-		"host":              "localhost",
-		"connection_type":   "session",
-		"desktop_available": true,
-		"proxy_url":         fmt.Sprintf("ws://%s/api/v1/sessions/%s/rdp/proxy", req.Host, id),
+	// Return Wolf-based connection details with WebSocket info
+	connectionInfo := map[string]interface{}{
+		"session_id":          agentSession.SessionID,
+		"screenshot_url":      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
+		"stream_url":          "moonlight://localhost:47989",
+		"status":              agentSession.Status,
+		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
+		"websocket_connected": s.isExternalAgentConnected(agentSession.SessionID),
 	}
 
+	log.Info().
+		Str("session_id", agentSession.SessionID).
+		Str("status", agentSession.Status).
+		Bool("websocket_connected", connectionInfo["websocket_connected"].(bool)).
+		Msg("Returning Wolf connection info")
+
 	rw.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(rw).Encode(rdpInfo)
+	json.NewEncoder(rw).Encode(connectionInfo)
 }

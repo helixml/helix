@@ -49,7 +49,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
-import GuacamoleIframeClient from '../components/external-agent/GuacamoleIframeClient'
+import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -1357,14 +1357,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 borderRadius: 1,
                 overflow: 'hidden'
               }}>
-                <GuacamoleIframeClient
+                <ScreenshotViewer
                   sessionId={sessionID}
                   isRunner={false}
-                  onConnectionChange={(connected) => {
-                    console.log('RDP connection status:', connected);
-                  }}
                   onError={(error) => {
-                    console.error('RDP error:', error);
+                    console.error('Screenshot viewer error:', error);
                   }}
                   height={rdpViewerHeight}
                 />

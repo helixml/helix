@@ -1765,34 +1765,28 @@ type ZedAgent struct {
 	// Multi-session support
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
-	// RDP connection settings
-	RDPPort     int    `json:"rdp_port"`
-	RDPUser     string `json:"rdp_user"`
-	RDPPassword string `json:"rdp_password,omitempty"`
 }
 
 // ZedAgentResponse represents the response from a Zed agent execution
 type ZedAgentResponse struct {
 	// Session ID of the Zed instance
 	SessionID string `json:"session_id"`
-	// Runner ID that handled this request
-	RunnerID string `json:"runner_id"`
-	// RDP connection URL
-	RDPURL string `json:"rdp_url"`
-	// Secure RDP password for authentication
-	RDPPassword string `json:"rdp_password"`
-	// WebSocket URL for sync connection
+	// Screenshot URL for viewing the desktop (read-only)
+	ScreenshotURL string `json:"screenshot_url"`
+	// Stream URL for Moonlight client (interactive)
+	StreamURL string `json:"stream_url"`
+	// Wolf app ID for the container
+	WolfAppID string `json:"wolf_app_id,omitempty"`
+	// Container name for direct access
+	ContainerName string `json:"container_name,omitempty"`
+	// WebSocket URL for thread sync connection
 	WebSocketURL string `json:"websocket_url,omitempty"`
 	// Auth token for WebSocket connection
 	AuthToken string `json:"auth_token,omitempty"`
 	// Error message if any
-	Error string `json:"error"`
+	Error string `json:"error,omitempty"`
 	// Status of the Zed instance (starting, running, stopped, error)
 	Status string `json:"status"`
-	// Process ID of the Zed instance
-	PID int `json:"pid"`
-	// Retries attempted
-	Retries int `json:"retries"`
 }
 
 // ZedAgentRequest represents a request to execute a Zed agent

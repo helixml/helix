@@ -4,24 +4,40 @@
 
 This document describes the architecture for integrating Zed (the code editor) with Helix as an external AI agent. The integration enables Zed to act as both a "source of truth" for conversation threads and as an external agent that can be invoked by Helix sessions.
 
+### **Current Architecture (Wolf-based)**
+
+**Container Management**: Wolf streaming platform manages Zed container lifecycle
+- Helix → Wolf API → Docker containers with Zed + Sway compositor
+- Wolf provides Moonlight streaming protocol for interactive desktop access
+- Screenshot API provides read-only desktop preview for UI
+
+**Session Communication**: WebSocket manages message flow
+- Helix → WebSocket → Zed (messages, thread requests)
+- Zed → WebSocket → Helix (AI responses, thread state)
+- Both managed containers and external Zed instances use same WebSocket endpoint
+
+**Desktop Access**:
+- **Read-only**: Screenshot endpoint (auto-refreshing in UI)
+- **Interactive**: Moonlight client (keyboard/mouse control)
+
 ## Key Architectural Principles
 
 ### 1. **Separation of Concerns: Lifecycle vs Session Communication**
 
 **CRITICAL DISTINCTION:**
-- **NATS**: Used ONLY for Zed instance lifecycle management (start/stop instances)
+- **Wolf API**: Used ONLY for Zed container lifecycle management (create/destroy containers)
 - **WebSocket**: Used for ALL session communication (messages, responses, thread sync)
 
 ```
-┌─────────────────┐    NATS (Lifecycle)     ┌──────────────────┐
-│ Helix Controller├────────────────────────►│ Zed Agent Runner │
-│                 │    (start/stop)         │                  │
+┌─────────────────┐    Wolf API (Lifecycle)  ┌──────────────────┐
+│ Helix Controller├────────────────────────►│ Wolf Streaming   │
+│ (WolfExecutor)  │    (create/stop apps)    │ Platform         │
 └─────────────────┘                         └──────────────────┘
                                                       │
                                                       │ spawns
                                                       ▼
 ┌─────────────────┐   WebSocket (Sessions)   ┌──────────────────┐
-│ Helix WebSocket ├◄──────────────────────►│ Zed Instance     │
+│ Helix WebSocket ├◄──────────────────────►│ Zed Container    │
 │ Manager         │   (messages/threads)     │ (AI Assistant)   │
 └─────────────────┘                         └──────────────────┘
 ```
@@ -36,7 +52,7 @@ This document describes the architecture for integrating Zed (the code editor) w
 ### 3. **Unified WebSocket Communication**
 
 **Both Helix-managed and external Zed instances use the same WebSocket path:**
-- Helix-managed: Spawned via NATS → Connects to WebSocket
+- Helix-managed: Spawned via Wolf → Connects to WebSocket
 - External: User's desktop → Connects directly to WebSocket
 
 ## Architecture Components
@@ -44,7 +60,7 @@ This document describes the architecture for integrating Zed (the code editor) w
 ### Helix Side
 
 #### 1. **Session Handlers** (`/api/pkg/server/session_handlers.go`)
-- **Routes external agent sessions** to WebSocket (NOT NATS)
+- **Routes external agent sessions** to WebSocket
 - **Determines agent type** from app configuration
 - **Handles session name generation** (skipped for external agents)
 
@@ -53,9 +69,11 @@ This document describes the architecture for integrating Zed (the code editor) w
 - **Endpoint**: `/api/v1/external-agents/sync`
 - **Handles bidirectional communication** between Helix sessions and Zed threads
 
-#### 3. **Agent Session Manager** (`/api/pkg/controller/agent_session_manager.go`)
-- **ISSUE**: Currently routes session requests to NATS
-- **NEEDS FIX**: Should route to WebSocket for session communication
+#### 3. **Wolf Executor** (`/api/pkg/external-agent/wolf_executor.go`)
+- **Creates Wolf apps** for Zed containers via Wolf API
+- **Configures Sway compositor** for desktop environment
+- **Handles container lifecycle** (create, start, stop, cleanup)
+- **Returns connection info** (screenshot URL, Moonlight streaming URL, WebSocket URL)
 
 ### Zed Side
 
@@ -71,7 +89,23 @@ This document describes the architecture for integrating Zed (the code editor) w
 
 ## Message Flow
 
-### 1. **Helix → Zed (New User Message)**
+### 1. **Container Lifecycle (Helix → Wolf → Zed Container)**
+
+```
+User creates external agent session
+         ↓
+Helix WolfExecutor.StartZedAgent()
+         ↓
+Wolf API: Create app (Docker container config)
+         ↓
+Wolf spawns container with Zed + Sway compositor
+         ↓
+Container starts, Zed launches with WebSocket sync enabled
+         ↓
+Zed connects to Helix WebSocket endpoint
+```
+
+### 2. **Session Communication (Helix → Zed via WebSocket)**
 
 ```
 User sends message to Helix session
@@ -87,7 +121,7 @@ Zed creates AssistantContext with user message
 Zed triggers AI completion (Anthropic/etc.)
 ```
 
-### 2. **Zed → Helix (AI Response Sync)**
+### 3. **Zed → Helix (AI Response Sync)**
 
 ```
 Zed AssistantContext emits change event
@@ -213,17 +247,80 @@ responseChan, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID
 - `helix/api/pkg/server/websocket_external_agent_sync.go:768` (handleChatResponse)
 - `helix/api/pkg/server/websocket_external_agent_sync.go:854` (handleChatResponseDone)
 
+## Wolf Integration Details
+
+### **Container Architecture**
+
+**Zed runs INSIDE the Wolf-managed container** with full GPU acceleration:
+- Wolf spawns Docker container with Sway compositor + Zed binary
+- Container has direct GPU access via `/dev/dri/*` and `/dev/nvidia*` devices
+- Sway provides Wayland desktop environment for Zed UI
+- Wolf captures Wayland output for Moonlight streaming
+- GPU-accelerated rendering for smooth desktop experience
+
+### **Container Configuration**
+```go
+// Wolf app configuration for Zed containers
+app := wolf.NewMinimalDockerApp(
+    wolfAppID,                    // Unique app ID
+    "External Agent Session",     // Display name
+    containerHostname,            // DNS hostname for screenshot endpoint
+    zedImage,                     // helix/zed-agent:latest (contains Zed binary)
+    env,                          // Environment variables (GPU access, sync config)
+    mounts,                       // Volume mounts (workspace, Zed binary, Sway config)
+    baseCreateJSON,               // Docker container config (GPU devices, capabilities)
+    1920, 1080, 60               // Display resolution/FPS for streaming
+)
+```
+
+### **Environment Variables**
+- `GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*`: GPU/input device access
+- `RUN_SWAY=1`: Enable Sway compositor for Wayland desktop
+- `ZED_EXTERNAL_SYNC_ENABLED=true`: Enable WebSocket sync with Helix
+- `ZED_HELIX_URL=api:8080`: Helix API endpoint (Docker DNS)
+- `ZED_HELIX_TOKEN`: Authentication token for API calls
+- `HELIX_SESSION_ID`: Session context for thread mapping
+
+### **Volume Mounts**
+- Workspace directory: `/home/retro/work` (user's project files)
+- Zed binary: `/zed-build` (read-only, pre-built Zed executable)
+- Sway config: `/opt/gow/startup-app.sh` (read-only, launches Zed in Sway)
+- Docker socket: `/var/run/docker.sock` (for nested containers if needed)
+
+### **GPU Device Configuration**
+```json
+{
+  "HostConfig": {
+    "IpcMode": "host",
+    "NetworkMode": "helix_default",
+    "Privileged": false,
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
+```
+- Device cgroup rules allow access to input devices (13:*) and DRM/GPU devices (244:*)
+- Capabilities enable GPU access without full privileged mode
+- IpcMode: host allows GPU driver communication
+
+### **Desktop Access Methods**
+1. **Screenshot endpoint** (read-only): `/api/v1/external-agents/{id}/screenshot`
+2. **Moonlight streaming** (interactive): `moonlight://localhost:47989`
+
 ## Current Status & Issues
 
 ### ✅ **Working Components**
 
-1. **Zed WebSocket Connection**: Successfully connects to Helix WebSocket endpoint
-2. **WebSocket Routing**: Helix correctly routes external agent sessions via WebSocket (not NATS)
-3. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
-4. **External Agent Config**: Proper handling of empty/nil configurations
-5. **Security**: API keys properly loaded from .env file, no hardcoded secrets
-6. **Session ID Mapping**: ✅ **FIXED** - Helix now correctly maps Zed responses to the right session
-7. **WebSocket Protocol**: ✅ **DOCUMENTED** - Complete message format specification
+1. **Wolf Container Lifecycle**: Creates/manages Zed containers via Wolf API
+2. **Zed WebSocket Connection**: Successfully connects to Helix WebSocket endpoint
+3. **WebSocket Routing**: Helix correctly routes external agent sessions via WebSocket
+4. **Agent Type Detection**: Helix correctly identifies `zed_external` from app config
+5. **Desktop Streaming**: Wolf provides Moonlight protocol for interactive access
+6. **Screenshot API**: Real-time desktop screenshots for UI preview
+7. **Session ID Mapping**: ✅ **FIXED** - Helix correctly maps Zed responses to the right session
+8. **WebSocket Protocol**: ✅ **DOCUMENTED** - Complete message format specification
+9. **Frontend Migration**: ✅ **COMPLETE** - All Guacamole references replaced with Screenshot/Moonlight
 
 ### 🎉 **INTEGRATION SUCCESS - ALL MAJOR ISSUES RESOLVED!**
 
@@ -282,25 +379,26 @@ Result: No Helix session = No URL to view = No way to send messages
 4. **Message Serialization**: Complex message content objects not properly handled
 5. **Thread Persistence**: Threads created in memory but not persisted to Zed's database
 
-### ✅ **Architecture Fix Implemented**
+### ✅ **Architecture Implementation**
 
-**Problem**: Session communication was going through NATS ❌
+**Container Lifecycle**: Managed via Wolf API ✅
 ```go
-// WRONG: This sent session requests to NATS
-err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
+// Wolf executor creates Zed containers
+executor := external_agent.NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken)
+response, err := executor.StartZedAgent(ctx, &agent)
 ```
 
-**Solution**: Session communication now goes through WebSocket ✅
+**Session Communication**: Direct WebSocket communication ✅
 ```go
-// RIGHT: This sends directly to WebSocket manager
+// Session messages sent directly to WebSocket manager
 err = s.sendSessionToWebSocketAgents(req.Context(), session.ID, lastMessage.Content)
 ```
 
-**Implementation**: 
-- Modified `session_handlers.go` to bypass controller and NATS
-- Added `sendSessionToWebSocketAgents()` function
-- Routes session requests directly to connected WebSocket agents
-- Extracts message content from complex objects
+**Implementation**:
+- `wolf_executor.go`: Creates Wolf apps via API, spawns containers
+- `session_handlers.go`: Routes session messages to WebSocket
+- `websocket_external_agent_sync.go`: Manages bidirectional sync
+- Container auto-connects to WebSocket on startup
 
 ## Architectural Solutions Required
 
@@ -392,13 +490,19 @@ context.on_response_complete(|response| {
 ## Key Files
 
 ### Helix
-- `api/pkg/controller/agent_session_manager.go` - Session routing (NEEDS FIX)
+- `api/pkg/external-agent/wolf_executor.go` - Container lifecycle via Wolf API
 - `api/pkg/server/websocket_external_agent_sync.go` - WebSocket management
 - `api/pkg/server/session_handlers.go` - Session creation and agent type detection
+- `api/pkg/server/external_agent_handlers.go` - External agent HTTP API endpoints
 
-### Zed  
+### Zed
 - `crates/external_websocket_sync/` - WebSocket client and sync logic
 - `crates/agent_ui/src/agent_panel.rs` - AI assistant integration
+
+### Wolf
+- Wolf streaming platform (separate service)
+- Manages container lifecycle via API
+- Provides Moonlight streaming protocol
 
 ## Testing
 
@@ -409,11 +513,12 @@ context.on_response_complete(|response| {
 
 ## Lessons Learned
 
-1. **Don't mix lifecycle and session communication** - they serve different purposes
+1. **Separate lifecycle from session communication** - Wolf API for containers, WebSocket for messages
 2. **WebSocket is the universal session interface** - both managed and external instances use it
-3. **NATS is only for runner management** - starting/stopping Zed processes
+3. **Wolf provides complete desktop environment** - Sway compositor + Moonlight streaming
 4. **App configuration drives agent type** - don't rely on request parameters
-5. **External agent configs can be empty** - handle gracefully with defaults
+5. **Screenshot + Moonlight dual approach** - read-only screenshots for UI, Moonlight for interaction
+6. **Container hostname matters** - used for DNS resolution in screenshot endpoint
 
 ## CRITICAL ANALYSIS: Thread Visibility Issue 🚨
 

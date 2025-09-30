@@ -55,10 +55,6 @@ type AgentSession struct {
 	CreatedAt    time.Time `json:"created_at"`
 	LastActivity time.Time `json:"last_activity"`
 
-	// RDP access info
-	RDPURL      string `json:"rdp_url"`
-	RDPPassword string `json:"rdp_password"`
-
 	// WebSocket sync info
 	WebSocketURL string `json:"websocket_url"`
 	AuthToken    string `json:"auth_token"`
@@ -150,8 +146,6 @@ func (s *NATSExternalAgentService) AssignExternalAgent(ctx context.Context, requ
 		Status:       "starting",
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
-		RDPURL:       fmt.Sprintf("rdp://agent-%s:5900", agent.ID),
-		RDPPassword:  s.generatePassword(),
 		WebSocketURL: fmt.Sprintf("ws://api/v1/external-agents/sync?session_id=%s", request.SessionID),
 		AuthToken:    s.generateAuthToken(request.SessionID),
 		ZedContexts:  make(map[string]string),
@@ -181,9 +175,6 @@ func (s *NATSExternalAgentService) AssignExternalAgent(ctx context.Context, requ
 		ProjectPath: request.ProjectPath,
 		WorkDir:     request.WorkDir,
 		Env:         request.Env,
-		RDPPassword: session.RDPPassword,
-		RDPPort:     request.RDPPort,
-		RDPUser:     request.RDPUser,
 	}
 
 	// Send task assignment to agent via NATS
@@ -218,13 +209,10 @@ func (s *NATSExternalAgentService) AssignExternalAgent(ctx context.Context, requ
 		Str("session_id", request.SessionID).
 		Str("agent_id", agent.ID).
 		Str("instance_id", request.InstanceID).
-		Str("rdp_url", session.RDPURL).
 		Msg("Successfully assigned external agent task")
 
 	return &types.ZedAgentResponse{
 		SessionID:    session.ID,
-		RDPURL:       session.RDPURL,
-		RDPPassword:  session.RDPPassword,
 		WebSocketURL: session.WebSocketURL,
 		AuthToken:    session.AuthToken,
 		Status:       "assigned",
@@ -626,8 +614,6 @@ func (s *NATSExternalAgentService) createMockAgentSession(request *types.ZedAgen
 		Status:       "mock-ready",
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
-		RDPURL:       fmt.Sprintf("rdp://localhost:5900"),
-		RDPPassword:  s.generatePassword(),
 		WebSocketURL: fmt.Sprintf("ws://api/v1/external-agents/sync?session_id=%s", request.SessionID),
 		AuthToken:    s.generateAuthToken(request.SessionID),
 		ZedContexts:  make(map[string]string),
@@ -642,14 +628,11 @@ func (s *NATSExternalAgentService) createMockAgentSession(request *types.ZedAgen
 
 	log.Info().
 		Str("session_id", request.SessionID).
-		Str("rdp_url", session.RDPURL).
 		Str("status", session.Status).
 		Msg("Mock external agent session created successfully")
 
 	return &types.ZedAgentResponse{
 		SessionID:    session.ID,
-		RDPURL:       session.RDPURL,
-		RDPPassword:  session.RDPPassword,
 		WebSocketURL: session.WebSocketURL,
 		AuthToken:    session.AuthToken,
 		Status:       "mock-ready",
