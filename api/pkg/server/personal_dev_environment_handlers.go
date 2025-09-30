@@ -631,3 +631,84 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironmentGuacamoleConnectionID(
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(response)
 }
+
+// getPersonalDevEnvironmentScreenshot handles GET /api/v1/personal-dev-environments/{environmentID}/screenshot
+func (apiServer *HelixAPIServer) getPersonalDevEnvironmentScreenshot(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	environmentID := vars["environmentID"]
+
+	// Get the Personal Dev Environment instance to verify ownership
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	instance, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	if err != nil {
+		log.Error().Err(err).Str("environment_id", environmentID).Msg("Failed to get Personal Dev Environment")
+		http.Error(res, "Personal dev environment not found", http.StatusNotFound)
+		return
+	}
+
+	// Use the Wolf app_id to look up the active session
+	// Wolf will map app_id → session_id internally
+	wolfAppID := instance.AppID
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("environment_id", environmentID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Proxying screenshot request to Wolf")
+
+	// Proxy request to Wolf's Unix socket using app_id
+	wolfClient := wolfExecutor.GetWolfClient()
+	screenshotURL := fmt.Sprintf("/api/v1/sessions/screenshot?app_id=%s", wolfAppID)
+
+	// Make request to Wolf via Unix socket
+	wolfResp, err := wolfClient.Get(req.Context(), screenshotURL)
+	if err != nil {
+		log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to get screenshot from Wolf")
+		http.Error(res, "Failed to retrieve screenshot", http.StatusInternalServerError)
+		return
+	}
+	defer wolfResp.Body.Close()
+
+	// Check Wolf response status
+	if wolfResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(wolfResp.Body)
+		log.Error().
+			Int("status", wolfResp.StatusCode).
+			Str("body", string(body)).
+			Str("wolf_app_id", wolfAppID).
+			Msg("Wolf returned error for screenshot")
+		http.Error(res, "Failed to retrieve screenshot from Wolf", wolfResp.StatusCode)
+		return
+	}
+
+	// Read PNG data from Wolf
+	pngData, err := io.ReadAll(wolfResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read screenshot data from Wolf")
+		http.Error(res, "Failed to read screenshot data", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("environment_id", environmentID).
+		Str("wolf_app_id", wolfAppID).
+		Int("size_bytes", len(pngData)).
+		Msg("Successfully retrieved screenshot from Wolf")
+
+	// Return PNG image
+	res.Header().Set("Content-Type", "image/png")
+	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	res.WriteHeader(http.StatusOK)
+	res.Write(pngData)
+}

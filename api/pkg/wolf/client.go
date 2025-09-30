@@ -125,6 +125,11 @@ func (c *Client) makeRequest(method, path string, body io.Reader) (*http.Respons
 	return c.httpClient.Do(req)
 }
 
+// Get makes a GET request to the Wolf API and returns the response
+func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
+	return c.makeRequest("GET", path, nil)
+}
+
 // GetPendingPairRequests returns all pending Moonlight client pair requests
 func (c *Client) GetPendingPairRequests() ([]PendingPairRequest, error) {
 	resp, err := c.makeRequest("GET", "/api/v1/pair/pending", nil)
