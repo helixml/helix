@@ -352,11 +352,19 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// Mount Docker socket for full host Docker access
 	mounts = append(mounts, "/var/run/docker.sock:/var/run/docker.sock")
 
+	// Create a short, URL-friendly container name (hyphens only, no underscores)
+	// Use first 8 chars of instance ID for uniqueness
+	shortID := instanceID
+	if len(instanceID) > 8 {
+		shortID = instanceID[:8]
+	}
+	containerName := fmt.Sprintf("personal-dev-%s", shortID)
+
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev Environment %s", environmentName), // Include user's environment name
-		fmt.Sprintf("PersonalDev_%s", wolfAppID),                    // Name - shorter but unique using Wolf app ID
+		containerName,                                               // URL-friendly name with hyphens
 		"helix-sway:latest",                                         // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
@@ -401,11 +409,11 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		DataSources:     []string{}, // TODO: Load from App configuration
 		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
 		WolfSessionID:   wolfSessionID, // Store Wolf's session ID for later API calls
-		DisplayWidth:    displayWidth,  // Store user-configured display resolution
+		DisplayWidth:    displayWidth, // Store user-configured display resolution
 		DisplayHeight:   displayHeight,
 		DisplayFPS:      displayFPS,
-		ContainerName:   fmt.Sprintf("PersonalDev_%s", wolfAppID), // Store container name for direct network access
-		VNCPort:         5901,                                     // VNC port inside container
+		ContainerName:   containerName, // Store container name for direct network access
+		VNCPort:         5901,          // VNC port inside container
 	}
 
 	w.instances[instanceID] = instance
@@ -897,11 +905,19 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
   }
 }`
 
+	// Create a short, URL-friendly container name (hyphens only, no underscores)
+	// Use first 8 chars of instance ID for uniqueness
+	shortID := instance.InstanceID
+	if len(instance.InstanceID) > 8 {
+		shortID = instance.InstanceID[:8]
+	}
+	containerName := fmt.Sprintf("personal-dev-%s", shortID)
+
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		fmt.Sprintf("PersonalDev_%s", wolfAppID),                 // Name - shorter but unique using Wolf app ID
+		containerName,                                            // URL-friendly name with hyphens
 		"helix-sway:latest",                                      // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
