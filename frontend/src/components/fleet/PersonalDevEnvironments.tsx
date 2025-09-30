@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import {
   Box,
   Typography,
@@ -77,6 +77,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
   const [createAgentDialogOpen, setCreateAgentDialogOpen] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
   const [expandedEnvironments, setExpandedEnvironments] = useState<Set<string>>(new Set())
+  const [screenshots, setScreenshots] = useState<Map<string, string>>(new Map())
 
   // Filter apps to only show those with zed_external agent type
   const zedAgentApps = apps.filter(app =>
@@ -93,6 +94,60 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
     select: (response) => response.data || [],
     enabled: !!account.user
   })
+
+  // Poll screenshots for running environments every second
+  useEffect(() => {
+    const fetchScreenshots = async () => {
+      const runningEnvironments = environments.filter(env => env.status === 'running')
+
+      for (const env of runningEnvironments) {
+        try {
+          // Use fetch to get screenshot as blob
+          const response = await fetch(`/api/v1/personal-dev-environments/${env.instanceID}/screenshot`, {
+            headers: {
+              Authorization: `Bearer ${api.token}`
+            }
+          })
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`)
+          }
+
+          // Create object URL from blob
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+
+          // Update screenshots map
+          setScreenshots(prev => {
+            const newMap = new Map(prev)
+            // Revoke old URL to prevent memory leak
+            const oldUrl = newMap.get(env.instanceID || '')
+            if (oldUrl) {
+              URL.revokeObjectURL(oldUrl)
+            }
+            newMap.set(env.instanceID || '', url)
+            return newMap
+          })
+        } catch (err) {
+          // Silently fail - screenshot might not be ready yet
+          console.debug(`Failed to fetch screenshot for ${env.instanceID}:`, err)
+        }
+      }
+    }
+
+    // Fetch immediately
+    fetchScreenshots()
+
+    // Set up interval to fetch every second
+    const interval = setInterval(fetchScreenshots, 1000)
+
+    // Cleanup
+    return () => {
+      clearInterval(interval)
+      // Revoke all object URLs on cleanup
+      screenshots.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [environments, api.token, screenshots])
 
   // Display preset configurations
   const getDisplayConfig = () => {
@@ -399,6 +454,33 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                       }
                     />
                     <CardContent>
+                      {/* Screenshot Thumbnail */}
+                      {screenshots.get(environment.instanceID || '') && (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            height: 150,
+                            mb: 2,
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                            backgroundColor: '#000',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <img
+                            src={screenshots.get(environment.instanceID || '')}
+                            alt={`Screenshot of ${environment.environment_name}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </Box>
+                      )}
+
                       <Box display="flex" alignItems="center" mb={2}>
                         <Chip
                           icon={getStatusIcon(environment.status)}
