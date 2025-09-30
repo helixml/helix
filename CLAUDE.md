@@ -283,18 +283,28 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 
 **CRITICAL: Wolf has been modified to allow multiple parallel streaming sessions**
 
-The Moonlight client automatically stops active sessions before starting new ones (gaming behavior where only one game can run at a time). This was preventing multiple Personal Dev Environments from running simultaneously.
+The Moonlight client automatically stops active sessions before starting new ones (gaming behavior where only one game can run at a time). This was preventing multiple Personal Dev Environments from running simultaneously. Additionally, quitting a session (Ctrl+Shift+Alt+Q) would stop the stream.
 
-**Modification Location**: `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
-- Function: `endpoint_StreamSessionStop`
-- Change: Made session stop a no-op (returns success without firing StopStreamEvent)
-- Result: Multiple Moonlight sessions can run in parallel without terminating each other
+**Modification Locations**:
 
-**To rebuild Wolf with modifications**: `./stack rebuild-wolf` (from helix directory)
+1. **`/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`**
+   - Function: `endpoint_StreamSessionStop`
+   - Change: Made session stop a no-op (returns success without firing StopStreamEvent)
+   - Prevents Moonlight client from stopping sessions when switching apps
+
+2. **`/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`**
+   - TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
+   - DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
+   - Change: Sessions continue running after client quits (Ctrl+Shift+Alt+Q) or disconnects
+   - Prevents streaming pipeline shutdown when Moonlight client quits
+
+**To rebuild Wolf with modifications**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml restart wolf`
 
 This enables users to:
 - Connect to multiple Personal Dev Environments simultaneously
 - Switch between PDEs without stopping them
+- Quit Moonlight client (Ctrl+Shift+Alt+Q) without stopping the session
+- Reconnect to running sessions after disconnecting
 - Run multiple streaming sessions for different purposes
 
 ## Using Generated TypeScript Client and React Query
