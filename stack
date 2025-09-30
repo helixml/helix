@@ -605,8 +605,9 @@ function build-sway() {
     echo "Features added:"
     echo "  - Sway tiling window manager with waybar"
     echo "  - Firefox, Ghostty terminal, OnlyOffice"
-    echo "  - wayvnc for VNC access"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
     echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
   else
     echo "❌ Failed to build Sway container"
     exit 1
