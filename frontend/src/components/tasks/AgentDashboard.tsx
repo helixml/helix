@@ -669,8 +669,8 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
             {/* External Agent Connections */}
             <Grid item xs={12}>
               <Card>
-                <CardHeader 
-                  title="External Agent Runners"
+                <CardHeader
+                  title="External Agents"
                   action={
                     <Badge badgeContent={externalAgentConnections.length} color="primary">
                       <ComputerIcon />
@@ -714,8 +714,8 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               </Box>
                             }
                           />
-                          <Tooltip title="Web RDP Viewer">
-                            <IconButton 
+                          <Tooltip title="View Desktop">
+                            <IconButton
                               size="small" 
                               onClick={() => openRunnerWebRDP(connection.session_id)}
                               sx={{ 
@@ -739,10 +739,10 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                   ) : (
                     <Box sx={{ textAlign: 'center', py: 2 }}>
                       <Typography color="textSecondary" variant="body2">
-                        No external agent runners connected
+                        No external agents connected
                       </Typography>
                       <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>
-                        External agents (like Zed instances) will appear here when connected
+                        Zed instances connected via WebSocket will appear here
                       </Typography>
                     </Box>
                   )}
@@ -1254,7 +1254,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
         }}
       >
         <DialogTitle>
-          External Agent Runner - Web RDP
+          External Agent Desktop
           <Button
             onClick={() => setRunnerRDPViewerOpen(null)}
             sx={{ position: 'absolute', right: 8, top: 8 }}
@@ -1268,10 +1268,10 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
               sessionId={runnerRDPViewerOpen}
               isRunner={true}
               onConnectionChange={(connected) => {
-                console.log('Runner RDP connection status:', connected);
+                console.log('External agent desktop connection status:', connected);
               }}
               onError={(error) => {
-                console.error('Runner RDP error:', error);
+                console.error('External agent desktop error:', error);
               }}
               width={1024}
               height={768}
