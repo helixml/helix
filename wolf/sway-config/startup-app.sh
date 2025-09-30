@@ -4,47 +4,12 @@ set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
 
-# Function to start wayvnc VNC server after Sway is ready
-start_wayvnc() {
-    echo "Starting wayvnc VNC server..."
-
-    # Find the Wayland display socket
-    if [ -S "$XDG_RUNTIME_DIR/wayland-1" ]; then
-        export WAYLAND_DISPLAY=wayland-1
-    elif [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
-        export WAYLAND_DISPLAY=wayland-0
-    fi
-
-    echo "Using Wayland display: $WAYLAND_DISPLAY"
-
-    # Disable Wayland security features for containerized environment
-    export WLR_ALLOW_ALL_CLIENTS=1
-
-    # Start wayvnc on port 5901 with input disabled for compatibility
-    echo "Starting wayvnc on port 5901..."
-    wayvnc --max-fps 120 --show-performance --disable-resizing --disable-input 0.0.0.0 5901 &
-    WAYVNC_PID=$!
-
-    # Verify wayvnc started successfully (wait for port to be listening)
-    echo "Waiting for wayvnc to start..."
-    for i in {1..20}; do
-        if lsof -i :5901 >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.5
-    done
-
-    if lsof -i :5901 >/dev/null 2>&1; then
-        echo "✅ VNC server started successfully on port 5901"
-    else
-        echo "❌ VNC server failed to start on port 5901"
-        echo "Wayland display: $WAYLAND_DISPLAY"
-        echo "Runtime dir contents: $(ls -la $XDG_RUNTIME_DIR/ 2>/dev/null || echo 'No runtime dir')"
-    fi
-}
-
-# Start wayvnc in background
-start_wayvnc &
+# Start screenshot server in background (if binary exists)
+if [ -f /usr/local/bin/screenshot-server ]; then
+    echo "Starting screenshot server..."
+    /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1 &
+    echo "Screenshot server started"
+fi
 
 # Source GOW's launch-comp.sh for the launcher function
 echo "Starting Sway and launching Zed via GOW launcher..."
