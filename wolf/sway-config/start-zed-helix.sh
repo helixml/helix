@@ -2,9 +2,9 @@
 # Startup script for Zed editor connected to Helix controlplane (Sway version)
 set -e
 
-# Check if Zed binary exists
-if [ ! -f "/usr/local/bin/zed" ]; then
-    echo "Zed binary not found at /usr/local/bin/zed - cannot start Zed agent"
+# Check if Zed binary exists (directory mounted to survive inode changes on rebuild)
+if [ ! -f "/zed-build/zed" ]; then
+    echo "Zed binary not found at /zed-build/zed - cannot start Zed agent"
     exit 1
 fi
 
@@ -14,6 +14,13 @@ fi
 # Set workspace to mounted work directory
 cd /home/retro/work || cd /home/user/work || cd /tmp
 
-# Launch Zed with the current directory as workspace
-# In Sway, we don't need --log debug unless debugging
-exec /usr/local/bin/zed .
+# Launch Zed in a restart loop for development
+# When you close Zed (click X), it auto-restarts with the latest binary
+# Perfect for testing rebuilds without recreating the entire container
+echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
+while true; do
+    echo "Launching Zed..."
+    /zed-build/zed . || true
+    echo "Zed exited, restarting in 2 seconds..."
+    sleep 2
+done
