@@ -281,31 +281,31 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 
 ### Wolf Parallel Sessions Support
 
-**CRITICAL: Wolf has been modified to allow multiple parallel streaming sessions**
+**CRITICAL: Wolf has been modified to allow session persistence while enabling proper cleanup**
 
-The Moonlight client automatically stops active sessions before starting new ones (gaming behavior where only one game can run at a time). This was preventing multiple Personal Dev Environments from running simultaneously. Additionally, quitting a session (Ctrl+Shift+Alt+Q) would stop the stream.
+The Moonlight client sends TERMINATION packets and DISCONNECT events when users quit (Ctrl+Shift+Alt+Q) or close the client. By default, this would stop the streaming session and container. We've modified Wolf to distinguish between:
 
-**Modification Locations**:
+1. **Client-side events** (user quitting/disconnecting) - Sessions persist
+2. **API-side cleanup** (Helix explicitly deleting PDEs) - Proper cleanup happens
 
-1. **`/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`**
-   - Function: `endpoint_StreamSessionStop`
-   - Change: Made session stop a no-op (returns success without firing StopStreamEvent)
-   - Prevents Moonlight client from stopping sessions when switching apps
+**Modification Location**: `/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`
+- TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
+- DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
+- **Result**: Sessions continue running when client quits or disconnects
 
-2. **`/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`**
-   - TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
-   - DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
-   - Change: Sessions continue running after client quits (Ctrl+Shift+Alt+Q) or disconnects
-   - Prevents streaming pipeline shutdown when Moonlight client quits
+**Unmodified (intentionally)**: `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
+- Function: `endpoint_StreamSessionStop` - Still fires StopStreamEvent
+- **Result**: When Helix calls `/api/v1/sessions/stop`, containers are properly stopped and removed
+- This prevents session/container reuse bugs when deleting and recreating PDEs
 
-**To rebuild Wolf with modifications**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml restart wolf`
+**To rebuild Wolf with modifications**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml down wolf && docker compose -f docker-compose.dev.yaml up -d wolf`
 
-This enables users to:
-- Connect to multiple Personal Dev Environments simultaneously
-- Switch between PDEs without stopping them
-- Quit Moonlight client (Ctrl+Shift+Alt+Q) without stopping the session
-- Reconnect to running sessions after disconnecting
-- Run multiple streaming sessions for different purposes
+This enables:
+- ✅ Session persistence when clients quit (Ctrl+Shift+Alt+Q)
+- ✅ Reconnection to existing sessions without restart
+- ✅ Multiple parallel Personal Dev Environment sessions
+- ✅ Proper container cleanup when Helix explicitly deletes PDEs
+- ✅ No session/container reuse bugs
 
 ## Using Generated TypeScript Client and React Query
 
