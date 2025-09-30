@@ -4,14 +4,10 @@ import (
 	"time"
 )
 
-// AgentRunner represents an external agent runner with its RDP connection info
+// AgentRunner represents an external agent runner
 type AgentRunner struct {
 	ID              string    `json:"id" gorm:"primaryKey"`              // Runner ID
 	Status          string    `json:"status"`                            // "online", "offline", "starting", "stopping"
-	RDPPassword     string    `json:"rdp_password"`                      // Current RDP password for this runner
-	RDPPort         int       `json:"rdp_port" gorm:"default:3389"`      // RDP port
-	RDPUsername     string    `json:"rdp_username" gorm:"default:'zed'"` // RDP username
-	PasswordRotated time.Time `json:"password_rotated"`                  // When password was last rotated
 	LastSeen        time.Time `json:"last_seen"`                         // Last heartbeat from runner
 	CreatedAt       time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt       time.Time `json:"updated_at" gorm:"autoUpdateTime"`
@@ -36,17 +32,6 @@ type AgentRunnerStatus struct {
 	Version         string    `json:"version,omitempty"`
 }
 
-// AgentRunnerConnectionInfo represents RDP connection information for an agent runner
-type AgentRunnerConnectionInfo struct {
-	RunnerID    string `json:"runner_id"`
-	RDPPort     int    `json:"rdp_port"`
-	RDPUsername string `json:"rdp_username"`
-	RDPPassword string `json:"rdp_password"`
-	Status      string `json:"status"`
-	Host        string `json:"host"`
-	ProxyURL    string `json:"proxy_url,omitempty"`
-}
-
 // ListAgentRunnersQuery represents query parameters for listing agent runners
 type ListAgentRunnersQuery struct {
 	Page         int    `json:"page"`
@@ -63,17 +48,4 @@ type AgentRunnersResponse struct {
 	Total    int64          `json:"total"`
 	Page     int            `json:"page"`
 	PageSize int            `json:"page_size"`
-}
-
-// AgentRunnerPasswordRotationRequest represents a request to rotate an agent runner's RDP password
-type AgentRunnerPasswordRotationRequest struct {
-	RunnerID string `json:"runner_id"`
-}
-
-// AgentRunnerPasswordRotationResponse represents the response after rotating a password
-type AgentRunnerPasswordRotationResponse struct {
-	RunnerID        string    `json:"runner_id"`
-	NewPassword     string    `json:"new_password"`
-	PasswordRotated time.Time `json:"password_rotated"`
-	Status          string    `json:"status"`
 }

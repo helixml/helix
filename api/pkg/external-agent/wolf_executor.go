@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
@@ -59,19 +60,153 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 	}
 }
 
-// StartZedAgent implements the Executor interface
+// StartZedAgent implements the Executor interface for external agent sessions
 func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
 	log.Info().
 		Str("session_id", agent.SessionID).
+		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
-		Msg("Starting Zed agent via Wolf")
+		Msg("Starting external Zed agent via Wolf")
 
-	// For now, skip Zed process apps since we're focusing on the Docker personal dev environments
-	// TODO: Create a minimal process app constructor if needed
-	return nil, fmt.Errorf("Zed process apps not supported with minimal Wolf client - use personal dev environments instead")
+	// Generate unique Wolf app ID for this session
+	wolfAppID := fmt.Sprintf("zed-external-%s", system.GenerateUUID())
+
+	// Determine workspace directory - use session-specific path
+	workspaceDir := agent.WorkDir
+	if workspaceDir == "" {
+		workspaceDir = filepath.Join(w.workspaceBasePath, "external-agents", agent.SessionID)
+	}
+
+	// Create workspace directory if it doesn't exist
+	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("workspace_dir", workspaceDir).
+		Str("session_id", agent.SessionID).
+		Msg("Creating Wolf app for external Zed agent")
+
+	// Create Sway compositor configuration (same as PDEs)
+	err := w.createSwayConfig(agent.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Sway config: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("workspace_dir", workspaceDir).
+		Msg("Created Sway compositor configuration for external agent")
+
+	// Build environment variables (merge defaults with agent.Env)
+	env := []string{
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"RUN_SWAY=1",
+		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
+		// Zed external websocket sync configuration
+		"ZED_EXTERNAL_SYNC_ENABLED=true",
+		"ZED_HELIX_URL=api:8080",
+		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
+		"ZED_HELIX_TLS=false",
+		// Session context
+		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
+		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
+	}
+
+	// Add custom env vars from agent request
+	env = append(env, agent.Env...)
+
+	mounts := []string{
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),
+		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
+		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
+		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Use Wolf app ID as container hostname
+	containerHostname := fmt.Sprintf("zed-external-%s", wolfAppID)
+
+	baseCreateJSON := fmt.Sprintf(`{
+  "Hostname": "%s",
+  "HostConfig": {
+    "IpcMode": "host",
+    "NetworkMode": "helix_default",
+    "Privileged": false,
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}`, containerHostname)
+
+	// Use Wolf's NewMinimalDockerApp constructor
+	app := wolf.NewMinimalDockerApp(
+		wolfAppID,
+		fmt.Sprintf("External Agent %s", agent.SessionID),
+		containerHostname,
+		w.zedImage,
+		env,
+		mounts,
+		baseCreateJSON,
+		1920, // Default display width
+		1080, // Default display height
+		60,   // Default display FPS
+	)
+
+	// Try to remove any existing app with the same ID to prevent duplicates
+	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
+	if err != nil {
+		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
+	}
+
+	// Add the app to Wolf
+	err = w.wolfClient.AddApp(ctx, app)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add external agent app to Wolf: %w", err)
+	}
+
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("session_id", agent.SessionID).
+		Msg("Wolf app created successfully for external agent")
+
+	// Wolf auto-starts the container when the app is added
+	wolfSessionID := int64(0) // Wolf handles container lifecycle directly
+
+	// Track session
+	session := &ZedSession{
+		SessionID:     agent.SessionID,
+		UserID:        agent.UserID,
+		Status:        "starting",
+		StartTime:     time.Now(),
+		LastAccess:    time.Now(),
+		ProjectPath:   agent.ProjectPath,
+		WolfAppID:     wolfAppID,
+		WolfSessionID: wolfSessionID,
+		ContainerName: containerHostname,
+	}
+	w.sessions[agent.SessionID] = session
+
+	// Return response with screenshot URL and Moonlight info
+	response := &types.ZedAgentResponse{
+		SessionID:     agent.SessionID,
+		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
+		Status:        "starting",
+		ContainerName: containerHostname,
+		WolfAppID:     wolfAppID,
+	}
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("screenshot_url", response.ScreenshotURL).
+		Str("container_name", containerHostname).
+		Msg("External Zed agent started successfully")
+
+	return response, nil
 }
 
 // buildZedCommand constructs the Zed execution command with proper environment variables

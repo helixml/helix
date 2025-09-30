@@ -97,16 +97,17 @@ type ZedThreadInfo struct {
 	Config        map[string]interface{} `json:"config,omitempty"`
 }
 
-// ZedSession represents a single Zed session (legacy)
+// ZedSession represents a single Zed session
 type ZedSession struct {
-	SessionID   string    `json:"session_id"`
-	UserID      string    `json:"user_id"`
-	Status      string    `json:"status"`
-	StartTime   time.Time `json:"start_time"`
-	LastAccess  time.Time `json:"last_access"`
-	ProjectPath string    `json:"project_path,omitempty"`
-	RDPURL      string    `json:"rdp_url,omitempty"`
-	RDPPassword string    `json:"rdp_password,omitempty"`
+	SessionID     string    `json:"session_id"`
+	UserID        string    `json:"user_id"`
+	Status        string    `json:"status"`
+	StartTime     time.Time `json:"start_time"`
+	LastAccess    time.Time `json:"last_access"`
+	ProjectPath   string    `json:"project_path,omitempty"`
+	WolfAppID     string    `json:"wolf_app_id,omitempty"`
+	WolfSessionID int64     `json:"wolf_session_id,omitempty"`
+	ContainerName string    `json:"container_name,omitempty"`
 }
 
 // NewPoolExecutor creates a new pool-based executor
@@ -161,14 +162,11 @@ func (pe *PoolExecutor) handleSingleSessionRequest(ctx context.Context, agent *t
 
 	// Create session info
 	session := &ZedSession{
-		SessionID:   agent.SessionID,
-		UserID:      agent.UserID,
-		Status:      "starting",
-		StartTime:   time.Now(),
-		LastAccess:  time.Now(),
-		ProjectPath: agent.ProjectPath,
-		RDPURL:      fmt.Sprintf("rdp://runner-pool/%s", agent.SessionID),
-		RDPPassword: generatePassword(),
+		SessionID:  agent.SessionID,
+		UserID:     agent.UserID,
+		Status:     "starting",
+		StartTime:  time.Now(),
+		LastAccess: time.Now(),
 	}
 
 	pe.mutex.Lock()
@@ -176,9 +174,8 @@ func (pe *PoolExecutor) handleSingleSessionRequest(ctx context.Context, agent *t
 	pe.mutex.Unlock()
 
 	response := &types.ZedAgentResponse{
-		SessionID:   agent.SessionID,
-		RDPURL:      session.RDPURL,
-		RDPPassword: session.RDPPassword,
+		SessionID: agent.SessionID,
+		Status:    "starting",
 	}
 
 	return response, nil
@@ -525,13 +522,11 @@ func (adapter *NATSExecutorAdapter) GetSession(sessionID string) (*ZedSession, e
 
 	// Convert AgentSession to ZedSession
 	return &ZedSession{
-		SessionID:   session.ID,
-		UserID:      session.HelixSession, // Using HelixSession as UserID placeholder
-		Status:      session.Status,
-		StartTime:   session.CreatedAt,
-		LastAccess:  session.LastActivity,
-		RDPURL:      session.RDPURL,
-		RDPPassword: session.RDPPassword,
+		SessionID:  session.ID,
+		UserID:     session.HelixSession, // Using HelixSession as UserID placeholder
+		Status:     session.Status,
+		StartTime:  session.CreatedAt,
+		LastAccess: session.LastActivity,
 	}, nil
 }
 
@@ -550,13 +545,11 @@ func (adapter *NATSExecutorAdapter) ListSessions() []*ZedSession {
 
 	for i, session := range sessions {
 		zedSessions[i] = &ZedSession{
-			SessionID:   session.ID,
-			UserID:      session.HelixSession,
-			Status:      session.Status,
-			StartTime:   session.CreatedAt,
-			LastAccess:  session.LastActivity,
-			RDPURL:      session.RDPURL,
-			RDPPassword: session.RDPPassword,
+			SessionID:  session.ID,
+			UserID:     session.HelixSession,
+			Status:     session.Status,
+			StartTime:  session.CreatedAt,
+			LastAccess: session.LastActivity,
 		}
 
 		log.Debug().
