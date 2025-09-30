@@ -283,17 +283,26 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 
 **CRITICAL: Wolf has been modified to allow session persistence while enabling proper cleanup**
 
-The Moonlight client sends TERMINATION packets and DISCONNECT events when users quit (Ctrl+Shift+Alt+Q) or close the client. By default, this would stop the streaming session and container. We've modified Wolf to distinguish between:
+The Moonlight client sends various stop/cancel signals when users quit or disconnect. By default, this would stop the streaming session and container. We've modified Wolf to distinguish between:
 
-1. **Client-side events** (user quitting/disconnecting) - Sessions persist
-2. **API-side cleanup** (Helix explicitly deleting PDEs) - Proper cleanup happens
+1. **Moonlight protocol events** (client-initiated) - Sessions persist
+2. **Wolf internal API** (Helix-initiated) - Proper cleanup happens
 
-**Modification Location**: `/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`
-- TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
-- DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
-- **Result**: Sessions continue running when client quits or disconnects
+**Modification Locations - Moonlight Protocol (client-initiated, sessions persist)**:
 
-**Unmodified (intentionally)**: `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
+1. `/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`
+   - TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
+   - DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
+   - **Result**: Sessions continue running when client quits or disconnects via control protocol
+
+2. `/home/luke/pm/wolf/src/moonlight-server/rest/endpoints.hpp`
+   - Function: `cancel` (line ~514): Disabled StopStreamEvent firing
+   - **Result**: Sessions continue running when client calls `/cancel` HTTPS endpoint
+   - This endpoint is part of Moonlight HTTPS protocol used during pairing/launch
+
+**Unmodified (intentionally) - Wolf Internal API (Helix-initiated, proper cleanup)**:
+
+- `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
 - Function: `endpoint_StreamSessionStop` - Still fires StopStreamEvent
 - **Result**: When Helix calls `/api/v1/sessions/stop`, containers are properly stopped and removed
 - This prevents session/container reuse bugs when deleting and recreating PDEs
@@ -302,6 +311,7 @@ The Moonlight client sends TERMINATION packets and DISCONNECT events when users 
 
 This enables:
 - ✅ Session persistence when clients quit (Ctrl+Shift+Alt+Q)
+- ✅ Session persistence when clients call /cancel endpoint
 - ✅ Reconnection to existing sessions without restart
 - ✅ Multiple parallel Personal Dev Environment sessions
 - ✅ Proper container cleanup when Helix explicitly deletes PDEs
