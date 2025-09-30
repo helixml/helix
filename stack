@@ -181,10 +181,17 @@ function build-zed() {
 
   echo "✅ Zed compilation completed successfully"
 
-  # Copy binary to output directory
+  # Copy binary to output directory (atomic rename to avoid "text file busy")
   cd - > /dev/null
-  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed"
-  chmod +x "$ZED_OUTPUT_DIR/zed"
+  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed.new"
+  chmod +x "$ZED_OUTPUT_DIR/zed.new"
+
+  # Atomic rename (works even if old binary is in use by running containers)
+  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
+    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+  fi
+  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
+  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
 
   # Get binary info
   local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
