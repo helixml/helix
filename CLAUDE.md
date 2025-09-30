@@ -300,6 +300,12 @@ The Moonlight client sends various stop/cancel signals when users quit or discon
    - **Result**: Sessions continue running when client calls `/cancel` HTTPS endpoint
    - This endpoint is part of Moonlight HTTPS protocol used during pairing/launch
 
+3. `/home/luke/pm/wolf/src/moonlight-server/rest/servers.cpp`
+   - Function: HTTPS `serverinfo` handler (line ~123): Always passes `std::nullopt` instead of `client_session`
+   - **Result**: Moonlight client always sees server as available (not busy)
+   - Prevents client from complaining "running game wasn't started on this PC"
+   - Allows starting new sessions without client trying to stop existing ones first
+
 **Unmodified (intentionally) - Wolf Internal API (Helix-initiated, proper cleanup)**:
 
 - `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
