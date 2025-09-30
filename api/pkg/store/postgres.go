@@ -155,6 +155,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.JobCompletion{},
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
+		&types.PersonalDevEnvironment{},
 	)
 	if err != nil {
 		return err

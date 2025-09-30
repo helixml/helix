@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
@@ -18,8 +19,8 @@ import (
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
 	wolfClient *wolf.Client
+	store      store.Store
 	sessions   map[string]*ZedSession
-	instances  map[string]*ZedInstanceInfo
 	mutex      sync.RWMutex
 
 	// Zed configuration
@@ -46,11 +47,11 @@ func (w *WolfExecutor) generateWolfAppID(userID, environmentName string) string 
 }
 
 // NewWolfExecutor creates a new Wolf-based executor
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string) *WolfExecutor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
 	return &WolfExecutor{
 		wolfClient:        wolf.NewClient(wolfSocketPath),
+		store:             store,
 		sessions:          make(map[string]*ZedSession),
-		instances:         make(map[string]*ZedInstanceInfo),
 		zedImage:          zedImage,
 		helixAPIURL:       helixAPIURL,
 		helixAPIToken:     helixAPIToken,
