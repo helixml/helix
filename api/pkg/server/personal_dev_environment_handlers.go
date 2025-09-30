@@ -657,54 +657,62 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironmentScreenshot(res http.Re
 		return
 	}
 
-	// Use the Wolf app_id to look up the active session
-	// Wolf will map app_id → session_id internally
-	wolfAppID := instance.AppID
+	// Use the container name to access screenshot server over Docker network
+	containerName := instance.ContainerName
 
 	log.Info().
 		Str("user_id", user.ID).
 		Str("environment_id", environmentID).
-		Str("wolf_app_id", wolfAppID).
-		Msg("Proxying screenshot request to Wolf")
+		Str("container_name", containerName).
+		Msg("Requesting screenshot from container screenshot server")
 
-	// Proxy request to Wolf's Unix socket using app_id
-	wolfClient := wolfExecutor.GetWolfClient()
-	screenshotURL := fmt.Sprintf("/api/v1/sessions/screenshot?app_id=%s", wolfAppID)
+	// Make HTTP request to screenshot server inside the container
+	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
 
-	// Make request to Wolf via Unix socket
-	wolfResp, err := wolfClient.Get(req.Context(), screenshotURL)
+	screenshotReq, err := http.NewRequestWithContext(req.Context(), "GET", screenshotURL, nil)
 	if err != nil {
-		log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to get screenshot from Wolf")
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create screenshot request")
+		http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
+		return
+	}
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	screenshotResp, err := httpClient.Do(screenshotReq)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get screenshot from container")
 		http.Error(res, "Failed to retrieve screenshot", http.StatusInternalServerError)
 		return
 	}
-	defer wolfResp.Body.Close()
+	defer screenshotResp.Body.Close()
 
-	// Check Wolf response status
-	if wolfResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(wolfResp.Body)
+	// Check screenshot server response status
+	if screenshotResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(screenshotResp.Body)
 		log.Error().
-			Int("status", wolfResp.StatusCode).
+			Int("status", screenshotResp.StatusCode).
 			Str("body", string(body)).
-			Str("wolf_app_id", wolfAppID).
-			Msg("Wolf returned error for screenshot")
-		http.Error(res, "Failed to retrieve screenshot from Wolf", wolfResp.StatusCode)
+			Str("container_name", containerName).
+			Msg("Screenshot server returned error")
+		http.Error(res, "Failed to retrieve screenshot from container", screenshotResp.StatusCode)
 		return
 	}
 
-	// Read PNG data from Wolf
-	pngData, err := io.ReadAll(wolfResp.Body)
+	// Read PNG data from screenshot server
+	pngData, err := io.ReadAll(screenshotResp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to read screenshot data from Wolf")
+		log.Error().Err(err).Msg("Failed to read screenshot data")
 		http.Error(res, "Failed to read screenshot data", http.StatusInternalServerError)
 		return
 	}
 
 	log.Info().
 		Str("environment_id", environmentID).
-		Str("wolf_app_id", wolfAppID).
+		Str("container_name", containerName).
 		Int("size_bytes", len(pngData)).
-		Msg("Successfully retrieved screenshot from Wolf")
+		Msg("Successfully retrieved screenshot from container")
 
 	// Return PNG image
 	res.Header().Set("Content-Type", "image/png")
