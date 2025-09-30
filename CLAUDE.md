@@ -306,6 +306,13 @@ The Moonlight client sends various stop/cancel signals when users quit or discon
    - Prevents client from complaining "running game wasn't started on this PC"
    - Allows starting new sessions without client trying to stop existing ones first
 
+4. `/home/luke/pm/wolf/src/moonlight-server/rest/endpoints.hpp`
+   - Function: `launch` (line ~456): Added duplicate prevention check
+   - Checks if client already has active session for the same app
+   - If yes, reuses existing session instead of creating new container
+   - **Result**: Prevents duplicate containers when client calls /launch repeatedly
+   - Works with serverinfo hiding - client calls /launch instead of /resume
+
 **Unmodified (intentionally) - Wolf Internal API (Helix-initiated, proper cleanup)**:
 
 - `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
