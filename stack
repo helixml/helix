@@ -120,7 +120,15 @@ function build-zed() {
 
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
-  local BUILD_TYPE="${1:-debug}"
+  local BUILD_TYPE="${1:-release}"
+
+  # Validate build type - only release works (debug doesn't embed assets)
+  if [ "$BUILD_TYPE" != "release" ]; then
+    echo "❌ Error: Only 'release' build type is supported"
+    echo "Debug builds don't properly embed settings/default.json and will crash at startup"
+    echo "Usage: ./stack build-zed release"
+    return 1
+  fi
 
   # Check if Zed source directory exists
   if [ ! -d "$ZED_SOURCE_DIR" ]; then
@@ -155,23 +163,13 @@ function build-zed() {
   echo "Source directory: $(pwd)"
   echo "Build type: $BUILD_TYPE"
 
-  # Build Zed with external WebSocket sync feature enabled
-  if [ "$BUILD_TYPE" = "release" ]; then
-    if RUST_LOG=info cargo build --release --features external_websocket_sync; then
-      BINARY_PATH="target/release/zed"
-    else
-      echo "❌ Zed build failed"
-      cd - > /dev/null
-      return 1
-    fi
+  # Build Zed in release mode (required for embedded assets)
+  if RUST_LOG=info cargo build --release --features external_websocket_sync; then
+    BINARY_PATH="target/release/zed"
   else
-    if RUST_LOG=info cargo build --features external_websocket_sync; then
-      BINARY_PATH="target/debug/zed"
-    else
-      echo "❌ Zed build failed"
-      cd - > /dev/null
-      return 1
-    fi
+    echo "❌ Zed build failed"
+    cd - > /dev/null
+    return 1
   fi
 
   # Check if build was successful
@@ -958,7 +956,7 @@ function help() {
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
   echo ""
   echo "Zed Agent commands:"
-  echo "  build-zed [debug|release] - Build Zed with External WebSocket Thread Sync (default: debug)"
+  echo "  build-zed          - Build Zed in release mode (only mode that works)"
   echo "  build-zed-agent    - Build Zed agent Docker image"
   echo "  zed-agent-up       - Start Zed agent services"
   echo "  zed-agent-down     - Stop Zed agent services"
