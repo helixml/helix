@@ -2,7 +2,7 @@ api/pkg/skills/test_results/
 .env
 .env.*
 node_modules
-*.sw*
+.*.sw*
 frontend/lib
 gradio/__pycache__
 __pycache__
