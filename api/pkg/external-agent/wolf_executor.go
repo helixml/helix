@@ -611,6 +611,9 @@ func (w *WolfExecutor) createWorkspaceDirectory(instanceID string) (string, erro
 
 echo "Starting up personal dev environment: ` + instanceID + `"
 
+# Ensure workspace directory has correct permissions
+sudo chown -R retro:retro ~/work
+
 # Install JupyterLab and OnlyOffice
 echo "Installing JupyterLab and OnlyOffice..."
 sudo apt update
