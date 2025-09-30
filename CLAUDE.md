@@ -279,6 +279,24 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 4. **Fix include paths systematically** when integrating Wolf code
 5. **Test each server component individually** before full integration
 
+### Wolf Parallel Sessions Support
+
+**CRITICAL: Wolf has been modified to allow multiple parallel streaming sessions**
+
+The Moonlight client automatically stops active sessions before starting new ones (gaming behavior where only one game can run at a time). This was preventing multiple Personal Dev Environments from running simultaneously.
+
+**Modification Location**: `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
+- Function: `endpoint_StreamSessionStop`
+- Change: Made session stop a no-op (returns success without firing StopStreamEvent)
+- Result: Multiple Moonlight sessions can run in parallel without terminating each other
+
+**To rebuild Wolf with modifications**: `./stack rebuild-wolf` (from helix directory)
+
+This enables users to:
+- Connect to multiple Personal Dev Environments simultaneously
+- Switch between PDEs without stopping them
+- Run multiple streaming sessions for different purposes
+
 ## Using Generated TypeScript Client and React Query
 
 **IMPORTANT: Always use the generated TypeScript client instead of manual API calls**
