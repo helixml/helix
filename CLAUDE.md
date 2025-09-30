@@ -40,6 +40,7 @@ This means you often don't need to rebuild containers - just save files and chan
 9. **Manual testing required**: Human verification at every step, no automation
 10. **CRITICAL: Always start helix container before manual testing**: MUST check `docker ps | grep helix` and start container if needed before asking user to test via VNC
 11. **DOCKERFILE FILENAME UPDATES CRITICAL**: When moving from one Step to the next (e.g., Step 7 -> Step 8), you MUST update the Dockerfile COPY lines to reference the new Step filenames BEFORE running docker build. If you update the Dockerfile after build has started, Docker will use cached layers with the old filenames. ALWAYS verify the Dockerfile has correct Step filenames before building.
+12. **CRITICAL: NEVER WRITE FALLBACK CODE**: NEVER write fallback code without explicit permission from the user. Fallbacks hide real problems and make debugging harder. If something fails (e.g., can't read a file, missing dependency), FAIL LOUDLY with a clear error message. Let the user know exactly what went wrong so it can be fixed properly.
 
 ### Current Development Context:
 - **New methodical repo**: `~/pm/hyprmoon/` (this directory)
