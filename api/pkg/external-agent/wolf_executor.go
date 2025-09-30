@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
@@ -71,8 +70,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting external Zed agent via Wolf")
 
-	// Generate unique Wolf app ID for this session
-	wolfAppID := fmt.Sprintf("zed-external-%s", system.GenerateUUID())
+	// Generate numeric Wolf app ID for Moonlight protocol compatibility
+	// Use session ID as environment name for consistency
+	wolfAppID := w.generateWolfAppID(agent.UserID, agent.SessionID)
 
 	// Determine workspace directory - use session-specific path
 	workspaceDir := agent.WorkDir
