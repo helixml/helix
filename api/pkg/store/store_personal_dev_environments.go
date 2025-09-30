@@ -59,10 +59,15 @@ func (s *PostgresStore) UpdatePersonalDevEnvironment(ctx context.Context, pde *t
 }
 
 // ListPersonalDevEnvironments lists all personal development environments for a user
+// If userID is empty, returns all personal dev environments across all users (for reconciliation)
 func (s *PostgresStore) ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error) {
 	var pdes []*types.PersonalDevEnvironment
 
-	query := s.gdb.WithContext(ctx).Where("user_id = ?", userID).Order("created DESC")
+	query := s.gdb.WithContext(ctx)
+	if userID != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	query = query.Order("created DESC")
 
 	if err := query.Find(&pdes).Error; err != nil {
 		return nil, err
