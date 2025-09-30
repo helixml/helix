@@ -643,35 +643,30 @@ echo "OnlyOffice is available in applications menu"
 
 	// Copy the welcome README for users to see when they open Zed
 	welcomeReadmePath := filepath.Join(workspaceDir, "README.md")
+	log.Info().
+		Str("workspace_dir", workspaceDir).
+		Str("readme_path", welcomeReadmePath).
+		Msg("Checking if welcome README needs to be created")
+
 	if _, err := os.Stat(welcomeReadmePath); os.IsNotExist(err) {
+		log.Info().Msg("README does not exist, creating from template")
 		// Read the template README
 		templatePath := "/opt/helix/WORKDIR_README.md"
 		welcomeContent, err := os.ReadFile(templatePath)
 		if err != nil {
-			// Fallback to inline content if template not found
-			welcomeContent = []byte(`# Welcome to HADES! 🚀
-
-**Helix Agentic Development Environment Service**
-
-You're running in a **Sway tiling window manager** environment - a keyboard-driven, efficient workspace designed for developers.
-
-## Quick Tips
-
-- **Move windows**: ` + "`Alt + Left Drag`" + `
-- **Resize windows**: ` + "`Alt + Right Drag`" + `
-- **Launch apps**: Click the bar at the top
-- **New terminal**: Look for the terminal icon in the top bar
-
-## What is this?
-
-This is your personal development container, complete with a desktop environment accessible via remote streaming. Everything you need to code, test, and deploy - all in one place.
-
-**Have fun building! 🛠️**
-`)
+			log.Error().Err(err).Str("template_path", templatePath).Msg("Failed to read README template")
+			return "", fmt.Errorf("failed to read README template at %s: %w", templatePath, err)
 		}
 		if err := os.WriteFile(welcomeReadmePath, welcomeContent, 0644); err != nil {
+			log.Error().Err(err).Str("path", welcomeReadmePath).Msg("Failed to write welcome README")
 			return "", fmt.Errorf("failed to create welcome README: %w", err)
 		}
+		log.Info().Str("path", welcomeReadmePath).Msg("Successfully created welcome README")
+	} else if err != nil {
+		log.Warn().Err(err).Str("path", welcomeReadmePath).Msg("Error checking if README exists")
+	} else {
+		log.Info().Str("path", welcomeReadmePath).Msg("README already exists, skipping creation")
+	}
 	}
 
 	return workspaceDir, nil
