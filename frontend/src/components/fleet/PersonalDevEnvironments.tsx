@@ -98,15 +98,15 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
   // Poll screenshots for running environments every second
   useEffect(() => {
     const fetchScreenshots = async () => {
-      const runningEnvironments = environments.filter(env => env.status === 'running')
+      const runningEnvironments = environments.filter(env =>
+        env.status === 'running' || env.status === 'starting'
+      )
 
       for (const env of runningEnvironments) {
         try {
           // Use fetch to get screenshot as blob
           const response = await fetch(`/api/v1/personal-dev-environments/${env.instanceID}/screenshot`, {
-            headers: {
-              Authorization: `Bearer ${api.token}`
-            }
+            credentials: 'include' // Include cookies for authentication
           })
 
           if (!response.ok) {
@@ -147,7 +147,7 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
       // Revoke all object URLs on cleanup
       screenshots.forEach(url => URL.revokeObjectURL(url))
     }
-  }, [environments, api.token, screenshots])
+  }, [environments])
 
   // Display preset configurations
   const getDisplayConfig = () => {
