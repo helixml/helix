@@ -267,7 +267,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [assistantID, setAssistantID] = useState<string | null>(null)
   const [showRDPViewer, setShowRDPViewer] = useState(false)
   const [isExternalAgent, setIsExternalAgent] = useState(false)
-  const [rdpViewerHeight, setRdpViewerHeight] = useState(600)
+  const [rdpViewerHeight, setRdpViewerHeight] = useState(300)
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1344,7 +1344,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                   <Button
                     size="small"
                     variant="text"
-                    onClick={() => setRdpViewerHeight(600)}
+                    onClick={() => setRdpViewerHeight(300)}
                   >
                     Reset
                   </Button>
