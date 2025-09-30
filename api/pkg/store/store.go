@@ -460,6 +460,14 @@ type Store interface {
 
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
+
+	// Personal Dev Environment methods
+	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
+	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
+	GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error)
+	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
+	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
+	DeletePersonalDevEnvironment(ctx context.Context, id string) error
 }
 
 type EmbeddingsStore interface {

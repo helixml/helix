@@ -2361,3 +2361,31 @@ type TriggerExecution struct {
 	Output                 string                 `json:"output"`
 	SessionID              string                 `json:"session_id"`
 }
+
+// PersonalDevEnvironment represents a persistent personal development environment
+type PersonalDevEnvironment struct {
+	ID        string    `json:"id" gorm:"primaryKey"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+	UserID    string    `json:"user_id" gorm:"index"`
+	AppID     string    `json:"app_id"` // Helix App ID for configuration (MCP servers, tools, etc.)
+	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID
+
+	// User-facing configuration
+	EnvironmentName string `json:"environment_name"`
+
+	// Runtime state
+	Status       string    `json:"status"` // "starting", "running", "stopped"
+	LastActivity time.Time `json:"last_activity"`
+
+	// Streaming configuration
+	DisplayWidth  int `json:"display_width"`
+	DisplayHeight int `json:"display_height"`
+	DisplayFPS    int `json:"display_fps"`
+
+	// Container information
+	ContainerName string `json:"container_name"`
+	VNCPort       int    `json:"vnc_port"`
+	StreamURL     string `json:"stream_url"`
+	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID if running
+}
