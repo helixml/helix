@@ -12,7 +12,9 @@ fi
 # HELIX_API_URL, HELIX_API_TOKEN, ANTHROPIC_API_KEY should be available
 
 # Set workspace to mounted work directory
-cd /home/retro/work || cd /home/user/work || cd /tmp
+cd /home/retro
+sudo chown retro:retro work
+cd /home/retro/work
 
 # Trap signals to prevent script exit when Zed is closed
 # This ensures the loop continues even if Zed receives SIGTERM/SIGINT
