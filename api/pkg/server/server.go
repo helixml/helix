@@ -628,6 +628,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
 	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/guacamole-connection-id", apiServer.getPersonalDevEnvironmentGuacamoleConnectionID).Methods("GET")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/screenshot", apiServer.getPersonalDevEnvironmentScreenshot).Methods("GET")
 
 	// Wolf pairing routes
 	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
