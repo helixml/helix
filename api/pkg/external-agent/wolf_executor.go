@@ -1017,9 +1017,10 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 	} else {
 		deletedCount := 0
 		for _, app := range wolfApps {
-			// Only reconcile apps managed by Helix (Personal Dev Environments and Agents)
+			// Only reconcile Personal Dev Environments (database-backed, long-lived)
 			// Skip static apps defined in config.toml
-			if strings.HasPrefix(app.Title, "Personal") || strings.HasPrefix(app.Title, "Agent") {
+			// External agent sessions are ephemeral and handled separately
+			if strings.HasPrefix(app.Title, "Personal") {
 				// Check if this app ID is expected
 				if !expectedAppIDs[app.ID] {
 					log.Info().
