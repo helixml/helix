@@ -20,6 +20,7 @@ import (
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -93,6 +94,7 @@ type HelixAPIServer struct {
 	cache             *ristretto.Cache[string, string]
 	avatarsBucket     *blob.Bucket
 	trigger           *trigger.Manager
+	anthropicProxy    *anthropic.Proxy
 }
 
 func NewServer(
@@ -113,6 +115,7 @@ func NewServer(
 	oauthManager *oauth.Manager,
 	avatarsBucket *blob.Bucket,
 	trigger *trigger.Manager,
+	anthropicProxy *anthropic.Proxy,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -189,7 +192,7 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	return &HelixAPIServer{
+	server := &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
 		Stripe:            stripe,
@@ -221,9 +224,12 @@ func NewServer(
 		mcpClientGetter: &mcp.DefaultClientGetter{
 			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
 		},
-		avatarsBucket: avatarsBucket,
-		trigger:       trigger,
-	}, nil
+		avatarsBucket:  avatarsBucket,
+		trigger:        trigger,
+		anthropicProxy: anthropicProxy,
+	}
+
+	return server, nil
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
@@ -371,6 +377,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
+
+	// Anthropic API compatible routes
+	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 

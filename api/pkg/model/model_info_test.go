@@ -79,3 +79,32 @@ func Test_GetOpenAIo3Mini_CustomUserProvider(t *testing.T) {
 	assert.Equal(t, "OpenAI: o3 Mini", modelInfo.Name)
 	assert.Equal(t, "0.0000044", modelInfo.Pricing.Completion)
 }
+
+func Test_GetClaudeSonnet4(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude Sonnet 4", modelInfo.Name)
+	assert.Equal(t, "0.000015", modelInfo.Pricing.Completion)
+}
+
+func Test_GetClaudeSonnet4_CustomUserProvider(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "id_123",
+		Model:    "claude-sonnet-4",
+		BaseURL:  "https://api.anthropic.com",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude Sonnet 4", modelInfo.Name)
+	assert.Equal(t, "0.000015", modelInfo.Pricing.Completion)
+}

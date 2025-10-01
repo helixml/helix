@@ -12,6 +12,7 @@ import (
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
 
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -494,13 +495,14 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		log.Error().Err(err).Msg("failed to create avatars directory, app avatars will not be saved")
 	}
 
-	// avatarsBucket, err := blob.OpenBucket(ctx, cfg.FileStore.AvatarsPath)
 	avatarsBucket, err := fileblob.OpenBucket(cfg.FileStore.AvatarsPath, &fileblob.Options{
 		NoTempDir: true,
 	})
 	if err != nil {
 		return err
 	}
+
+	anthropicProxy := anthropic.New(cfg, postgresStore, dynamicInfoProvider, logStores...)
 
 	server, err := server.NewServer(
 		cfg,
@@ -520,6 +522,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		oauthManager,
 		avatarsBucket,
 		trigger,
+		anthropicProxy,
 	)
 	if err != nil {
 		return err
