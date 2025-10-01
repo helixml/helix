@@ -1786,6 +1786,8 @@ export interface TypesProviderEndpoint {
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
   error?: string;
+  /** If for example anthropic expects x-api-key and anthropic-version */
+  headers?: Record<string, string>;
   id?: string;
   /** Optional */
   models?: string[];
@@ -2527,6 +2529,8 @@ export interface TypesUpdateProviderEndpoint {
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
   models?: string[];
+  /** Custom headers for the endpoint */
+  headers?: Record<string, string>;
 }
 
 export interface TypesUpdateTeamRequest {
