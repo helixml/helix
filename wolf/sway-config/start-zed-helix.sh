@@ -17,8 +17,8 @@ sudo chown retro:retro work
 cd /home/retro/work
 
 # Trap signals to prevent script exit when Zed is closed
-# This ensures the loop continues even if Zed receives SIGTERM/SIGINT
-trap 'echo "Caught signal, continuing restart loop..."' SIGTERM SIGINT SIGHUP
+# Using signal numbers for compatibility: 15=TERM, 2=INT, 1=HUP
+trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
 # Launch Zed in a restart loop for development
 # When you close Zed (click X), it auto-restarts with the latest binary
