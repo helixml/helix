@@ -251,6 +251,9 @@ services:
         # Fix HTTPS SSL certificate paths for proper SSL operation
         - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
         - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+        # Workaround for Nvidia zero-copy OpenGL context thrashing bug
+        # https://github.com/games-on-whales/wolf/pull/179#issuecomment-3058215348
+        - WOLF_USE_ZERO_COPY=FALSE
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         - /var/run/docker.sock:/var/run/docker.sock:rw

@@ -171,10 +171,20 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	sessionIDPart := strings.TrimPrefix(agent.SessionID, "ses_")
 	containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
 
+	// Build agent instance ID for this session-scoped agent
+	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
+
 	// Build extra environment variables specific to external agents
 	extraEnv := []string{
+		// Agent identification (used for WebSocket connection)
+		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agentInstanceID),
+		fmt.Sprintf("HELIX_SCOPE_TYPE=session"),
+		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
+
+		// Legacy env vars (kept for backwards compatibility)
 		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
+
 		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts
 	}
 	// Add custom env vars from agent request
@@ -1149,7 +1159,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                              // Mount persistent workspace
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                        // Mount persistent workspace
 		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
 	}
 
@@ -1175,8 +1185,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		containerName,                                            // URL-friendly name with hyphens
-		"helix-sway:latest",                                      // Custom Sway image with modern Wayland support and Helix branding
+		containerName,       // URL-friendly name with hyphens
+		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
 		env,
 		mounts,
 		baseCreateJSON,

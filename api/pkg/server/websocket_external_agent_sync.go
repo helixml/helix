@@ -217,8 +217,11 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		Str("url", req.URL.String()).
 		Str("remote_addr", req.RemoteAddr).
 		Msg("🔌 [HELIX] External agent WebSocket connection attempt")
-	// Extract agent ID from query parameters (optional - will generate one if not provided)
-	agentID := req.URL.Query().Get("agent_id")
+	// Extract session ID from query parameters (checks both session_id and agent_id for compatibility)
+	agentID := req.URL.Query().Get("session_id")
+	if agentID == "" {
+		agentID = req.URL.Query().Get("agent_id")
+	}
 	if agentID == "" {
 		// Generate a unique agent ID for this connection
 		agentID = fmt.Sprintf("external-agent-%d", time.Now().UnixNano())
