@@ -75,38 +75,39 @@ type Options struct {
 }
 
 type HelixAPIServer struct {
-	Cfg                        *config.ServerConfig
-	Store                      store.Store
-	Stripe                     *stripe.Stripe
-	Controller                 *controller.Controller
-	Janitor                    *janitor.Janitor
-	authMiddleware             *authMiddleware
-	pubsub                     pubsub.PubSub
-	connman                    *connman.ConnectionManager
-	providerManager            manager.ProviderManager
-	modelInfoProvider          model.ModelInfoProvider
-	externalAgentExecutor      external_agent.Executor
-	externalAgentWSManager     *ExternalAgentWSManager
-	externalAgentRunnerManager *ExternalAgentRunnerManager
-	contextMappings            map[string]string // Zed context_id -> Helix session_id mapping
-	inferenceServer            *openai.InternalHelixServer
-	knowledgeManager           knowledge.Manager
-	skillManager               *api_skill.Manager
-	router                     *mux.Router
-	scheduler                  *scheduler.Scheduler
-	pingService                *version.PingService
-	oidcClient                 auth.OIDC
-	oauthManager               *oauth.Manager
-	fileServerHandler          http.Handler
-	cache                      *ristretto.Cache[string, string]
-	avatarsBucket              *blob.Bucket
-	trigger                    *trigger.Manager
-	specDrivenTaskService      *services.SpecDrivenTaskService
-	sampleProjectCodeService   *services.SampleProjectCodeService
-	gitRepositoryService       *services.GitRepositoryService
-	zedPlanningService         *services.ZedPlanningService
-	moonlightProxy             *moonlight.MoonlightProxy
-	moonlightServer            *moonlight.MoonlightServer
+	Cfg                         *config.ServerConfig
+	Store                       store.Store
+	Stripe                      *stripe.Stripe
+	Controller                  *controller.Controller
+	Janitor                     *janitor.Janitor
+	authMiddleware              *authMiddleware
+	pubsub                      pubsub.PubSub
+	connman                     *connman.ConnectionManager
+	providerManager             manager.ProviderManager
+	modelInfoProvider           model.ModelInfoProvider
+	externalAgentExecutor       external_agent.Executor
+	externalAgentWSManager      *ExternalAgentWSManager
+	externalAgentRunnerManager  *ExternalAgentRunnerManager
+	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
+	inferenceServer             *openai.InternalHelixServer
+	knowledgeManager            knowledge.Manager
+	skillManager                *api_skill.Manager
+	router                      *mux.Router
+	scheduler                   *scheduler.Scheduler
+	pingService                 *version.PingService
+	oidcClient                  auth.OIDC
+	oauthManager                *oauth.Manager
+	fileServerHandler           http.Handler
+	cache                       *ristretto.Cache[string, string]
+	avatarsBucket               *blob.Bucket
+	trigger                     *trigger.Manager
+	specDrivenTaskService       *services.SpecDrivenTaskService
+	sampleProjectCodeService    *services.SampleProjectCodeService
+	gitRepositoryService        *services.GitRepositoryService
+	zedPlanningService          *services.ZedPlanningService
+	moonlightProxy              *moonlight.MoonlightProxy
+	moonlightServer             *moonlight.MoonlightServer
 }
 
 func NewServer(

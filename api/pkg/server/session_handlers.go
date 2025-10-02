@@ -1189,22 +1189,22 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		log.Error().Str("session_id", session.ID).Msg("No interactions found in session")
 		return fmt.Errorf("no interactions found in session")
 	}
-	
+
 	interaction := session.Interactions[len(session.Interactions)-1]
 	start := time.Now()
-	
+
 	// Wait for external agent to be ready (WebSocket connection established)
 	// Extended timeout to allow time for manual Moonlight client connection to kickstart container
 	if err := s.waitForExternalAgentReady(ctx, session.ID, 300*time.Second); err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("External agent not ready")
-		
+
 		// Update interaction with error
 		interaction.Error = fmt.Sprintf("External agent not ready: %s", err.Error())
 		interaction.State = types.InteractionStateError
 		interaction.Completed = time.Now()
 		interaction.DurationMs = int(time.Since(start).Milliseconds())
 		s.Controller.UpdateInteraction(ctx, session, interaction)
-		
+
 		http.Error(rw, fmt.Sprintf("External agent not ready: %s", err.Error()), http.StatusServiceUnavailable)
 		return err
 	}
@@ -1216,10 +1216,10 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
 		Data: map[string]interface{}{
-			"request_id": requestID,
-			"session_id": session.ID, // Include Helix session ID so Zed can echo it back
-			"message":    userMessage,
-			"role":       "user",
+			"helix_session_id": session.ID,                   // Helix session ID
+			"zed_context_id":   session.Metadata.ZedThreadID, // Zed context ID (null on first message)
+			"message":          userMessage,
+			"request_id":       requestID,
 		},
 	}
 
@@ -1232,12 +1232,22 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	s.storeResponseChannel(session.ID, requestID, responseChan, doneChan, errorChan)
 	defer s.cleanupResponseChannel(session.ID, requestID)
 
+	// CRITICAL: Store session->interaction mapping so message_added can find the right interaction
+	if s.sessionToWaitingInteraction == nil {
+		s.sessionToWaitingInteraction = make(map[string]string)
+	}
+	s.sessionToWaitingInteraction[session.ID] = interaction.ID
+	log.Info().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Msg("🔗 [HELIX] Stored session->interaction mapping for streaming request")
+
 	log.Info().
 		Str("session_id", session.ID).
 		Str("request_id", requestID).
 		Interface("command", command).
 		Msg("🔴 [HELIX] SENDING CHAT_MESSAGE COMMAND TO EXTERNAL AGENT")
-		
+
 	log.Info().
 		Str("helix_session_id", session.ID).
 		Str("request_id", requestID).
@@ -1268,7 +1278,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		case chunk := <-responseChan:
 			// Accumulate the response
 			fullResponse += chunk
-			
+
 			response := &openai.ChatCompletionStreamResponse{
 				Object: "chat.completion.chunk",
 				ID:     session.ID,
@@ -1348,11 +1358,11 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			interaction.State = types.InteractionStateError
 			interaction.Completed = time.Now()
 			interaction.DurationMs = int(time.Since(start).Milliseconds())
-			
+
 			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			s.Controller.UpdateInteraction(updateCtx, session, interaction)
-			
+
 			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
 			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
 
@@ -1362,11 +1372,11 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			interaction.State = types.InteractionStateError
 			interaction.Completed = time.Now()
 			interaction.DurationMs = int(time.Since(start).Milliseconds())
-			
+
 			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			s.Controller.UpdateInteraction(updateCtx, session, interaction)
-			
+
 			log.Warn().Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response timeout")
 			return s.writeErrorResponse(rw, "External agent response timeout")
 		}
