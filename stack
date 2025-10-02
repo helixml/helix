@@ -120,13 +120,16 @@ function build-zed() {
 
   local ZED_SOURCE_DIR="../zed"
   local ZED_OUTPUT_DIR="./zed-build"
-  local BUILD_TYPE="${1:-release}"
+  local BUILD_TYPE="${1:-dev}"
 
-  # Validate build type - only release works (debug doesn't embed assets)
-  if [ "$BUILD_TYPE" != "release" ]; then
-    echo "❌ Error: Only 'release' build type is supported"
-    echo "Debug builds don't properly embed settings/default.json and will crash at startup"
-    echo "Usage: ./stack build-zed release"
+  # Validate build type
+  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
+    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
+    echo "Usage: ./stack build-zed [dev|release]"
+    echo ""
+    echo "Build types:"
+    echo "  dev     - Fast incremental builds with debug symbols (default)"
+    echo "  release - Optimized production builds (slower, ~3-5 minutes)"
     return 1
   fi
 
@@ -163,13 +166,25 @@ function build-zed() {
   echo "Source directory: $(pwd)"
   echo "Build type: $BUILD_TYPE"
 
-  # Build Zed in release mode (required for embedded assets)
-  if RUST_LOG=info cargo build --release --features external_websocket_sync; then
-    BINARY_PATH="target/release/zed"
+  # Build Zed based on build type
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "🔨 Building in release mode (optimized, slower build)..."
+    if RUST_LOG=info cargo build --release --features external_websocket_sync; then
+      BINARY_PATH="target/release/zed"
+    else
+      echo "❌ Zed release build failed"
+      cd - > /dev/null
+      return 1
+    fi
   else
-    echo "❌ Zed build failed"
-    cd - > /dev/null
-    return 1
+    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
+    if RUST_LOG=info cargo build --features external_websocket_sync; then
+      BINARY_PATH="target/debug/zed"
+    else
+      echo "❌ Zed dev build failed"
+      cd - > /dev/null
+      return 1
+    fi
   fi
 
   # Check if build was successful

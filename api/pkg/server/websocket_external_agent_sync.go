@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -408,6 +410,8 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		return apiServer.handleChatResponseChunk(sessionID, syncMsg)
 	case "chat_response_done":
 		return apiServer.handleChatResponseDone(sessionID, syncMsg)
+	case "message_completed":
+		return apiServer.handleMessageCompleted(sessionID, syncMsg)
 	case "chat_response_error":
 		return apiServer.handleChatResponseError(sessionID, syncMsg)
 	default:
@@ -428,11 +432,60 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 		title = "New Conversation"
 	}
 
+	// Check if this is a response to a Helix-initiated request
+	// If syncMsg has a session_id, this is a response to an existing Helix session
+	helixSessionID := syncMsg.SessionID
+
 	log.Info().
-		Str("session_id", sessionID).
+		Str("agent_session_id", sessionID).
+		Str("helix_session_id", helixSessionID).
 		Str("context_id", contextID).
 		Str("title", title).
-		Msg("External agent created new context")
+		Msg("🔧 [HELIX] Processing context_created from external agent")
+
+	// CRITICAL FIX: Check if this is a response to an existing Helix session request
+	// If helixSessionID is provided, REUSE that session instead of creating a new one
+	if helixSessionID != "" {
+		// This is a response to a Helix-initiated request - store zed_context_id on the session
+		log.Info().
+			Str("agent_session_id", sessionID).
+			Str("helix_session_id", helixSessionID).
+			Str("zed_context_id", contextID).
+			Msg("✅ [HELIX] Storing Zed context ID on existing Helix session")
+
+		// Get the existing session
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+		if err != nil {
+			return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+		}
+
+		// Store the zed_context_id on the session metadata
+		helixSession.Metadata.ZedThreadID = contextID
+		helixSession.Updated = time.Now()
+
+		// Update the session in the database
+		_, err = apiServer.Controller.Options.Store.UpdateSession(context.Background(), *helixSession)
+		if err != nil {
+			return fmt.Errorf("failed to update session with zed_context_id: %w", err)
+		}
+
+		// CRITICAL: Store the mapping so message_added can find the session
+		apiServer.contextMappings[contextID] = helixSessionID
+
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("zed_context_id", contextID).
+			Msg("✅ [HELIX] Successfully stored zed_context_id on session and populated contextMappings")
+
+		return nil
+	}
+
+	// If no helixSessionID provided, this is a NEW context created by user inside Zed
+	// Only in this case should we create a new Helix session
+	log.Info().
+		Str("agent_session_id", sessionID).
+		Str("context_id", contextID).
+		Msg("🆕 [HELIX] Creating NEW Helix session for user-initiated Zed context")
 
 	// For external agents, we'll use a default user since the sessionID here is the agent connection ID
 	// In a production system, this should be mapped to the actual user who authorized the agent
@@ -462,14 +515,13 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 	}
 
 	log.Info().
-		Str("session_id", sessionID).
+		Str("agent_session_id", sessionID).
 		Str("context_id", contextID).
 		Str("helix_session_id", createdSession.ID).
 		Str("title", title).
-		Msg("Created Helix session for Zed context")
+		Msg("Created Helix session for user-initiated Zed context")
 
 	// Store the context mapping for future message routing
-	// We'll use a simple in-memory mapping for now - in production this should be persistent
 	if apiServer.contextMappings == nil {
 		apiServer.contextMappings = make(map[string]string)
 	}
@@ -592,24 +644,65 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 	}
 
 	if role == "assistant" {
-		// For assistant messages, update the most recent waiting interaction instead of creating new one
-		// The session already includes interactions from GetSession
-		interactions := helixSession.Interactions
+		// For assistant messages, we need to load interactions to update them
+		// Load interactions following the same pattern as handlers.go getSession
+		interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+			SessionID:    helixSessionID,
+			GenerationID: helixSession.GenerationID,
+			PerPage:      1000,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
+		}
 
-		// Find the most recent interaction that's still waiting for a response
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Int("interaction_count", len(interactions)).
+			Msg("🔍 [DEBUG] Retrieved session interactions")
+
+		// CRITICAL: Use session->interaction mapping to find the exact interaction
+		// This mapping was stored when we sent the chat_message command
 		var targetInteraction *types.Interaction
-		for i := len(interactions) - 1; i >= 0; i-- {
-			if interactions[i].State == types.InteractionStateWaiting {
-				targetInteraction = interactions[i]
-				break
+		if interactionID, exists := apiServer.sessionToWaitingInteraction[helixSessionID]; exists {
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("mapped_interaction_id", interactionID).
+				Msg("🔍 [DEBUG] Found interaction mapping")
+
+			// Find the interaction by ID
+			for i := range interactions {
+				if interactions[i].ID == interactionID {
+					targetInteraction = interactions[i]
+					log.Info().
+						Str("helix_session_id", helixSessionID).
+						Str("interaction_id", interactionID).
+						Msg("🎯 [HELIX] Found interaction for session using mapping")
+					break
+				}
+			}
+		}
+
+		// Fallback: Find the most recent interaction that needs an AI response
+		if targetInteraction == nil {
+			for i := len(interactions) - 1; i >= 0; i-- {
+				// Look for interactions that are either Waiting OR Complete with empty response
+				if interactions[i].State == types.InteractionStateWaiting ||
+					(interactions[i].State == types.InteractionStateComplete && interactions[i].ResponseMessage == "") {
+					targetInteraction = interactions[i]
+					log.Info().
+						Str("helix_session_id", helixSessionID).
+						Str("interaction_id", interactions[i].ID).
+						Str("interaction_state", string(interactions[i].State)).
+						Msg("⚠️ [HELIX] No session mapping found, using most recent empty interaction")
+					break
+				}
 			}
 		}
 
 		if targetInteraction != nil {
-			// Update the existing interaction with the real AI response
+			// Update the existing interaction with the AI response content
+			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
 			targetInteraction.ResponseMessage = content
-			targetInteraction.State = types.InteractionStateComplete
-			targetInteraction.Completed = time.Now()
 			targetInteraction.Updated = time.Now()
 
 			_, err := apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
@@ -623,13 +716,23 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", targetInteraction.ID).
 				Str("role", role).
-				Msg("Updated existing Helix interaction with real AI response from Zed")
+				Str("content", content).
+				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
+
+			// Publish session update to frontend so UI updates in real-time
+			err = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", helixSessionID).
+					Str("interaction_id", targetInteraction.ID).
+					Msg("Failed to publish session update to frontend")
+			}
 		} else {
 			log.Warn().
 				Str("session_id", sessionID).
 				Str("context_id", contextID).
 				Str("helix_session_id", helixSessionID).
-				Msg("No waiting interaction found to update with assistant response")
+				Msg("No interaction found to update with assistant response")
 		}
 	} else {
 		// For user messages, create new interaction
@@ -919,6 +1022,72 @@ func (apiServer *HelixAPIServer) handleChatResponseDone(sessionID string, syncMs
 	return nil
 }
 
+// handleMessageCompleted marks the interaction as complete when AI finishes responding
+func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("event_type", syncMsg.EventType).
+		Interface("data", syncMsg.Data).
+		Msg("🎯 [HELIX] RECEIVED MESSAGE_COMPLETED FROM EXTERNAL AGENT")
+
+	// Extract helix_session_id from the event (it's in the session_id field)
+	helixSessionID := syncMsg.SessionID
+
+	// Get the session
+	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
+	}
+
+	// Find the most recent waiting interaction
+	var targetInteraction *types.Interaction
+	interactions := helixSession.Interactions
+	for i := len(interactions) - 1; i >= 0; i-- {
+		if interactions[i].State == types.InteractionStateWaiting {
+			targetInteraction = interactions[i]
+			break
+		}
+	}
+
+	if targetInteraction == nil {
+		log.Warn().
+			Str("helix_session_id", helixSessionID).
+			Msg("⚠️ [HELIX] No waiting interaction found to mark as complete")
+		return nil
+	}
+
+	// Mark the interaction as complete
+	targetInteraction.State = types.InteractionStateComplete
+	targetInteraction.Completed = time.Now()
+	targetInteraction.Updated = time.Now()
+
+	_, err = apiServer.Controller.Options.Store.UpdateInteraction(context.Background(), targetInteraction)
+	if err != nil {
+		return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
+	}
+
+	log.Info().
+		Str("helix_session_id", helixSessionID).
+		Str("interaction_id", targetInteraction.ID).
+		Msg("✅ [HELIX] Marked interaction as complete")
+
+	// Also send completion signal to done channel for legacy handling
+	requestID, ok := syncMsg.Data["request_id"].(string)
+	if ok {
+		_, doneChan, _, exists := apiServer.getResponseChannel(helixSessionID, requestID)
+		if exists {
+			select {
+			case doneChan <- true:
+				log.Info().Str("request_id", requestID).Msg("✅ [HELIX] Sent done signal to channel")
+			default:
+				log.Warn().Str("request_id", requestID).Msg("Done channel full")
+			}
+		}
+	}
+
+	return nil
+}
+
 // handleChatResponseError processes error from external agent
 func (apiServer *HelixAPIServer) handleChatResponseError(sessionID string, syncMsg *types.SyncMessage) error {
 	requestID, ok := syncMsg.Data["request_id"].(string)
@@ -974,4 +1143,36 @@ func (apiServer *HelixAPIServer) generateExternalAgentToken(sessionID string) (s
 	log.Debug().Str("session_id", sessionID).Str("token", token).Msg("Generated external agent token")
 
 	return token, nil
+}
+
+// publishSessionUpdateToFrontend publishes a session update to the frontend via pubsub
+func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.Session, interaction *types.Interaction) error {
+	// Create websocket event for frontend
+	event := &types.WebsocketEvent{
+		Type:          types.WebsocketEventSessionUpdate,
+		SessionID:     session.ID,
+		InteractionID: interaction.ID,
+		Owner:         session.Owner,
+		Session:       session,
+	}
+
+	// Marshal to JSON
+	messageBytes, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal websocket event: %w", err)
+	}
+
+	// Publish to user's session queue
+	err = apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(session.Owner, session.ID), messageBytes)
+	if err != nil {
+		return fmt.Errorf("failed to publish to pubsub: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
+		Str("owner", session.Owner).
+		Msg("📤 [HELIX] Published session update to frontend")
+
+	return nil
 }
