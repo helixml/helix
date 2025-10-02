@@ -29,25 +29,44 @@ This means you often don't need to rebuild containers - just save files and chan
 **ALWAYS use the stack command for building Zed - NEVER use cargo directly**
 
 ```bash
-# Build Zed (always builds in release mode - only mode that works)
+# ✅ CORRECT: Build Zed using stack script (always builds in release mode - only mode that works)
 ./stack build-zed
 
-# NEVER use: cargo build --package zed (debug builds crash!)
+# ❌ WRONG: Direct cargo commands will fail or produce broken binaries
+cargo build --package zed         # Debug builds crash!
+cargo build --release --package zed  # Wrong output location!
 ```
 
-**Why release mode is mandatory:**
+**Why stack script is MANDATORY:**
 - Debug builds don't properly embed assets (settings/default.json, keymaps, etc.)
 - Zed will crash at startup with "settings/default.json" panic in debug mode
 - Release builds take ~3-5 minutes but produce working binaries (2.0GB)
 - The stack script enforces release mode - debug mode is blocked
 - Binary is copied to `./zed-build/zed` and bind-mounted into containers
+- Stack script uses correct paths and build flags automatically
+
+**CRITICAL: Kill Old Builds First**
+```bash
+# ALWAYS kill any existing cargo builds before starting new one
+pkill -f "cargo build" && pkill -f rustc
+
+# Then build with stack
+./stack build-zed
+```
+
+**Why killing old builds is critical:**
+- Multiple simultaneous cargo builds cause resource exhaustion
+- Old builds consume CPU/RAM and slow down new builds massively
+- Conflicting builds can produce corrupted binaries
+- Always verify no cargo processes running: `ps aux | grep -E "cargo build|rustc" | grep -v grep`
 
 **Zed Hot Reload Workflow:**
-1. Make changes to Zed source code in `~/pm/zed`
-2. Build: `./stack build-zed` (~3-5 minutes)
-3. Inside running PDE: Close Zed window (click X)
-4. Auto-restart script launches updated binary in 2 seconds
-5. No container recreation needed - directory bind-mount survives inode changes
+1. **Kill any running builds**: `pkill -f "cargo build" && pkill -f rustc`
+2. Make changes to Zed source code in `~/pm/zed`
+3. Build: `./stack build-zed` (~3-5 minutes)
+4. Inside running PDE: Close Zed window (click X)
+5. Auto-restart script launches updated binary in 2 seconds
+6. No container recreation needed - directory bind-mount survives inode changes
 
 ## Key Development Rules (from design.md)
 
@@ -606,7 +625,6 @@ NEVER proactively create documentation files (*.md) or README files. Only create
 
 ```bash
 # Correct way to manage helix services:
-docker compose -f docker-compose.dev.yaml restart wolf
 docker compose -f docker-compose.dev.yaml logs wolf
 docker compose -f docker-compose.dev.yaml ps
 
@@ -615,3 +633,27 @@ docker compose restart wolf  # Missing -f docker-compose.dev.yaml
 ```
 
 **This applies to all docker compose commands in the helix directory.**
+
+## CRITICAL: Docker Compose Restart vs Up -d
+
+**MANDATORY: NEVER use `docker compose restart` - ALWAYS use `down` then `up -d` for configuration/image changes:**
+
+```bash
+# ✅ CORRECT - Recreates container with new environment variables/image:
+docker compose -f docker-compose.dev.yaml down wolf
+docker compose -f docker-compose.dev.yaml up -d wolf
+
+# ❌ WRONG - Only restarts existing container, does NOT pick up changes:
+docker compose -f docker-compose.dev.yaml restart wolf
+```
+
+**Why this is critical:**
+- `restart` only stops and starts the existing container - it does NOT recreate it
+- Environment variables from docker-compose.yaml are only applied during container creation
+- Image changes (after `docker build`) require recreating the container, not just restarting
+- Changing env vars, images, volumes, or networks in docker-compose.yaml requires `down` + `up -d`
+- `restart` is ONLY useful for picking up changes to mounted files/volumes, NOT for config/image changes
+
+**When to use each:**
+- **`restart`**: Only when you've changed a file that's bind-mounted (e.g., wolf/config.toml)
+- **`down` + `up -d`**: When you've changed docker-compose.yaml (env vars, volumes, networks, etc.) OR rebuilt an image
