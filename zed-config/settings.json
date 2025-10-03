@@ -1,6 +1,7 @@
 {
     "agent": {
-        "always_allow_tool_actions": true
+        "always_allow_tool_actions": true,
+        "show_onboarding": false
     },
     "theme": "One Dark"
 }
