@@ -115,7 +115,7 @@ function build-runner() {
   fi
 }
 
-umarizewhtdof,nckyv al eutiaty h we\ mpeetd, cngthe b-rtonal sc. unction build-zed() {
+function build-zed() {
   echo "🔨 Building Zed with External WebSocket Thread Sync..."
 
   local ZED_SOURCE_DIR="../zed"
