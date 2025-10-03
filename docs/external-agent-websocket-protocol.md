@@ -1,3 +1,11 @@
+# ⚠️ OUT OF DATE - DO NOT USE ⚠️
+
+**THIS DOCUMENT IS OUTDATED AND KEPT FOR HISTORICAL REFERENCE ONLY**
+
+**See the authoritative spec at:** `/home/luke/pm/zed/WEBSOCKET_PROTOCOL_SPEC.md`
+
+---
+
 # External Agent WebSocket Protocol
 
 ## Core Concepts

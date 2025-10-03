@@ -1,3 +1,11 @@
+# ⚠️ OUT OF DATE - DO NOT USE ⚠️
+
+**THIS DOCUMENT IS OUTDATED AND KEPT FOR HISTORICAL REFERENCE ONLY**
+
+**See the authoritative spec at:** `/home/luke/pm/zed/WEBSOCKET_PROTOCOL_SPEC.md`
+
+---
+
 # WebSocket Protocol Design: SpecTask & Session Scoped Agents
 
 ## Current Implementation Audit
@@ -37,7 +45,7 @@
 
 ### Key Issues with Current Implementation
 
-1. **Agent ID Mismatch**: 
+1. **Agent ID Mismatch**:
    - Helix knows `session_id` but Zed connects with random `agent_id`
    - No way to route messages to correct Zed instance
    - Currently broadcasts to ALL connected agents (inefficient)
@@ -150,7 +158,7 @@ After WebSocket connects, Zed sends registration:
 if session.SpecTaskID != "" {
     agentInstanceID := fmt.Sprintf("zed-spectask-%s", session.SpecTaskID)
     agent := agentRegistry.GetAgent(agentInstanceID)
-    
+
     // Track session → agent mapping
     agentRegistry.AssignSession(session.ID, agentInstanceID)
 }
@@ -159,7 +167,7 @@ if session.SpecTaskID != "" {
 else {
     agentInstanceID := fmt.Sprintf("zed-session-%s", session.ID)
     agent := agentRegistry.GetAgent(agentInstanceID)
-    
+
     // Single session for this agent
     agentRegistry.AssignSession(session.ID, agentInstanceID)
 }
@@ -278,14 +286,14 @@ type AgentInstance struct {
     AgentInstanceID string                    // "zed-spectask-task_xxx" or "zed-session-ses_xxx"
     ScopeType       AgentScope
     ScopeID         string                    // spectask_id or session_id
-    
+
     WebSocketConn   *ExternalAgentWSConnection
     WolfAppID       int64
     UserID          string
-    
+
     // Thread mappings (for spectask-scoped agents with multiple sessions)
     ThreadMappings  map[string]string         // helix_session_id → zed_thread_id
-    
+
     CreatedAt       time.Time
     LastActivity    time.Time
 }
@@ -304,51 +312,51 @@ type AgentRegistry struct {
 func (r *AgentRegistry) AssignSession(session *types.Session) (*AgentInstance, error) {
     r.mu.Lock()
     defer r.mu.Unlock()
-    
+
     var agent *AgentInstance
     var exists bool
-    
+
     if session.SpecTaskID != "" {
         // SpecTask-scoped: reuse existing agent for this spectask
         agentInstanceID := fmt.Sprintf("zed-spectask-%s", session.SpecTaskID)
         agent, exists = r.instances[agentInstanceID]
-        
+
         if !exists {
             return nil, fmt.Errorf("spectask agent not found: %s", agentInstanceID)
         }
-        
+
         // Add session to this spectask agent's mappings
         agent.ThreadMappings[session.ID] = ""  // Will be filled when Zed responds
-        
+
     } else {
         // Session-scoped: dedicated agent for this session
         agentInstanceID := fmt.Sprintf("zed-session-%s", session.ID)
         agent, exists = r.instances[agentInstanceID]
-        
+
         if !exists {
             return nil, fmt.Errorf("session agent not found: %s", agentInstanceID)
         }
-        
+
         // Single session for this agent
         agent.ThreadMappings[session.ID] = ""
     }
-    
+
     // Track session → agent mapping
     r.sessionToAgent[session.ID] = agent.AgentInstanceID
     agent.LastActivity = time.Now()
-    
+
     return agent, nil
 }
 
 func (r *AgentRegistry) GetAgentForSession(sessionID string) (*AgentInstance, bool) {
     r.mu.RLock()
     defer r.mu.RUnlock()
-    
+
     agentID, exists := r.sessionToAgent[sessionID]
     if !exists {
         return nil, false
     }
-    
+
     agent, exists := r.instances[agentID]
     return agent, exists
 }
@@ -363,16 +371,16 @@ func (s *HelixAPIServer) sendSessionToWebSocketAgent(ctx context.Context, sessio
     if !exists {
         return fmt.Errorf("no agent found for session %s", sessionID)
     }
-    
+
     // Get Zed thread ID from mapping (if exists)
     zedThreadID := agent.ThreadMappings[sessionID]
-    
+
     // Determine message type based on whether thread exists
     msgType := "chat_message"
     if zedThreadID == "" {
         msgType = "thread_create"
     }
-    
+
     // Create command
     command := types.ExternalAgentCommand{
         Type: msgType,
@@ -383,7 +391,7 @@ func (s *HelixAPIServer) sendSessionToWebSocketAgent(ctx context.Context, sessio
             "message":          message,
         },
     }
-    
+
     // Send to specific agent
     select {
     case agent.WebSocketConn.SendChan <- command:
@@ -404,7 +412,7 @@ func (s *HelixAPIServer) sendSessionToWebSocketAgent(ctx context.Context, sessio
 func (w *WolfExecutor) CreateSpecTaskAgent(ctx context.Context, spectaskID, userID string) (*AgentInstance, error) {
     agentInstanceID := fmt.Sprintf("zed-spectask-%s", spectaskID)
     wolfAppID := w.generateWolfAppID(userID, spectaskID)
-    
+
     env := []string{
         fmt.Sprintf("HELIX_SCOPE_TYPE=spectask"),
         fmt.Sprintf("HELIX_SCOPE_ID=%s", spectaskID),
@@ -412,13 +420,13 @@ func (w *WolfExecutor) CreateSpecTaskAgent(ctx context.Context, spectaskID, user
         fmt.Sprintf("ZED_HELIX_URL=api:8080"),
         fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.apiToken),
     }
-    
+
     // Create Wolf app
     err := w.createWolfApp(ctx, wolfAppID, env, workspaceDir)
     if err != nil {
         return nil, err
     }
-    
+
     agent := &AgentInstance{
         AgentInstanceID: agentInstanceID,
         ScopeType:       ScopeSpecTask,
@@ -428,17 +436,17 @@ func (w *WolfExecutor) CreateSpecTaskAgent(ctx context.Context, spectaskID, user
         UserID:          userID,
         CreatedAt:       time.Now(),
     }
-    
+
     // Register in registry
     w.agentRegistry.RegisterAgent(agent)
-    
+
     return agent, nil
 }
 
 func (w *WolfExecutor) CreateSessionAgent(ctx context.Context, sessionID, userID string) (*AgentInstance, error) {
     agentInstanceID := fmt.Sprintf("zed-session-%s", sessionID)
     wolfAppID := w.generateWolfAppID(userID, sessionID)
-    
+
     env := []string{
         fmt.Sprintf("HELIX_SCOPE_TYPE=session"),
         fmt.Sprintf("HELIX_SCOPE_ID=%s", sessionID),
@@ -446,13 +454,13 @@ func (w *WolfExecutor) CreateSessionAgent(ctx context.Context, sessionID, userID
         fmt.Sprintf("ZED_HELIX_URL=api:8080"),
         fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.apiToken),
     }
-    
+
     // Create Wolf app
     err := w.createWolfApp(ctx, wolfAppID, env, workspaceDir)
     if err != nil {
         return nil, err
     }
-    
+
     agent := &AgentInstance{
         AgentInstanceID: agentInstanceID,
         ScopeType:       ScopeSession,
@@ -462,10 +470,10 @@ func (w *WolfExecutor) CreateSessionAgent(ctx context.Context, sessionID, userID
         UserID:          userID,
         CreatedAt:       time.Now(),
     }
-    
+
     // Register in registry
     w.agentRegistry.RegisterAgent(agent)
-    
+
     return agent, nil
 }
 ```
@@ -487,20 +495,20 @@ impl ThreadMappingStore {
             zed_to_helix: HashMap::new(),
         }
     }
-    
+
     pub fn map(&mut self, helix_session_id: String, zed_context_id: ContextId) {
         self.helix_to_zed.insert(helix_session_id.clone(), zed_context_id);
         self.zed_to_helix.insert(zed_context_id, helix_session_id);
     }
-    
+
     pub fn get_zed_thread(&self, helix_session_id: &str) -> Option<ContextId> {
         self.helix_to_zed.get(helix_session_id).cloned()
     }
-    
+
     pub fn get_helix_session(&self, zed_context_id: &ContextId) -> Option<String> {
         self.zed_to_helix.get(zed_context_id).cloned()
     }
-    
+
     pub fn remove(&mut self, helix_session_id: &str) {
         if let Some(context_id) = self.helix_to_zed.remove(helix_session_id) {
             self.zed_to_helix.remove(&context_id);
@@ -540,16 +548,16 @@ fn handle_thread_create(&mut self, msg: ThreadCreateMessage, window: &mut Window
     } else {
         // Create new thread
         let context_id = self.agent_panel.new_prompt_editor_with_message(window, cx, &msg.message);
-        
+
         // Map Helix session → Zed thread
         self.thread_mappings.map(msg.helix_session_id.clone(), context_id);
-        
+
         // Notify Helix of the mapping
         self.send_thread_created(msg.helix_session_id, context_id, msg.spectask_id);
-        
+
         context_id
     };
-    
+
     // Focus the thread in UI
     self.agent_panel.focus_thread(context_id, window, cx);
 }
@@ -563,7 +571,7 @@ fn send_thread_created(&self, helix_session_id: String, context_id: ContextId, s
             "spectask_id": spectask_id,
         }
     });
-    
+
     self.websocket_sync.send_message(message);
 }
 ```
@@ -581,7 +589,7 @@ fn on_thread_focused(&mut self, context_id: ContextId, cx: &mut WindowContext) {
                 "helix_session_id": helix_session_id,
             }
         });
-        
+
         self.websocket_sync.send_message(message);
     }
 }
