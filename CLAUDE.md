@@ -579,6 +579,39 @@ curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
 
 **CRITICAL: Always restart Wolf when testing configuration changes** - This clears any broken dynamic apps that might interfere with new tests.
 
+## Testing ACP Integration / External Agents
+
+**You can test the Zed ACP integration in TWO ways:**
+
+### Option 1: Personal Dev Environment (PDE)
+- Create a PDE through the Helix frontend
+- PDEs run Zed inside a Wolf container with full desktop environment
+- Good for: Testing complete workflow including UI, streaming, and user interaction
+- Access: Via Moonlight client or web browser
+
+### Option 2: External Agent (Direct)
+- Start an external agent session through the frontend "External Agents" section
+- Launches Zed directly without a full desktop environment
+- Good for: Quick testing of ACP integration, WebSocket sync, message flow
+- Faster to start and test than full PDE
+- **This is the preferred method for testing ACP bidirectional sync**
+
+**Testing Workflow for External Agents:**
+1. Open Helix frontend at `http://localhost:3000`
+2. Navigate to "External Agents" section
+3. Click "Start External Agent Session"
+4. Send a message to trigger the ACP thread creation
+5. Verify bidirectional sync:
+   - Message appears in Zed (Helix → Zed) ✅
+   - AI response appears in Helix (Zed → Helix) ✅
+6. Check API logs for session mapping: `docker compose -f docker-compose.dev.yaml logs --tail 50 api`
+7. Check for `message_completed` WebSocket messages in browser console
+
+**Before Testing:**
+- Ensure Zed is built with latest code: `./stack build-zed` (if code changed)
+- Ensure API is running with hot reload: Check `docker compose -f docker-compose.dev.yaml logs --tail 30 api`
+- No need to rebuild containers if only testing - code changes hot reload automatically
+
 ### Container Image Strategy
 
 **Working Images (Verified):**
