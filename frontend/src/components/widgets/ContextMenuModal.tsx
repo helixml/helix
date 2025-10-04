@@ -47,40 +47,61 @@ export const useContextMenu = ({
     const getCursorPosition = useCallback((): ContextMenuPosition => {
         if (textAreaRef?.current) {
             const textarea = textAreaRef.current;
-
-            // Get cursor position in textarea
+            const rect = textarea.getBoundingClientRect();
             const cursorPosition = textarea.selectionEnd || 0;
-
-            // Create a range to get the positioning
             const textBeforeCursor = textarea.value.substring(0, cursorPosition);
 
-            // Create a temporary element to measure position
+            // Create a mirror div to calculate cursor position
+            const div = document.createElement('div');
+            const computedStyle = window.getComputedStyle(textarea);
+            
+            // Copy all relevant styles from textarea to div
+            const stylesToCopy = [
+                'font-family', 'font-size', 'font-weight', 'font-style',
+                'letter-spacing', 'text-transform', 'word-spacing', 'text-indent',
+                'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+                'box-sizing', 'width', 'line-height'
+            ];
+            
+            stylesToCopy.forEach(style => {
+                div.style[style as any] = computedStyle[style as any];
+            });
+            
+            div.style.position = 'absolute';
+            div.style.visibility = 'hidden';
+            div.style.whiteSpace = 'pre-wrap';
+            div.style.wordWrap = 'break-word';
+            div.style.overflow = 'hidden';
+            div.style.top = '0';
+            div.style.left = '0';
+
+            // Add the text before cursor
+            div.textContent = textBeforeCursor;
+
+            // Add a span at the cursor position to measure its coordinates
             const span = document.createElement('span');
-            span.textContent = textBeforeCursor;
-            span.style.position = 'absolute';
-            span.style.visibility = 'hidden';
-            span.style.whiteSpace = 'pre-wrap';
-            span.style.wordWrap = 'break-word';
-            span.style.font = window.getComputedStyle(textarea).font;
-            span.style.width = window.getComputedStyle(textarea).width;
+            span.textContent = '|';
+            div.appendChild(span);
 
-            document.body.appendChild(span);
+            document.body.appendChild(div);
 
-            // Calculate position
-            const rect = textarea.getBoundingClientRect();
-            const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
+            // Get the span's position
+            const spanRect = span.getBoundingClientRect();
+            const divRect = div.getBoundingClientRect();
 
-            // Count newlines for vertical position
-            const lines = textBeforeCursor.split('\n').length - 1;
+            document.body.removeChild(div);
 
-            document.body.removeChild(span);
+            // Calculate absolute position considering scroll
+            const top = rect.top + (spanRect.top - divRect.top) - textarea.scrollTop + 25;
+            const left = rect.left + (spanRect.left - divRect.left) - textarea.scrollLeft;
 
             return {
-                top: rect.top + lines * lineHeight + 20, // Add some offset
-                left: rect.left + span.offsetWidth % rect.width
+                top: Math.max(0, top),
+                left: Math.max(0, left)
             };
         } else {
-            // Falback to getting mouse position
+            // Fallback to getting mouse position
             return {
                 top: coordsRef.current.y,
                 left: coordsRef.current.x
