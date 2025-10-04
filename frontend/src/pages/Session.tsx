@@ -13,6 +13,7 @@ import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
+import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
@@ -860,8 +861,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [appID, api, setInputValue, snackbar]);
 
   const handleInsertText = useCallback((text: string) => {
-    // Simply update the parent's state with the new value from the child
-    setInputValue(text);
+    setInputValue(current => current + text);
   }, []);
 
   // Memoize the session data comparison
@@ -1300,50 +1300,55 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    {/* --- Start of new input area --- */}
-                    <Box
-                      sx={{
-                        width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
-                        margin: '0 auto',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '12px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        p: 2,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 1,
-                        bgcolor: theme.palette.background.default,
-                      }}
+                    <ContextMenuModal
+                      appId={appID || ''}
+                      textAreaRef={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                      onInsertText={handleInsertText}
                     >
-                      {/* Top row: textarea */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <textarea
-                          ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
-                          value={inputValue}
-                          onChange={e => setInputValue(e.target.value)}
-                          onKeyDown={handleKeyDown as any}
-                          rows={1}
-                          style={{
-                            width: '100%',
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#fff',
-                            opacity: 0.7,
-                            resize: 'none',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            fontSize: 'inherit',
-                          }}
-                          placeholder={
-                            session.data?.type == SESSION_TYPE_TEXT
-                              ? session.data.parent_app
-                                ? `Chat with ${apps.app?.config.helix.name}...`
-                                : 'Ask anything...'
-                              : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                          }
-                          disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                        />
-                      </Box>
+                      {/* --- Start of new input area --- */}
+                      <Box
+                        sx={{
+                          width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                          margin: '0 auto',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          p: 2,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 1,
+                          bgcolor: theme.palette.background.default,
+                        }}
+                      >
+                        {/* Top row: textarea */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <textarea
+                            ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                            value={inputValue}
+                            onChange={e => setInputValue(e.target.value)}
+                            onKeyDown={handleKeyDown as any}
+                            rows={1}
+                            style={{
+                              width: '100%',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#fff',
+                              opacity: 0.7,
+                              resize: 'none',
+                              outline: 'none',
+                              fontFamily: 'inherit',
+                              fontSize: 'inherit',
+                            }}
+                            placeholder={
+                              session.data?.type == SESSION_TYPE_TEXT
+                                ? session.data.parent_app
+                                  ? `Chat with ${apps.app?.config.helix.name}...`
+                                  : 'Ask anything...'
+                                : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                            }
+                            disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                          />
+                        </Box>
                       {/* Bottom row: attachment icon, image name, send button */}
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1434,8 +1439,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                           </Tooltip>
                         </Box>
                       </Box>
-                    </Box>
-                    {/* --- End of new input area --- */}
+                      </Box>
+                      {/* --- End of new input area --- */}
+                    </ContextMenuModal>
                   </Cell>
                   {/* Temporary disabled feedback buttons, will be moved to interaction list */}
                   {/* {isBigScreen && (
