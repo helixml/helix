@@ -316,6 +316,29 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     });
   }, []);
 
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    setInputValue(textarea.value)
+    
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto'
+    
+    // Calculate new height based on content
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
+    const maxLines = 5
+    const maxHeight = lineHeight * maxLines
+    
+    // Set height to scrollHeight, but cap at maxHeight
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+    textarea.style.height = `${newHeight}px`
+  }
+
+  useEffect(() => {
+    if (!inputValue && textFieldRef.current) {
+      textFieldRef.current.style.height = 'auto'
+    }
+  }, [inputValue])
+
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
     // Return early if no session ID
@@ -1325,7 +1348,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                           <textarea
                             ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
                             value={inputValue}
-                            onChange={e => setInputValue(e.target.value)}
+                            onChange={handleTextareaChange}
                             onKeyDown={handleKeyDown as any}
                             rows={1}
                             style={{
@@ -1338,6 +1361,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                               outline: 'none',
                               fontFamily: 'inherit',
                               fontSize: 'inherit',
+                              lineHeight: '1.5',
+                              overflowY: 'auto',
                             }}
                             placeholder={
                               session.data?.type == SESSION_TYPE_TEXT
