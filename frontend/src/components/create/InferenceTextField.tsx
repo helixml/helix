@@ -66,6 +66,23 @@ const InferenceTextField: FC<{
       onUpdate(event.target.value)
     }
 
+    const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const textarea = e.target
+      onUpdate(textarea.value)
+      
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto'
+      
+      // Calculate new height based on content
+      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
+      const maxLines = 5
+      const maxHeight = lineHeight * maxLines
+      
+      // Set height to scrollHeight, but cap at maxHeight
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+      textarea.style.height = `${newHeight}px`
+    }
+
     const handleInsertText = (text: string) => {
       onUpdate(value + text)
     }
@@ -96,6 +113,12 @@ const InferenceTextField: FC<{
       focus,
     ])
 
+    useEffect(() => {
+      if (!value && textFieldRef.current) {
+        textFieldRef.current.style.height = 'auto'
+      }
+    }, [value])
+
     return (
       <>
         <ContextMenuModal
@@ -122,7 +145,7 @@ const InferenceTextField: FC<{
             <textarea
               ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
               value={value}
-              onChange={e => onUpdate(e.target.value)}
+              onChange={handleTextareaChange}
               onKeyDown={handleKeyDown as any}
               rows={1}
               style={{
@@ -135,6 +158,8 @@ const InferenceTextField: FC<{
                 outline: 'none',
                 fontFamily: 'inherit',
                 fontSize: 'inherit',
+                lineHeight: '1.5',
+                overflowY: 'auto',
               }}
               placeholder={usePromptLabel}
               disabled={disabled}
