@@ -1316,8 +1316,31 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			}
 
 		case <-doneChan:
-			// Update the interaction with the complete response
-			interaction.ResponseMessage = fullResponse
+			// CRITICAL: For external agent flow, the response was already saved to DB by handleMessageAdded
+			// We need to RELOAD the interaction from DB to get the final response, not use fullResponse
+			// which is only accumulated from responseChan (unused in external agent flow)
+
+			// Reload the interaction from database to get the final response
+			reloadCtx, cancelReload := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelReload()
+
+			reloadedInteraction, err := s.Controller.Options.Store.GetInteraction(reloadCtx, interaction.ID)
+			if err != nil {
+				log.Error().Err(err).
+					Str("session_id", session.ID).
+					Str("interaction_id", interaction.ID).
+					Msg("Failed to reload interaction from database")
+			} else {
+				// Use the response from database (which was saved by handleMessageAdded)
+				interaction.ResponseMessage = reloadedInteraction.ResponseMessage
+				log.Info().
+					Str("session_id", session.ID).
+					Str("interaction_id", interaction.ID).
+					Int("response_length", len(reloadedInteraction.ResponseMessage)).
+					Msg("🔄 [HELIX] Reloaded interaction response from database for doneChan")
+			}
+
+			// Mark as complete
 			interaction.Completed = time.Now()
 			interaction.State = types.InteractionStateComplete
 			interaction.DurationMs = int(time.Since(start).Milliseconds())
@@ -1326,7 +1349,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			err := s.Controller.UpdateInteraction(updateCtx, session, interaction)
+			err = s.Controller.UpdateInteraction(updateCtx, session, interaction)
 			if err != nil {
 				log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to update interaction")
 			}
@@ -1358,7 +1381,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			log.Info().
 				Str("session_id", session.ID).
 				Str("request_id", requestID).
-				Str("response_message", fullResponse).
+				Str("response_message", interaction.ResponseMessage).
+				Int("response_length", len(interaction.ResponseMessage)).
 				Int("duration_ms", interaction.DurationMs).
 				Msg("External agent response completed and interaction updated")
 			return nil

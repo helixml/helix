@@ -727,14 +727,26 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 	}
 
 	// Create the command to send to Zed
+	// CRITICAL: Include acp_thread_id if this session already has one (for follow-up messages)
+	commandData := map[string]interface{}{
+		"session_id": sessionID,
+		"message":    interaction.PromptMessage,
+		"role":       "user",
+		"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
+	}
+
+	// If session already has a Zed thread ID, include it so message goes to existing thread
+	if session.Metadata.ZedThreadID != "" {
+		commandData["acp_thread_id"] = session.Metadata.ZedThreadID
+		log.Info().
+			Str("session_id", sessionID).
+			Str("acp_thread_id", session.Metadata.ZedThreadID).
+			Msg("🔗 [HELIX] Sending follow-up message to existing Zed thread")
+	}
+
 	command := types.ExternalAgentCommand{
 		Type: "chat_message",
-		Data: map[string]interface{}{
-			"session_id": sessionID,
-			"message":    interaction.PromptMessage,
-			"role":       "user",
-			"request_id": interaction.ID, // Use interaction ID as request ID for response tracking
-		},
+		Data: commandData,
 	}
 
 	// Send to all connected external agents (in future, route to specific agent)
