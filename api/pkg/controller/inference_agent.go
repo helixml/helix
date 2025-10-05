@@ -13,6 +13,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -123,6 +124,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		skills = append(skills, memory.NewAddMemorySkill(c.Options.Store))
 	}
 
+	lastUserMessage := getLastMessage(req.Request)
+
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
 
@@ -172,6 +175,14 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	knowledgeMemory := agent.NewMemoryBlock()
 
+	// Only get from the last message the filter. If users want to filter by specific document they just
+	// need to filter again
+	filterActions := rag.ParseFilterActions(lastUserMessage)
+	var filterDocumentIDs []string
+	for _, filterAction := range filterActions {
+		filterDocumentIDs = append(filterDocumentIDs, rag.ParseDocID(filterAction))
+	}
+
 	for _, knowledge := range knowledges {
 		switch {
 		// Filestore and Web are presented to the agents as a tool that
@@ -182,7 +193,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 				log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
 				return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
 			}
-			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge))
+			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge, filterDocumentIDs))
 		case knowledge.Source.Text != nil:
 			// knowledgeBlocks = append(knowledgeBlocks, *knowledge.Source.Text)
 
@@ -230,7 +241,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}, req.Options.Conversational)
 
 	// Get user message, could be in the part or content
-	session.In(getLastMessage(req.Request))
+	session.In(lastUserMessage)
 
 	return session, nil
 }
