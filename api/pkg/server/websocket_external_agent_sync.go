@@ -1273,6 +1273,8 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Str("helix_session_id", helixSessionID).
 		Str("interaction_id", targetInteraction.ID).
 		Int("response_length", len(targetInteraction.ResponseMessage)).
+		Str("response_preview", targetInteraction.ResponseMessage).
+		Str("state_before", string(targetInteraction.State)).
 		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
 	// Mark the interaction as complete
@@ -1288,6 +1290,8 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 	log.Info().
 		Str("helix_session_id", helixSessionID).
 		Str("interaction_id", targetInteraction.ID).
+		Int("final_response_length", len(targetInteraction.ResponseMessage)).
+		Str("final_state", string(targetInteraction.State)).
 		Msg("✅ [HELIX] Marked interaction as complete")
 
 	// Also send completion signal to done channel for legacy handling
