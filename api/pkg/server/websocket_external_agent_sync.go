@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -278,11 +279,25 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	go apiServer.handleExternalAgentSender(ctx, wsConn)
 
 	// Check if this agent has a pending Helix session with initial message
-	if helixSessionID, exists := apiServer.externalAgentSessionMapping[agentID]; exists {
+	// agentID could be either agent_session_id (req_*) or helix_session_id (ses_*)
+	helixSessionID := ""
+	if strings.HasPrefix(agentID, "ses_") {
+		// Direct Helix session ID
+		helixSessionID = agentID
 		log.Info().
 			Str("agent_session_id", agentID).
 			Str("helix_session_id", helixSessionID).
-			Msg("🚀 [HELIX] External agent connected, sending initial message")
+			Msg("🚀 [HELIX] External agent connected with Helix session ID, checking for initial message")
+	} else if mappedHelixID, exists := apiServer.externalAgentSessionMapping[agentID]; exists {
+		// Agent session ID mapping
+		helixSessionID = mappedHelixID
+		log.Info().
+			Str("agent_session_id", agentID).
+			Str("helix_session_id", helixSessionID).
+			Msg("🚀 [HELIX] External agent connected with agent session ID, checking for initial message")
+	}
+
+	if helixSessionID != "" {
 
 		// Get the Helix session to find the initial interaction
 		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
