@@ -327,6 +327,8 @@ export const useContextMenu = ({
                 onClose={closeContextMenu}
                 anchorReference="anchorPosition"
                 anchorPosition={{ top: position.top, left: position.left }}
+                anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
                 ref={menuRef}
                 // Keep the menu mounted when open to prevent flickering
                 keepMounted={false}
