@@ -60,6 +60,99 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		Str("project_path", agent.ProjectPath).
 		Msg("Creating external agent via API endpoint")
 
+	// Store user mapping for this external agent session
+	if apiServer.externalAgentUserMapping == nil {
+		apiServer.externalAgentUserMapping = make(map[string]string)
+	}
+	apiServer.externalAgentUserMapping[agent.SessionID] = user.ID
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("user_id", user.ID).
+		Msg("Stored user mapping for external agent session")
+
+	// Create Helix session FIRST so responses can be routed to it
+	helixSession := types.Session{
+		ID:        "", // Will be generated
+		Name:      fmt.Sprintf("Zed Agent %s", agent.SessionID[:8]),
+		Owner:     user.ID,
+		OwnerType: types.OwnerTypeUser,
+		Type:      types.SessionTypeText,
+		Mode:      types.SessionModeInference,
+		ModelName: "claude-3.5-sonnet",
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Metadata: types.SessionMetadata{
+			SystemPrompt: "You are a helpful AI assistant integrated with Zed editor.",
+			AgentType:    "zed_external",
+		},
+	}
+
+	createdSession, err := apiServer.Controller.Options.Store.CreateSession(req.Context(), helixSession)
+	if err != nil {
+		log.Error().Err(err).Str("agent_session_id", agent.SessionID).Msg("failed to create Helix session")
+		http.Error(res, fmt.Sprintf("failed to create Helix session: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("agent_session_id", agent.SessionID).
+		Str("helix_session_id", createdSession.ID).
+		Str("user_id", user.ID).
+		Msg("✅ Created Helix session for external agent")
+
+	// Store mapping: agent_session_id -> helix_session_id
+	if apiServer.externalAgentSessionMapping == nil {
+		apiServer.externalAgentSessionMapping = make(map[string]string)
+	}
+	apiServer.externalAgentSessionMapping[agent.SessionID] = createdSession.ID
+
+	// Generate request_id for initial message and store mapping
+	requestID := system.GenerateRequestID()
+	if apiServer.requestToSessionMapping == nil {
+		apiServer.requestToSessionMapping = make(map[string]string)
+	}
+	apiServer.requestToSessionMapping[requestID] = createdSession.ID
+
+	log.Info().
+		Str("request_id", requestID).
+		Str("helix_session_id", createdSession.ID).
+		Msg("✅ Stored request_id -> session mapping for initial message")
+
+	// Create initial interaction for the user's message
+	interaction := &types.Interaction{
+		ID:              "", // Will be generated
+		GenerationID:    0,
+		Created:         time.Now(),
+		Updated:         time.Now(),
+		Scheduled:       time.Now(),
+		Completed:       time.Time{},
+		SessionID:       createdSession.ID,
+		UserID:          user.ID,
+		Mode:            types.SessionModeInference,
+		PromptMessage:   agent.Input,
+		State:           types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(req.Context(), interaction)
+	if err != nil {
+		log.Error().Err(err).Str("helix_session_id", createdSession.ID).Msg("failed to create initial interaction")
+		http.Error(res, fmt.Sprintf("failed to create interaction: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Store session -> waiting interaction mapping
+	if apiServer.sessionToWaitingInteraction == nil {
+		apiServer.sessionToWaitingInteraction = make(map[string]string)
+	}
+	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
+
+	log.Info().
+		Str("interaction_id", createdInteraction.ID).
+		Str("helix_session_id", createdSession.ID).
+		Msg("✅ Created initial interaction for external agent")
+
 	// Generate auth token for WebSocket connection
 	token, err := apiServer.generateExternalAgentToken(agent.SessionID)
 	if err != nil {
@@ -67,6 +160,9 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		http.Error(res, fmt.Sprintf("failed to create external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
+
+	// Set the Helix session ID on the agent so Wolf knows which session this serves
+	agent.HelixSessionID = createdSession.ID
 
 	// Start the external agent
 	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)

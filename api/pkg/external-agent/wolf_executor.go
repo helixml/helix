@@ -69,6 +69,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"ZED_HELIX_URL=api:8080",
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		"ZED_HELIX_TLS=false",
+		"RUST_LOG=info", // Enable Rust logging for Zed
 	}
 
 	// Add any extra environment variables
@@ -79,6 +80,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
 		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
 		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
+		fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		"/var/run/docker.sock:/var/run/docker.sock",
 	}
 
@@ -175,14 +177,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	agentInstanceID := fmt.Sprintf("zed-session-%s", agent.SessionID)
 
 	// Build extra environment variables specific to external agents
+	// Determine which session ID to use for HELIX_SESSION_ID env var
+	// If HelixSessionID is set, use it (agent created FOR an existing Helix session)
+	// Otherwise use agent.SessionID (legacy behavior)
+	helixSessionID := agent.SessionID
+	if agent.HelixSessionID != "" {
+		helixSessionID = agent.HelixSessionID
+	}
+
 	extraEnv := []string{
 		// Agent identification (used for WebSocket connection)
 		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agentInstanceID),
 		fmt.Sprintf("HELIX_SCOPE_TYPE=session"),
 		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
 
-		// Legacy env vars (kept for backwards compatibility)
-		fmt.Sprintf("HELIX_SESSION_ID=%s", agent.SessionID),
+		// CRITICAL: Use actual Helix session ID for WebSocket communication
+		fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID),
 		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
 
 		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts

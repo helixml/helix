@@ -29,21 +29,21 @@ This means you often don't need to rebuild containers - just save files and chan
 **ALWAYS use the stack command for building Zed - NEVER use cargo directly**
 
 ```bash
-# ✅ CORRECT: Build Zed using stack script (always builds in release mode - only mode that works)
-./stack build-zed
+# ✅ CORRECT: Build Zed using stack script with external_websocket_sync feature
+./stack build-zed           # Default: dev mode (fast, ~1.3GB binary)
+./stack build-zed dev       # Explicit dev mode (fast, debug symbols)
+./stack build-zed release   # Release mode (slow, ~2GB optimized binary)
 
 # ❌ WRONG: Direct cargo commands will fail or produce broken binaries
-cargo build --package zed         # Debug builds crash!
+cargo build --package zed         # Missing feature flag!
 cargo build --release --package zed  # Wrong output location!
 ```
 
 **Why stack script is MANDATORY:**
-- Debug builds don't properly embed assets (settings/default.json, keymaps, etc.)
-- Zed will crash at startup with "settings/default.json" panic in debug mode
-- Release builds take ~3-5 minutes but produce working binaries (2.0GB)
-- The stack script enforces release mode - debug mode is blocked
+- Automatically includes `--features external_websocket_sync` flag (critical for Helix integration)
 - Binary is copied to `./zed-build/zed` and bind-mounted into containers
 - Stack script uses correct paths and build flags automatically
+- Both dev and release builds work correctly (dev is faster for iteration)
 
 **CRITICAL: Kill Old Builds First**
 ```bash
@@ -63,7 +63,7 @@ pkill -f "cargo build" && pkill -f rustc
 **Zed Hot Reload Workflow:**
 1. **Kill any running builds**: `pkill -f "cargo build" && pkill -f rustc`
 2. Make changes to Zed source code in `~/pm/zed`
-3. Build: `./stack build-zed` (~3-5 minutes)
+3. Build: `./stack build-zed` (~30-60 seconds for incremental dev builds)
 4. Inside running PDE: Close Zed window (click X)
 5. Auto-restart script launches updated binary in 2 seconds
 6. No container recreation needed - directory bind-mount survives inode changes

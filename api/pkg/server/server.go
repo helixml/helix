@@ -88,8 +88,11 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
-	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
+	contextMappings              map[string]string // Zed context_id -> Helix session_id mapping
+	sessionToWaitingInteraction  map[string]string // Helix session_id -> current waiting interaction_id
+	requestToSessionMapping      map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping  map[string]string // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping     map[string]string // External agent session_id -> user_id mapping
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
