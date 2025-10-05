@@ -205,8 +205,8 @@ export const useContextMenu = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!appId) return;
             if (!isOpen && e.key === '@') {
-                // Only trigger if @ is at the start or preceded by whitespace
-                if (textAreaRef?.current) {
+                // Only trigger if the focused element is the textarea we're listening to
+                if (textAreaRef?.current && document.activeElement === textAreaRef.current) {
                     const textarea = textAreaRef.current;
                     const cursorPosition = textarea.selectionEnd || 0;
                     const textBeforeCursor = textarea.value.substring(0, cursorPosition);
@@ -219,13 +219,13 @@ export const useContextMenu = ({
                         // Don't trigger the menu - let the @ be typed normally
                         return;
                     }
+                    
+                    // Don't prevent default - let the @ be inserted
+                    // We'll open the menu after the @ is in the textarea
+                    setTimeout(() => {
+                        openContextMenu();
+                    }, 0);
                 }
-                
-                // Don't prevent default - let the @ be inserted
-                // We'll open the menu after the @ is in the textarea
-                setTimeout(() => {
-                    openContextMenu();
-                }, 0);
             }
         };
 
