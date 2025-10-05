@@ -298,7 +298,6 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Combine immediate state update with debounced API call
   const handleAdvancedChangeWithDebounce = (field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
-    console.log('handleAdvancedChangeWithDebounce', field, value)
     debouncedUpdate(field, value)
   }
 

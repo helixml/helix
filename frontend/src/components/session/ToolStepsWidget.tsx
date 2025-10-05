@@ -136,7 +136,6 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     if (step.name && step.name === 'Memory') {
       return <Brain size={20} />    
     }
-    console.log(step.icon)
     // If it's one of the few support MaterialUI icons, use them
     switch (step.icon) {
       case 'SchoolIcon':
