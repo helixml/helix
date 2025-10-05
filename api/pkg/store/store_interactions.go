@@ -109,9 +109,11 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 
 	db := s.gdb.WithContext(ctx)
 
-	err := db.Clauses(clause.OnConflict{
-		UpdateAll: true,
-	}).Save(&interaction).Error
+	// CRITICAL: Use Updates() with Where clause for composite primary key (id, generation_id)
+	// Save() doesn't work correctly with composite keys
+	err := db.Model(&types.Interaction{}).
+		Where("id = ? AND generation_id = ?", interaction.ID, interaction.GenerationID).
+		Updates(interaction).Error
 	if err != nil {
 		return nil, err
 	}
