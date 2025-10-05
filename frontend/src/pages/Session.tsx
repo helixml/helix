@@ -902,7 +902,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         [displayText]: filterValue
       }));
       
-      setInputValue(current => current + displayText);
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
     } else {
       setInputValue(current => current + filterValue);
     }
@@ -921,8 +928,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         ...current,
         [displayText]: text
       }));
-      
-      setInputValue(current => current + displayText);
+
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
     } else {
       setInputValue(current => current + text);
     }
