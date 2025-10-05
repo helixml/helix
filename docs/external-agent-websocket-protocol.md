@@ -4,6 +4,8 @@
 
 **See the authoritative spec at:** `/home/luke/pm/zed/WEBSOCKET_PROTOCOL_SPEC.md`
 
+**For Helix implementation updates needed:** See `/home/luke/pm/helix/HELIX_PROTOCOL_UPDATE_NEEDED.md`
+
 ---
 
 # External Agent WebSocket Protocol

@@ -161,9 +161,6 @@ videorate !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
 chroma-site={color_range}, colorimetry={color_space}'''
 
-[session_management]
-auto_persistent_sessions = true
-
 [[apps]]
 icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png'
 title = 'Desktop (xfce)'
@@ -409,6 +406,64 @@ Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
 DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
 o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
 VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '6916887518693123027'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMDczMzMzWhcNNDUwOTE4MDcz
+MzMzWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDta9OK4S8f32YX6qvc39K3qapgCq8Y
+czz5FdM9UezFhETOh+ySrO7XdNIew35likqw35rN8o0zI9se5XX7ORLLm+1+LaIK
+m3DujEbk2H77WXYzFJF2d3kNs4HJW4CEwWuKuWUcJH502Z31E3WrofedN9jZx0co
+vq1mcl8uuOrP8Ttj+Wkzf9ZJuy3hBkXmwf4RuEwhPuGX6QUOilf5x3S1qfwzJvlK
+vQVUeXXgDDfSgT4Yr/14IJseHtvU6/qp79knD6So9g1we5zcjkzsrNh5baYsb5HK
+zJ6TIhaVKiGA4Qw9j0vCl6a2sFvnWwe/jX67kUcwiXhLpeT3I8WOW/KxAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBACm3JSwpCD6Z5fMWqAwEBIicAy+hu8OuGmoI8LTq
+q/sEcE84YFlAXB5b7gT4N+iynQh751DPCHrRqqivgEMENvrgjxGjSoq+suiwZYYP
+NoZrnWaT3Nfo/bA4VVWtbT5cxPvM685tWhPK6nXG/vLDeuLKuGW4r9IELimNIJlP
+NQVhUHNY149beswpkDSxrAowDJgZVfkJBIySF36KOIFXU9EYtjwReYxBKH1FDJJP
+89ORbvkuhaM71U9VUelS8CPx5PLG1PK3afeD+X0ftRTPc/TwJDN/XRektb0qhUdj
+hP4tGEAoYIOChP/n4CpHRJZUOGl86NjY4s7+uRANaO3yWw0=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '6061047231751940182'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTI1MTY1NjM0WhcNNDUwOTIwMTY1
+NjM0WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDKeZgPl/EM0Q3+6eJQ3y7LbQIyiWu/
+8oYvCN2Kn96ikNCBC/8sJJ0pFwYnoiVmeHO2Ay8wj93AOo8KDKI8iFMnnyfB+U0D
+dDuMcdbEMcC2Zy2AhnkVtwLkwZ4HS2fs08DzjYiEE/dDqGUwakjW+EyKTmIkcfpn
+keUwlFcXjMcEwZbmSEAJ+ZAAy6zkl2G36RkO0/ddTB/XJLoAQJqMbmMRRde2Cbyx
+niBCWI8yYkddPtWN64cT+oVwvYOZhtoUXXoM5STjVl8bCNJfM/Agz3C5HKNcOegI
+VppDnyqhXR9QlxaJ2kGsdoQTbKj4Mq7UOlm0C8S3KoZQl+JjQGjKyoKDAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBABZyX0RB2YOgROh2/GLMw/3AOKE++2v0R3/nRjjS
+iatxIpec7W6/PE0ZXHC9jsImZRiZEi1uYOO9jfARiBw1YJMBKNGftB61ycPQ0xRa
+oMz1VkwvuuFZtSLXHNv+EIny9B7CzMApeLofF2VrJo4xXWZttD+fOFDQVN7UWoJE
+xai5kCwE2kwljvEnz4U1XqjzDd/eZG5x1jEZMZws7Jr3ilD0lKthd30VdPhS5440
+klWnke8TrbhY5eIOjKMGf4aRdR4FStR33hlJesBBIWj0pKqqUdMhyr6Of+0EpZR0
+88JFtMEX+y2mMg2JVxzXIp7HquJF1z7hqHQo4/sb5O6At04=
 -----END CERTIFICATE-----
 '''
 

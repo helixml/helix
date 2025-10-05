@@ -1750,8 +1750,10 @@ type KeyPair struct {
 
 // ZedAgent represents a Zed editor instance configuration
 type ZedAgent struct {
-	// Session ID for tracking the Zed instance
+	// Session ID for tracking the Zed instance (agent/Wolf session ID)
 	SessionID string `json:"session_id"`
+	// Helix session ID - the actual Helix session this agent serves (if created by Helix)
+	HelixSessionID string `json:"helix_session_id,omitempty"`
 	// User ID for security validation and access control
 	UserID string `json:"user_id"`
 	// Initial prompt or task for the agent
