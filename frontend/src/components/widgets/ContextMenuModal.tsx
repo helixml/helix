@@ -25,7 +25,15 @@ interface UseContextMenuOptions {
     onInsertText?: (text: string) => void;
 }
 
-// Hook to manage context menu state and functionality
+// Hook to manage context menu state and functionality.
+//
+// How It Works:
+// 1. When a filter is selected, the code parses @filter([DOC_NAME:nvidia-10-k/nvidia-form-10-k.pdf][DOC_ID:b257cbb961])
+// 2. Extracts the filename nvidia-form-10-k.pdf from the path
+// 3. Displays @nvidia-form-10-k.pdf in the textarea
+// 4. Stores the mapping @nvidia-form-10-k.pdf → full filter command
+// 5. When sending, replaces all @filename occurrences with their full filter commands
+// 6. Clears the filter map after sending
 export const useContextMenu = ({
     appId,
     textAreaRef,

@@ -86,6 +86,7 @@ const CreateContent: FC<CreateContentProps> = ({
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [attachedImages, setAttachedImages] = useState<File[]>([])
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({})
 
   const mode = initialMode || (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = initialType || (router.params.type as ISessionType) || SESSION_TYPE_TEXT
@@ -126,10 +127,15 @@ const CreateContent: FC<CreateContentProps> = ({
 
     prompt = prompt || inputs.inputValue
 
+    let actualPrompt = prompt;
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     try {
       const session = await NewInference({
         type: type as ISessionType,
-        message: prompt,
+        message: actualPrompt,
         appId: appID,
         assistantId: assistantID,
         modelName: useModel,
@@ -146,6 +152,7 @@ const CreateContent: FC<CreateContentProps> = ({
       // Reload sessions
       invalidateSessionsQuery(queryClient)
 
+      setFilterMap({})
       setLoading(false)
       account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
@@ -353,6 +360,8 @@ const CreateContent: FC<CreateContentProps> = ({
                         onInference={onInference}
                         attachedImages={attachedImages}
                         onAttachedImagesChange={setAttachedImages}
+                        filterMap={filterMap}
+                        onFilterMapUpdate={setFilterMap}
                       />
                     </Box>
                   </Box>
