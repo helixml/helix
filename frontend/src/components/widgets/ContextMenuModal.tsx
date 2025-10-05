@@ -205,9 +205,27 @@ export const useContextMenu = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!appId) return;
             if (!isOpen && e.key === '@') {
-                e.preventDefault();
-                e.stopPropagation();
-                openContextMenu();
+                // Only trigger if @ is at the start or preceded by whitespace
+                if (textAreaRef?.current) {
+                    const textarea = textAreaRef.current;
+                    const cursorPosition = textarea.selectionEnd || 0;
+                    const textBeforeCursor = textarea.value.substring(0, cursorPosition);
+                    
+                    // Check if @ is at the start or preceded by whitespace
+                    const isAtStart = textBeforeCursor.length === 0;
+                    const isPrecededByWhitespace = textBeforeCursor.length > 0 && /\s$/.test(textBeforeCursor);
+                    
+                    if (!isAtStart && !isPrecededByWhitespace) {
+                        // Don't trigger the menu - let the @ be typed normally
+                        return;
+                    }
+                }
+                
+                // Don't prevent default - let the @ be inserted
+                // We'll open the menu after the @ is in the textarea
+                setTimeout(() => {
+                    openContextMenu();
+                }, 0);
             }
         };
 
@@ -218,7 +236,7 @@ export const useContextMenu = ({
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
         };
-    }, [isOpen, results, selectedIndex, openContextMenu, closeContextMenu, appId]);
+    }, [isOpen, results, selectedIndex, openContextMenu, closeContextMenu, appId, textAreaRef]);
 
     // Handle special control keys to navigate the menu
     const handleInputKeyDown = useCallback((e: React.KeyboardEvent) => {

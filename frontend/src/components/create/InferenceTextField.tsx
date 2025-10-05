@@ -1,7 +1,5 @@
-import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import IconButton from '@mui/material/IconButton'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
@@ -107,7 +105,16 @@ const InferenceTextField: FC<{
           onFilterMapUpdate(newFilterMap);
         }
         
-        onUpdate(value + displayText);
+        // Find the last @ in the text and replace it with the display text
+        const lastAtIndex = value.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          // Replace from @ to the end with the display text
+          const newValue = value.substring(0, lastAtIndex) + displayText;
+          onUpdate(newValue);
+        } else {
+          // Fallback: just append if @ not found
+          onUpdate(value + displayText);
+        }
       } else {
         onUpdate(value + text);
       }
