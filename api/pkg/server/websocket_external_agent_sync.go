@@ -1242,10 +1242,10 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
 
 	// Find the most recent waiting interaction
-	var targetInteraction *types.Interaction
+	var targetInteractionID string
 	for i := len(interactions) - 1; i >= 0; i-- {
 		if interactions[i].State == types.InteractionStateWaiting {
-			targetInteraction = interactions[i]
+			targetInteractionID = interactions[i].ID
 			log.Info().
 				Str("helix_session_id", helixSessionID).
 				Str("interaction_id", interactions[i].ID).
@@ -1255,12 +1255,25 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		}
 	}
 
-	if targetInteraction == nil {
+	if targetInteractionID == "" {
 		log.Warn().
 			Str("helix_session_id", helixSessionID).
 			Msg("⚠️ [HELIX] No waiting interaction found to mark as complete")
 		return nil
 	}
+
+	// CRITICAL: Reload the interaction from database to get latest response_message
+	// The message_added handler may have just updated it, so we need the freshest data
+	targetInteraction, err := apiServer.Controller.Options.Store.GetInteraction(context.Background(), targetInteractionID)
+	if err != nil {
+		return fmt.Errorf("failed to reload interaction %s: %w", targetInteractionID, err)
+	}
+
+	log.Info().
+		Str("helix_session_id", helixSessionID).
+		Str("interaction_id", targetInteraction.ID).
+		Int("response_length", len(targetInteraction.ResponseMessage)).
+		Msg("🔄 [HELIX] Reloaded interaction with latest response content")
 
 	// Mark the interaction as complete
 	targetInteraction.State = types.InteractionStateComplete
