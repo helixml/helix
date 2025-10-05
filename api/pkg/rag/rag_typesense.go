@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -153,6 +154,13 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		// Docs: https://typesense.org/docs/0.23.0/api/search.html#query-parameters
 		Prefix:        pointer.String("false,false"),
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
+	}
+
+	if len(q.DocumentIDList) > 0 {
+		// Add a constraint to also filter by document_id (is one of)
+		documentIDFilter := fmt.Sprintf("document_id:[%s]", strings.Join(q.DocumentIDList, ","))
+		// Combine the filters
+		searchParameters.FilterBy = pointer.String(fmt.Sprintf("%s && %s", *searchParameters.FilterBy, documentIDFilter))
 	}
 
 	if q.MaxResults > 0 {
