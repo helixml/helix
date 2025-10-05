@@ -396,8 +396,10 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 
 	// Process sync message directly
 	switch syncMsg.EventType {
-	case "context_created":
-		return apiServer.handleContextCreated(sessionID, syncMsg)
+	case "thread_created":
+		return apiServer.handleThreadCreated(sessionID, syncMsg)
+	case "context_created": // Legacy support - redirect to thread_created
+		return apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "message_added":
 		return apiServer.handleMessageAdded(sessionID, syncMsg)
 	case "message_updated":
@@ -420,17 +422,27 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 	}
 }
 
-// handleContextCreated processes context creation from external agent
-func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg *types.SyncMessage) error {
-	contextID, ok := syncMsg.Data["context_id"].(string)
+// handleThreadCreated processes thread creation from external agent (new protocol)
+func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *types.SyncMessage) error {
+	// NEW PROTOCOL: use acp_thread_id
+	acpThreadID, ok := syncMsg.Data["acp_thread_id"].(string)
 	if !ok {
-		return fmt.Errorf("missing or invalid context_id")
+		// FALLBACK: try old context_id for compatibility
+		acpThreadID, ok = syncMsg.Data["context_id"].(string)
+		if !ok {
+			return fmt.Errorf("missing or invalid acp_thread_id/context_id")
+		}
 	}
+
+	contextID := acpThreadID // Use contextID as alias for compatibility with rest of code
 
 	title, _ := syncMsg.Data["title"].(string)
 	if title == "" {
 		title = "New Conversation"
 	}
+
+	// NEW PROTOCOL: Extract request_id for correlation
+	requestID, _ := syncMsg.Data["request_id"].(string)
 
 	// Check if this is a response to a Helix-initiated request
 	// If syncMsg has a session_id, this is a response to an existing Helix session
@@ -439,9 +451,10 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 	log.Info().
 		Str("agent_session_id", sessionID).
 		Str("helix_session_id", helixSessionID).
-		Str("context_id", contextID).
+		Str("acp_thread_id", acpThreadID).
+		Str("request_id", requestID).
 		Str("title", title).
-		Msg("🔧 [HELIX] Processing context_created from external agent")
+		Msg("🔧 [HELIX] Processing thread_created from external agent")
 
 	// CRITICAL FIX: Check if this is a response to an existing Helix session request
 	// If helixSessionID is provided, REUSE that session instead of creating a new one
@@ -527,6 +540,48 @@ func (apiServer *HelixAPIServer) handleContextCreated(sessionID string, syncMsg 
 	}
 	apiServer.contextMappings[contextID] = createdSession.ID
 
+	// CRITICAL: Create an interaction for this new session
+	// The request_id from thread_created contains the message that triggered this thread
+	log.Info().
+		Str("context_id", contextID).
+		Str("helix_session_id", createdSession.ID).
+		Str("request_id", requestID).
+		Msg("🆕 [HELIX] Creating initial interaction for new Zed thread")
+
+	interaction := &types.Interaction{
+		ID:             "", // Will be generated
+		GenerationID:   0,
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Scheduled:      time.Now(),
+		Completed:      time.Time{},
+		SessionID:      createdSession.ID,
+		UserID:         createdSession.Owner,
+		Mode:           types.SessionModeInference,
+		PromptMessage:  "New conversation started via Zed", // Default message
+		State:          types.InteractionStateWaiting,
+		ResponseMessage: "",
+	}
+
+	createdInteraction, err := apiServer.Controller.Options.Store.CreateInteraction(context.Background(), interaction)
+	if err != nil {
+		log.Error().Err(err).
+			Str("helix_session_id", createdSession.ID).
+			Msg("❌ [HELIX] Failed to create interaction for new thread")
+		return fmt.Errorf("failed to create interaction: %w", err)
+	}
+
+	// Store the session->interaction mapping
+	if apiServer.sessionToWaitingInteraction == nil {
+		apiServer.sessionToWaitingInteraction = make(map[string]string)
+	}
+	apiServer.sessionToWaitingInteraction[createdSession.ID] = createdInteraction.ID
+
+	log.Info().
+		Str("helix_session_id", createdSession.ID).
+		Str("interaction_id", createdInteraction.ID).
+		Msg("✅ [HELIX] Created initial interaction and stored mapping")
+
 	return nil
 }
 
@@ -603,9 +658,14 @@ func (apiServer *HelixAPIServer) NotifyExternalAgentOfNewInteraction(sessionID s
 
 // handleMessageAdded processes message addition from external agent
 func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *types.SyncMessage) error {
-	contextID, ok := syncMsg.Data["context_id"].(string)
+	// NEW PROTOCOL: use acp_thread_id
+	contextID, ok := syncMsg.Data["acp_thread_id"].(string)
 	if !ok {
-		return fmt.Errorf("missing or invalid context_id")
+		// FALLBACK: try old context_id for compatibility
+		contextID, ok = syncMsg.Data["context_id"].(string)
+		if !ok {
+			return fmt.Errorf("missing or invalid acp_thread_id/context_id")
+		}
 	}
 
 	messageID, ok := syncMsg.Data["message_id"].(string)
@@ -1030,8 +1090,25 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		Interface("data", syncMsg.Data).
 		Msg("🎯 [HELIX] RECEIVED MESSAGE_COMPLETED FROM EXTERNAL AGENT")
 
-	// Extract helix_session_id from the event (it's in the session_id field)
-	helixSessionID := syncMsg.SessionID
+	// Extract acp_thread_id from the data
+	acpThreadID, ok := syncMsg.Data["acp_thread_id"].(string)
+	if !ok || acpThreadID == "" {
+		return fmt.Errorf("missing acp_thread_id in message_completed data")
+	}
+
+	// Look up helix_session_id from context mapping
+	helixSessionID, ok := apiServer.contextMappings[acpThreadID]
+	if !ok {
+		log.Warn().
+			Str("acp_thread_id", acpThreadID).
+			Msg("⚠️ [HELIX] No Helix session mapping found for this thread - skipping message_completed")
+		return nil
+	}
+
+	log.Info().
+		Str("acp_thread_id", acpThreadID).
+		Str("helix_session_id", helixSessionID).
+		Msg("✅ [HELIX] Found Helix session mapping for message_completed")
 
 	// Get the session
 	helixSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -1039,12 +1116,31 @@ func (apiServer *HelixAPIServer) handleMessageCompleted(sessionID string, syncMs
 		return fmt.Errorf("failed to get Helix session %s: %w", helixSessionID, err)
 	}
 
+	// Load interactions for this session (GetSession doesn't load them)
+	interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+		SessionID:    helixSessionID,
+		GenerationID: helixSession.GenerationID,
+		PerPage:      1000,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list interactions for session %s: %w", helixSessionID, err)
+	}
+
+	log.Info().
+		Str("helix_session_id", helixSessionID).
+		Int("interaction_count", len(interactions)).
+		Msg("🔍 [DEBUG] Loaded interactions for message_completed")
+
 	// Find the most recent waiting interaction
 	var targetInteraction *types.Interaction
-	interactions := helixSession.Interactions
 	for i := len(interactions) - 1; i >= 0; i-- {
 		if interactions[i].State == types.InteractionStateWaiting {
 			targetInteraction = interactions[i]
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("interaction_id", interactions[i].ID).
+				Str("state", string(interactions[i].State)).
+				Msg("✅ [HELIX] Found waiting interaction to mark as complete")
 			break
 		}
 	}
