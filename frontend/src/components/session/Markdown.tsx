@@ -73,6 +73,9 @@ export class MessageProcessor {
     // Process XML citations
     processedMessage = this.processXmlCitations(processedMessage);
 
+    // Process filter mentions
+    processedMessage = this.processFilterMentions(processedMessage);
+
     // Process document IDs and convert to links
     processedMessage = this.processDocumentIds(processedMessage);
 
@@ -251,6 +254,39 @@ export class MessageProcessor {
         });
       }
     }
+  }
+
+  private processFilterMentions(message: string): string {
+    const filterPattern = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/g;
+    const matches = [...message.matchAll(filterPattern)];
+
+    let processedMessage = message;
+
+    for (const match of matches) {
+      const fullMatch = match[0];
+      const docName = match[1];
+      const docId = match[2];
+
+      const basename = docName.split('/').pop() || docName;
+
+      let fileUrl = "#";
+      if (this.options.session.config?.document_ids) {
+        const docIdsMap = this.options.session.config.document_ids;
+        for (const fname in docIdsMap) {
+          if (docIdsMap[fname] === docId) {
+            const isURL = fname.startsWith('http://') || fname.startsWith('https://');
+            fileUrl = isURL ? fname : this.options.getFileURL(fname);
+            break;
+          }
+        }
+      }
+
+      // TODO: open a sidebar with the PDF itself on click
+      const replacement = `<a href="#" class="filter-mention" title="Document ID: ${docId}">@${basename}</a>`;
+      processedMessage = processedMessage.replace(fullMatch, replacement);
+    }
+
+    return processedMessage;
   }
 
   private processDocumentIds(message: string): string {
@@ -774,6 +810,20 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             textDecoration: 'none',
             '&:hover': {
               backgroundColor: 'rgba(88, 166, 255, 0.3)',
+            }
+          },
+          '& .filter-mention': {
+            color: theme.palette.mode === 'light' ? '#1976d2' : '#58a6ff',
+            backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.08)' : 'rgba(88, 166, 255, 0.15)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            textDecoration: 'none',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              backgroundColor: theme.palette.mode === 'light' ? 'rgba(25, 118, 210, 0.15)' : 'rgba(88, 166, 255, 0.25)',
+              textDecoration: 'none',
             }
           },
           '& table': {
