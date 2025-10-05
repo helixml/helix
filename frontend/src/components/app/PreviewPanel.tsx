@@ -102,6 +102,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const { NewInference, setCurrentSessionId } = useStreaming();
   const [isStreaming, setIsStreaming] = useState(false);
   const router = useRouterContext();
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({});
   // const [showSession, setShowSession] = useState(false);
 
   const activeAssistant = app && getAssistant(app, activeAssistantID);
@@ -185,6 +186,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const handleInference = useCallback(async () => {
     if (!inputValue.trim()) return;
 
+    let actualPrompt = inputValue;
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     if (session && session.id) {
       // Continue existing session
       setIsInternalLoading(true);
@@ -194,12 +200,13 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           parts: [
             {
               type: "text", 
-              text: inputValue,
+              text: actualPrompt,
             }
           ],
         };
 
         setInputValue('');
+        setFilterMap({});
         
         const updatedSession = await NewInference({
           message: '',
@@ -234,7 +241,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       // Show Session component after first message
       // setShowSession(true);
     }
-  }, [inputValue, session, NewInference, appId, activeAssistantID, onInference, onSessionUpdate, snackbar, setInputValue]);
+  }, [inputValue, session, NewInference, appId, activeAssistantID, onInference, onSessionUpdate, snackbar, setInputValue, filterMap]);
 
   // Add effect to update URL when session is created
   useEffect(() => {
@@ -622,6 +629,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                           onInference={handleInference}
                           attachedImages={attachedImages}
                           onAttachedImagesChange={setAttachedImages}
+                          filterMap={filterMap}
+                          onFilterMapUpdate={setFilterMap}
                         />
                       </Box>
                     </>

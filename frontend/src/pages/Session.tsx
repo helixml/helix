@@ -249,6 +249,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({})
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -519,7 +520,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       performance.mark('input-end');
       performance.measure('input-latency', 'input-start', 'input-end');
       const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
+      
+      (`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
       performance.clearMarks();
       performance.clearMeasures();
     });
@@ -635,6 +637,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       inferencePrompt: prompt,
     })) return
 
+    let actualPrompt = prompt
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     let newSession: TypesSession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
@@ -642,11 +649,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       const appID = session.data.parent_app || ''      
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()      
       
       newSession = await NewInference({
-        message: prompt,
+        message: actualPrompt,
         messages: [],
         image: selectedImage || undefined, // Optional field
         image_filename: selectedImageName || undefined, // Optional field
@@ -657,13 +665,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         sessionId: session?.data?.id,
         type: session?.data?.type || 'text',
       })
-      console.log("XXX new session done!!")
     } else {
       const formData = new FormData()
-      formData.set('input', prompt)
+      formData.set('input', actualPrompt)
       formData.set('model_name', session?.data?.model_name || '')
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
       
@@ -685,15 +693,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     NewInference,
     scrollToBottom,
     safeReloadSession,
+    filterMap,
   ])
 
   const onRegenerate = useCallback(async (interactionID: string, message: string) => {
     if (!session?.data) return
     if (!checkOwnership({
       inferencePrompt: '',
-    })) return
-
-    console.log("onRegenerate", { interactionID, message })
+    })) return    
 
     let newSession: TypesSession | null = null
 
@@ -876,15 +883,49 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       return
     }
     const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
-    if (!filterAction) {
+    if (!filterAction || !filterAction.value) {
       snackbar.error('Unable to filter document, no action found')
       return
     }
-    setInputValue(current => current + filterAction.value);
+    
+    const filterValue = filterAction.value;
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = filterValue.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: filterValue
+      }));
+      
+      setInputValue(current => current + displayText);
+    } else {
+      setInputValue(current => current + filterValue);
+    }
   }, [appID, api, setInputValue, snackbar]);
 
   const handleInsertText = useCallback((text: string) => {
-    setInputValue(current => current + text);
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = text.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: text
+      }));
+      
+      setInputValue(current => current + displayText);
+    } else {
+      setInputValue(current => current + text);
+    }
   }, []);
 
   // Memoize the session data comparison

@@ -34,6 +34,8 @@ const InferenceTextField: FC<{
   appId: string,
   attachedImages?: File[],
   onAttachedImagesChange?: (files: File[]) => void,
+  filterMap?: Record<string, string>,
+  onFilterMapUpdate?: (filterMap: Record<string, string>) => void,
 }> = ({
   type,
   value,
@@ -47,6 +49,8 @@ const InferenceTextField: FC<{
   appId,
   attachedImages = [],
   onAttachedImagesChange,
+  filterMap: externalFilterMap,
+  onFilterMapUpdate,
 }) => {
     const lightTheme = useLightTheme()
     const theme = useTheme()
@@ -55,6 +59,7 @@ const InferenceTextField: FC<{
     const imageInputRef = useRef<HTMLInputElement>(null)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
     const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+    const [internalFilterMap, setInternalFilterMap] = useState<Record<string, string>>({})
 
     const handleKeyDown = useEnterPress({
       value,
@@ -84,7 +89,28 @@ const InferenceTextField: FC<{
     }
 
     const handleInsertText = (text: string) => {
-      onUpdate(value + text)
+      const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+      const match = text.match(filterRegex);
+      
+      if (match) {
+        const fullPath = match[1];
+        const filename = fullPath.split('/').pop() || fullPath;
+        const displayText = `@${filename}`;
+        
+        const newFilterMap = {
+          ...internalFilterMap,
+          [displayText]: text
+        };
+        setInternalFilterMap(newFilterMap);
+        
+        if (onFilterMapUpdate) {
+          onFilterMapUpdate(newFilterMap);
+        }
+        
+        onUpdate(value + displayText);
+      } else {
+        onUpdate(value + text);
+      }
     }
 
     const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
