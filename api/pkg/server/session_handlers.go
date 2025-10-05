@@ -1243,6 +1243,16 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 		Str("interaction_id", interaction.ID).
 		Msg("🔗 [HELIX] Stored session->interaction mapping for streaming request")
 
+	// CRITICAL: Store request_id->session mapping so thread_created can find the right session
+	if s.requestToSessionMapping == nil {
+		s.requestToSessionMapping = make(map[string]string)
+	}
+	s.requestToSessionMapping[requestID] = session.ID
+	log.Info().
+		Str("request_id", requestID).
+		Str("session_id", session.ID).
+		Msg("🔗 [HELIX] Stored request_id->session mapping for thread creation")
+
 	log.Info().
 		Str("session_id", session.ID).
 		Str("request_id", requestID).
