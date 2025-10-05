@@ -277,6 +277,71 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 	// Start message sender
 	go apiServer.handleExternalAgentSender(ctx, wsConn)
 
+	// Check if this agent has a pending Helix session with initial message
+	if helixSessionID, exists := apiServer.externalAgentSessionMapping[agentID]; exists {
+		log.Info().
+			Str("agent_session_id", agentID).
+			Str("helix_session_id", helixSessionID).
+			Msg("🚀 [HELIX] External agent connected, sending initial message")
+
+		// Get the Helix session to find the initial interaction
+		helixSession, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+		if err == nil && helixSession != nil {
+			// Find the waiting interaction
+			interactions, _, err := apiServer.Controller.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+				SessionID:    helixSessionID,
+				GenerationID: helixSession.GenerationID,
+				PerPage:      1000,
+			})
+			if err == nil && len(interactions) > 0 {
+				// Find the most recent waiting interaction
+				for i := len(interactions) - 1; i >= 0; i-- {
+					if interactions[i].State == types.InteractionStateWaiting {
+						// Found the initial message - send it to Zed
+						// Find the request_id for this session
+						var requestID string
+						for rid, sid := range apiServer.requestToSessionMapping {
+							if sid == helixSessionID {
+								requestID = rid
+								break
+							}
+						}
+
+						if requestID != "" {
+							command := types.ExternalAgentCommand{
+								Type: "chat_message",
+								Data: map[string]interface{}{
+									"message":       interactions[i].PromptMessage,
+									"request_id":    requestID,
+									"acp_thread_id": nil, // null = create new thread
+								},
+							}
+
+							// Send immediately via channel
+							select {
+							case wsConn.SendChan <- command:
+								log.Info().
+									Str("agent_session_id", agentID).
+									Str("request_id", requestID).
+									Str("helix_session_id", helixSessionID).
+									Msg("✅ [HELIX] Sent initial chat_message to Zed")
+							default:
+								log.Warn().
+									Str("agent_session_id", agentID).
+									Msg("⚠️ [HELIX] SendChan full, could not send initial message")
+							}
+						} else {
+							log.Warn().
+								Str("helix_session_id", helixSessionID).
+								Msg("⚠️ [HELIX] No request_id found for initial message")
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// Handle incoming messages (blocking)
 	apiServer.handleExternalAgentReceiver(ctx, wsConn)
 }
@@ -456,7 +521,27 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Str("title", title).
 		Msg("🔧 [HELIX] Processing thread_created from external agent")
 
-	// CRITICAL FIX: Check if this is a response to an existing Helix session request
+	// PRIORITY 1: Check if request_id maps to an existing Helix session
+	// This handles the case where API sent chat_message to Zed with a request_id
+	if requestID != "" {
+		if mappedSessionID, exists := apiServer.requestToSessionMapping[requestID]; exists {
+			log.Info().
+				Str("request_id", requestID).
+				Str("helix_session_id", mappedSessionID).
+				Str("acp_thread_id", acpThreadID).
+				Msg("✅ [HELIX] Found existing Helix session via request_id mapping")
+
+			helixSessionID = mappedSessionID // Use the mapped session
+
+			// Clean up the request mapping now that we have the thread mapping
+			delete(apiServer.requestToSessionMapping, requestID)
+			log.Info().
+				Str("request_id", requestID).
+				Msg("🧹 [HELIX] Cleaned up request_id mapping")
+		}
+	}
+
+	// PRIORITY 2: Check if helixSessionID is provided or was found via request_id
 	// If helixSessionID is provided, REUSE that session instead of creating a new one
 	if helixSessionID != "" {
 		// This is a response to a Helix-initiated request - store zed_context_id on the session
@@ -500,15 +585,25 @@ func (apiServer *HelixAPIServer) handleThreadCreated(sessionID string, syncMsg *
 		Str("context_id", contextID).
 		Msg("🆕 [HELIX] Creating NEW Helix session for user-initiated Zed context")
 
-	// For external agents, we'll use a default user since the sessionID here is the agent connection ID
-	// In a production system, this should be mapped to the actual user who authorized the agent
-	defaultUserID := "external-agent-user" // TODO: Map to actual user who authorized this agent
+	// Get the real user ID who created this external agent session
+	userID, exists := apiServer.externalAgentUserMapping[sessionID]
+	if !exists || userID == "" {
+		log.Warn().
+			Str("agent_session_id", sessionID).
+			Msg("⚠️ [HELIX] No user mapping found for external agent, using default")
+		userID = "external-agent-user" // Fallback for safety
+	}
+
+	log.Info().
+		Str("agent_session_id", sessionID).
+		Str("user_id", userID).
+		Msg("✅ [HELIX] Using real user ID for Helix session")
 
 	// Create a new Helix session for this Zed context
 	helixSession := types.Session{
 		ID:        "", // Will be generated
 		Name:      title,
-		Owner:     defaultUserID,
+		Owner:     userID,
 		OwnerType: types.OwnerTypeUser,
 		Type:      types.SessionTypeText,
 		Mode:      types.SessionModeInference,
