@@ -697,7 +697,105 @@ if command.data.role.as_deref() == Some("user") {
 
 ---
 
-## 13. Test Results (To Be Updated After Testing)
+## 13. CRITICAL Discovery: Multiple Agent Instances Issue
+
+### The Real Root Cause of Duplicate Threads
+
+**Architecture Discovery:**
+Each call to `.server().connect()` creates a COMPLETELY NEW `Entity<NativeAgent>` with its own `sessions` HashMap!
+
+**Why this breaks our approach:**
+1. WebSocket handler: calls `.server().connect()` → Creates NativeAgent instance A
+2. WebSocket creates thread → Thread registered in instance A's `sessions` map
+3. UI: calls `.server().connect()` → Creates NativeAgent instance B (different entity!)
+4. UI calls `open_thread(session_id)` → Checks instance B's `sessions` (EMPTY!)
+5. Not found → Loads from database
+6. Database save is ASYNC (triggered by observer on thread changes)
+7. Race condition: Database might not have thread yet
+8. Falls back to creating NEW thread → DUPLICATE!
+
+**Evidence from logs:**
+```
+✅ [THREAD_SERVICE] Created ACP thread: 4294967571  // Entity ID
+📋 [THREAD_SERVICE] Registered thread: 4294967571   // In agent A's sessions
+
+// Later when UI tries to open:
+📂 [AGENT] open_thread: No existing session for eef40bde-8ec3-47e8-a5ff-a99452bcc5f5
+// Looking in agent B's sessions (empty!) - session_id is the UUID
+```
+
+**Why existing code works:**
+- Clicking history: Loads from database (thread is saved by then)
+- Creating new threads: Each thread view has its own agent instance
+- Not meant to share agents across views!
+
+**Why our WebSocket case is different:**
+- Thread is BRAND NEW (not in database yet)
+- Created by one agent instance (A)
+- UI tries to view with different agent instance (B)
+- Can't look up across instances!
+
+**The only solution: Pass thread entity directly**
+- We HAVE the `Entity<AcpThread>` from WebSocket
+- Need to wrap it in a view WITHOUT going through database
+- This is what `from_existing_thread()` does
+- It's not a hack - it's the correct pattern for viewing brand-new threads!
+
+---
+
+## 14. Final Fix Summary
+
+### Why `from_existing_thread()` is Required (Not a Workaround)
+
+**Zed's Architecture (by design):**
+- Each `server.connect()` creates a NEW `Entity<NativeAgent>`
+- Each NativeAgent has its own `sessions: HashMap<SessionId, Session>`
+- Sessions are NOT shared across agent instances
+- Threads persist via DATABASE (async save on changes)
+- Clicking history loads from DB, creates new agent, registers in new agent's sessions
+
+**This works fine for normal usage:**
+- User creates thread → saved to DB over time
+- User clicks history later → loads from DB into new agent instance
+- Database is source of truth for persistence
+
+**But breaks for WebSocket headless threads:**
+1. WebSocket handler calls `.server().connect()` → NativeAgent instance A created
+2. Creates thread → Registered in A's `sessions` map
+3. Notification sent with thread entity immediately
+4. UI callback calls `.server().connect()` → NativeAgent instance B created (different!)
+5. UI tries `external_thread()` → loads from DB via instance B
+6. Database save is ASYNC, might not be complete yet
+7. Even if DB has it, loading creates DUPLICATE registration in B's sessions
+8. Result: Wrong thread shown or "New Thread" template
+
+**The solution: from_existing_thread()**
+- Takes the `Entity<AcpThread>` we already have from WebSocket
+- Creates view directly in `ThreadState::Ready` with that entity
+- Bypasses database entirely (no race condition)
+- Syncs existing entries immediately
+- Headless thread remains independent, UI just "watches" it
+
+**This is the correct pattern because:**
+- We have the live thread entity - no reason to throw it away!
+- Database is for persistence, not for cross-instance lookups
+- Matches Zed's architecture: each view can have different agent instance
+- Headless threads remain fully independent ✅
+- UI can view them without coupling ✅
+
+---
+
+## 15. All Fixes Summary (Final)
+
+1. ✅ Request ID tracking per thread (timeout fix)
+2. ✅ Filter duplicate echoed messages
+3. ✅ Panel auto-open with workspace.focus_panel()
+4. ✅ Check sessions in open_thread() (helps but not sufficient alone)
+5. ✅ from_existing_thread() - Direct entity wrapping (THE KEY FIX)
+
+---
+
+## 16. Test Results (To Be Updated After Testing)
 
 ### Test 1: [Pending]
 
