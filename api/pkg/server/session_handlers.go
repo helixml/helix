@@ -315,6 +315,26 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// Track which interactions are new (for external agent notification)
+	// For existing sessions, only the last interaction(s) are new (from current generation)
+	// For new sessions, all interactions are new
+	newInteractionsStartIndex := 0
+	if startReq.SessionID != "" {
+		// Existing session - find where old interactions end by checking GenerationID
+		// Only notify about interactions from the current generation
+		for i := len(session.Interactions) - 1; i >= 0; i-- {
+			if session.Interactions[i].GenerationID < session.GenerationID {
+				// This interaction is from a previous generation
+				newInteractionsStartIndex = i + 1
+				break
+			}
+		}
+		log.Debug().
+			Int("total_interactions", len(session.Interactions)).
+			Int("new_start_index", newInteractionsStartIndex).
+			Msg("Tracking new interactions for external agent notification")
+	}
+
 	// Write the initial interactions
 	err = s.Controller.WriteInteractions(req.Context(), session.Interactions...)
 	if err != nil {
@@ -322,8 +342,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
-	// Notify external agents of new interactions if this session uses external agents
-	for _, interaction := range session.Interactions {
+	// Notify external agents ONLY of NEW interactions (not replaying history)
+	for i := newInteractionsStartIndex; i < len(session.Interactions); i++ {
+		interaction := session.Interactions[i]
 		if err := s.NotifyExternalAgentOfNewInteraction(session.ID, interaction); err != nil {
 			log.Warn().Err(err).
 				Str("session_id", session.ID).
@@ -1281,6 +1302,11 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 	// Accumulate the full response for updating the interaction
 	var fullResponse string
 
+	// Create timeout timer ONCE before loop (not on each iteration)
+	// This prevents multiple timers from being created
+	timeout := time.NewTimer(90 * time.Second)
+	defer timeout.Stop()
+
 	// Stream response chunks as they arrive
 	for {
 		select {
@@ -1316,6 +1342,8 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			}
 
 		case <-doneChan:
+			// CRITICAL: Stop the timeout timer to prevent it from firing after completion
+			timeout.Stop()
 			// CRITICAL: For external agent flow, the response was already saved to DB by handleMessageAdded
 			// We need to RELOAD the interaction from DB to get the final response, not use fullResponse
 			// which is only accumulated from responseChan (unused in external agent flow)
@@ -1401,7 +1429,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			log.Error().Err(err).Str("session_id", session.ID).Str("request_id", requestID).Msg("External agent response error")
 			return s.writeErrorResponse(rw, "External agent error: "+err.Error())
 
-		case <-time.After(90 * time.Second):
+		case <-timeout.C:
 			// Update interaction with timeout error
 			interaction.Error = "External agent response timeout"
 			interaction.State = types.InteractionStateError
