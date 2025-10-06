@@ -144,7 +144,7 @@ INTERACTIONS=$(echo "$SESSION_DATA" | jq -r '.interactions | length' 2>/dev/null
 echo "   Session has $INTERACTIONS interactions"
 
 if [ "$INTERACTIONS" -gt 0 ]; then
-    RESPONSE=$(echo "$SESSION_DATA" | jq -r '.interactions[0].response' 2>/dev/null)
+    RESPONSE=$(echo "$SESSION_DATA" | jq -r '.interactions[0].response_message' 2>/dev/null)
     if [ "$RESPONSE" != "null" ] && [ -n "$RESPONSE" ]; then
         echo "✅ Got response from Zed (interaction 1)!"
         echo "   Response: ${RESPONSE:0:200}..."
@@ -208,7 +208,7 @@ INTERACTIONS_2=$(echo "$SESSION_DATA_2" | jq -r '.interactions | length' 2>/dev/
 echo "   Session now has $INTERACTIONS_2 total interactions"
 
 if [ "$INTERACTIONS_2" -ge 2 ]; then
-    RESPONSE_2=$(echo "$SESSION_DATA_2" | jq -r '.interactions[1].response' 2>/dev/null)
+    RESPONSE_2=$(echo "$SESSION_DATA_2" | jq -r '.interactions[1].response_message' 2>/dev/null)
     if [ "$RESPONSE_2" != "null" ] && [ -n "$RESPONSE_2" ]; then
         echo "✅ Got response from Zed (interaction 2)!"
         echo "   Response: ${RESPONSE_2:0:200}..."
