@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -478,6 +479,10 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 	switch syncMsg.EventType {
 	case "thread_created":
 		return apiServer.handleThreadCreated(sessionID, syncMsg)
+	case "user_created_thread":
+		return apiServer.handleUserCreatedThread(sessionID, syncMsg)
+	case "thread_title_changed":
+		return apiServer.handleThreadTitleChanged(sessionID, syncMsg)
 	case "context_created": // Legacy support - redirect to thread_created
 		return apiServer.handleThreadCreated(sessionID, syncMsg)
 	case "message_added":
@@ -1408,6 +1413,128 @@ func (apiServer *HelixAPIServer) publishSessionUpdateToFrontend(session *types.S
 		Str("interaction_id", interaction.ID).
 		Str("owner", session.Owner).
 		Msg("📤 [HELIX] Published session update to frontend")
+
+	return nil
+}
+
+// handleUserCreatedThread processes user-created thread event from Zed UI
+// Creates a new Helix session and maps it to the Zed thread
+func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("agent_session_id", agentSessionID).
+		Interface("data", syncMsg.Data).
+		Msg("🆕 [HELIX] User created new thread in Zed UI")
+
+	// Extract thread ID and title
+	acpThreadID, ok := syncMsg.Data["acp_thread_id"].(string)
+	if !ok || acpThreadID == "" {
+		return fmt.Errorf("missing or invalid acp_thread_id in user_created_thread event")
+	}
+
+	title, _ := syncMsg.Data["title"].(string)
+	if title == "" {
+		title = "New Chat" // Default title
+	}
+
+	// Get the existing Helix session (agentSessionID is the session ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	existingSession, err := apiServer.Controller.Options.Store.GetSession(ctx, agentSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to load existing session: %w", err)
+	}
+
+	// Create new Helix session for this user-created thread
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		ModelName:      "claude-3-5-sonnet-20241022", // Default model
+		ParentApp:      "",
+		OrganizationID: existingSession.OrganizationID,
+		Owner:          existingSession.Owner,
+		OwnerType:      existingSession.OwnerType,
+		Metadata: types.SessionMetadata{
+			ZedThreadID:         acpThreadID,
+			AgentType:           "zed_external",
+			ExternalAgentConfig: &types.ExternalAgentConfig{},
+		},
+		Name: title,
+	}
+
+	// Store session in database
+	_, err = apiServer.Controller.Options.Store.CreateSession(ctx, *session)
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+
+	// Map Zed thread to Helix session (same as handleThreadCreated)
+	apiServer.contextMappings[acpThreadID] = session.ID
+
+	log.Info().
+		Str("acp_thread_id", acpThreadID).
+		Str("helix_session_id", session.ID).
+		Str("title", title).
+		Msg("✅ [HELIX] Created new session for user-created Zed thread")
+
+	return nil
+}
+
+// handleThreadTitleChanged processes thread title change event from Zed
+// Updates the corresponding Helix session name
+func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string, syncMsg *types.SyncMessage) error {
+	log.Info().
+		Str("agent_session_id", agentSessionID).
+		Interface("data", syncMsg.Data).
+		Msg("📝 [HELIX] Thread title changed in Zed")
+
+	// Extract thread ID and new title
+	acpThreadID, ok := syncMsg.Data["acp_thread_id"].(string)
+	if !ok || acpThreadID == "" {
+		return fmt.Errorf("missing or invalid acp_thread_id in thread_title_changed event")
+	}
+
+	newTitle, ok := syncMsg.Data["title"].(string)
+	if !ok {
+		return fmt.Errorf("missing or invalid title in thread_title_changed event")
+	}
+
+	// Find corresponding Helix session (same as handleThreadCreated uses)
+	helixSessionID, exists := apiServer.contextMappings[acpThreadID]
+
+	if !exists {
+		log.Warn().
+			Str("acp_thread_id", acpThreadID).
+			Msg("⚠️ [HELIX] Thread title changed but no Helix session found for thread")
+		return nil // Not an error - thread might not have a session yet
+	}
+
+	// Load session
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	session, err := apiServer.Controller.Options.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to load session: %w", err)
+	}
+
+	// Update session name
+	session.Name = newTitle
+	session.Updated = time.Now()
+
+	_, err = apiServer.Controller.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return fmt.Errorf("failed to update session name: %w", err)
+	}
+
+	log.Info().
+		Str("acp_thread_id", acpThreadID).
+		Str("helix_session_id", helixSessionID).
+		Str("new_title", newTitle).
+		Msg("✅ [HELIX] Updated session name from Zed thread title")
 
 	return nil
 }
