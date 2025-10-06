@@ -906,13 +906,37 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("content", content).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
 
-			// Publish session update to frontend so UI updates in real-time
-			err = apiServer.publishSessionUpdateToFrontend(helixSession, targetInteraction)
+			// Reload session with all interactions so WebSocket event has latest data
+			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 			if err != nil {
-				log.Error().Err(err).
-					Str("session_id", helixSessionID).
-					Str("interaction_id", targetInteraction.ID).
-					Msg("Failed to publish session update to frontend")
+				log.Error().Err(err).Str("session_id", helixSessionID).Msg("Failed to reload session")
+			} else {
+				// Load all interactions
+				allInteractions, _, err := apiServer.Controller.Options.Store.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+					SessionID:    helixSessionID,
+					GenerationID: reloadedSession.GenerationID,
+					PerPage:      1000,
+				})
+				if err == nil {
+					reloadedSession.Interactions = allInteractions
+
+					// DEBUG: Log what we're about to send
+					log.Info().
+						Str("session_id", helixSessionID).
+						Int("interaction_count", len(allInteractions)).
+						Int("last_interaction_response_len", len(allInteractions[len(allInteractions)-1].ResponseMessage)).
+						Str("last_interaction_state", string(allInteractions[len(allInteractions)-1].State)).
+						Msg("🔍 [DEBUG] About to publish session update")
+
+					// Publish session update to frontend so UI updates in real-time
+					err = apiServer.publishSessionUpdateToFrontend(reloadedSession, targetInteraction)
+					if err != nil {
+						log.Error().Err(err).
+							Str("session_id", helixSessionID).
+							Str("interaction_id", targetInteraction.ID).
+							Msg("Failed to publish session update to frontend")
+					}
+				}
 			}
 		} else {
 			log.Warn().
