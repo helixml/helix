@@ -228,6 +228,68 @@ docker compose -f docker-compose.dev.yaml exec -T postgres psql -U postgres -d p
 
 kill $CHAT_PID_2 2>/dev/null || true
 
+# Step 15: Test new session creation (verify sessions are isolated)
+echo ""
+echo "15. Testing new session creation (session isolation)..."
+echo "========================================================"
+echo "   Creating a brand new session to verify isolation..."
+
+TIMESTAMP_2=$(date +%s)
+timeout 180 curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"messages\": [
+      {
+        \"role\": \"user\",
+        \"content\": {
+          \"contentType\": \"text\",
+          \"parts\": [\"New session ${TIMESTAMP_2}: What is 5+5?\"]
+        }
+      }
+    ],
+    \"agent_type\": \"zed_external\",
+    \"stream\": false
+  }" \
+  "http://localhost:8080/api/v1/sessions/chat" > /tmp/chat-response-new-session.log 2>&1 &
+CHAT_PID_NEW=$!
+
+echo "   New session request sent (PID: $CHAT_PID_NEW)"
+echo "   Waiting 10 seconds for new session to be created..."
+sleep 10
+
+# Get the new session ID (should be different from first session)
+SESSION_ID_2=$(docker compose -f docker-compose.dev.yaml exec api curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps | jq -r '.apps[] | select(.title | startswith("External Agent ses_")) | .title' | sed 's/External Agent //' | grep -v "$SESSION_ID" | head -1)
+
+if [ -z "$SESSION_ID_2" ]; then
+    echo "❌ Failed to create new session (no new Wolf app found)"
+else
+    echo "✅ New session created: $SESSION_ID_2"
+    echo "   Waiting 25 seconds for AI response..."
+    sleep 25
+
+    # Check new session for response
+    SESSION_DATA_NEW=$(curl -s -H "Authorization: Bearer $API_KEY" \
+        "http://localhost:8080/api/v1/sessions/$SESSION_ID_2")
+
+    INTERACTIONS_NEW=$(echo "$SESSION_DATA_NEW" | jq -r '.interactions | length' 2>/dev/null || echo "0")
+    echo "   New session has $INTERACTIONS_NEW interactions"
+
+    if [ "$INTERACTIONS_NEW" -gt 0 ]; then
+        RESPONSE_NEW=$(echo "$SESSION_DATA_NEW" | jq -r '.interactions[0].response_message' 2>/dev/null)
+        if [ "$RESPONSE_NEW" != "null" ] && [ -n "$RESPONSE_NEW" ]; then
+            echo "✅ Got response from Zed in new session!"
+            echo "   Response: ${RESPONSE_NEW:0:100}..."
+        else
+            echo "❌ No response in new session"
+        fi
+    else
+        echo "❌ No interactions in new session"
+    fi
+fi
+
+kill $CHAT_PID_NEW 2>/dev/null || true
+
 # Cleanup
 kill $STREAM_PID 2>/dev/null || true
 kill $CHAT_PID 2>/dev/null || true
@@ -236,8 +298,9 @@ echo ""
 echo "✅ Test complete!"
 echo ""
 echo "Summary:"
-echo "- Session ID: $SESSION_ID"
-echo "- Container: $CONTAINER"  
+echo "- First Session ID: $SESSION_ID"
+echo "- Second Session ID: ${SESSION_ID_2:-none}"
+echo "- Container: $CONTAINER"
 echo "- Check logs above for WebSocket activity"
 echo ""
 echo "Expected logs to see:"
