@@ -36,7 +36,7 @@ const useLiveInteraction = (
         if (sessionId) {
             const currentResponse = currentResponses.get(sessionId);
             if (currentResponse) {
-                // Removed excessive debug logging
+                // SSE streaming active - use currentResponses
                 setInteraction(
                     (
                         prevInteraction: TypesInteraction | null,
@@ -60,14 +60,15 @@ const useLiveInteraction = (
                     setIsStale(false);
                 }
             } else {
-                // Removed excessive debug logging
-                // If no streaming context but we have an initial interaction in waiting state,
-                // keep using the initial interaction data
-                if (
-                    initialInteraction &&
-                    initialInteraction.state === "waiting"
-                ) {
+                // No SSE streaming - use initialInteraction (updated via React Query refetch)
+                // CRITICAL: This enables external agent streaming via WebSocket session updates
+                if (initialInteraction) {
                     setInteraction(initialInteraction);
+                    // Also preserve message from query updates
+                    if (initialInteraction.response_message) {
+                        setLastKnownMessage(initialInteraction.response_message);
+                        setRecentTimestamp(Date.now());
+                    }
                 }
             }
         }
@@ -99,6 +100,19 @@ const useLiveInteraction = (
 
         return () => clearInterval(intervalID);
     }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
+
+    // DEBUG: Log what we're working with
+    if (interaction?.state === 'waiting' && interaction?.response_message) {
+        console.log('[useLiveInteraction] Partial response for waiting interaction:', {
+            sessionId,
+            interactionId: interaction.id,
+            state: interaction.state,
+            responseLength: interaction.response_message?.length,
+            responsePreview: interaction.response_message?.substring(0, 50),
+            currentResponsesHas: currentResponses.has(sessionId),
+            currentResponsesMessage: currentResponses.get(sessionId)?.response_message?.substring(0, 50)
+        });
+    }
 
     const result = {
         // Use interaction message if available, otherwise fall back to preserved message
