@@ -410,6 +410,16 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				if len(startReq.ExternalAgentConfig.EnvVars) > 0 {
 					zedAgent.Env = startReq.ExternalAgentConfig.EnvVars
 				}
+				// Apply video settings (Phase 3.5)
+				if startReq.ExternalAgentConfig.DisplayWidth > 0 {
+					zedAgent.DisplayWidth = startReq.ExternalAgentConfig.DisplayWidth
+				}
+				if startReq.ExternalAgentConfig.DisplayHeight > 0 {
+					zedAgent.DisplayHeight = startReq.ExternalAgentConfig.DisplayHeight
+				}
+				if startReq.ExternalAgentConfig.DisplayRefreshRate > 0 {
+					zedAgent.DisplayRefreshRate = startReq.ExternalAgentConfig.DisplayRefreshRate
+				}
 			}
 
 			// Register session in executor so RDP endpoint can find it
