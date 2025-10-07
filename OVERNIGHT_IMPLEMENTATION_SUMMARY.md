@@ -195,9 +195,16 @@ Documentation:
 
 ### Wolf-UI Repository (helix-lab-3d branch)
 
-**Commits:** 1 commit (f447542)
+**Commits:** 2 commits (f447542, 169591c)
 
-**New Files:** 10 files for 3D immersive lab
+**New Files:** 15 files for 3D immersive lab (scenes, scripts, shaders, docs, build tools)
+
+**Build Status:** ⚠️ Source complete, requires Godot editor import
+- Godot scenes need editor to generate import files before headless build
+- Workaround: Open in Godot 4.4 editor once → Import → Then build works
+- See wolf-ui/BUILD_STATUS.md for details
+- **Current:** Using existing 2D Wolf UI (fully functional)
+- **Future:** Build 3D version when Godot editor available
 
 ---
 
