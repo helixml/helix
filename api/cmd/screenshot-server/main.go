@@ -40,17 +40,23 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(filename)
 
 	// Run grim to capture screenshot
-	// Use wayland-2 (Sway compositor) instead of wayland-1 (Wolf compositor)
-	// Wolf's compositor doesn't support wlr-screencopy-unstable-v1
+	// Use wayland-1 (Sway compositor) not wayland-2 (Wolf lobby compositor)
+	// With wolf-ui lobbies: wayland-1 = Sway, wayland-2 = Wolf
 	cmd := exec.Command("grim", filename)
 
 	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntimeDir == "" {
-		xdgRuntimeDir = "/run/user/wolf"
+		xdgRuntimeDir = "/tmp/sockets" // Wolf-UI uses /tmp/sockets not /run/user/wolf
+	}
+
+	// Get WAYLAND_DISPLAY from environment, default to wayland-1 (Sway)
+	waylandDisplay := os.Getenv("WAYLAND_DISPLAY")
+	if waylandDisplay == "" {
+		waylandDisplay = "wayland-1"
 	}
 
 	cmd.Env = append(os.Environ(),
-		"WAYLAND_DISPLAY=wayland-2",
+		fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
 		fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
 	)
 
