@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,18 @@ func (w *WolfExecutor) generateWolfAppID(userID, environmentName string) string 
 	}
 	// Convert to string and limit to reasonable length for Wolf
 	return fmt.Sprintf("%d", numericHash%1000000000) // Max 9 digits
+}
+
+// generateLobbyPIN generates a random 4-digit PIN for lobby access control
+func generateLobbyPIN() ([]int16, string) {
+	pin := make([]int16, 4)
+	b := make([]byte, 4)
+	rand.Read(b)
+	for i := range pin {
+		pin[i] = int16(b[i] % 10) // 0-9
+	}
+	pinString := fmt.Sprintf("%d%d%d%d", pin[0], pin[1], pin[2], pin[3])
+	return pin, pinString
 }
 
 // SwayWolfAppConfig contains configuration for creating a Sway-based Wolf app
@@ -200,6 +213,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Add custom env vars from agent request
 	extraEnv = append(extraEnv, agent.Env...)
 
+	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
+	lobbyPIN, lobbyPINString := generateLobbyPIN()
+
 	// NEW: Create lobby instead of app for immediate auto-start
 	// Default video settings: MacBook Pro 13" (2560x1600@60Hz)
 	lobbyReq := &wolf.CreateLobbyRequest{
@@ -207,6 +223,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Name:                   fmt.Sprintf("External Agent %s", agent.SessionID),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   2560, // MacBook Pro 13" default
 			Height:                  1600,
@@ -240,6 +257,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	log.Info().
 		Str("lobby_id", lobbyResp.LobbyID).
 		Str("session_id", agent.SessionID).
+		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
 
 	// Track session with lobby ID
@@ -255,7 +273,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 	w.sessions[agent.SessionID] = session
 
-	// Return response with screenshot URL and Moonlight info
+	// Return response with screenshot URL, Moonlight info, and PIN
 	response := &types.ZedAgentResponse{
 		SessionID:     agent.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
@@ -263,6 +281,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
 		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
+		WolfLobbyPIN:  lobbyPINString, // NEW: Return PIN for storage in Helix session
 	}
 
 	log.Info().
@@ -541,12 +560,16 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 
+	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
+	lobbyPIN, lobbyPINString := generateLobbyPIN()
+
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("PDE: %s", environmentName),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
 			Height:                  displayHeight,
@@ -580,6 +603,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	log.Info().
 		Str("lobby_id", lobbyResp.LobbyID).
 		Str("instance_id", instanceID).
+		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - PDE container starting immediately")
 
 	// Save to database
@@ -589,6 +613,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		AppID:           appID, // Original Helix App ID for configuration
 		WolfAppID:       wolfAppID, // Keep for backward compatibility
 		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
+		WolfLobbyPIN:    lobbyPINString, // NEW: Store PIN for access control
 		EnvironmentName: environmentName,
 		Status:          "running", // Container is running immediately with lobbies
 		LastActivity:    time.Now(),
