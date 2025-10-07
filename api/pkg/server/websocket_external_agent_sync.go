@@ -1568,5 +1568,17 @@ func (apiServer *HelixAPIServer) handleThreadTitleChanged(agentSessionID string,
 		Str("new_title", newTitle).
 		Msg("✅ [HELIX] Updated session name from Zed thread title")
 
+	// Publish a session update so frontend refetches sessions list with new title
+	event := &types.WebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: helixSessionID,
+		Owner:     session.Owner,
+		Session:   session,
+	}
+	messageBytes, err := json.Marshal(event)
+	if err == nil {
+		apiServer.pubsub.Publish(context.Background(), pubsub.GetSessionQueue(session.Owner, session.ID), messageBytes)
+	}
+
 	return nil
 }
