@@ -1477,21 +1477,23 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 	}
 
 	// Create new Helix session for this user-created thread
+	// CRITICAL: Copy config from existing session so it has same parent_app, agent_type, etc.
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		ModelName:      "claude-3-5-sonnet-20241022", // Default model
-		ParentApp:      "",
+		Type:           existingSession.Type,
+		ModelName:      existingSession.ModelName,
+		ParentApp:      existingSession.ParentApp, // Copy parent_app for screenshot view
 		OrganizationID: existingSession.OrganizationID,
 		Owner:          existingSession.Owner,
 		OwnerType:      existingSession.OwnerType,
+		Config:         existingSession.Config, // Copy full config including agent_type
 		Metadata: types.SessionMetadata{
 			ZedThreadID:         acpThreadID,
-			AgentType:           "zed_external",
-			ExternalAgentConfig: &types.ExternalAgentConfig{},
+			AgentType:           existingSession.Metadata.AgentType,
+			ExternalAgentConfig: existingSession.Metadata.ExternalAgentConfig,
 		},
 		Name: title,
 	}
