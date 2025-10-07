@@ -237,7 +237,7 @@ services:
         #   - 7317:7317
 
     wolf:
-      image: wolf:helix-fixed
+      image: ghcr.io/games-on-whales/wolf:wolf-ui
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
