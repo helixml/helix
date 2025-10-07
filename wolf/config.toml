@@ -1,43 +1,42 @@
-config_version = 5
-hostname = 'Helix'
-uuid = '5a3f1809-8854-4e7a-8646-07fab869745a'
+config_version = 6
+hostname = 'Wolf'
+uuid = 'a8bcaa8d-976f-4f15-8a21-283dca10cc71'
 
 [gstreamer.audio]
 default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
 default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
 default_sink = '''rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
 appsink name=wolf_udp_sink'''
-default_source = 'interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false'
+default_source = 'interpipesrc name=interpipesrc_{}_audio listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false'
 
 [gstreamer.video]
 default_sink = '''rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
 appsink sync=false name=wolf_udp_sink
 '''
-default_source = 'interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream'
+default_source = 'interpipesrc name=interpipesrc_{}_video listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream'
 
     [gstreamer.video.defaults.nvcodec]
     video_params = '''cudaupload !
-cudaconvertscale !
+cudaconvertscale add-borders=true !
 video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''glupload !
-glcolorconvert !
-video/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''cudaupload !
+cudaconvertscale add-borders=true !
+video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1
+'''
 
     [gstreamer.video.defaults.qsv]
     video_params = '''videoconvertscale !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''vapostproc !
-video/x-raw(memory:VAMemory),format=NV12, chroma-site={color_range},
-colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''vapostproc add-borders=true !
+video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [gstreamer.video.defaults.va]
-    video_params = '''vapostproc !
+    video_params = '''vapostproc add-borders=true !
 video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
 colorimetry={color_space}, pixel-aspect-ratio=1/1'''
-    video_params_zero_copy = '''vapostproc !
-video/x-raw(memory:VAMemory), format=NV12, chroma-site={color_range}, width={width}, height={height},
-colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''vapostproc add-borders=true !
+video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
 
     [[gstreamer.video.av1_encoders]]
     check_elements = [ 'nvav1enc', 'cudaconvertscale', 'cudaupload' ]
@@ -161,77 +160,53 @@ videorate !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
 chroma-site={color_range}, colorimetry={color_space}'''
 
-[[apps]]
-icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png'
-title = 'Desktop (xfce)'
-
-    [apps.runner]
-    base_create_json = '''{
-  "HostConfig": {
-    "IpcMode": "host",
-    "Privileged": false,
-    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
-    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
-  }
-}
-'''
-    devices = []
-    env = [ 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
-    image = 'ghcr.io/games-on-whales/xfce:edge'
-    mounts = []
-    name = 'WolfXFCE'
-    ports = []
-    type = 'docker'
-
-[[apps]]
-start_audio_server = false
-start_virtual_compositor = false
-title = 'Test ball'
-
-    [apps.audio]
-    source = 'audiotestsrc wave=ticks is-live=true'
-
-    [apps.runner]
-    run_cmd = "sh -c \"while :; do echo 'running...'; sleep 10; done\""
-    type = 'process'
-
-    [apps.video]
-    source = '''videotestsrc pattern=ball flip=true is-live=true !
-video/x-raw, framerate={fps}/1
-'''
-
-[[apps]]
-start_virtual_compositor = true
-title = 'Test Integration'
-
-    [apps.runner]
-    devices = []
-    env = []
-    image = 'ubuntu:latest'
-    mounts = []
-    name = 'test-container'
-    ports = []
-    type = 'docker'
-
 [[paired_clients]]
-app_state_folder = '6061047231751940182'
+app_state_folder = '16531021386011371178'
 client_cert = '''-----BEGIN CERTIFICATE-----
 MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTI1MTY1NjM0WhcNNDUwOTIwMTY1
-NjM0WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDKeZgPl/EM0Q3+6eJQ3y7LbQIyiWu/
-8oYvCN2Kn96ikNCBC/8sJJ0pFwYnoiVmeHO2Ay8wj93AOo8KDKI8iFMnnyfB+U0D
-dDuMcdbEMcC2Zy2AhnkVtwLkwZ4HS2fs08DzjYiEE/dDqGUwakjW+EyKTmIkcfpn
-keUwlFcXjMcEwZbmSEAJ+ZAAy6zkl2G36RkO0/ddTB/XJLoAQJqMbmMRRde2Cbyx
-niBCWI8yYkddPtWN64cT+oVwvYOZhtoUXXoM5STjVl8bCNJfM/Agz3C5HKNcOegI
-VppDnyqhXR9QlxaJ2kGsdoQTbKj4Mq7UOlm0C8S3KoZQl+JjQGjKyoKDAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBABZyX0RB2YOgROh2/GLMw/3AOKE++2v0R3/nRjjS
-iatxIpec7W6/PE0ZXHC9jsImZRiZEi1uYOO9jfARiBw1YJMBKNGftB61ycPQ0xRa
-oMz1VkwvuuFZtSLXHNv+EIny9B7CzMApeLofF2VrJo4xXWZttD+fOFDQVN7UWoJE
-xai5kCwE2kwljvEnz4U1XqjzDd/eZG5x1jEZMZws7Jr3ilD0lKthd30VdPhS5440
-klWnke8TrbhY5eIOjKMGf4aRdR4FStR33hlJesBBIWj0pKqqUdMhyr6Of+0EpZR0
-88JFtMEX+y2mMg2JVxzXIp7HquJF1z7hqHQo4/sb5O6At04=
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTEwMTUzNjU3WhcNNDUwOTA1MTUz
+NjU3WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCv9oEfy61EehfOwPqpOwjPLuGks9LQ
+OG0D+CwLB1lwWAibo+Ge2DmVZ2Rir56rLuxru+5bfs4YnhxQGWhphPvbPe64flMU
+j3tansOUf+974qhcn33B46/tOBqQL3nNLU2zA5Acq5fvoCwA+79xlzWtX3kjeMtb
+G0FvNRYJ1JeoJodmMJNTPb7wZVVp1rvcYXz/qH3G4BNyfAGISMCgsQAp4zIJY+YC
+oyPWjNWV1ytM6GV9CmgsW3IhS/K51NZcPsd1s37kOr7eG0qHLq9J30lB5mS+NqsM
+aOMZhfeHJss/k0OWustTh9gf8iVojXbw91GHsgOYGsXIlhjBGA/6SSa3AgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAEZBLK9atq3HbmzB4vpm/pzlw/xsbtmFOhAmOCI/
+bsVkon8QBmzvo1tjf1ouZNF94zyllxGVfsfk8WqQ1OsXA9BV7a2baX5PDCUTEM8z
+Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
+DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
+o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
+VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '4094921142328756447'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMTA0ODMxWhcNNDUwOTE4MTA0
+ODMxWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDQM+u3BFtowiAybUmFb4cjN3zhyioO
+S/MzVLYBUEb3S1ZGmeSaGeVERtvnnQLO+4vb4gqK5n64Y7kbCXCMEwEUWzL6xJan
+c3LXLr5+9Q74VZCpEmikJGR4Jap/eS3SZA4e4e1LSJwBEl/MWsylW4iH1KYrAion
+tcfHPVqjeS79TZIvQVpEAGz+1RPt4p7EtwOf4f41zsM5aniXAde3PJGVBmBfTCnI
+GAP8ZGsKw2u/1Muqgsfv9EekrC9Y7+AUVl2wif1xBmZ125/+Z0ergRMEbiVRGfpL
+36rYUrmiN2jhfo/PR4aguyboU+fNZ9Ma1julTO5fPfwyB4Uli9has4QTAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBAK0OionU0fgAanYkCDU+Ec5H8n7XG+GEyftr5mO+
+lyBw4AQNmk8ywE0zurM8D2xaoKBp3EfAYx2gQbBkImcm727k2hCRe24iaj68eUKB
+3En48mYXUNaSliGeoFaY/2jCc58UB+iu8E2OEiOojFuA/KCZaBp199p+HDhaSkmP
+Lgo/Utu765rbXJubqDNE8KKASX65hscjwuyK3T7pnkIIKpGH7FwBfyCZtqR/7JZ8
+D45M6X40Xb55fWtsNfmYcvHJKfF6Msoju9VUG7wwLxCRf/b74YpbRIOvinDgO/c5
+HDKDoeza2xCkTX348NHNn9kJ7yxzxvbtKx3GWdklmjtn0AU=
 -----END CERTIFICATE-----
 '''
 
@@ -301,176 +276,261 @@ r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
     run_uid = 1000
     v_scroll_acceleration = 1.0
 
-[[paired_clients]]
-app_state_folder = '342532221405053742'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTA5MTMzMzExWhcNNDUwOTA0MTMz
-MzExWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC2AI5H3f3Dq/ngGPhnLWT2NiUtqgMZ
-MDLrJC3dAnezndYsJOqxEe5U5pjsU6L3xSvjNwevs1yNCIM7YeT6yoLLZ5GADwCW
-SV+VOMWPdgZYMup6qTXhZ+8PFgJ1IwnzNulJOIMbCzr3pvJpkLFsBa/RZCCaHVci
-iJwjQhADl+/EJrPqR1J71ftkY/w921c90kO/qrdavSgZeXQV9JhT04jfXq79oaSK
-bYaXowfQoByAy0zGBPWuYZbMEFDaby6iEPpSsafBCPoDBVlhku2/DmXg1G3UJUN4
-0/NlQZA5MAURn78nJWZjknTNgiIm99qqKaT8mK3yQ9JI1J6RA2/XkJ57AgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBAGVw+RQy5YLV6xU6ZekBySOqQuJDs3qlu+D3i/Kz
-rp3sS6jVsQOCXhmGvB7UGTzaHsQXdwk42Zn6pHtuY2YAonsuIQvbjYE0bq0+ECrE
-y4SE4EWRNE2P44PSLMx0QRU4pR9Kgc8x8FULKOuhGy9U05w2rrIGQFo8G74ui8bu
-i/2hR1epcaIhtVqzls2Tar/jAi7syZeAJT54RW5zewcoLqGj7tkc47Mg6r0B+DVg
-/sfFFwD+G1mIQwN6BGp+TiBNbnKdPfHtW8QTPUki04kIhioBWWPKA3GFdY23T5qv
-r8OEdVzBvXgDs5tieIynLdse1PjzlfE2BiKPaKfZBWwuuq0=
------END CERTIFICATE-----
+[[profiles]]
+id = 'moonlight-profile-id'
+
+    [[profiles.apps]]
+    icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
+    start_virtual_compositor = true
+    title = 'Wolf UI'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+      "HostConfig": {
+        "IpcMode": "host",
+        "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+        "Privileged": false,
+        "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+      }
+    }'''
+        devices = []
+        env = [
+            'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia*',
+            'WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock',
+            'WOLF_UI_AUTOUPDATE=False',
+            'LOGLEVEL=INFO'
+        ]
+        image = 'ghcr.io/games-on-whales/wolf-ui:main'
+        mounts = [ '/var/run/wolf/wolf.sock:/var/run/wolf/wolf.sock' ]
+        name = 'Wolf-UI'
+        ports = []
+        type = 'docker'
+
+    [[profiles.apps]]
+    icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf/refs/heads/wolf-ui/docs/images/test_ball_icon.png'
+    start_audio_server = false
+    start_virtual_compositor = false
+    title = 'Test ball'
+
+        [profiles.apps.audio]
+        source = 'audiotestsrc wave=ticks is-live=true'
+
+        [profiles.apps.runner]
+        run_cmd = "sh -c \"while :; do echo 'running...'; sleep 10; done\""
+        type = 'process'
+
+        [profiles.apps.video]
+        source = '''videotestsrc pattern=ball flip=true is-live=true !
+video/x-raw, framerate={fps}/1
 '''
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+[[profiles]]
+id = 'user'
+name = 'User'
 
-[[paired_clients]]
-app_state_folder = '13167995418182798030'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMDkwNzUxWhcNNDUwOTE4MDkw
-NzUxWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC/8m4LzcR1olm414iGSe78HYS7n2Ni
-6+vlZtxtjwruEmCmKzAzviIYY5A+Zqu4s+9ZsoURGSVL70DCsjfowmBViKWKl/y2
-llPIh70wVQaSzYR4Ddf3HHPk7XVgSdeyw6S4BlTQ1WOTHEAa2Pia5+m3r9JXtS4D
-hKaz6NCq1HG0ORG9E4HqmZ98TMWQmjbWROJOBxCOwaqso4sIOoDwaQIJ558uUwK3
-/n7eY66JaRGunRGnKG8br0GMyEve1ALJpaorTPyVaU2A/tMMre6f5b6//B2ew/bA
-VwMnK9yDZEOQSr+gjwT08UVGh/MLLBxCzB8XlV2Fl+qHLPEb4drD7I4LAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBADJDHKWzPr8IFw6jqSNXQ/y19CQ1LGNh2sjWBILJ
-pwH3/tSF6SA7/KXCueFFKj8UY1aXcaf05J/SBBJDlGhhv+KoadR9zRWzPBX7hCrb
-JC0H8IT4VPeVYQ9JdQrTyllnNfx3t8ur2yvMalTPIWRuZeu1XtXB7GmBkZCqTCfI
-jbl63Irq9l3Z41Zd3LL6iptmp7lswliTDHlFk9xKQPi40aj+gQ6XlwBZ2AiSbg6K
-Ybr4Rdr7BQO8lkS6FIPwGDVse25rNmNAlyFjCGlz7u3RijbUgrfZv/aDkWPUqTcg
-8aFOz8oaymRnCC7wdEQgsY/Q+nyVQQA+gXq04e0t+O6pyLs=
------END CERTIFICATE-----
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/firefox/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'Firefox'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "Privileged": false,
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
 '''
+        devices = []
+        env = [ 'RUN_SWAY=1', 'MOZ_ENABLE_WAYLAND=1', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/firefox:edge'
+        mounts = []
+        name = 'WolfFirefox'
+        ports = []
+        type = 'docker'
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/retroarch/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'RetroArch'
 
-[[paired_clients]]
-app_state_folder = '16531021386011371178'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTEwMTUzNjU3WhcNNDUwOTA1MTUz
-NjU3WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCv9oEfy61EehfOwPqpOwjPLuGks9LQ
-OG0D+CwLB1lwWAibo+Ge2DmVZ2Rir56rLuxru+5bfs4YnhxQGWhphPvbPe64flMU
-j3tansOUf+974qhcn33B46/tOBqQL3nNLU2zA5Acq5fvoCwA+79xlzWtX3kjeMtb
-G0FvNRYJ1JeoJodmMJNTPb7wZVVp1rvcYXz/qH3G4BNyfAGISMCgsQAp4zIJY+YC
-oyPWjNWV1ytM6GV9CmgsW3IhS/K51NZcPsd1s37kOr7eG0qHLq9J30lB5mS+NqsM
-aOMZhfeHJss/k0OWustTh9gf8iVojXbw91GHsgOYGsXIlhjBGA/6SSa3AgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBAEZBLK9atq3HbmzB4vpm/pzlw/xsbtmFOhAmOCI/
-bsVkon8QBmzvo1tjf1ouZNF94zyllxGVfsfk8WqQ1OsXA9BV7a2baX5PDCUTEM8z
-Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
-DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
-o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
-VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
------END CERTIFICATE-----
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
 '''
+        devices = []
+        env = [ 'RUN_SWAY=true', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/retroarch:edge'
+        mounts = []
+        name = 'WolfRetroarch'
+        ports = []
+        type = 'docker'
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/steam/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'Steam'
 
-[[paired_clients]]
-app_state_folder = '16531021386011371178'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTEwMTUzNjU3WhcNNDUwOTA1MTUz
-NjU3WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCv9oEfy61EehfOwPqpOwjPLuGks9LQ
-OG0D+CwLB1lwWAibo+Ge2DmVZ2Rir56rLuxru+5bfs4YnhxQGWhphPvbPe64flMU
-j3tansOUf+974qhcn33B46/tOBqQL3nNLU2zA5Acq5fvoCwA+79xlzWtX3kjeMtb
-G0FvNRYJ1JeoJodmMJNTPb7wZVVp1rvcYXz/qH3G4BNyfAGISMCgsQAp4zIJY+YC
-oyPWjNWV1ytM6GV9CmgsW3IhS/K51NZcPsd1s37kOr7eG0qHLq9J30lB5mS+NqsM
-aOMZhfeHJss/k0OWustTh9gf8iVojXbw91GHsgOYGsXIlhjBGA/6SSa3AgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBAEZBLK9atq3HbmzB4vpm/pzlw/xsbtmFOhAmOCI/
-bsVkon8QBmzvo1tjf1ouZNF94zyllxGVfsfk8WqQ1OsXA9BV7a2baX5PDCUTEM8z
-Ex3TArGNf9Bc0fI48/BRnUL6yhuqdfoRXPe5kRsapb/VqIhdTsW0/JYPa6ybPeht
-DehpRYFW+gUfJ3aGCo/L1Rt4EQVly7omrh97FXTEpU/KLQ4tzejg4DfPQD1j+Rq/
-o9yBFTNCHGeJOiIDwUvA5YI3tZts+wz/KD38TlDFF3PtEwSsQDUz+bmUseTCb1EO
-VomN9q/1Rj1A754kBr5GXviKWzinS6laF2QdQ3od1ApEPjk=
------END CERTIFICATE-----
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "Ulimits": [{"Name":"nofile", "Hard":10240, "Soft":10240}],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
 '''
+        devices = []
+        env = [ 'PROTON_LOG=1', 'RUN_SWAY=true', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/steam:edge'
+        mounts = []
+        name = 'WolfSteam'
+        ports = []
+        type = 'docker'
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/pegasus/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'Pegasus'
 
-[[paired_clients]]
-app_state_folder = '6916887518693123027'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMDczMzMzWhcNNDUwOTE4MDcz
-MzMzWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDta9OK4S8f32YX6qvc39K3qapgCq8Y
-czz5FdM9UezFhETOh+ySrO7XdNIew35likqw35rN8o0zI9se5XX7ORLLm+1+LaIK
-m3DujEbk2H77WXYzFJF2d3kNs4HJW4CEwWuKuWUcJH502Z31E3WrofedN9jZx0co
-vq1mcl8uuOrP8Ttj+Wkzf9ZJuy3hBkXmwf4RuEwhPuGX6QUOilf5x3S1qfwzJvlK
-vQVUeXXgDDfSgT4Yr/14IJseHtvU6/qp79knD6So9g1we5zcjkzsrNh5baYsb5HK
-zJ6TIhaVKiGA4Qw9j0vCl6a2sFvnWwe/jX67kUcwiXhLpeT3I8WOW/KxAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBACm3JSwpCD6Z5fMWqAwEBIicAy+hu8OuGmoI8LTq
-q/sEcE84YFlAXB5b7gT4N+iynQh751DPCHrRqqivgEMENvrgjxGjSoq+suiwZYYP
-NoZrnWaT3Nfo/bA4VVWtbT5cxPvM685tWhPK6nXG/vLDeuLKuGW4r9IELimNIJlP
-NQVhUHNY149beswpkDSxrAowDJgZVfkJBIySF36KOIFXU9EYtjwReYxBKH1FDJJP
-89ORbvkuhaM71U9VUelS8CPx5PLG1PK3afeD+X0ftRTPc/TwJDN/XRektb0qhUdj
-hP4tGEAoYIOChP/n4CpHRJZUOGl86NjY4s7+uRANaO3yWw0=
------END CERTIFICATE-----
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
 '''
+        devices = []
+        env = [ 'RUN_SWAY=1', 'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/pegasus:edge'
+        mounts = []
+        name = 'WolfPegasus'
+        ports = []
+        type = 'docker'
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/lutris/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'Lutris'
 
-[[paired_clients]]
-app_state_folder = '6061047231751940182'
-client_cert = '''-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTI1MTY1NjM0WhcNNDUwOTIwMTY1
-NjM0WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDKeZgPl/EM0Q3+6eJQ3y7LbQIyiWu/
-8oYvCN2Kn96ikNCBC/8sJJ0pFwYnoiVmeHO2Ay8wj93AOo8KDKI8iFMnnyfB+U0D
-dDuMcdbEMcC2Zy2AhnkVtwLkwZ4HS2fs08DzjYiEE/dDqGUwakjW+EyKTmIkcfpn
-keUwlFcXjMcEwZbmSEAJ+ZAAy6zkl2G36RkO0/ddTB/XJLoAQJqMbmMRRde2Cbyx
-niBCWI8yYkddPtWN64cT+oVwvYOZhtoUXXoM5STjVl8bCNJfM/Agz3C5HKNcOegI
-VppDnyqhXR9QlxaJ2kGsdoQTbKj4Mq7UOlm0C8S3KoZQl+JjQGjKyoKDAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBABZyX0RB2YOgROh2/GLMw/3AOKE++2v0R3/nRjjS
-iatxIpec7W6/PE0ZXHC9jsImZRiZEi1uYOO9jfARiBw1YJMBKNGftB61ycPQ0xRa
-oMz1VkwvuuFZtSLXHNv+EIny9B7CzMApeLofF2VrJo4xXWZttD+fOFDQVN7UWoJE
-xai5kCwE2kwljvEnz4U1XqjzDd/eZG5x1jEZMZws7Jr3ilD0lKthd30VdPhS5440
-klWnke8TrbhY5eIOjKMGf4aRdR4FStR33hlJesBBIWj0pKqqUdMhyr6Of+0EpZR0
-88JFtMEX+y2mMg2JVxzXIp7HquJF1z7hqHQo4/sb5O6At04=
------END CERTIFICATE-----
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
 '''
+        devices = []
+        env = [ 'RUN_SWAY=1', 'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia* /var/lutris/' ]
+        image = 'ghcr.io/games-on-whales/lutris:edge'
+        mounts = [ 'lutris:/var/lutris/:rw' ]
+        name = 'WolfLutris'
+        ports = []
+        type = 'docker'
 
-    [paired_clients.settings]
-    controllers_override = []
-    h_scroll_acceleration = 1.0
-    mouse_acceleration = 1.0
-    run_gid = 1000
-    run_uid = 1000
-    v_scroll_acceleration = 1.0
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/prismlauncher/assets/icon.png'
+    start_virtual_compositor = true
+    title = 'Prismlauncher'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
+'''
+        devices = []
+        env = [ 'RUN_SWAY=1', 'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia* /var/lutris/' ]
+        image = 'ghcr.io/games-on-whales/prismlauncher:edge'
+        mounts = []
+        name = 'Prismlauncher'
+        ports = []
+        type = 'docker'
+
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/xfce/assets/icon.png'
+    title = 'Desktop (xfce)'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "Privileged": false,
+    "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
+    "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
+'''
+        devices = []
+        env = [ 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/xfce:edge'
+        mounts = []
+        name = 'WolfXFCE'
+        ports = []
+        type = 'docker'
+
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/es-de/assets/icon.png'
+    title = 'EmulationStation'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "Privileged": false,
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
+'''
+        devices = []
+        env = [ 'RUN_SWAY=1', 'MOZ_ENABLE_WAYLAND=1', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/es-de:edge'
+        mounts = []
+        name = 'WolfES-DE'
+        ports = []
+        type = 'docker'
+
+    [[profiles.apps]]
+    icon_png_path = 'https://games-on-whales.github.io/wildlife/apps/kodi/assets/icon.png'
+    title = 'Kodi'
+
+        [profiles.apps.runner]
+        base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "Privileged": false,
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}
+'''
+        devices = []
+        env = [ 'RUN_SWAY=true', 'GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*' ]
+        image = 'ghcr.io/games-on-whales/kodi:edge'
+        mounts = []
+        name = 'WolfKodi'
+        ports = []
+        type = 'docker'
