@@ -348,6 +348,41 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
+        // Check if token expires soon and refresh immediately if needed
+        const checkAndRefreshToken = async () => {
+          try {
+            if (user.token) {
+              const payload = JSON.parse(atob(user.token.split('.')[1]))
+              const expiry = new Date(payload.exp * 1000)
+              const now = new Date()
+              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
+
+              // If token expires in less than 4 minutes, refresh immediately!
+              if (minutesUntilExpiry < 4) {
+                console.log(`[AUTH] Token expires in ${Math.round(minutesUntilExpiry)} minutes - refreshing immediately!`)
+                const innerClient = api.getApiClient()
+                await innerClient.v1AuthRefreshCreate()
+                const userResponse = await innerClient.v1AuthUserList()
+                const refreshedUser = userResponse.data as IKeycloakUser
+
+                setUser(Object.assign({}, refreshedUser, {
+                  token: refreshedUser.token,
+                  is_admin: admin,
+                }))
+                if (refreshedUser.token) {
+                  api.setToken(refreshedUser.token)
+                  console.log('[AUTH] Emergency refresh completed')
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[AUTH] Emergency refresh failed:', e)
+          }
+        }
+
+        // Do immediate check/refresh if needed
+        await checkAndRefreshToken()
+
         // Set up token refresh interval - using 4 minutes to stay well within
         // 15 minute implicit flow token expiry (accessTokenLifespanForImplicitFlow)
         const refreshInterval = setInterval(async () => {
