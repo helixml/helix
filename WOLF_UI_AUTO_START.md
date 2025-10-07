@@ -967,13 +967,17 @@ session := &types.Session{
 - Location: api/pkg/external-agent/wolf_executor.go:1059 (reconcileWolfApps function)
 - TODO: Update to check lobbies instead of apps, recreate as lobbies
 
-**Phase 3.2: Frontend PIN display** - NOT NEEDED!
+**Phase 3.2: Helix Frontend PIN Display** - STILL NEEDED!
 - Current: PINs generated and stored in database
-- Users access lobbies via **Wolf UI app** (graphical lobby selector)
-- Wolf UI shows available lobbies and has PIN entry interface
-- Users enter PIN in Wolf UI, not Helix frontend
-- Status: Wolf UI working with wolf-socket volume mount
-- No Helix frontend changes needed - Wolf UI handles this!
+- Wolf UI shows lobbies and prompts for PIN (runs inside Moonlight)
+- **Helix frontend must display the PIN** so users can copy it
+- User workflow: View session in Helix → Copy PIN → Open Wolf UI in Moonlight → Enter PIN
+- Priority: Medium - users need to see PINs to access their lobbies
+- Locations:
+  - Session detail view (show metadata.wolf_lobby_pin if user owns session or is admin)
+  - PDE detail view (show wolf_lobby_pin field)
+  - Filter PINs: Only show to session owner + admins
+- TODO: Add PIN display component to frontend
 
 **Phase 3.5: Configurable video settings**
 - Current: Hardcoded MacBook Pro 13\" (2560x1600@60Hz)
