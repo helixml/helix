@@ -200,48 +200,57 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Add custom env vars from agent request
 	extraEnv = append(extraEnv, agent.Env...)
 
-	// Create Wolf app using shared Sway configuration
-	app := w.createSwayWolfApp(SwayWolfAppConfig{
-		WolfAppID:         wolfAppID,
-		Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
-		ContainerHostname: containerHostname,
-		WorkspaceDir:      workspaceDir,
-		ExtraEnv:          extraEnv,
-		DisplayWidth:      1920,
-		DisplayHeight:     1080,
-		DisplayFPS:        60,
-	})
-
-	// Try to remove any existing app with the same ID to prevent duplicates
-	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
-	if err != nil {
-		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
+	// NEW: Create lobby instead of app for immediate auto-start
+	// Default video settings: MacBook Pro 13" (2560x1600@60Hz)
+	lobbyReq := &wolf.CreateLobbyRequest{
+		ProfileID:              "helix-sessions",
+		Name:                   fmt.Sprintf("External Agent %s", agent.SessionID),
+		MultiUser:              true,
+		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		VideoSettings: &wolf.LobbyVideoSettings{
+			Width:                   2560, // MacBook Pro 13" default
+			Height:                  1600,
+			RefreshRate:             60,
+			WaylandRenderNode:       "/dev/dri/renderD128",
+			RunnerRenderNode:        "/dev/dri/renderD128",
+			VideoProducerBufferCaps: "",
+		},
+		AudioSettings: &wolf.LobbyAudioSettings{
+			ChannelCount: 2,
+		},
+		RunnerStateFolder: filepath.Join("/wolf-state", "agent-"+agent.SessionID),
+		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
+			WolfAppID:         wolfAppID, // Still used for app config, but not for Wolf API
+			Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
+			ContainerHostname: containerHostname,
+			WorkspaceDir:      workspaceDir,
+			ExtraEnv:          extraEnv,
+			DisplayWidth:      2560,
+			DisplayHeight:     1600,
+			DisplayFPS:        60,
+		}).Runner, // Use the runner config from the app
 	}
 
-	// Add the app to Wolf
-	err = w.wolfClient.AddApp(ctx, app)
+	// Create lobby (container starts immediately!)
+	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add external agent app to Wolf: %w", err)
+		return nil, fmt.Errorf("failed to create lobby for external agent: %w", err)
 	}
 
 	log.Info().
-		Str("wolf_app_id", wolfAppID).
+		Str("lobby_id", lobbyResp.LobbyID).
 		Str("session_id", agent.SessionID).
-		Msg("Wolf app created successfully for external agent")
+		Msg("Wolf lobby created successfully - container starting immediately")
 
-	// Wolf auto-starts the container when the app is added
-	wolfSessionID := int64(0) // Wolf handles container lifecycle directly
-
-	// Track session
+	// Track session with lobby ID
 	session := &ZedSession{
 		SessionID:     agent.SessionID,
 		UserID:        agent.UserID,
-		Status:        "starting",
+		Status:        "running", // Container is running immediately with lobbies
 		StartTime:     time.Now(),
 		LastAccess:    time.Now(),
 		ProjectPath:   agent.ProjectPath,
-		WolfAppID:     wolfAppID,
-		WolfSessionID: wolfSessionID,
+		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Track lobby ID
 		ContainerName: containerHostname,
 	}
 	w.sessions[agent.SessionID] = session
@@ -251,9 +260,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		SessionID:     agent.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
 		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
-		Status:        "starting",
+		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
-		WolfAppID:     wolfAppID,
+		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
 	}
 
 	log.Info().
@@ -316,20 +325,32 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 
-	appID := fmt.Sprintf("zed-agent-%s", sessionID)
-
-	// Stop Wolf session (this should stop the Zed process)
-	err := w.wolfClient.StopSession(ctx, sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to stop Wolf session")
-		// Continue with cleanup even if stop fails
-	}
-
-	// Remove the app from Wolf
-	err = w.wolfClient.RemoveApp(ctx, appID)
-	if err != nil {
-		log.Error().Err(err).Str("app_id", appID).Msg("Failed to remove Wolf app")
-		// Continue with cleanup even if removal fails
+	// Stop the lobby (tears down container)
+	if session.WolfLobbyID != "" {
+		stopReq := &wolf.StopLobbyRequest{
+			LobbyID: session.WolfLobbyID,
+			// PIN not needed - Helix created the lobby, can stop it without PIN
+		}
+		err := w.wolfClient.StopLobby(ctx, stopReq)
+		if err != nil {
+			log.Error().Err(err).Str("lobby_id", session.WolfLobbyID).Msg("Failed to stop Wolf lobby")
+			// Continue with cleanup even if stop fails
+		}
+		log.Info().
+			Str("lobby_id", session.WolfLobbyID).
+			Str("session_id", sessionID).
+			Msg("Wolf lobby stopped successfully")
+	} else {
+		// Fallback for old app-based sessions (backward compatibility during migration)
+		appID := fmt.Sprintf("zed-agent-%s", sessionID)
+		err := w.wolfClient.StopSession(ctx, sessionID)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to stop Wolf session")
+		}
+		err = w.wolfClient.RemoveApp(ctx, appID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", appID).Msg("Failed to remove Wolf app")
+		}
 	}
 
 	// Update session status
