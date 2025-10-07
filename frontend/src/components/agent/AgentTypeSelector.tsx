@@ -226,8 +226,9 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                         localConfig.display_width === 3456 && localConfig.display_height === 2234 ? 'macbook-16' :
                         localConfig.display_width === 2880 && localConfig.display_height === 1864 ? 'macbook-15' :
                         localConfig.display_width === 5120 && localConfig.display_height === 2880 ? '5k' :
-                        localConfig.display_width === 3840 && localConfig.display_height === 2160 ? '4k' :
-                        localConfig.display_width === 1920 && localConfig.display_height === 1080 ? 'fhd' :
+                        localConfig.display_width === 3840 && localConfig.display_height === 2160 ? 'fhd' :
+                        localConfig.display_width === 1920 && localConfig.display_height === 1080 ? '4k' :
+                        localConfig.display_width === 1179 && localConfig.display_height === 2496 ? 'iphone-15-pro' :
                         'custom'
                       }
                       onChange={(e) => {
@@ -238,6 +239,7 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                           '5k': { width: 5120, height: 2880, refresh: 60 },
                           '4k': { width: 3840, height: 2160, refresh: 60 },
                           'fhd': { width: 1920, height: 1080, refresh: 60 },
+                          'iphone-15-pro': { width: 1179, height: 2496, refresh: 120 },
                         };
                         const preset = presets[e.target.value];
                         if (preset) {
@@ -264,6 +266,7 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                       <option value="5k">5K Display (5120x2880 @ 60Hz)</option>
                       <option value="4k">4K Display (3840x2160 @ 60Hz)</option>
                       <option value="fhd">Full HD (1920x1080 @ 60Hz)</option>
+                      <option value="iphone-15-pro">iPhone 15 Pro - Vertical (1179x2496 @ 120Hz)</option>
                       <option value="custom">Custom...</option>
                     </select>
                   </FormControl>
