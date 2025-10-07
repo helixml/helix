@@ -445,7 +445,7 @@ export const useAccountContext = (): IAccountContext => {
               onLogin()
             }
           }
-        }, 240 * 1000) // 4 minutes
+        }, 5 * 1000) // TEMPORARY: 5 seconds for debugging (normally 4 minutes)
         
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)
