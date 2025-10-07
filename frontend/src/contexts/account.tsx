@@ -44,6 +44,8 @@ export interface IAccountContext {
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
+  // Token expiry info for debugging
+  tokenExpiryMinutes: number | null,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -77,6 +79,7 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   hasImageModels: false,
   orgNavigate: () => {},
+  tokenExpiryMinutes: null,
 })
 
 export const useAccount = () => {
@@ -94,6 +97,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
+  const [ tokenExpiryMinutes, setTokenExpiryMinutes ] = useState<number | null>(null)
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
