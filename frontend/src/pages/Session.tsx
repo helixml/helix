@@ -50,6 +50,7 @@ import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
+import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -213,6 +214,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
+  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
 
   // Check if this is an external agent session and show Zed editor by default
   useEffect(() => {
@@ -1359,6 +1361,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                     Launch "Wolf UI" in Moonlight → Select this lobby → Enter PIN
                   </Typography>
+
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setPairingDialogOpen(true)}
+                    sx={{ mt: 1 }}
+                  >
+                    Need to pair Moonlight first?
+                  </Button>
                 </Box>
               )}
 
@@ -1727,6 +1738,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
 
+      {/* Moonlight Pairing Dialog */}
+      <MoonlightPairingOverlay
+        open={pairingDialogOpen}
+        onClose={() => setPairingDialogOpen(false)}
+        onPairingComplete={() => {
+          setPairingDialogOpen(false)
+          snackbar.success('Moonlight client paired successfully!')
+        }}
+      />
 
     </Box>
   )
