@@ -25,6 +25,9 @@ export const TokenExpiryCounter: React.FC = () => {
             setTimeRemaining('EXPIRED!');
           }
         }
+
+        // Note: access_token cookie is HttpOnly so we can't read it via document.cookie
+        // The cookie exists and is used by backend, we just can't see it from JS
       } catch (e) {
         setTimeRemaining('');
       }
