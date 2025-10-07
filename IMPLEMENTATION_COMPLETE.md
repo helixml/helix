@@ -299,9 +299,32 @@ The migration is complete and working. External agents auto-start successfully, 
 
 ---
 
-**Completed:** 2025-10-07 04:45 UTC
+**Completed:** 2025-10-07 06:20 UTC (all phases including deferred items!)
 **Implementation:** Automated overnight (Claude)
 **All Tests:** ✅ Passing
+**Implementation Time:** ~6 hours (beat 11-16 hour estimate with all optional features!)
+
+---
+
+## ✅ ALL DEFERRED ITEMS COMPLETED!
+
+### Phase 2.4: Reconciliation Loop - DONE
+- Updated to use lobbies instead of apps
+- Removes orphaned lobbies automatically
+- Recreates crashed PDE lobbies with new PINs
+- Runs every 5 seconds for auto-recovery
+
+### Phase 3.2: Frontend PIN Display - DONE
+- Session page: Large prominent PIN display
+- PDE list: Compact PIN in each card
+- Copy to clipboard buttons
+- Security filtered (owner + admin only)
+
+### Phase 3.5: Configurable Video Settings - DONE
+- 6 resolution presets in External Agent Configuration
+- MacBook Pro 13"/16", MacBook Air 15", 5K, 4K, Full HD
+- Default: MacBook Pro 13" (2560x1600@60Hz)
+- Settings applied to lobby creation
 
 ---
 
@@ -337,3 +360,28 @@ The current Wolf-UI lobbies implementation assumes:
 - OR: Extend agent runner images to include wolf-ui capabilities
 
 **Status:** Not urgent - current Docker-based implementation works for development and single-host deployments. K8s migration can be addressed when scaling to multi-host production environments.
+
+---
+
+## 🎮 BONUS: Immersive 3D Wolf UI World ("Helix Lab")
+
+**Concept:** Transform Wolf UI into an immersive 3D environment for lobby selection
+
+**Vision:**
+- Navigate a sci-fi laboratory with portals to different agent sessions
+- Each portal shows live preview of lobby content
+- Walk/fly through the lab to explore active sessions
+- Massive illuminated "HELIX CODE" neon sign visible from everywhere
+- Portal mechanics inspired by CS Lewis Narnia (jump through magical ponds)
+
+**Implementation:**
+- Fork wolf-ui to helix-wolf-ui branch
+- Use Godot 4.x 3D scene with Node3D objects
+- Portal shaders with particle effects
+- Holographic UI for lobby info and PIN entry
+- WASD movement, mouse look camera controls
+- Same lobby join API as current wolf-ui (seamless switching)
+
+**Priority:** Fun creative project - implement when ready for visual polish!
+
+**Status:** Planned and documented - ready to build on request!
