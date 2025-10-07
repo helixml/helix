@@ -340,6 +340,7 @@ type SessionMetadata struct {
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
+	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -1781,6 +1782,8 @@ type ZedAgentResponse struct {
 	WolfAppID string `json:"wolf_app_id,omitempty"`
 	// Wolf lobby ID for the container (NEW - auto-start approach)
 	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
+	// Wolf lobby PIN for access control (NEW - Phase 3: Multi-tenancy)
+	WolfLobbyPIN string `json:"wolf_lobby_pin,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
 	// WebSocket URL for thread sync connection
@@ -2369,6 +2372,7 @@ type PersonalDevEnvironment struct {
 	AppID     string    `json:"app_id"` // Helix App ID for configuration (MCP servers, tools, etc.)
 	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
 	WolfLobbyID string  `json:"wolf_lobby_id" gorm:"index"` // NEW: Wolf lobby ID for auto-start
+	WolfLobbyPIN string `json:"wolf_lobby_pin"` // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
 
 	// User-facing configuration
 	EnvironmentName string `json:"environment_name"`
