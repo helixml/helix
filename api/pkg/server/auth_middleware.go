@@ -191,10 +191,11 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart
 			if errors.Is(err, authpkg.ErrProviderNotReady) {
-				log.Warn().Err(err).Msg("OIDC provider not ready during auth check")
+				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
@@ -224,10 +225,11 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 			// Check if error is due to server not ready vs invalid token
 			// Return 503 for server errors so frontend doesn't auto-logout during API restart
 			if errors.Is(err, authpkg.ErrProviderNotReady) {
-				log.Warn().Err(err).Msg("OIDC provider not ready during auth check")
+				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
 				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
 				return
 			}
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
