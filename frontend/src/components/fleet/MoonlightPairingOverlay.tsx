@@ -56,8 +56,11 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
     try {
       setLoading(true)
       setError(null)
-      
+
       const response = await api.get('/api/v1/wolf/pairing/pending')
+      console.log('🔍 Pairing API response:', response)
+      console.log('🔍 Pairing data:', response.data)
+      console.log('🔍 Pairing data type:', typeof response.data, Array.isArray(response.data))
       setPendingRequests(response.data || [])
     } catch (err: any) {
       console.error('Failed to load pending pair requests:', err)
