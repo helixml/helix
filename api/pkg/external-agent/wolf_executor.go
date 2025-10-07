@@ -230,7 +230,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			RefreshRate:             60,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "",
+			VideoProducerBufferCaps: "video/x-raw", // Simpler caps without memory type
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
@@ -576,7 +576,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 			RefreshRate:             displayFPS,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "",
+			VideoProducerBufferCaps: "video/x-raw", // Simpler caps without memory type
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
