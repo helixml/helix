@@ -970,7 +970,14 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 			Str("helix_session_id", helixSessionID).
 			Str("interaction_id", createdInteraction.ID).
 			Str("role", role).
-			Msg("Created Helix interaction for Zed user message")
+			Msg("💬 [HELIX] Created interaction for user message from Zed")
+
+		// CRITICAL: Map this interaction so the AI response goes to it!
+		apiServer.sessionToWaitingInteraction[helixSessionID] = createdInteraction.ID
+		log.Info().
+			Str("helix_session_id", helixSessionID).
+			Str("interaction_id", createdInteraction.ID).
+			Msg("🗺️ [HELIX] Mapped session to new interaction from Zed user message")
 	}
 
 	return nil
