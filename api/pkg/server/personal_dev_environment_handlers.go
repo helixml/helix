@@ -38,7 +38,8 @@ type PersonalDevEnvironmentResponse struct {
 
 // Wolf pairing request/response types
 type CompletePairingRequest struct {
-	PairSecret string `json:"pair_secret"`
+	PairSecret string `json:"pair_secret"` // Backend field name
+	UUID       string `json:"uuid"`        // Frontend field name (alias for pair_secret)
 	PIN        string `json:"pin"`
 }
 
@@ -461,8 +462,21 @@ func (apiServer *HelixAPIServer) getWolfPendingPairRequests(res http.ResponseWri
 		Int("pending_count", len(pendingRequests)).
 		Msg("Retrieved pending Wolf pair requests")
 
+	// Transform to frontend-expected format
+	frontendRequests := make([]map[string]interface{}, len(pendingRequests))
+	for i, req := range pendingRequests {
+		frontendRequests[i] = map[string]interface{}{
+			"client_name": req.ClientIP,        // Use IP as name
+			"uuid":        req.PairSecret,      // Use pair_secret as uuid (for completion)
+			"pair_secret": req.PairSecret,      // Also include pair_secret for backend
+			"client_ip":   req.ClientIP,        // Include IP
+			"pin":         "",                  // Not known yet (user will enter)
+			"expires_at":  0,                   // Not provided by Wolf
+		}
+	}
+
 	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(pendingRequests)
+	json.NewEncoder(res).Encode(frontendRequests)
 }
 
 // completeWolfPairing handles POST /api/v1/wolf/pairing/complete
@@ -480,9 +494,13 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 		return
 	}
 
-	// Validate required fields
-	if pairReq.PairSecret == "" {
-		http.Error(res, "pair_secret is required", http.StatusBadRequest)
+	// Validate required fields (accept either pair_secret or uuid)
+	pairSecret := pairReq.PairSecret
+	if pairSecret == "" {
+		pairSecret = pairReq.UUID // Frontend sends uuid
+	}
+	if pairSecret == "" {
+		http.Error(res, "pair_secret or uuid is required", http.StatusBadRequest)
 		return
 	}
 	if pairReq.PIN == "" {
@@ -503,7 +521,7 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 		return
 	}
 
-	err = wolfClient.PairClient(pairReq.PairSecret, pairReq.PIN)
+	err = wolfClient.PairClient(pairSecret, pairReq.PIN)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).
