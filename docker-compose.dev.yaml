@@ -105,7 +105,8 @@ services:
             - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
             - ${FILESTORE_DATA:-helix-filestore}:/filestore
             - helix-socket:/socket
-            - wolf-socket:/var/run/wolf
+            # Bind-mount from host (Wolf creates socket here)
+            - /var/run/wolf:/var/run/wolf:rw
         depends_on:
             - postgres
             - keycloak
@@ -263,7 +264,8 @@ services:
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
-        - wolf-socket:/var/run/wolf
+        # Bind-mount to host so wolf-ui containers can bind-mount it
+        - /var/run/wolf:/var/run/wolf:rw
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
