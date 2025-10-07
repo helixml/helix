@@ -61,7 +61,11 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
       console.log('🔍 Pairing API response:', response)
       console.log('🔍 Pairing data:', response.data)
       console.log('🔍 Pairing data type:', typeof response.data, Array.isArray(response.data))
-      setPendingRequests(response.data || [])
+
+      const requests = response.data || []
+      console.log('🔍 Setting pending requests:', requests, 'Length:', requests.length)
+      setPendingRequests(requests)
+      console.log('🔍 After setPendingRequests, state should update...')
     } catch (err: any) {
       console.error('Failed to load pending pair requests:', err)
       setError(err.message || 'Failed to load pending requests')
@@ -180,8 +184,9 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
             ) : !selectedRequest ? (
               <>
                 <Typography variant="subtitle2" gutterBottom>
-                  Pending Pairing Requests:
+                  Pending Pairing Requests: ({pendingRequests.length})
                 </Typography>
+                {console.log('🎨 Rendering pending requests:', pendingRequests)}
                 <List>
                   {pendingRequests.map((request) => (
                     <ListItem
