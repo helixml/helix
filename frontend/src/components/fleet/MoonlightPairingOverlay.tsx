@@ -58,11 +58,11 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
       setError(null)
 
       const response = await api.get('/api/v1/wolf/pairing/pending')
-      console.log('🔍 Pairing API response:', response)
-      console.log('🔍 Pairing data:', response.data)
-      console.log('🔍 Pairing data type:', typeof response.data, Array.isArray(response.data))
+      console.log('🔍 Pairing API response (already unwrapped by api.get):', response)
+      console.log('🔍 Response type:', typeof response, Array.isArray(response))
 
-      const requests = response.data || []
+      // api.get() already returns res.data, so response IS the array
+      const requests = response || []
       console.log('🔍 Setting pending requests:', requests, 'Length:', requests.length)
       setPendingRequests(requests)
       console.log('🔍 After setPendingRequests, state should update...')
