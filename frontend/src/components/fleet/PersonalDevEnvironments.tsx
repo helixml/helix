@@ -505,6 +505,46 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                         </Typography>
                       )}
 
+                      {/* Lobby PIN Display - Only show to environment owner or admin */}
+                      {(environment.userID === account.user?.id || account.admin) && environment.wolf_lobby_pin && (
+                        <Box sx={{
+                          mt: 2,
+                          p: 1.5,
+                          bgcolor: 'primary.dark',
+                          borderRadius: 1,
+                          border: '1px solid',
+                          borderColor: 'primary.main'
+                        }}>
+                          <Typography variant="caption" color="primary.light" sx={{ fontWeight: 'bold' }}>
+                            🔐 Moonlight PIN
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                            <Typography
+                              variant="h6"
+                              sx={{
+                                fontFamily: 'monospace',
+                                letterSpacing: 4,
+                                color: 'primary.light'
+                              }}
+                            >
+                              {environment.wolf_lobby_pin}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                navigator.clipboard.writeText(environment.wolf_lobby_pin || '')
+                              }}
+                              sx={{ color: 'primary.light' }}
+                            >
+                              <LinkIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                            Use in Wolf UI to join
+                          </Typography>
+                        </Box>
+                      )}
+
                       {environment.configured_tools && environment.configured_tools.length > 0 && (
                         <Box mt={2}>
                           <Typography variant="caption" color="text.secondary">

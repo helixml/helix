@@ -1320,6 +1320,48 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Embedded RDP Viewer with Resizable Height */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
+              {/* Lobby PIN Display - Only show to session owner or admin */}
+              {(isOwner || account.admin) && session?.data?.metadata?.wolf_lobby_pin && (
+                <Box sx={{
+                  mb: 2,
+                  p: 2,
+                  bgcolor: 'primary.dark',
+                  borderRadius: 1,
+                  border: '2px solid',
+                  borderColor: 'primary.main'
+                }}>
+                  <Typography variant="subtitle2" color="primary.light" sx={{ mb: 1 }}>
+                    🔐 Moonlight Access PIN
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography
+                      variant="h3"
+                      sx={{
+                        fontFamily: 'monospace',
+                        letterSpacing: 8,
+                        color: 'primary.light',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      {session.data.metadata.wolf_lobby_pin}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        navigator.clipboard.writeText(session.data.metadata.wolf_lobby_pin || '')
+                        // Could add snackbar here
+                      }}
+                    >
+                      Copy PIN
+                    </Button>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    Launch "Wolf UI" in Moonlight → Select this lobby → Enter PIN
+                  </Typography>
+                </Box>
+              )}
+
               {/* Height Control */}
               <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Typography variant="caption" color="text.secondary">
