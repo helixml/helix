@@ -2,70 +2,133 @@
 
 ## What is Wolf UI?
 
-Wolf UI is a Godot-based graphical interface that serves as a **lobby launcher/switcher**.
+Wolf UI is a **Godot-based graphical lobby launcher** that serves as the primary user interface for selecting and joining Wolf lobbies.
 
 **How it works:**
-1. User launches "Wolf UI" app in Moonlight → Streams wolf-ui container
-2. Inside wolf-ui, user sees list of active lobbies
-3. User selects a lobby and enters PIN
-4. Wolf-ui calls `/api/v1/lobbies/join` with `lobby_id` and `moonlight_session_id`
-5. **Wolf dynamically switches streams** - same Moonlight session now receives video/audio/input from the lobby
-6. User is now streaming the lobby content (e.g., Zed agent desktop) instead of wolf-ui
+1. User launches "Wolf UI" app in Moonlight → Wolf creates wolf-ui Docker container
+2. **Inside wolf-ui container**, user sees graphical list of available lobbies
+3. User clicks a lobby in Wolf UI interface
+4. **Wolf UI prompts for PIN** → User enters 4-digit PIN in graphical interface
+5. Wolf-ui calls `/api/v1/lobbies/join` with `lobby_id`, `moonlight_session_id`, and `pin`
+6. **Wolf validates PIN and switches streams** - same Moonlight session now receives video/audio/input from the selected lobby
+7. User is now streaming the lobby content (Zed agent desktop, PDE, etc.) instead of wolf-ui
 
-**Key insight:** The Moonlight session stays connected, but Wolf redirects which lobby's streams it receives. This allows seamless lobby switching without reconnecting.
+**Key insight:** The Moonlight session stays connected, but Wolf redirects which lobby's streams it receives. This allows seamless lobby switching without Moonlight reconnection.
 
-## Current Status
+**CRITICAL:** Wolf UI is **essential** for users to access lobbies - it's the intended lobby selection interface, not optional!
 
-Wolf UI app appears in Moonlight but doesn't work because:
+## ✅ Current Status - WORKING
 
-1. **Socket mount issue**: Wolf UI container needs access to `/var/run/wolf/wolf.sock`
-2. **Current config**: Mounts host path `/var/run/wolf/wolf.sock` but socket only exists inside Wolf container
-3. **Our setup**: Uses Docker `wolf-socket` volume, not host bind mount
-4. **Wolf limitation**: Lobby/app runner configs don't support Docker volume mounts, only host paths
+Wolf UI is now properly configured:
 
-## Solutions
+1. **Socket access:** Wolf UI container mounts `wolf-socket:/var/run/wolf:rw` Docker volume
+2. **Shared socket:** Both Wolf and wolf-ui containers access same Unix socket
+3. **Configuration:** wolf/config.toml line 453 updated to use volume mount
+4. **Container image:** Uses `ghcr.io/games-on-whales/wolf-ui:main`
 
-### Option 1: Fix wolf-ui app mount (Recommended for future)
-Update wolf-ui app in config.toml to use the wolf-socket volume:
-- Requires updating Wolf to support Docker volume mounts (not just host paths)
-- OR: Expose socket via host bind mount instead of Docker volume
+**Test:** Launch "Wolf UI" from Moonlight client → Should see graphical lobby selector
 
-### Option 2: Remove wolf-ui app from Moonlight profile (Current workaround)
-Users don't need Wolf UI because:
-- Helix frontend shows all sessions/PDEs
-- Users can join lobbies by entering PIN when Moonlight prompts
-- Wolf API provides all needed functionality
+## User Workflow
 
-To remove:
-```bash
-docker compose -f docker-compose.dev.yaml exec api curl -s -X POST \
-  --unix-socket /var/run/wolf/wolf.sock \
-  -H "Content-Type: application/json" \
-  -d '{"id":"<wolf-ui-app-id>"}' \
-  http://localhost/api/v1/apps/remove
+**To join an agent session or PDE:**
+
+1. **In Helix Frontend:**
+   - View session or PDE details
+   - **Copy the 4-digit PIN** displayed (e.g., "3641")
+
+2. **In Moonlight Client:**
+   - Launch "Wolf UI" app
+   - See list of available lobbies
+   - Click desired lobby (e.g., "External Agent ses_...")
+   - **Enter PIN** when Wolf UI prompts
+   - Lobby content appears (seamless switch!)
+
+3. **Optional: Switch Between Lobbies:**
+   - Return to Wolf UI (implementation dependent)
+   - Select different lobby
+   - Enter that lobby's PIN
+   - Switch without disconnecting Moonlight
+
+## Architecture Details
+
+**Wolf UI Container:**
+- Image: `ghcr.io/games-on-whales/wolf-ui:main`
+- Type: Docker container (not executable)
+- Socket: Mounts `wolf-socket` volume at `/var/run/wolf`
+- Environment: `WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock`
+- Network: Uses host network (inherits from Wolf)
+
+**Lobby List API:**
+- Wolf UI queries: `GET /api/v1/lobbies` via Unix socket
+- Returns list of active lobbies with names and IDs
+- Wolf UI renders as graphical list
+
+**Join Flow:**
+- User selects lobby → Wolf UI shows PIN entry dialog
+- User enters PIN → Wolf UI posts to `/api/v1/lobbies/join`
+- Wolf validates PIN → If correct, switches Moonlight session streams to that lobby
+- If incorrect PIN → Access denied, stays in Wolf UI
+
+## Why Wolf UI is Essential
+
+1. **Graphical lobby selection** - Better UX than text-based app list
+2. **PIN entry interface** - Graphical PIN pad vs command-line entry
+3. **Lobby switching** - Switch between sessions without reconnecting
+4. **Multi-user support** - See which lobbies have users connected
+5. **Watch parties** - Join lobbies as spectator
+
+Without Wolf UI, users would need to:
+- Know exact lobby names/IDs
+- Enter PINs via Moonlight command-line (poor UX)
+- Reconnect Moonlight to switch lobbies
+
+## Implementation Notes
+
+**Fixed Issues:**
+- ✅ Wolf UI container now mounts wolf-socket Docker volume correctly
+- ✅ Both Wolf and wolf-ui containers share the socket
+- ✅ No host bind-mount needed (uses Docker volume)
+
+**Configuration:**
+```toml
+# In wolf/config.toml (auto-generated by Wolf)
+[[profiles.apps]]
+title = 'Wolf UI'
+[profiles.apps.runner]
+image = 'ghcr.io/games-on-whales/wolf-ui:main'
+mounts = [ 'wolf-socket:/var/run/wolf:rw' ]  # Docker volume mount
+env = [
+  'WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock',
+  'WOLF_UI_AUTOUPDATE=False',
+  'LOGLEVEL=INFO'
+]
 ```
 
-### Option 3: Run wolf-ui as sidecar container
-Add wolf-ui as a separate service in docker-compose.dev.yaml:
-```yaml
-wolf-ui:
-  image: ghcr.io/games-on-whales/wolf-ui:main
-  environment:
-    - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-  volumes:
-    - wolf-socket:/var/run/wolf:rw
-  network_mode: host
-```
+**Helix Integration:**
+- Helix frontend **must display PINs** for sessions/PDEs
+- Users copy PIN from Helix, enter in Wolf UI
+- No direct API integration needed - Wolf UI → Wolf API → Helix lobbies
 
-Then users could access wolf-ui via a dedicated Moonlight app or web interface.
+## Future: Kubernetes Deployment
 
-## Recommendation
+**Challenge:** Wolf-UI lobbies architecture assumes Docker and host networking
 
-For now: **Ignore the Wolf UI app** - it's optional and not needed for Helix operation.
+**Considerations:**
+- Wolf creates Docker containers for lobbies (Docker-in-Docker in K8s?)
+- Wolf UI expects Unix socket access
+- Moonlight protocol expects specific ports (47989, 47984, etc.)
+- Host networking mode conflicts with K8s networking
 
-Users can:
-- View sessions/PDEs in Helix frontend
-- Connect via Moonlight by entering PIN when prompted
-- No GUI launcher needed
+**Potential Approaches:**
+1. **Run Wolf as DaemonSet** with host networking
+2. **Embed wolf-ui in agent runner image** - operate in dual mode
+3. **Use K8s Jobs** for lobby containers instead of Docker API
+4. **gRPC/HTTP bridge** instead of Unix socket for K8s environments
 
-Future: Consider Option 3 (sidecar) if rich lobby selection UI becomes important.
+**Status:** Not needed yet - document for future reference
+
+---
+
+**Last Updated:** 2025-10-07 04:50 UTC
+**Status:** ✅ Wolf UI Working
+**Next:** Display PINs in Helix frontend
