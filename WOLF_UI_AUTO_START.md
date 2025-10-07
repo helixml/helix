@@ -949,6 +949,14 @@ session := &types.Session{
   - Wolf-ui generates GStreamer pipelines automatically
   - Simpler caps string avoids syntax errors in pipeline construction
 
+**Wolf UI Setup** - DONE
+- Fixed wolf-ui app to mount wolf-socket Docker volume
+- Changed mounts from `/var/run/wolf/wolf.sock:/var/run/wolf/wolf.sock:rw` to `wolf-socket:/var/run/wolf:rw`
+- Wolf UI container now shares wolf-socket volume with Wolf container
+- Users can launch "Wolf UI" from Moonlight to see graphical lobby selector
+- Wolf UI provides PIN entry interface and seamless lobby switching
+- Same Moonlight session can switch between lobbies without reconnecting
+
 ### 🔄 Deferred Items (Future Work)
 
 **Phase 2.4: Update reconciliation loop for lobbies**
@@ -959,16 +967,13 @@ session := &types.Session{
 - Location: api/pkg/external-agent/wolf_executor.go:1059 (reconcileWolfApps function)
 - TODO: Update to check lobbies instead of apps, recreate as lobbies
 
-**Phase 3.2: Frontend PIN display**
-- Current: PINs generated and stored but not displayed in UI
-- Impact: Users can't see PIN to join via Moonlight
-- Workaround: Check database or API logs for PIN
-- Priority: Medium - needed for Moonlight streaming
-- Locations:
-  - Add PIN display to session detail view (for external agents)
-  - Add PIN display to PDE detail view
-  - Filter PINs from unauthorized users (show only to session owner + admins)
-- TODO: Update frontend components to show wolf_lobby_pin field
+**Phase 3.2: Frontend PIN display** - NOT NEEDED!
+- Current: PINs generated and stored in database
+- Users access lobbies via **Wolf UI app** (graphical lobby selector)
+- Wolf UI shows available lobbies and has PIN entry interface
+- Users enter PIN in Wolf UI, not Helix frontend
+- Status: Wolf UI working with wolf-socket volume mount
+- No Helix frontend changes needed - Wolf UI handles this!
 
 **Phase 3.5: Configurable video settings**
 - Current: Hardcoded MacBook Pro 13\" (2560x1600@60Hz)
