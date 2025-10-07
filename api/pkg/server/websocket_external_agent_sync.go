@@ -1489,7 +1489,6 @@ func (apiServer *HelixAPIServer) handleUserCreatedThread(agentSessionID string, 
 		OrganizationID: existingSession.OrganizationID,
 		Owner:          existingSession.Owner,
 		OwnerType:      existingSession.OwnerType,
-		Config:         existingSession.Config, // Copy full config including agent_type
 		Metadata: types.SessionMetadata{
 			ZedThreadID:         acpThreadID,
 			AgentType:           existingSession.Metadata.AgentType,
