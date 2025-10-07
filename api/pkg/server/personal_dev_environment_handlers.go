@@ -475,6 +475,11 @@ func (apiServer *HelixAPIServer) getWolfPendingPairRequests(res http.ResponseWri
 		}
 	}
 
+	log.Info().
+		Str("user_id", user.ID).
+		Interface("frontend_requests", frontendRequests).
+		Msg("Sending transformed pairing requests to frontend")
+
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(frontendRequests)
 }
