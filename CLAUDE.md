@@ -579,7 +579,40 @@ curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
 
 **CRITICAL: Always restart Wolf when testing configuration changes** - This clears any broken dynamic apps that might interfere with new tests.
 
-## Testing ACP Integration / External Agents
+## Wolf-Based Streaming Sessions: Two Use Cases
+
+Helix uses Wolf to run two different types of streaming sessions, both sharing the same infrastructure:
+
+### 1. External Agent Sessions (Orchestrated AI Agents) - PRIMARY USE CASE
+- **Purpose**: AI agents working autonomously before any user connects
+- **Created**: Automatically by Helix when user requests external agent session
+- **Container starts**: Immediately, Zed begins autonomous work via WebSocket to Helix
+- **User connection**: Optional - users can connect via Moonlight to observe/drive the agent
+- **Session persistence**: Critical - must survive client connect/disconnect cycles
+- **Auto-start requirement**: **ESSENTIAL** - agent must work before any Moonlight client connects
+
+**Example flow:**
+1. User clicks "Start External Agent Session" in Helix
+2. Helix creates Wolf session → Container + Zed start immediately
+3. Zed connects to Helix WebSocket, begins autonomous work
+4. User optionally streams via Moonlight to watch/interact
+5. Session persists when user disconnects
+
+### 2. Personal Dev Environments (PDEs) - SECONDARY USE CASE
+- **Purpose**: User's persistent development workspace
+- **Created**: Explicitly by user via Helix frontend
+- **Container starts**: When user initiates (less critical if requires Moonlight connection first)
+- **User connection**: Primary - user creates PDE to work in it
+- **Session persistence**: Important - workspace should survive disconnects
+- **Auto-start requirement**: Nice to have, but less critical than agent sessions
+
+**Example flow:**
+1. User creates PDE through Helix UI
+2. Wolf creates container with desktop environment + Zed
+3. User connects via Moonlight to work in their persistent workspace
+4. Workspace persists across sessions
+
+### Testing ACP Integration / External Agents
 
 **You can test the Zed ACP integration in TWO ways:**
 
