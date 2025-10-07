@@ -1079,12 +1079,12 @@ input * {
 	return nil
 }
 
-// reconcileWolfApps ensures Wolf has apps for all running personal dev environments
-// and removes orphaned Wolf apps that no longer have corresponding Helix instances
+// reconcileWolfApps ensures Wolf has lobbies for all running personal dev environments
+// and removes orphaned Wolf lobbies that no longer have corresponding Helix instances
 func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
-	log.Info().Msg("Reconciling Wolf apps against Helix personal dev environments")
+	log.Info().Msg("Reconciling Wolf lobbies against Helix personal dev environments")
 
-	// Step 1: Build a set of expected Wolf app IDs from database
+	// Step 1: Build a set of expected lobby IDs from database
 	// List ALL personal dev environments (across all users) for reconciliation
 	allPDEs, err := w.store.ListPersonalDevEnvironments(ctx, "") // Empty userID = all users
 	if err != nil {
@@ -1092,39 +1092,46 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 		return fmt.Errorf("failed to list personal dev environments: %w", err)
 	}
 
-	expectedAppIDs := make(map[string]bool)
+	expectedLobbyIDs := make(map[string]bool)
+	pdeByLobbyID := make(map[string]*types.PersonalDevEnvironment)
 	for _, pde := range allPDEs {
 		if pde.Status != "running" && pde.Status != "starting" {
 			continue // Skip stopped environments
 		}
-		expectedAppIDs[pde.WolfAppID] = true
+		if pde.WolfLobbyID != "" {
+			expectedLobbyIDs[pde.WolfLobbyID] = true
+			pdeByLobbyID[pde.WolfLobbyID] = pde
+		}
 	}
 
-	// Step 2: Get all Wolf apps and delete orphaned ones
-	wolfApps, err := w.wolfClient.ListApps(ctx)
+	// Step 2: Get all Wolf lobbies and delete orphaned ones
+	wolfLobbies, err := w.wolfClient.ListLobbies(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list Wolf apps for reconciliation")
-		// Continue with creating missing apps even if we couldn't clean up orphaned ones
+		log.Error().Err(err).Msg("Failed to list Wolf lobbies for reconciliation")
+		// Continue with creating missing lobbies even if we couldn't clean up orphaned ones
 	} else {
 		deletedCount := 0
-		for _, app := range wolfApps {
+		for _, lobby := range wolfLobbies {
 			// Only reconcile Personal Dev Environments (database-backed, long-lived)
-			// Skip static apps defined in config.toml
 			// External agent sessions are ephemeral and handled separately
-			if strings.HasPrefix(app.Title, "Personal") {
-				// Check if this app ID is expected
-				if !expectedAppIDs[app.ID] {
+			if strings.HasPrefix(lobby.Name, "PDE:") {
+				// Check if this lobby ID is expected
+				if !expectedLobbyIDs[lobby.ID] {
 					log.Info().
-						Str("wolf_app_id", app.ID).
-						Str("app_title", app.Title).
-						Msg("Found orphaned Wolf app, removing")
+						Str("lobby_id", lobby.ID).
+						Str("lobby_name", lobby.Name).
+						Msg("Found orphaned Wolf lobby, stopping")
 
-					err := w.wolfClient.RemoveApp(ctx, app.ID)
+					stopReq := &wolf.StopLobbyRequest{
+						LobbyID: lobby.ID,
+						// No PIN needed - we created these lobbies
+					}
+					err := w.wolfClient.StopLobby(ctx, stopReq)
 					if err != nil {
 						log.Error().
 							Err(err).
-							Str("wolf_app_id", app.ID).
-							Msg("Failed to remove orphaned Wolf app")
+							Str("lobby_id", lobby.ID).
+							Msg("Failed to stop orphaned Wolf lobby")
 					} else {
 						deletedCount++
 					}
@@ -1132,11 +1139,11 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 			}
 		}
 		if deletedCount > 0 {
-			log.Info().Int("deleted_count", deletedCount).Msg("Deleted orphaned Wolf apps")
+			log.Info().Int("deleted_count", deletedCount).Msg("Deleted orphaned Wolf lobbies")
 		}
 	}
 
-	// Step 3: Check each PDE individually and try to recreate Wolf apps as needed
+	// Step 3: Check each PDE individually and try to recreate lobbies as needed
 	reconciledCount := 0
 	recreatedCount := 0
 
@@ -1145,61 +1152,57 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 			continue // Skip stopped environments
 		}
 
-		log.Info().
-			Str("instance_id", pde.ID).
-			Str("wolf_app_id", pde.WolfAppID).
-			Str("status", pde.Status).
-			Msg("Checking if Wolf app exists for personal dev environment")
-
-		// First check if Wolf app already exists
-		appExists, checkErr := w.checkWolfAppExists(ctx, pde.WolfAppID)
-		if checkErr != nil {
-			log.Error().
-				Err(checkErr).
-				Str("wolf_app_id", pde.WolfAppID).
-				Msg("Failed to check if Wolf app exists")
-			continue // Skip this instance and continue with others
+		// Check if lobby exists for this PDE
+		if pde.WolfLobbyID == "" {
+			// Old PDE without lobby ID - needs migration/recreation
+			log.Info().
+				Str("instance_id", pde.ID).
+				Msg("PDE has no lobby ID - marking for recreation")
+			continue
 		}
 
-		if appExists {
+		log.Info().
+			Str("instance_id", pde.ID).
+			Str("wolf_lobby_id", pde.WolfLobbyID).
+			Str("status", pde.Status).
+			Msg("Checking if Wolf lobby exists for personal dev environment")
+
+		// Check if lobby exists
+		lobbyExists := false
+		for _, lobby := range wolfLobbies {
+			if lobby.ID == pde.WolfLobbyID {
+				lobbyExists = true
+				break
+			}
+		}
+
+		if lobbyExists {
 			log.Debug().
 				Str("instance_id", pde.ID).
-				Str("wolf_app_id", pde.WolfAppID).
-				Msg("Wolf app already exists, skipping recreation")
-			continue // App exists, no need to recreate
+				Str("wolf_lobby_id", pde.WolfLobbyID).
+				Msg("Wolf lobby already exists, skipping recreation")
+			continue // Lobby exists, no need to recreate
 		}
 
 		log.Info().
 			Str("instance_id", pde.ID).
-			Str("wolf_app_id", pde.WolfAppID).
-			Msg("Wolf app missing, recreating")
+			Str("wolf_lobby_id", pde.WolfLobbyID).
+			Msg("Wolf lobby missing, recreating")
 
-		// Try to recreate the Wolf app for this PDE
-		// Convert to ZedInstanceInfo for backward compatibility with recreateWolfAppForInstance
-		instance := &ZedInstanceInfo{
-			InstanceID:      pde.ID,
-			UserID:          pde.UserID,
-			AppID:           pde.WolfAppID,
-			EnvironmentName: pde.EnvironmentName,
-			DisplayWidth:    pde.DisplayWidth,
-			DisplayHeight:   pde.DisplayHeight,
-			DisplayFPS:      pde.DisplayFPS,
-			IsPersonalEnv:   true,
-		}
-
-		err := w.recreateWolfAppForInstance(ctx, instance)
+		// Recreate the lobby for this PDE
+		err := w.recreateLobbyForPDE(ctx, pde)
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("instance_id", pde.ID).
-				Msg("Failed to recreate Wolf app for personal dev environment")
-			// Mark instance as stopped in database since Wolf app creation failed
+				Msg("Failed to recreate Wolf lobby for personal dev environment")
+			// Mark instance as stopped in database since lobby creation failed
 			pde.Status = "stopped"
 			w.store.UpdatePersonalDevEnvironment(ctx, pde)
 		} else {
 			log.Info().
 				Str("instance_id", pde.ID).
-				Msg("Successfully ensured Wolf app exists for personal dev environment")
+				Msg("Successfully recreated Wolf lobby for personal dev environment")
 			recreatedCount++
 		}
 		reconciledCount++
@@ -1208,7 +1211,88 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 	log.Info().
 		Int("reconciled_count", reconciledCount).
 		Int("recreated_count", recreatedCount).
-		Msg("Completed Wolf app reconciliation")
+		Msg("Completed Wolf lobby reconciliation")
+
+	return nil
+}
+
+// recreateLobbyForPDE recreates a Wolf lobby for a crashed/missing PDE
+func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.PersonalDevEnvironment) error {
+	log.Info().
+		Str("instance_id", pde.ID).
+		Str("environment_name", pde.EnvironmentName).
+		Msg("Recreating Wolf lobby for PDE")
+
+	// Get workspace directory
+	workspaceDir := filepath.Join(w.workspaceBasePath, pde.ID)
+
+	// Recreate Sway config
+	err := w.createSwayConfig(pde.ID)
+	if err != nil {
+		return fmt.Errorf("failed to create Sway config: %w", err)
+	}
+
+	// Generate wolf app ID and container name
+	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
+	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
+
+	// Generate new PIN since we don't have the old one
+	lobbyPIN, lobbyPINString := generateLobbyPIN()
+
+	// Create lobby request
+	lobbyReq := &wolf.CreateLobbyRequest{
+		ProfileID:              "helix-sessions",
+		Name:                   fmt.Sprintf("PDE: %s", pde.EnvironmentName),
+		MultiUser:              true,
+		StopWhenEveryoneLeaves: false,
+		PIN:                    lobbyPIN,
+		VideoSettings: &wolf.LobbyVideoSettings{
+			Width:                   pde.DisplayWidth,
+			Height:                  pde.DisplayHeight,
+			RefreshRate:             pde.DisplayFPS,
+			WaylandRenderNode:       "/dev/dri/renderD128",
+			RunnerRenderNode:        "/dev/dri/renderD128",
+			VideoProducerBufferCaps: "video/x-raw",
+		},
+		AudioSettings: &wolf.LobbyAudioSettings{
+			ChannelCount: 2,
+		},
+		RunnerStateFolder: filepath.Join("/wolf-state", pde.ID),
+		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
+			WolfAppID:         wolfAppID,
+			Title:             fmt.Sprintf("Personal Dev Environment %s", pde.EnvironmentName),
+			ContainerHostname: containerHostname,
+			WorkspaceDir:      workspaceDir,
+			ExtraEnv:          []string{"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh"},
+			DisplayWidth:      pde.DisplayWidth,
+			DisplayHeight:     pde.DisplayHeight,
+			DisplayFPS:        pde.DisplayFPS,
+		}).Runner,
+	}
+
+	// Create the lobby
+	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
+	if err != nil {
+		return fmt.Errorf("failed to create lobby: %w", err)
+	}
+
+	// Update PDE with new lobby ID and PIN
+	pde.WolfLobbyID = lobbyResp.LobbyID
+	pde.WolfLobbyPIN = lobbyPINString
+	pde.Status = "running"
+
+	_, err = w.store.UpdatePersonalDevEnvironment(ctx, pde)
+	if err != nil {
+		// Lobby was created but we couldn't update database - log warning
+		log.Error().Err(err).Str("instance_id", pde.ID).Msg("Created lobby but failed to update PDE record")
+		return fmt.Errorf("failed to update PDE with new lobby ID: %w", err)
+	}
+
+	log.Info().
+		Str("instance_id", pde.ID).
+		Str("lobby_id", lobbyResp.LobbyID).
+		Str("lobby_pin", lobbyPINString).
+		Msg("Successfully recreated lobby for PDE")
 
 	return nil
 }
