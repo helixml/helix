@@ -241,6 +241,9 @@ services:
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
+        # Wolf-UI required environment variables
+        - XDG_RUNTIME_DIR=/tmp/sockets
+        - HOST_APPS_STATE_FOLDER=/etc/wolf
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         # Debug logging for HTTPS connection issues
         - WOLF_LOG_LEVEL=DEBUG
@@ -256,6 +259,7 @@ services:
         - WOLF_USE_ZERO_COPY=FALSE
       volumes:
         - ./wolf/:/etc/wolf/cfg/
+        - /tmp/sockets:/tmp/sockets:rw
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw

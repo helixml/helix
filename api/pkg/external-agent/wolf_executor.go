@@ -541,51 +541,64 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 
-	// Create Wolf app using shared Sway configuration
-	app := w.createSwayWolfApp(SwayWolfAppConfig{
-		WolfAppID:         wolfAppID,
-		Title:             fmt.Sprintf("Personal Dev Environment %s", environmentName),
-		ContainerHostname: containerHostname,
-		WorkspaceDir:      workspaceDir,
-		ExtraEnv:          extraEnv,
-		DisplayWidth:      displayWidth,
-		DisplayHeight:     displayHeight,
-		DisplayFPS:        displayFPS,
-	})
-
-	// Try to remove any existing app with the same ID to prevent duplicates
-	log.Info().Str("wolf_app_id", wolfAppID).Msg("Attempting to remove any existing Wolf app to prevent duplicates")
-	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
-	if err != nil {
-		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
+	// NEW: Create lobby instead of app for immediate auto-start
+	lobbyReq := &wolf.CreateLobbyRequest{
+		ProfileID:              "helix-sessions",
+		Name:                   fmt.Sprintf("PDE: %s", environmentName),
+		MultiUser:              true,
+		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		VideoSettings: &wolf.LobbyVideoSettings{
+			Width:                   displayWidth,
+			Height:                  displayHeight,
+			RefreshRate:             displayFPS,
+			WaylandRenderNode:       "/dev/dri/renderD128",
+			RunnerRenderNode:        "/dev/dri/renderD128",
+			VideoProducerBufferCaps: "",
+		},
+		AudioSettings: &wolf.LobbyAudioSettings{
+			ChannelCount: 2,
+		},
+		RunnerStateFolder: filepath.Join("/wolf-state", instanceID),
+		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
+			WolfAppID:         wolfAppID,
+			Title:             fmt.Sprintf("Personal Dev Environment %s", environmentName),
+			ContainerHostname: containerHostname,
+			WorkspaceDir:      workspaceDir,
+			ExtraEnv:          extraEnv,
+			DisplayWidth:      displayWidth,
+			DisplayHeight:     displayHeight,
+			DisplayFPS:        displayFPS,
+		}).Runner,
 	}
 
-	// Add the app to Wolf
-	err = w.wolfClient.AddApp(ctx, app)
+	// Create lobby (container starts immediately!)
+	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add personal dev app to Wolf: %w", err)
+		return nil, fmt.Errorf("failed to create lobby for PDE: %w", err)
 	}
 
-	// Wolf will auto-start the container when the app is added (if auto_start_containers = true)
-	// No need for fake client background sessions - Wolf handles container lifecycle directly
-	wolfSessionID := "" // No session ID needed for auto-started containers
+	log.Info().
+		Str("lobby_id", lobbyResp.LobbyID).
+		Str("instance_id", instanceID).
+		Msg("Wolf lobby created successfully - PDE container starting immediately")
 
 	// Save to database
 	pde := &types.PersonalDevEnvironment{
 		ID:              instanceID,
 		UserID:          userID,
 		AppID:           appID, // Original Helix App ID for configuration
-		WolfAppID:       wolfAppID,
+		WolfAppID:       wolfAppID, // Keep for backward compatibility
+		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
 		EnvironmentName: environmentName,
-		Status:          "starting",
+		Status:          "running", // Container is running immediately with lobbies
 		LastActivity:    time.Now(),
 		DisplayWidth:    displayWidth,
 		DisplayHeight:   displayHeight,
 		DisplayFPS:      displayFPS,
 		ContainerName:   containerName,
 		VNCPort:         5901,
-		StreamURL:       fmt.Sprintf("http://localhost:8090/?session=%s", wolfSessionID),
-		WolfSessionID:   wolfSessionID,
+		StreamURL:       fmt.Sprintf("moonlight://localhost:47989"), // Moonlight streaming
+		WolfSessionID:   "", // No longer used with lobbies
 	}
 
 	pde, err = w.store.CreatePersonalDevEnvironment(ctx, pde)
@@ -595,9 +608,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 
 	log.Info().
 		Str("instance_id", instanceID).
-		Str("wolf_session_id", wolfSessionID).
+		Str("wolf_lobby_id", lobbyResp.LobbyID).
 		Str("wolf_app_id", wolfAppID).
-		Msg("Personal development environment created successfully via Wolf")
+		Msg("Personal development environment created successfully via Wolf lobbies")
 
 	// Convert to ZedInstanceInfo for backward compatibility
 	instance := &ZedInstanceInfo{
@@ -709,25 +722,36 @@ func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, i
 
 	log.Info().Str("instance_id", instanceID).Msg("Stopping personal dev environment via Wolf")
 
-	// Use consistent ID generation
-	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
-
-	// Stop Wolf session using the stored Wolf session ID
-	if pde.WolfSessionID != "" {
-		err := w.wolfClient.StopSession(ctx, pde.WolfSessionID)
+	// Stop the lobby (tears down container)
+	if pde.WolfLobbyID != "" {
+		stopReq := &wolf.StopLobbyRequest{
+			LobbyID: pde.WolfLobbyID,
+			// PIN not needed - Helix created the lobby, can stop it without PIN
+		}
+		err := w.wolfClient.StopLobby(ctx, stopReq)
 		if err != nil {
-			log.Error().Err(err).Str("wolf_session_id", pde.WolfSessionID).Str("instance_id", instanceID).Msg("Failed to stop Wolf session")
+			log.Error().Err(err).Str("lobby_id", pde.WolfLobbyID).Msg("Failed to stop Wolf lobby")
 			// Continue with cleanup even if stop fails
 		}
+		log.Info().
+			Str("lobby_id", pde.WolfLobbyID).
+			Str("instance_id", instanceID).
+			Msg("Wolf lobby stopped successfully")
 	} else {
-		log.Warn().Str("instance_id", instanceID).Msg("No Wolf session ID stored, cannot stop Wolf session")
-	}
+		// Fallback for old app-based PDEs (backward compatibility during migration)
+		wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
 
-	// Remove the app from Wolf
-	err = w.wolfClient.RemoveApp(ctx, wolfAppID)
-	if err != nil {
-		log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to remove Wolf app")
-		// Continue with cleanup even if removal fails
+		if pde.WolfSessionID != "" {
+			err := w.wolfClient.StopSession(ctx, pde.WolfSessionID)
+			if err != nil {
+				log.Error().Err(err).Str("wolf_session_id", pde.WolfSessionID).Msg("Failed to stop Wolf session")
+			}
+		}
+
+		err := w.wolfClient.RemoveApp(ctx, wolfAppID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to remove Wolf app")
+		}
 	}
 
 	// Clean up Sway configuration file
