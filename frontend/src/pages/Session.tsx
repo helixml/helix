@@ -1009,7 +1009,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           flexDirection: 'column',
           alignItems: 'center',
           py: 2,
-          pb: 10,
+          pb: 2, // Reduced from pb: 10 to avoid excessive bottom padding
         }}
       >
         {hasMoreAbove && (
@@ -1037,7 +1037,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             maxWidth: 700,
             mx: 'auto',
             px: { xs: 1, sm: 2, md: 0 },
-            minHeight: '60vh',
+            // Removed minHeight: '60vh' - let content determine height naturally
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
@@ -1377,8 +1377,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             flexGrow: 1,
             display: 'flex',
             flexDirection: 'column',
-            height: '100%', // Ensure full height
-            minHeight: 0, // This is crucial for proper flex behavior
+            minHeight: 0, // CRITICAL: This allows flex to shrink below content size
+            overflow: 'hidden', // Prevent this container from scrolling
           }}
         >
           <Box
@@ -1387,8 +1387,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               flexGrow: 1,
               display: 'flex',
               flexDirection: 'column',
-              overflowY: isStreaming ? 'hidden' : 'auto',
-              transition: 'overflow-y 0.3s ease',
+              overflowY: 'auto', // Always enable scrolling on the inner container
               pr: 3, // Add consistent padding to offset from the right edge
               minHeight: 0, // This is crucial for proper flex behavior
               ...lightTheme.scrollbar,
