@@ -982,6 +982,14 @@ session := &types.Session{
 - Priority: Low - cleanup when stable in production
 - TODO: Remove custom build artifacts, update documentation
 
+**Note: "Wolf UI" App in Moonlight**
+- Wolf-UI branch includes a "Wolf UI" app in the default moonlight-profile
+- This is a separate GUI program for managing profiles/lobbies
+- The wolf-ui executable doesn't exist in the default container
+- Safe to ignore - Helix uses Wolf API directly, doesn't need the UI app
+- If it appears in Moonlight app list, it will fail with "connection refused"
+- Optional: Remove from moonlight-profile in /etc/wolf/config.toml if desired
+
 ---
 
 **Document Status:** ✅ Implementation Complete - Core migration successful
