@@ -2367,7 +2367,8 @@ type PersonalDevEnvironment struct {
 	Updated   time.Time `json:"updated"`
 	UserID    string    `json:"user_id" gorm:"index"`
 	AppID     string    `json:"app_id"` // Helix App ID for configuration (MCP servers, tools, etc.)
-	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID
+	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
+	WolfLobbyID string  `json:"wolf_lobby_id" gorm:"index"` // NEW: Wolf lobby ID for auto-start
 
 	// User-facing configuration
 	EnvironmentName string `json:"environment_name"`
@@ -2385,5 +2386,5 @@ type PersonalDevEnvironment struct {
 	ContainerName string `json:"container_name"`
 	VNCPort       int    `json:"vnc_port"`
 	StreamURL     string `json:"stream_url"`
-	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID if running
+	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
 }
