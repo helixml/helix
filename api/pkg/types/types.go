@@ -1777,8 +1777,10 @@ type ZedAgentResponse struct {
 	ScreenshotURL string `json:"screenshot_url"`
 	// Stream URL for Moonlight client (interactive)
 	StreamURL string `json:"stream_url"`
-	// Wolf app ID for the container
+	// Wolf app ID for the container (deprecated - use WolfLobbyID)
 	WolfAppID string `json:"wolf_app_id,omitempty"`
+	// Wolf lobby ID for the container (NEW - auto-start approach)
+	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
 	// WebSocket URL for thread sync connection
