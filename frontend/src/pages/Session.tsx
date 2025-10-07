@@ -1321,7 +1321,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
               {/* Lobby PIN Display - Only show to session owner or admin */}
-              {(isOwner || account.admin) && session?.data?.metadata?.wolf_lobby_pin && (
+              {(isOwner || account.admin) && session?.data?.config?.wolf_lobby_pin && (
                 <Box sx={{
                   mb: 2,
                   p: 2,
@@ -1343,13 +1343,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                         fontWeight: 'bold'
                       }}
                     >
-                      {session.data.metadata.wolf_lobby_pin}
+                      {session.data.config.wolf_lobby_pin}
                     </Typography>
                     <Button
                       size="small"
                       variant="outlined"
                       onClick={() => {
-                        navigator.clipboard.writeText(session.data.metadata.wolf_lobby_pin || '')
+                        navigator.clipboard.writeText(session.data.config.wolf_lobby_pin || '')
                         // Could add snackbar here
                       }}
                     >
