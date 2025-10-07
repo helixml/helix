@@ -2,15 +2,26 @@
 
 ## What is Wolf UI?
 
-Wolf UI is a Godot-based graphical interface for managing Wolf lobbies and profiles. It provides a nicer lobby selection experience than the default Moonlight app list.
+Wolf UI is a Godot-based graphical interface that serves as a **lobby launcher/switcher**.
+
+**How it works:**
+1. User launches "Wolf UI" app in Moonlight → Streams wolf-ui container
+2. Inside wolf-ui, user sees list of active lobbies
+3. User selects a lobby and enters PIN
+4. Wolf-ui calls `/api/v1/lobbies/join` with `lobby_id` and `moonlight_session_id`
+5. **Wolf dynamically switches streams** - same Moonlight session now receives video/audio/input from the lobby
+6. User is now streaming the lobby content (e.g., Zed agent desktop) instead of wolf-ui
+
+**Key insight:** The Moonlight session stays connected, but Wolf redirects which lobby's streams it receives. This allows seamless lobby switching without reconnecting.
 
 ## Current Status
 
-Wolf UI app appears in the Moonlight client but doesn't work because:
+Wolf UI app appears in Moonlight but doesn't work because:
 
-1. **Socket mount issue**: Wolf UI needs access to `/var/run/wolf/wolf.sock`
+1. **Socket mount issue**: Wolf UI container needs access to `/var/run/wolf/wolf.sock`
 2. **Current config**: Mounts host path `/var/run/wolf/wolf.sock` but socket only exists inside Wolf container
 3. **Our setup**: Uses Docker `wolf-socket` volume, not host bind mount
+4. **Wolf limitation**: Lobby/app runner configs don't support Docker volume mounts, only host paths
 
 ## Solutions
 
