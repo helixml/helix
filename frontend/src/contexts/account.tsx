@@ -445,7 +445,7 @@ export const useAccountContext = (): IAccountContext => {
               onLogin()
             }
           }
-        }, 5 * 1000) // TEMPORARY: 5 seconds for debugging (normally 4 minutes)
+        }, 120 * 1000) // 2 minutes (tokens expire in 5min, so refresh every 2min to be safe)
         
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)
