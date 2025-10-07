@@ -5,7 +5,6 @@ import useAccount from '../../hooks/useAccount';
 export const TokenExpiryCounter: React.FC = () => {
   const account = useAccount();
   const [timeRemaining, setTimeRemaining] = useState<string>('');
-  const [cookieExpiry, setCookieExpiry] = useState<string>('');
 
   useEffect(() => {
     const updateTimer = () => {
@@ -26,33 +25,8 @@ export const TokenExpiryCounter: React.FC = () => {
             setTimeRemaining('EXPIRED!');
           }
         }
-
-        // Check cookie token expiry
-        const cookieToken = document.cookie
-          .split('; ')
-          .find(row => row.startsWith('access_token='))
-          ?.split('=')[1];
-
-        if (cookieToken && cookieToken !== token) {
-          try {
-            const cookiePayload = JSON.parse(atob(cookieToken.split('.')[1]));
-            const cookieExp = new Date(cookiePayload.exp * 1000);
-            const now = new Date();
-            const cookieSeconds = Math.floor((cookieExp.getTime() - now.getTime()) / 1000);
-            const cookieMins = Math.floor(cookieSeconds / 60);
-            const cookieSecs = cookieSeconds % 60;
-            setCookieExpiry(`(cookie: ${cookieMins}m ${cookieSecs}s)`);
-          } catch {
-            setCookieExpiry('(cookie: invalid)');
-          }
-        } else if (cookieToken === token) {
-          setCookieExpiry('');
-        } else {
-          setCookieExpiry('(no cookie)');
-        }
       } catch (e) {
         setTimeRemaining('');
-        setCookieExpiry('');
       }
     };
 
@@ -73,7 +47,7 @@ export const TokenExpiryCounter: React.FC = () => {
         ml: 1
       }}
     >
-      Token: {timeRemaining} {cookieExpiry}
+      Token: {timeRemaining}
     </Typography>
   );
 };
