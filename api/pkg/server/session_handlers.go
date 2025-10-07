@@ -423,11 +423,25 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			}
 
 			// Register session in executor so RDP endpoint can find it
-			_, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
+			agentResp, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
 			if regErr != nil {
 				log.Error().Err(regErr).Str("session_id", session.ID).Msg("Failed to register session in external agent executor")
 				http.Error(rw, fmt.Sprintf("failed to initialize external agent: %s", regErr.Error()), http.StatusInternalServerError)
 				return
+			}
+
+			// Store lobby PIN in session metadata (Phase 3: Multi-tenancy)
+			if agentResp.WolfLobbyPIN != "" {
+				session.Metadata.WolfLobbyPIN = agentResp.WolfLobbyPIN
+				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
+				if err != nil {
+					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby PIN in session")
+				} else {
+					log.Info().
+						Str("session_id", session.ID).
+						Str("lobby_pin", agentResp.WolfLobbyPIN).
+						Msg("✅ Stored lobby PIN in session metadata (chat endpoint)")
+				}
 			}
 
 			log.Info().Str("session_id", session.ID).Msg("External agent session registered successfully")
