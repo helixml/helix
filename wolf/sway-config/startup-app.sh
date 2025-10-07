@@ -34,12 +34,8 @@ EOF
 echo "Zed settings configured"
 
 # Start screenshot server in background (if binary exists)
-if [ -f /usr/local/bin/screenshot-server ]; then
-    echo "Starting screenshot server..."
-    # Use wayland-2 (Sway compositor) for screenshots
-    WAYLAND_DISPLAY=wayland-2 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1 &
-    echo "Screenshot server started"
-fi
+# NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
+# We'll start it later in the script after Sway initializes
 
 # Source GOW's launch-comp.sh for the launcher function
 echo "Starting Sway and launching Zed via GOW launcher..."
@@ -178,6 +174,9 @@ EOF
     echo "bindsym \$mod+Shift+Return exec ghostty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+    echo "# Start screenshot server after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
+    echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
 
     # Add resolution and app launch (like the original launcher)
     echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config
