@@ -98,6 +98,10 @@ export interface IExternalAgentConfig {
   project_path?: string
   env_vars?: string[]
   auto_connect_rdp?: boolean
+  // Video settings (Phase 3.5) - matches PDE display settings
+  display_width?: number        // Streaming resolution width (default: 2560)
+  display_height?: number       // Streaming resolution height (default: 1600)
+  display_refresh_rate?: number // Streaming refresh rate (default: 60)
 }
 
 export interface IAgentTypeOption {
