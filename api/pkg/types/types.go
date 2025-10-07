@@ -341,6 +341,10 @@ type SessionMetadata struct {
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	// Video settings for external agent sessions (Phase 3.5)
+	AgentVideoWidth      int `json:"agent_video_width,omitempty"`       // Streaming resolution width (default: 2560)
+	AgentVideoHeight     int `json:"agent_video_height,omitempty"`      // Streaming resolution height (default: 1600)
+	AgentVideoRefreshRate int `json:"agent_video_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -408,10 +412,14 @@ type SessionChatRequest struct {
 
 // ExternalAgentConfig holds configuration for external agents like Zed
 type ExternalAgentConfig struct {
-	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
-	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
-	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
-	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
+	WorkspaceDir      string   `json:"workspace_dir,omitempty"`        // Custom working directory
+	ProjectPath       string   `json:"project_path,omitempty"`         // Relative path for the project directory
+	EnvVars           []string `json:"env_vars,omitempty"`             // Environment variables in KEY=VALUE format
+	AutoConnectRDP    bool     `json:"auto_connect_rdp,omitempty"`     // Whether to auto-connect RDP viewer
+	// Video settings for streaming (Phase 3.5) - matches PDE display settings
+	DisplayWidth      int      `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight     int      `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayRefreshRate int     `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 }
 
 // Validate checks if the external agent configuration is secure and valid
@@ -1768,6 +1776,10 @@ type ZedAgent struct {
 	// Multi-session support
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
+	DisplayWidth      int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight     int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 }
 
 // ZedAgentResponse represents the response from a Zed agent execution

@@ -213,11 +213,24 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Add custom env vars from agent request
 	extraEnv = append(extraEnv, agent.Env...)
 
+	// Extract video settings from agent config (Phase 3.5) with defaults
+	displayWidth := agent.DisplayWidth
+	if displayWidth == 0 {
+		displayWidth = 2560 // MacBook Pro 13" default
+	}
+	displayHeight := agent.DisplayHeight
+	if displayHeight == 0 {
+		displayHeight = 1600
+	}
+	displayRefreshRate := agent.DisplayRefreshRate
+	if displayRefreshRate == 0 {
+		displayRefreshRate = 60
+	}
+
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
 	// NEW: Create lobby instead of app for immediate auto-start
-	// Default video settings: MacBook Pro 13" (2560x1600@60Hz)
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("External Agent %s", agent.SessionID),
@@ -225,9 +238,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:                   2560, // MacBook Pro 13" default
-			Height:                  1600,
-			RefreshRate:             60,
+			Width:                   displayWidth,
+			Height:                  displayHeight,
+			RefreshRate:             displayRefreshRate,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
 			VideoProducerBufferCaps: "video/x-raw", // Simpler caps without memory type
@@ -242,9 +255,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			ContainerHostname: containerHostname,
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          extraEnv,
-			DisplayWidth:      2560,
-			DisplayHeight:     1600,
-			DisplayFPS:        60,
+			DisplayWidth:      displayWidth,
+			DisplayHeight:     displayHeight,
+			DisplayFPS:        displayRefreshRate,
 		}).Runner, // Use the runner config from the app
 	}
 
