@@ -173,12 +173,13 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Create Helix session for spec generation
+	// Create Zed external agent session for spec generation
+	// Planning agent needs git access to commit design docs to helix-design-docs branch
 	systemPrompt := s.buildSpecGenerationPrompt(task)
 
 	sessionMetadata := types.SessionMetadata{
 		SystemPrompt: systemPrompt,
-		AgentType:    "helix",
+		AgentType:    "zed_external", // Use Zed agent for git access
 		Stream:       false,
 	}
 
@@ -189,8 +190,8 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
-		Provider:       "openai", // Use OpenAI for spec generation
-		ModelName:      "gpt-4",  // Use GPT-4 for better reasoning
+		Provider:       "anthropic",          // Use Claude for spec generation
+		ModelName:      "external_agent",     // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      "",
 		OrganizationID: "",
@@ -464,88 +465,128 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 		Msg("Implementation work item created and queued for Zed agent")
 }
 
-// buildSpecGenerationPrompt creates the system prompt for Helix spec generation
+// buildSpecGenerationPrompt creates the system prompt for planning Zed agent
 func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) string {
-	return fmt.Sprintf(`You are a software specification expert. Your job is to take a simple user request and generate comprehensive, implementable specifications.
+	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a simple user request and generate comprehensive, implementable specifications.
 
 **Project Context:**
 - Project ID: %s
 - Task Type: %s
 - Priority: %s
+- SpecTask ID: %s
+
+**CRITICAL: Design Documents Location**
+You have access to a git worktree for design documentation at:
+.git-worktrees/helix-design-docs/
+
+This is a forward-only branch specifically for design documents. All your design work MUST be saved there.
 
 **Your Task:**
-Convert the user's simple request into three detailed documents:
+Convert the user's simple request into design documents in the helix-design-docs worktree:
 
-1. **Requirements Specification** (markdown format):
+1. **requirements.md** - Requirements Specification:
    - Clear user stories in "As a [user], I want [goal] so that [benefit]" format
    - EARS acceptance criteria (Event, Action, Response, Success criteria)
    - Functional and non-functional requirements
    - Edge cases and error handling
 
-2. **Technical Design** (markdown format):
+2. **design.md** - Technical Design:
    - Architecture overview and component diagram
    - Data model changes (database schema, API contracts)
    - UI/UX design if applicable
    - Security and performance considerations
    - Integration points and dependencies
 
-3. **Implementation Plan** (markdown format):
-   - Discrete, measurable tasks broken down by component
-   - Estimated complexity for each task
-   - Dependencies between tasks
-   - Testing strategy and criteria
-   - Deployment considerations
+3. **progress.md** - Implementation Plan with task checklist:
+   Format tasks as markdown checklist:
+   - [ ] Task 1 description
+   - [ ] Task 2 description
+   - [ ] Task 3 description
+
+   Each task should be:
+   - Discrete and measurable
+   - Include estimated complexity
+   - Note dependencies on other tasks
+   - Have clear success criteria
+
+**Git Workflow You Must Follow:**
+1. cd .git-worktrees/helix-design-docs
+2. Create/update requirements.md
+3. Create/update design.md
+4. Create/update progress.md with task checklist
+5. git add .
+6. git commit -m "Generated design documents for SpecTask %s"
+7. Let the user know the design docs are ready for review
 
 **Important Guidelines:**
 - Be specific and actionable - avoid vague descriptions
-- Consider the full software development lifecycle
-- Think about maintainability and scalability
-- Include error handling and edge cases
-- Make it easy for a coding agent to implement
+- ALWAYS commit your work to the helix-design-docs git worktree
+- The user can continue chatting with you to refine the design
+- Make it easy for the implementation agent to work from your design
+- Use the [ ] checklist format in progress.md for task tracking
 
-Please analyze the user request and generate these three documents. Format your response clearly with markdown headers.`,
-		task.ProjectID, task.Type, task.Priority)
+Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
+		task.ProjectID, task.Type, task.Priority, task.ID, task.ID)
 }
 
-// buildImplementationPrompt creates the prompt for Zed implementation agent
+// buildImplementationPrompt creates the prompt for implementation Zed agent
 func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) string {
-	return fmt.Sprintf(`You are a senior software engineer tasked with implementing a feature based on approved specifications.
+	return fmt.Sprintf(`You are a senior software engineer working in a Zed editor with git access. You're implementing a feature based on approved specifications.
 
 **Task: %s**
+**SpecTask ID: %s**
+
+**CRITICAL: Design Documents Location**
+The approved design documents are in the helix-design-docs git worktree at:
+.git-worktrees/helix-design-docs/
+
+You MUST read the design documents from there:
+- requirements.md
+- design.md
+- progress.md (your task checklist)
+
+**CRITICAL: Task Progress Tracking**
+The progress.md file contains your task checklist in this format:
+- [ ] Task description (pending)
+- [~] Task description (in progress - YOU mark this)
+- [x] Task description (completed - YOU mark this)
+
+**Your Workflow:**
+1. cd .git-worktrees/helix-design-docs
+2. cat progress.md (see your task list)
+3. Find the next [ ] pending task
+4. Mark it in progress: sed -i 's/- \[ \] Task name/- \[~\] Task name/' progress.md
+5. git add progress.md && git commit -m "Started: Task name"
+6. Implement that specific task in the main codebase
+7. When done: sed -i 's/- \[~\] Task name/- \[x\] Task name/' progress.md
+8. git add progress.md && git commit -m "Completed: Task name"
+9. Move to next [ ] task
+10. Repeat until all tasks are [x]
 
 **Original User Request:**
 %s
 
-**APPROVED SPECIFICATIONS:**
-
-## Requirements Specification
-%s
-
-## Technical Design
-%s
-
-## Implementation Plan
-%s
-
 **Your Mission:**
-1. Carefully read and understand all specifications above
-2. Navigate the codebase to understand current architecture
-3. Implement the feature following the approved technical design
-4. Write comprehensive tests based on the acceptance criteria
-5. Ensure code follows project conventions and best practices
-6. Create a feature branch and push your changes
-7. Open a pull request with a detailed description
+1. Read design docs from .git-worktrees/helix-design-docs/
+2. Read progress.md to see your task checklist
+3. Work through tasks one by one
+4. Mark each task [~] when starting, [x] when done
+5. Commit progress updates to helix-design-docs branch
+6. Implement code in the main repository
+7. Create feature branch and push when all tasks complete
+8. Open pull request with summary
 
 **Guidelines:**
-- Follow the technical design exactly - don't deviate without good reason
-- Implement all acceptance criteria from the requirements spec
-- Write clean, maintainable, well-documented code
-- Include unit tests and integration tests as appropriate
-- Handle all edge cases mentioned in the specifications
-- Use the existing codebase patterns and conventions
+- ALWAYS mark your progress in progress.md with [~] and [x]
+- ALWAYS commit progress updates to helix-design-docs
+- Follow the technical design exactly
+- Implement all acceptance criteria
+- Write tests for everything
+- Handle all edge cases
+- The user and orchestrator are watching your progress via git commits
 
-Start by exploring the codebase to understand the current structure, then implement step by step following the implementation plan.`,
-		task.Name, task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan)
+Start by reading the design documents from the worktree, then work through the task list systematically.`,
+		task.Name, task.ID, task.OriginalPrompt)
 }
 
 // Helper functions
