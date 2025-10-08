@@ -10,28 +10,10 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# Configure Zed settings
-echo "Configuring Zed settings..."
+# Create Zed config directory (settings-sync-daemon will manage settings.json)
+echo "Creating Zed config directory..."
 mkdir -p $HOME/.config/zed
-cat > $HOME/.config/zed/settings.json << 'EOF'
-{
-  "agent": {
-    "default_model": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-5-latest"
-    },
-    "model_parameters": []
-  },
-  "ui_font_size": 16,
-  "buffer_font_size": 15,
-  "theme": {
-    "mode": "dark",
-    "light": "One Light",
-    "dark": "One Dark"
-  }
-}
-EOF
-echo "Zed settings configured"
+echo "Zed config directory created (settings managed by settings-sync-daemon)"
 
 # Start screenshot server in background (if binary exists)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
@@ -175,8 +157,9 @@ EOF
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Start screenshot server after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
+    echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
+    echo "exec /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
 
     # Add resolution and app launch (like the original launcher)
     echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config

@@ -1948,6 +1948,65 @@ type RunnerEventResponseEnvelope struct {
 	Payload   []byte `json:"payload"`
 }
 
+// SSHKey represents a user's SSH key for git operations in agent sandboxes
+type SSHKey struct {
+	ID                  string    `json:"id" gorm:"primaryKey"`
+	UserID              string    `json:"user_id" gorm:"index;not null"`
+	KeyName             string    `json:"key_name" gorm:"not null"`
+	PublicKey           string    `json:"public_key" gorm:"type:text;not null"`
+	PrivateKeyEncrypted string    `json:"-" gorm:"type:text;not null"` // Never expose in JSON
+	Created             time.Time `json:"created" gorm:"default:current_timestamp"`
+	LastUsed            time.Time `json:"last_used,omitempty"`
+}
+
+// TableName specifies the table name for SSHKey model
+func (SSHKey) TableName() string {
+	return "ssh_keys"
+}
+
+// SSHKeyCreateRequest is the request body for creating a new SSH key
+type SSHKeyCreateRequest struct {
+	KeyName    string `json:"key_name" binding:"required"`
+	PublicKey  string `json:"public_key" binding:"required"`
+	PrivateKey string `json:"private_key" binding:"required"`
+}
+
+// SSHKeyResponse is the response returned when creating/listing SSH keys
+type SSHKeyResponse struct {
+	ID        string    `json:"id"`
+	KeyName   string    `json:"key_name"`
+	PublicKey string    `json:"public_key"`
+	Created   time.Time `json:"created"`
+	LastUsed  time.Time `json:"last_used,omitempty"`
+}
+
+// SSHKeyGenerateRequest is the request to generate a new SSH key pair
+type SSHKeyGenerateRequest struct {
+	KeyName string `json:"key_name" binding:"required"`
+	KeyType string `json:"key_type"` // "ed25519" or "rsa", defaults to ed25519
+}
+
+// SSHKeyGenerateResponse contains the generated SSH key pair
+type SSHKeyGenerateResponse struct {
+	ID         string `json:"id"`
+	KeyName    string `json:"key_name"`
+	PublicKey  string `json:"public_key"`
+	PrivateKey string `json:"private_key"` // Only returned once during generation
+}
+
+// ZedSettingsOverride stores user's custom Zed settings that override Helix-managed settings
+type ZedSettingsOverride struct {
+	SessionID string          `json:"session_id" gorm:"primaryKey"`
+	Overrides json.RawMessage `json:"overrides" gorm:"type:jsonb;not null"`
+	UpdatedAt time.Time       `json:"updated_at" gorm:"default:current_timestamp"`
+}
+
+// ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
+type ZedConfigResponse struct {
+	ContextServers map[string]interface{} `json:"context_servers"`
+	Version        int64                  `json:"version"` // Unix timestamp of app config update
+}
+
 type RunnerLLMInferenceRequest struct {
 	// RequestID is generated when a new request
 	// is received on the internal Helix OpenAI client

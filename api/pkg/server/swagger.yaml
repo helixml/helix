@@ -932,6 +932,9 @@ definitions:
         items:
           type: string
         type: array
+      container_name:
+        description: Container information for direct network access
+        type: string
       createdAt:
         type: string
       data_sources:
@@ -977,6 +980,9 @@ definitions:
       userID:
         description: Always required
         type: string
+      vnc_port:
+        description: VNC port inside container (5901)
+        type: integer
       wolf_session_id:
         description: Wolf's numeric session ID for API calls
         type: string
@@ -2855,6 +2861,16 @@ definitions:
       auto_connect_rdp:
         description: Whether to auto-connect RDP viewer
         type: boolean
+      display_height:
+        description: 'Streaming resolution height (default: 1600)'
+        type: integer
+      display_refresh_rate:
+        description: 'Streaming refresh rate (default: 60)'
+        type: integer
+      display_width:
+        description: Video settings for streaming (Phase 3.5) - matches PDE display
+          settings
+        type: integer
       env_vars:
         description: Environment variables in KEY=VALUE format
         items:
@@ -4574,6 +4590,54 @@ definitions:
     - RuntimeDiffusers
     - RuntimeAxolotl
     - RuntimeVLLM
+  types.SSHKeyCreateRequest:
+    properties:
+      key_name:
+        type: string
+      private_key:
+        type: string
+      public_key:
+        type: string
+    required:
+    - key_name
+    - private_key
+    - public_key
+    type: object
+  types.SSHKeyGenerateRequest:
+    properties:
+      key_name:
+        type: string
+      key_type:
+        description: '"ed25519" or "rsa", defaults to ed25519'
+        type: string
+    required:
+    - key_name
+    type: object
+  types.SSHKeyGenerateResponse:
+    properties:
+      id:
+        type: string
+      key_name:
+        type: string
+      private_key:
+        description: Only returned once during generation
+        type: string
+      public_key:
+        type: string
+    type: object
+  types.SSHKeyResponse:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      key_name:
+        type: string
+      last_used:
+        type: string
+      public_key:
+        type: string
+    type: object
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -4864,6 +4928,15 @@ definitions:
       agent_type:
         description: 'Agent type: "helix" or "zed_external"'
         type: string
+      agent_video_height:
+        description: 'Streaming resolution height (default: 1600)'
+        type: integer
+      agent_video_refresh_rate:
+        description: 'Streaming refresh rate (default: 60)'
+        type: integer
+      agent_video_width:
+        description: Video settings for external agent sessions (Phase 3.5)
+        type: integer
       app_query_params:
         additionalProperties:
           type: string
@@ -4944,6 +5017,9 @@ definitions:
       uploaded_data_entity_id:
         description: when we do fine tuning or RAG, we need to know which data entity
           we used
+        type: string
+      wolf_lobby_pin:
+        description: 'PIN for Wolf lobby access (Phase 3: Multi-tenancy)'
         type: string
       work_session_id:
         description: ID of associated WorkSession
@@ -6318,6 +6394,15 @@ definitions:
         type: string
       updated:
         type: string
+    type: object
+  types.ZedConfigResponse:
+    properties:
+      context_servers:
+        additionalProperties: true
+        type: object
+      version:
+        description: Unix timestamp of app config update
+        type: integer
     type: object
   types.ZedInstanceEvent:
     properties:
@@ -9148,7 +9233,8 @@ paths:
       - interactions
   /api/v1/sessions/{id}/rdp-connection:
     get:
-      description: Get RDP connection details for accessing a session via RDP
+      description: Get Wolf streaming connection details for accessing a session (replaces
+        RDP)
       parameters:
       - description: Session ID
         in: path
@@ -9163,7 +9249,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Get RDP connection info for a session
+      summary: Get Wolf connection info for a session
       tags:
       - sessions
   /api/v1/sessions/{id}/step-info:
@@ -9177,6 +9263,125 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/sessions/{id}/zed-config:
+    get:
+      consumes:
+      - application/json
+      description: Get Helix-managed Zed MCP configuration for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ZedConfigResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Zed configuration
+      tags:
+      - Zed
+  /api/v1/sessions/{id}/zed-config/user:
+    post:
+      consumes:
+      - application/json
+      description: Update user's custom Zed settings overrides
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User settings overrides
+        in: body
+        name: overrides
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update Zed user settings
+      tags:
+      - Zed
+  /api/v1/sessions/{id}/zed-settings:
+    get:
+      consumes:
+      - application/json
+      description: Get merged Helix + user Zed settings for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get merged Zed settings
+      tags:
+      - Zed
   /api/v1/sessions/chat:
     post:
       parameters:
@@ -10121,6 +10326,139 @@ paths:
       summary: Get sample repository types
       tags:
       - specs
+  /api/v1/ssh-keys:
+    get:
+      consumes:
+      - application/json
+      description: Get all SSH keys for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SSHKeyResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List SSH keys
+      tags:
+      - SSHKeys
+    post:
+      consumes:
+      - application/json
+      description: Create a new SSH key for git operations
+      parameters:
+      - description: SSH key details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SSHKeyCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SSHKeyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create SSH key
+      tags:
+      - SSHKeys
+  /api/v1/ssh-keys/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an SSH key
+      parameters:
+      - description: SSH key ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SSHKeyResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete SSH key
+      tags:
+      - SSHKeys
+  /api/v1/ssh-keys/generate:
+    post:
+      consumes:
+      - application/json
+      description: Generate a new SSH key pair
+      parameters:
+      - description: SSH key generation parameters
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SSHKeyGenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SSHKeyGenerateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Generate SSH key
+      tags:
+      - SSHKeys
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription

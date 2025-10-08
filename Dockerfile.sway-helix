@@ -1,5 +1,5 @@
 # ====================================================================
-# Go build stage for screenshot-server
+# Go build stage for screenshot-server and settings-sync-daemon
 # ====================================================================
 FROM golang:1.24 AS go-build-env
 WORKDIR /app
@@ -9,7 +9,8 @@ COPY api ./api
 WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
 # Sway Personal Dev Environment
@@ -52,10 +53,12 @@ RUN apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Install grim, lsof, OnlyOffice, Ghostty, and emoji fonts
+# Install grim, lsof, git, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities
     grim lsof \
+    # Git and SSH for repository access
+    git openssh-client \
     # Emoji and icon fonts for waybar
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
     # OnlyOffice Desktop Editors
@@ -95,5 +98,6 @@ RUN chmod +x /opt/gow/startup-app.sh
 RUN mkdir -p /opt/helix
 ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 
-# Copy screenshot-server binary from Go build stage
+# Copy screenshot-server and settings-sync-daemon binaries from Go build stage
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
+COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon

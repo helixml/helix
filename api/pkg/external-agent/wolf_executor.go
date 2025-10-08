@@ -64,6 +64,8 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
+	UserID            string   // User ID for SSH key mounting
+	SessionID         string   // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	DisplayWidth      int
@@ -83,6 +85,11 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		fmt.Sprintf("ZED_HELIX_TOKEN=%s", w.helixAPIToken),
 		"ZED_HELIX_TLS=false",
 		"RUST_LOG=info", // Enable Rust logging for Zed
+		// Settings sync daemon configuration
+		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
+		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
+		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
+		"SETTINGS_SYNC_PORT=9877",
 	}
 
 	// Add any extra environment variables
@@ -95,6 +102,18 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Add SSH keys mount if user has SSH keys
+	// The SSH key directory is created by the API when keys are created
+	// Mount as read-only for security
+	sshKeyDir := fmt.Sprintf("/opt/helix/filestore/ssh-keys/%s", config.UserID)
+	if _, err := os.Stat(sshKeyDir); err == nil {
+		mounts = append(mounts, fmt.Sprintf("%s:/home/retro/.ssh:ro", sshKeyDir))
+		log.Info().
+			Str("user_id", config.UserID).
+			Str("ssh_key_dir", sshKeyDir).
+			Msg("Mounting SSH keys for git access")
 	}
 
 	// Standard Docker configuration (same for all Sway apps)
@@ -233,7 +252,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
-		Name:                   fmt.Sprintf("External Agent %s", agent.SessionID),
+		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
@@ -253,6 +272,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			WolfAppID:         wolfAppID, // Still used for app config, but not for Wolf API
 			Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
 			ContainerHostname: containerHostname,
+			UserID:            agent.UserID,
+			SessionID:         agent.SessionID,
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          extraEnv,
 			DisplayWidth:      displayWidth,
@@ -599,6 +620,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 			WolfAppID:         wolfAppID,
 			Title:             fmt.Sprintf("Personal Dev Environment %s", environmentName),
 			ContainerHostname: containerHostname,
+			UserID:            userID,
+			SessionID:         instanceID, // Use instance ID as session ID for settings sync
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          extraEnv,
 			DisplayWidth:      displayWidth,
@@ -1167,10 +1190,10 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 
 		// Check if lobby exists for this PDE
 		if pde.WolfLobbyID == "" {
-			// Old PDE without lobby ID - needs migration/recreation
-			log.Info().
+			// Old PDE without lobby ID - skip (migration complete, no upgrade path needed)
+			log.Debug().
 				Str("instance_id", pde.ID).
-				Msg("PDE has no lobby ID - marking for recreation")
+				Msg("PDE has no lobby ID - skipping")
 			continue
 		}
 
@@ -1275,6 +1298,8 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 			WolfAppID:         wolfAppID,
 			Title:             fmt.Sprintf("Personal Dev Environment %s", pde.EnvironmentName),
 			ContainerHostname: containerHostname,
+			UserID:            pde.UserID,
+			SessionID:         pde.ID, // Use PDE ID as session ID for settings sync
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          []string{"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh"},
 			DisplayWidth:      pde.DisplayWidth,

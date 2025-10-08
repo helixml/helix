@@ -16,6 +16,26 @@ cd /home/retro
 sudo chown retro:retro work
 cd /home/retro/work
 
+# Configure SSH agent and load keys for git access
+if [ -d "/home/retro/.ssh" ] && [ "$(ls -A /home/retro/.ssh/*.key 2>/dev/null)" ]; then
+    echo "Setting up SSH agent for git access..."
+    eval "$(ssh-agent -s)"
+    for key in /home/retro/.ssh/*.key; do
+        ssh-add "$key" 2>/dev/null && echo "Loaded SSH key: $(basename $key)"
+    done
+fi
+
+# Configure git from environment variables if provided
+if [ -n "$GIT_USER_NAME" ]; then
+    git config --global user.name "$GIT_USER_NAME"
+    echo "Configured git user.name: $GIT_USER_NAME"
+fi
+
+if [ -n "$GIT_USER_EMAIL" ]; then
+    git config --global user.email "$GIT_USER_EMAIL"
+    echo "Configured git user.email: $GIT_USER_EMAIL"
+fi
+
 # Trap signals to prevent script exit when Zed is closed
 # Using signal numbers for compatibility: 15=TERM, 2=INT, 1=HUP
 trap 'echo "Caught signal, continuing restart loop..."' 15 2 1

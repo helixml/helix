@@ -32,7 +32,7 @@ import { useGetSession, useUpdateSession } from '../services/sessionService'
 import {
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_MODE_FINETUNE, 
+  SESSION_MODE_FINETUNE,
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
@@ -51,6 +51,8 @@ import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
 import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
+import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
+import OpenInNew from '@mui/icons-material/OpenInNew'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -124,56 +126,56 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   );
 }, (prevProps, nextProps) => {
   // More thorough check for interaction changes, including completion state and content
-  const interactionChanged = 
+  const interactionChanged =
     // Basic identity/state checks
     prevProps.interaction.id !== nextProps.interaction.id ||
     prevProps.interaction.state !== nextProps.interaction.state ||
-    
+
     // Check output length in case content was added without state change
     (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
-    
+
     // Check for last_stream_pointer changes (indicates streaming position)
     prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
-    
+
     // Check for differences in error state
     prevProps.interaction.error !== nextProps.interaction.error;
-  
+
   // Use more efficient checks for document IDs (length and spot-check first/last)
-  const documentIdsChanged = 
+  const documentIdsChanged =
     !prevProps.session.document_ids || !nextProps.session.document_ids ||
     prevProps.session.document_ids.length !== nextProps.session.document_ids.length ||
-    (prevProps.session.document_ids.length > 0 && 
-     nextProps.session.document_ids.length > 0 && 
+    (prevProps.session.document_ids.length > 0 &&
+     nextProps.session.document_ids.length > 0 &&
      prevProps.session.document_ids[0] !== nextProps.session.document_ids[0]) ||
-    (prevProps.session.document_ids.length > 1 && 
-     nextProps.session.document_ids.length > 1 && 
-     prevProps.session.document_ids[prevProps.session.document_ids.length - 1] !== 
+    (prevProps.session.document_ids.length > 1 &&
+     nextProps.session.document_ids.length > 1 &&
+     prevProps.session.document_ids[prevProps.session.document_ids.length - 1] !==
      nextProps.session.document_ids[nextProps.session.document_ids.length - 1]);
-  
+
   // Check if RAG results changed by comparing length and most recent item's id/timestamp
   // This avoids expensive JSON.stringify operations
-  const ragResultsChanged = 
+  const ragResultsChanged =
     !prevProps.session.rag_results || !nextProps.session.rag_results ||
     prevProps.session.rag_results.length !== nextProps.session.rag_results.length ||
-    (prevProps.session.rag_results.length > 0 && nextProps.session.rag_results.length > 0 && 
+    (prevProps.session.rag_results.length > 0 && nextProps.session.rag_results.length > 0 &&
      (prevProps.session.rag_results[0].id !== nextProps.session.rag_results[0].id ||
       prevProps.session.rag_results[0].timestamp !== nextProps.session.rag_results[0].timestamp));
-  
+
   // Check if this was the last interaction and we're streaming
-  const isLastInteraction = prevProps.interaction === 
+  const isLastInteraction = prevProps.interaction ===
     prevProps.session.interactions[prevProps.session.interactions.length - 1];
-  
+
   // Always re-render the last interaction when it's not complete yet
   // This ensures streaming updates are properly displayed
-  const lastInteractionNotComplete = 
+  const lastInteractionNotComplete =
     isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
-  
 
-  
+
+
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
-  return !interactionChanged && 
-         !documentIdsChanged && 
-         !ragResultsChanged && 
+  return !interactionChanged &&
+         !documentIdsChanged &&
+         !ragResultsChanged &&
          !lastInteractionNotComplete &&
          prevProps.highlightAllFiles === nextProps.highlightAllFiles;
 });
@@ -205,7 +207,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
 
-  
+
   const { data: sessionSteps } = useListSessionSteps(session?.data?.id || '', {
     enabled: !!session?.data?.id
   })
@@ -227,7 +229,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       setShowRDPViewer(false)
     }
   }, [session?.data?.config?.agent_type, testRDPMode])
-  
+
 
   // If params sessionID is not set, try to get it from URL query param sessionId=
   if (!sessionID) {
@@ -284,7 +286,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Add state to track which session we've auto-scrolled
   const [autoScrolledSessionId, setAutoScrolledSessionId] = useState<string>('')
-  
+
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
 
@@ -303,15 +305,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Function to save scroll position
   const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
     if (!containerRef.current) return;
-    
+
     // Save if we were at the bottom (within 20 pixels)
     const container = containerRef.current;
-    const isNearBottom = 
+    const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 20;
-    
+
     // Store both the position and whether we were at the bottom
     scrollPositionRef.current = container.scrollTop;
-    
+
     // Store a special flag if we should scroll to bottom when restoring
     if (shouldPreserveBottom || isNearBottom) {
       // Use a special value to indicate "scroll to bottom"
@@ -322,14 +324,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Function to restore scroll position
   const restoreScrollPosition = useCallback(() => {
     if (!containerRef.current) return;
-    
+
     requestAnimationFrame(() => {
       if (!containerRef.current) return;
-      
+
       // If our saved position is our special "bottom" indicator
       if (scrollPositionRef.current === -1) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      } 
+      }
       // Otherwise restore to the saved position if it's valid
       else if (scrollPositionRef.current > 0) {
         containerRef.current.scrollTop = scrollPositionRef.current;
@@ -374,7 +376,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     // Create a consistent block structure regardless of streaming state
     const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
-    
+
     setVisibleBlocks([{
       startIndex,
       endIndex: totalInteractions,
@@ -393,7 +395,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     // Only update streaming state
     setIsStreaming(shouldBeStreaming)
-    
+
     // Don't change block structure here - maintain consistency
   }, [session?.data?.interactions])
 
@@ -404,10 +406,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const container = containerRef.current
     const containerTop = container.scrollTop
     const containerBottom = containerTop + container.clientHeight
-    
+
     setVisibleBlocks(prev => {
       let totalHeightAbove = 0
-      
+
       return prev.map(block => {
         const blockKey = getBlockKey(block.startIndex, block.endIndex)
         const blockHeight = blockHeights[blockKey] || 0
@@ -421,26 +423,26 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         // 1. Currently intersecting the viewport
         // 2. A tall block that spans the viewport
         // 3. Recently was the active block (within last render cycle)
-        
+
         // Check if the block intersects with the viewport
         const blockIntersectsViewport = (
           (blockTop <= containerBottom && blockBottom >= containerTop) ||
           // Special case for blocks taller than viewport - if we're scrolled within the block
-          (blockHeight > container.clientHeight && 
-           ((blockTop <= containerTop && blockBottom >= containerTop) || 
+          (blockHeight > container.clientHeight &&
+           ((blockTop <= containerTop && blockBottom >= containerTop) ||
             (blockTop <= containerBottom && blockBottom >= containerBottom) ||
             (blockTop <= containerTop && blockBottom >= containerBottom)))
         )
-        
+
         // Much simpler logic: never ghost a block if it intersects viewport
         // or was previously not a ghost (this prevents sudden changes)
-        const isNearViewport = blockIntersectsViewport || 
+        const isNearViewport = blockIntersectsViewport ||
                               // Keep blocks visible that were visible in the last cycle
                               (block.isGhost === false) ||
                               // Use a modest buffer zone
                               (blockTop <= containerBottom + 300 &&
                                blockBottom >= containerTop - 300)
-        
+
         return {
           ...block,
           isGhost: !isNearViewport && blockHeight > 0,
@@ -457,7 +459,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         scrollPositionRef.current = containerRef.current.scrollTop;
       }
     };
-    
+
     const container = containerRef.current;
     if (container) {
       container.addEventListener('scroll', saveScrollOnScroll);
@@ -482,7 +484,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   useEffect(() => {
     updateVisibleBlocksInViewport()
   }, [blockHeights, updateVisibleBlocksInViewport])
-  
+
   // Measure block heights without affecting scroll
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -540,12 +542,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
     // Save current scroll position, with flag for preserving bottom if requested
     saveScrollPosition(shouldScrollToBottom);
-    
+
     // Refresh the session object
     refetchSession()
-    
+
     // Restore scroll position
-    setTimeout(restoreScrollPosition, 0);      
+    setTimeout(restoreScrollPosition, 0);
   }, [session, saveScrollPosition, restoreScrollPosition]);
 
   // Function to scroll to bottom immediately without animation to prevent jumpiness
@@ -637,12 +639,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
       // Get the appID from session.data.parent_app instead of URL params
-      const appID = session.data.parent_app || ''      
+      const appID = session.data.parent_app || ''
 
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()      
-      
+      scrollToBottom()
+
       newSession = await NewInference({
         message: prompt,
         messages: [],
@@ -664,15 +666,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
 
     if (!newSession) return
-    
+
     // After reloading the session, force scroll to bottom by passing true
     await safeReloadSession(true)
-    
+
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
       scrollToBottom()
@@ -713,14 +715,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }
 
       // Get the interaction
-      const targetInteraction = session.data?.interactions?.[interactionIndex]     
+      const targetInteraction = session.data?.interactions?.[interactionIndex]
 
       // Convert interactions to messages based on the type of message being regenerated
       const messages: TypesMessage[] = []
-      
+
       // Add all interactions up to (but not including) the target interaction
       const interactionsBeforeTarget = session.data?.interactions?.slice(0, interactionIndex) || []
-      
+
       for (const interaction of interactionsBeforeTarget) {
         // If interaction.state is completed, it has both prompt_message and response_message
         if (interaction.state === 'complete' || interaction.state === 'error') {
@@ -734,7 +736,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               }
             })
           }
-          
+
           // Add assistant message (response_message)
           if (interaction.response_message) {
             messages.push({
@@ -747,7 +749,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           }
         }
       }
-      
+
       // Add the target interaction as a new user message with the provided message
       messages.push({
         role: 'user',
@@ -756,11 +758,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           parts: [message]
         }
       })
-      
+
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await NewInference({
         regenerate: true,
         message: '', // Empty message since we're using the history
@@ -780,15 +782,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
-      
+
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
 
     if (!newSession) return
-    
+
     // After reloading the session, force scroll to bottom by passing true
     await safeReloadSession(true)
-    
+
     // Give the DOM time to update, then scroll to bottom again
     setTimeout(() => {
       scrollToBottom()
@@ -825,7 +827,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.onLogin()
   }, [
     shareInstructions,
-  ])    
+  ])
 
   const onAddDocuments = useCallback(() => {
     if (!session?.data) return
@@ -889,7 +891,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
     if (!session?.data) return null;
-    
+
     // Create a stable reference for interactions
     const interactionStateIds = session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',') || '';
     return {
@@ -902,8 +904,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const memoizedInteractions = useMemo(() => {
     return session?.data?.interactions || [];
   }, [
-    session?.data?.id, 
-    session?.data?.interactions?.length, 
+    session?.data?.id,
+    session?.data?.interactions?.length,
     // Add additional dependency to force update when any interaction state changes
     session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
@@ -999,10 +1001,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Update the renderInteractions function's virtual space handling
   const renderInteractions = useCallback(() => {
     if (!sessionData || !sessionData.interactions) return null
-    
+
     // Use a consistent approach regardless of streaming state
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
-    
+
     return (
       <Box
         sx={{
@@ -1076,10 +1078,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       serverConfig={account.serverConfig}
                       interaction={interaction}
                       session={sessionData}
-                      highlightAllFiles={highlightAllFiles}                      
+                      highlightAllFiles={highlightAllFiles}
                       onReloadSession={safeReloadSession}
                       onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
-                      onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
+                      onFilterDocument={appID ? onHandleFilterDocument : undefined}
                       isLastInteraction={isLastInteraction}
                       isOwner={isOwner}
                       isAdmin={account.admin}
@@ -1105,7 +1107,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.serverConfig,
     account.user?.id,
     account.admin,
-    highlightAllFiles,    
+    highlightAllFiles,
     safeReloadSession,
     onAddDocuments,
     theme.palette.mode,
@@ -1198,7 +1200,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [session?.data, appID, apps])
 
   const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
- 
+
   // Reset scroll tracking when session changes
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
@@ -1233,7 +1235,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const lastInteraction = session?.data?.interactions?.[session?.data?.interactions.length - 1]
     if (!lastInteraction) return
     if (lastInteraction.state == TypesInteractionState.InteractionStateComplete || lastInteraction.state == TypesInteractionState.InteractionStateError) return
-    
+
     // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
     const timer = setTimeout(() => {
       safeReloadSession()
@@ -1280,6 +1282,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+                onOpenPairingDialog={() => setPairingDialogOpen(true)}
+                showRDPViewer={showRDPViewer}
+                onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
+                isExternalAgent={isExternalAgent}
+                rdpViewerHeight={rdpViewerHeight}
+                onRdpViewerHeightChange={setRdpViewerHeight}
               />
             </Box>
           )}
@@ -1301,109 +1309,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             </Box>
           )}
 
-          {/* RDP Viewer Toggle for External Agents */}
-          {isExternalAgent && (
-            <Box sx={{ px: 2, pb: 1 }}>
-              <Button
-                variant={showRDPViewer ? "contained" : "outlined"}
-                size="small"
-                startIcon={<Computer />}
-                onClick={() => setShowRDPViewer(!showRDPViewer)}
-                sx={{ mr: 1 }}
-              >
-                {showRDPViewer ? 'Hide' : 'Show'} Zed Editor
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                {testRDPMode ? 'Test mode - RDP viewer available' : 'External agent session - RDP viewer available'}
-              </Typography>
-            </Box>
-          )}
-
-          {/* Embedded RDP Viewer with Resizable Height */}
+          {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
-              {/* Lobby PIN Display - Only show to session owner or admin */}
-              {(isOwner || account.admin) && session?.data?.config?.wolf_lobby_pin && (
-                <Box sx={{
-                  mb: 2,
-                  p: 2,
-                  bgcolor: 'primary.dark',
-                  borderRadius: 1,
-                  border: '2px solid',
-                  borderColor: 'primary.main'
-                }}>
-                  <Typography variant="subtitle2" color="primary.light" sx={{ mb: 1 }}>
-                    🔐 Moonlight Access PIN
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography
-                      variant="h3"
-                      sx={{
-                        fontFamily: 'monospace',
-                        letterSpacing: 8,
-                        color: 'primary.light',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      {session.data.config.wolf_lobby_pin}
-                    </Typography>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => {
-                        navigator.clipboard.writeText(session.data.config.wolf_lobby_pin || '')
-                        // Could add snackbar here
-                      }}
-                    >
-                      Copy PIN
-                    </Button>
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                    Launch "Wolf UI" in Moonlight → Select this lobby → Enter PIN
-                  </Typography>
-
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setPairingDialogOpen(true)}
-                    sx={{ mt: 1 }}
-                  >
-                    Need to pair Moonlight first?
-                  </Button>
-                </Box>
-              )}
-
-              {/* Height Control */}
-              <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Height: {rdpViewerHeight}px
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setRdpViewerHeight(Math.max(300, rdpViewerHeight - 100))}
-                    disabled={rdpViewerHeight <= 300}
-                  >
-                    -100px
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => setRdpViewerHeight(rdpViewerHeight + 100)}
-                  >
-                    +100px
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setRdpViewerHeight(300)}
-                  >
-                    Reset
-                  </Button>
-                </Box>
-              </Box>
-              <Box sx={{ 
+              <Box sx={{
                 height: rdpViewerHeight,
                 border: '1px solid',
                 borderColor: 'divider',
@@ -1420,6 +1329,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 />
               </Box>
             </Box>
+          )}
+
+          {/* Zed Settings Viewer - show for external agent sessions */}
+          {isExternalAgent && (
+            <ZedSettingsViewer sessionId={sessionID} />
           )}
 
         </Box>
@@ -1452,7 +1366,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Fixed bottom section */}
           <Box
             sx={{
-              flexShrink: 0, // Prevent shrinking              
+              flexShrink: 0, // Prevent shrinking
             }}
           >
             <Container maxWidth="lg">
@@ -1619,7 +1533,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       </Button>
                     </Cell>
                   )} */}
-                </Row>             
+                </Row>
                 {/* Only show disclaimer if not in preview mode */}
                 {!previewMode && (
                   <Box sx={{ mt: 2 }}>

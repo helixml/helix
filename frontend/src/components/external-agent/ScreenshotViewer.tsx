@@ -133,7 +133,6 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         position: 'relative',
         width: '100%',
         height: '100%',
-        minHeight: 400,
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
@@ -172,18 +171,19 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
       {/* Status Chip */}
       {lastRefresh && (
-        <Chip
-          label={`Last updated: ${lastRefresh.toLocaleTimeString()}`}
-          size="small"
+        <Typography
+          variant="caption"
           sx={{
             position: 'absolute',
-            top: 8,
-            left: 8,
+            bottom: 8,
+            right: 8,
             zIndex: 1000,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            color: 'white',
+            color: 'rgba(255,255,255,0.5)',
+            fontSize: '0.65rem',
           }}
-        />
+        >
+          Last updated: {lastRefresh.toLocaleTimeString()}
+        </Typography>
       )}
 
       {/* Error Display */}
@@ -232,43 +232,6 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         </Box>
       )}
 
-      {/* Moonlight Connection Info */}
-      <Paper
-        sx={{
-          position: 'absolute',
-          bottom: 8,
-          left: 8,
-          right: 8,
-          backgroundColor: 'rgba(0,0,0,0.85)',
-          color: 'white',
-          padding: 2,
-          borderRadius: 1,
-          maxWidth: 600,
-        }}
-      >
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          🎮 Interactive Access via Moonlight
-        </Typography>
-        <Typography variant="caption" component="div" sx={{ mb: 0.5 }}>
-          1. <strong>Pair:</strong> <code>moonlight pair localhost</code>
-        </Typography>
-        <Typography variant="caption" component="div" sx={{ mb: 0.5 }}>
-          2. <strong>List apps:</strong> <code>moonlight list localhost</code>
-        </Typography>
-        <Typography variant="caption" component="div">
-          3. <strong>Stream:</strong> <code>moonlight stream localhost "App Name"</code>
-        </Typography>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<OpenInNew />}
-          href="https://moonlight-stream.org/"
-          target="_blank"
-          sx={{ mt: 1, color: 'white', borderColor: 'white' }}
-        >
-          Get Moonlight Client
-        </Button>
-      </Paper>
     </Box>
   );
 };
