@@ -404,6 +404,38 @@ BLanHt+1rkRILi4=\r
     run_uid = 1000
     v_scroll_acceleration = 1.0
 
+[[paired_clients]]
+app_state_folder = '2560460207458690392'
+client_cert = """-----BEGIN CERTIFICATE-----\r
+MIIDNzCCAh+gAwIBAgIBADANBgkqhkiG9w0BAQsFADBfMQswCQYDVQQGEwJVUzEL\r
+MAkGA1UECAwCQ0ExFjAUBgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4\r
+YW1wbGUgQ29ycDEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjUxMDA4MTUxODU2\r
+WhcNMjYxMDA4MTUxODU2WjBfMQswCQYDVQQGEwJVUzELMAkGA1UECAwCQ0ExFjAU\r
+BgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4YW1wbGUgQ29ycDEUMBIG\r
+A1UEAwwLZXhhbXBsZS5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB\r
+AQCWD1toAFCruyL+HbcjSlEfELuvZsiWHGjtxrkdWbW+nxbCfaoovmW0WgCQmKf2\r
+O/KEV8bFVuk01p3uvx1CSGwadThXtMRTzW6xqsQChSjcKaPVZOmf8pqWh9m0x5qa\r
+ZM1MNaCu0QcKz5oMPAubg+In0jt1ypU7jvVBilLOANcCBuw4qtSwq+mNeWI3wPIF\r
+fb3T0iffuev52wSgmFCLAHh7kOUr3gtI8r/rWcMEs/LKspopAI1FSs1zpBSRReoX\r
+9WDD166JIFOdDS3bNar5ux1xGgMR5AMuzeV8P36gOH3tN7W4wSAhwf+PIKTHzaM7\r
+18Np9k9f01V80t2bWFO76KL9AgMBAAEwDQYJKoZIhvcNAQELBQADggEBACLYHLrl\r
+fzyZDnAjU53pLjwBrVLuVU31II2Dfa938+5l/ugHuGI9uJprOBJ4HAjedXtOgV4A\r
+GtR8zArKw8N3exJwtzX+ACt60lWK6gtmDYkeNbyG7LCxfTuQ3NfAlDpI6iQgamiI\r
+Gtzy7ODvSPpkDyr/u5zmAxdmcVTlDLuppZ+OtJL/xPqqzGs9SO9KQsOgMC5xeLKT\r
+Wm0StGmpvAFw5bT3KzAj8VS9fI0HMG6lMZd+Pp5hAz3XVcTZRBNrQEAEi3q9+lkb\r
+BmLjPPViy1xfCnc3D30jE3VrK5bkEYzkkQHJFpkyUh3J+mAgy/6Sro3f4j4K6MrM\r
+/xUywlxld+2jJDY=\r
+-----END CERTIFICATE-----\r
+"""
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
 [[profiles]]
 id = 'moonlight-profile-id'
 
