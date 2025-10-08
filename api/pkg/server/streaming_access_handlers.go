@@ -89,7 +89,7 @@ func (apiServer *HelixAPIServer) getSessionStreamingToken(_ http.ResponseWriter,
 
 	return &types.StreamingTokenResponse{
 		StreamToken:     token,
-		WolfLobbyID:     session.Metadata.WolfLobbyPIN, // Store PIN in metadata
+		WolfLobbyID:     session.Metadata.WolfLobbyID,
 		WolfLobbyPIN:    session.Metadata.WolfLobbyPIN,
 		MoonlightHostID: 0, // Wolf is always host 0 in moonlight-web
 		MoonlightAppID:  1, // Default app ID
