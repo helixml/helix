@@ -481,42 +481,55 @@ You have access to a git worktree for design documentation at:
 
 This is a forward-only branch specifically for design documents. All your design work MUST be saved there.
 
-**Your Task:**
-Convert the user's simple request into design documents in the helix-design-docs worktree:
+**DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
+Your documents go in a task-specific directory:
+.git-worktrees/helix-design-docs/tasks/%s_%s/
 
-1. **requirements.md** - Requirements Specification:
-   - Clear user stories in "As a [user], I want [goal] so that [benefit]" format
-   - EARS acceptance criteria (Event, Action, Response, Success criteria)
-   - Functional and non-functional requirements
-   - Edge cases and error handling
+Where the directory name is: {task_id}_{YYYYMMDD}
 
-2. **design.md** - Technical Design:
-   - Architecture overview and component diagram
-   - Data model changes (database schema, API contracts)
-   - UI/UX design if applicable
-   - Security and performance considerations
-   - Integration points and dependencies
-
-3. **progress.md** - Implementation Plan with task checklist:
-   Format tasks as markdown checklist:
-   - [ ] Task 1 description
-   - [ ] Task 2 description
-   - [ ] Task 3 description
-
-   Each task should be:
-   - Discrete and measurable
-   - Include estimated complexity
-   - Note dependencies on other tasks
-   - Have clear success criteria
+**Required Files in This Directory:**
+1. requirements.md - Requirements specification
+2. design.md - Technical design
+3. progress.md - Implementation task checklist
+4. sessions/ - Directory for session notes (optional)
 
 **Git Workflow You Must Follow:**
-1. cd .git-worktrees/helix-design-docs
-2. Create/update requirements.md
-3. Create/update design.md
-4. Create/update progress.md with task checklist
-5. git add .
-6. git commit -m "Generated design documents for SpecTask %s"
-7. Let the user know the design docs are ready for review
+` + "```bash" + `
+# Navigate to design docs worktree
+cd .git-worktrees/helix-design-docs
+
+# Create your task directory (if not exists)
+mkdir -p tasks/%s_%s
+
+# Work in your task directory
+cd tasks/%s_%s
+
+# Create the three required documents:
+# 1. requirements.md with user stories and acceptance criteria
+# 2. design.md with architecture and technical design
+# 3. progress.md with implementation task checklist in [ ] format
+
+# Commit your work
+git add .
+git commit -m "Generated design documents for SpecTask %s"
+
+# Push to helix-design-docs branch
+git push origin helix-design-docs
+` + "```" + `
+
+**progress.md Task Checklist Format:**
+` + "```markdown" + `
+## Task Checklist
+
+- [ ] Setup database schema
+- [ ] Create API endpoints
+- [ ] Implement authentication
+- [ ] Add unit tests
+- [ ] Update documentation
+` + "```" + `
+
+After committing, let the user know the design docs are ready for review.
+They can continue chatting with you to refine the design before approval.
 
 **Important Guidelines:**
 - Be specific and actionable - avoid vague descriptions
@@ -526,7 +539,11 @@ Convert the user's simple request into design documents in the helix-design-docs
 - Use the [ ] checklist format in progress.md for task tracking
 
 Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
-		task.ProjectID, task.Type, task.Priority, task.ID, task.ID)
+		task.ProjectID, task.Type, task.Priority, task.ID,
+		task.ID, time.Now().Format("20060102"),  // Directory name: task_id_date
+		task.ID, time.Now().Format("20060102"),  // mkdir command
+		task.ID, time.Now().Format("20060102"),  // cd command
+		task.ID)                                  // Commit message
 }
 
 // buildImplementationPrompt creates the prompt for implementation Zed agent
@@ -537,13 +554,17 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 **SpecTask ID: %s**
 
 **CRITICAL: Design Documents Location**
-The approved design documents are in the helix-design-docs git worktree at:
-.git-worktrees/helix-design-docs/
+The approved design documents are in a task-specific directory in the helix-design-docs worktree:
+.git-worktrees/helix-design-docs/tasks/%s_%s/
 
-You MUST read the design documents from there:
-- requirements.md
-- design.md
-- progress.md (your task checklist)
+**DIRECTORY STRUCTURE:**
+` + "```" + `
+.git-worktrees/helix-design-docs/tasks/%s_%s/
+├── requirements.md      (approved requirements)
+├── design.md           (approved technical design)
+├── progress.md         (YOUR TASK CHECKLIST - track here!)
+└── sessions/           (session notes)
+` + "```" + `
 
 **CRITICAL: Task Progress Tracking**
 The progress.md file contains your task checklist in this format:
@@ -552,16 +573,36 @@ The progress.md file contains your task checklist in this format:
 - [x] Task description (completed - YOU mark this)
 
 **Your Workflow:**
-1. cd .git-worktrees/helix-design-docs
-2. cat progress.md (see your task list)
-3. Find the next [ ] pending task
-4. Mark it in progress: sed -i 's/- \[ \] Task name/- \[~\] Task name/' progress.md
-5. git add progress.md && git commit -m "Started: Task name"
-6. Implement that specific task in the main codebase
-7. When done: sed -i 's/- \[~\] Task name/- \[x\] Task name/' progress.md
-8. git add progress.md && git commit -m "Completed: Task name"
-9. Move to next [ ] task
-10. Repeat until all tasks are [x]
+` + "```bash" + `
+# Navigate to your task directory
+cd .git-worktrees/helix-design-docs/tasks/%s_%s
+
+# Read your design documents
+cat requirements.md
+cat design.md
+cat progress.md
+
+# Find the next [ ] pending task
+# Mark it in progress
+sed -i 's/- \[ \] Task name/- \[~\] Task name/' progress.md
+git add progress.md
+git commit -m "🤖 Started: Task name"
+git push origin helix-design-docs
+
+# Implement that specific task in the main codebase (cd back to repo root)
+cd /workspace/repos/{repo}
+# ... do the coding work ...
+
+# When done, mark complete
+cd .git-worktrees/helix-design-docs/tasks/%s_%s
+sed -i 's/- \[~\] Task name/- \[x\] Task name/' progress.md
+git add progress.md
+git commit -m "🤖 Completed: Task name"
+git push origin helix-design-docs
+
+# Move to next [ ] task
+# Repeat until all tasks are [x]
+` + "```" + `
 
 **Original User Request:**
 %s
@@ -586,7 +627,12 @@ The progress.md file contains your task checklist in this format:
 - The user and orchestrator are watching your progress via git commits
 
 Start by reading the design documents from the worktree, then work through the task list systematically.`,
-		task.Name, task.ID, task.OriginalPrompt)
+		task.Name, task.ID,
+		task.ID, time.Now().Format("20060102"),  // Directory structure 1
+		task.ID, time.Now().Format("20060102"),  // Directory structure 2
+		task.ID, time.Now().Format("20060102"),  // cd command 1
+		task.ID, time.Now().Format("20060102"),  // cd command 2 (after coding)
+		task.OriginalPrompt)
 }
 
 // Helper functions
