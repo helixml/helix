@@ -3,10 +3,11 @@
     {
       "address": "wolf",
       "http_port": 47989,
-      "name": "Helix Wolf Server",
-      "client_private_key": null,
-      "client_certificate": null,
-      "server_certificate": null
+      "cache": {
+        "name": "Wolf",
+        "mac": "00:11:22:33:44:55"
+      },
+      "paired": null
     }
   ]
 }
