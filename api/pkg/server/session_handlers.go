@@ -430,17 +430,19 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				return
 			}
 
-			// Store lobby PIN in session metadata (Phase 3: Multi-tenancy)
-			if agentResp.WolfLobbyPIN != "" {
+			// Store lobby ID and PIN in session metadata (Phase 3: Multi-tenancy + Streaming)
+			if agentResp.WolfLobbyID != "" || agentResp.WolfLobbyPIN != "" {
+				session.Metadata.WolfLobbyID = agentResp.WolfLobbyID
 				session.Metadata.WolfLobbyPIN = agentResp.WolfLobbyPIN
 				_, err := s.Controller.Options.Store.UpdateSession(req.Context(), *session)
 				if err != nil {
-					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby PIN in session")
+					log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to store lobby data in session")
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
+						Str("lobby_id", agentResp.WolfLobbyID).
 						Str("lobby_pin", agentResp.WolfLobbyPIN).
-						Msg("✅ Stored lobby PIN in session metadata (chat endpoint)")
+						Msg("✅ Stored lobby ID and PIN in session metadata (chat endpoint)")
 				}
 			}
 

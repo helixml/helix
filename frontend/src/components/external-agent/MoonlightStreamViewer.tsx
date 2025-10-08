@@ -87,6 +87,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Create API instance pointing to our moonlight-web backend
       const api = await getApi('/moonlight/api');
 
+      // Set credentials (must match moonlight-web-config/config.json)
+      api.credentials = 'helix';
+
       // Stream settings (defaults from moonlight-web)
       const settings = {
         bitrate: 20000, // kbps

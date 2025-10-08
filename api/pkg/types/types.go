@@ -340,6 +340,7 @@ type SessionMetadata struct {
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
 	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
+	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth      int `json:"agent_video_width,omitempty"`       // Streaming resolution width (default: 2560)
