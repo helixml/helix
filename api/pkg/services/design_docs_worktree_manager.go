@@ -220,25 +220,28 @@ All documents here are managed by Helix agents and the orchestrator.
 ` + "```" + `
 helix-design-docs/
 ├── README.md                    (this file)
-├── tasks/                       (organized by SpecTask ID)
-│   ├── spec_abc123_20251008/   (task ID + date)
+├── tasks/                       (organized by date + branch name)
+│   ├── 2025-10-08_add-user-auth_spec_abc123/
 │   │   ├── requirements.md
 │   │   ├── design.md
 │   │   ├── progress.md
 │   │   └── sessions/
 │   │       ├── ses_planning_xyz.md
 │   │       └── ses_impl_abc.md
-│   └── spec_def456_20251009/
+│   └── 2025-10-09_fix-api-bug_spec_def456/
 │       ├── requirements.md
 │       └── ...
 └── archive/                     (completed tasks)
     └── 2025-10/
-        └── spec_old123_20251001/
+        └── 2025-10-01_feature_spec_old123/
 ` + "```" + `
 
 ## File Naming Convention
 
-- **Task directories**: ` + "`spec_{task_id}_{YYYYMMDD}/`" + `
+- **Task directories**: ` + "`{YYYY-MM-DD}_{branch-name}_{task_id}/`" + `
+  - Date first for sorting
+  - Branch name for readability
+  - Task ID for uniqueness
 - **Requirements**: ` + "`requirements.md`" + `
 - **Design**: ` + "`design.md`" + `
 - **Progress**: ` + "`progress.md`" + ` (task checklist)
@@ -282,10 +285,13 @@ This branch is **forward-only** and never rolled back.
 }
 
 // InitializeTaskDirectory creates a properly organized directory for a specific SpecTask
-func (m *DesignDocsWorktreeManager) InitializeTaskDirectory(worktreePath string, taskID string) (string, error) {
-	// Generate directory name: spec_{task_id}_{YYYYMMDD}
-	dateStr := time.Now().Format("20060102")
-	taskDirName := fmt.Sprintf("%s_%s", taskID, dateStr)
+func (m *DesignDocsWorktreeManager) InitializeTaskDirectory(worktreePath string, taskID string, taskName string) (string, error) {
+	// Generate branch-style name from task name
+	branchName := sanitizeForBranchName(taskName)
+
+	// Generate directory name: {YYYY-MM-DD}_{branch-name}_{task_id}
+	dateStr := time.Now().Format("2006-01-02")
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, branchName, taskID)
 	taskDir := filepath.Join(worktreePath, "tasks", taskDirName)
 
 	// Create task directory
