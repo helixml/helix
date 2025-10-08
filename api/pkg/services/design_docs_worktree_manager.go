@@ -207,72 +207,212 @@ func (m *DesignDocsWorktreeManager) checkoutTree(tree *object.Tree, targetPath s
 	})
 }
 
-// initializeTemplates creates initial design doc structure
+// initializeTemplates creates initial design doc structure with proper organization
 func (m *DesignDocsWorktreeManager) initializeTemplates(worktreePath string) error {
-	// Create design.md template
-	designTemplate := `# Design Document
+	// Create README explaining structure
+	readmeTemplate := `# Helix Design Documents
 
-## Overview
-<!-- High-level description of what we're building -->
+This directory contains design documents and progress tracking for SpecTasks.
+All documents here are managed by Helix agents and the orchestrator.
 
-## Requirements
-<!-- Detailed requirements and acceptance criteria -->
+## Directory Structure
 
-## Technical Design
-<!-- Architecture, data models, API design -->
+` + "```" + `
+helix-design-docs/
+├── README.md                    (this file)
+├── tasks/                       (organized by SpecTask ID)
+│   ├── spec_abc123_20251008/   (task ID + date)
+│   │   ├── requirements.md
+│   │   ├── design.md
+│   │   ├── progress.md
+│   │   └── sessions/
+│   │       ├── ses_planning_xyz.md
+│   │       └── ses_impl_abc.md
+│   └── spec_def456_20251009/
+│       ├── requirements.md
+│       └── ...
+└── archive/                     (completed tasks)
+    └── 2025-10/
+        └── spec_old123_20251001/
+` + "```" + `
 
-## Implementation Plan
-<!-- Detailed task breakdown -->
+## File Naming Convention
+
+- **Task directories**: ` + "`spec_{task_id}_{YYYYMMDD}/`" + `
+- **Requirements**: ` + "`requirements.md`" + `
+- **Design**: ` + "`design.md`" + `
+- **Progress**: ` + "`progress.md`" + ` (task checklist)
+- **Sessions**: ` + "`sessions/ses_{session_id}.md`" + ` (per-session notes)
+
+## Task Status Markers
+
+In progress.md:
+- ` + "`- [ ]`" + ` Pending task
+- ` + "`- [~]`" + ` In progress (currently working)
+- ` + "`- [x]`" + ` Completed
+
+## Git Workflow
+
+All changes committed to helix-design-docs branch.
+This branch is **forward-only** and never rolled back.
 
 ---
-*This is a living document managed by the Helix orchestrator*
+*Managed by Helix SpecTask Orchestrator*
 `
 
-	err := os.WriteFile(filepath.Join(worktreePath, "design.md"), []byte(designTemplate), 0644)
+	err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte(readmeTemplate), 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create design.md: %w", err)
+		return fmt.Errorf("failed to create README.md: %w", err)
 	}
 
-	// Create progress.md template
-	progressTemplate := `# Implementation Progress
-
-## Current Phase
-<!-- Current workflow phase: planning, implementation, review, etc. -->
-
-## Task Checklist
-<!-- Tasks are automatically parsed and tracked by the orchestrator -->
-<!-- Format: - [ ] Task description -->
-<!-- In progress: - [~] Task description -->
-<!-- Completed: - [x] Task description -->
-
-### Example Tasks
-- [ ] Setup project structure
-- [ ] Implement core functionality
-- [ ] Add tests
-- [ ] Update documentation
-
-## Status
-**Current Task**: Not started
-**Agent Session**: None
-**Last Updated**: <!-- Auto-updated by orchestrator -->
-
----
-*Task progress is automatically tracked via git commits to this file*
-`
-
-	err = os.WriteFile(filepath.Join(worktreePath, "progress.md"), []byte(progressTemplate), 0644)
+	// Create directory structure
+	tasksDir := filepath.Join(worktreePath, "tasks")
+	err = os.MkdirAll(tasksDir, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to create progress.md: %w", err)
+		return fmt.Errorf("failed to create tasks directory: %w", err)
 	}
 
-	// Create sessions directory for per-session notes
-	sessionsDir := filepath.Join(worktreePath, "sessions")
-	err = os.MkdirAll(sessionsDir, 0755)
+	archiveDir := filepath.Join(worktreePath, "archive")
+	err = os.MkdirAll(archiveDir, 0755)
 	if err != nil {
-		return fmt.Errorf("failed to create sessions directory: %w", err)
+		return fmt.Errorf("failed to create archive directory: %w", err)
 	}
 
 	return nil
+}
+
+// InitializeTaskDirectory creates a properly organized directory for a specific SpecTask
+func (m *DesignDocsWorktreeManager) InitializeTaskDirectory(worktreePath string, taskID string) (string, error) {
+	// Generate directory name: spec_{task_id}_{YYYYMMDD}
+	dateStr := time.Now().Format("20060102")
+	taskDirName := fmt.Sprintf("%s_%s", taskID, dateStr)
+	taskDir := filepath.Join(worktreePath, "tasks", taskDirName)
+
+	// Create task directory
+	err := os.MkdirAll(taskDir, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create task directory: %w", err)
+	}
+
+	// Create requirements.md template
+	requirementsTemplate := fmt.Sprintf(`# Requirements Specification
+
+**SpecTask ID**: %s
+**Created**: %s
+
+## User Stories
+
+<!-- Format: As a [user], I want [goal] so that [benefit] -->
+
+## Acceptance Criteria
+
+<!-- Use EARS format: Event, Action, Response, Success criteria -->
+
+## Functional Requirements
+
+<!-- Detailed functional requirements -->
+
+## Non-Functional Requirements
+
+<!-- Performance, security, scalability, etc. -->
+
+## Edge Cases
+
+<!-- Edge cases and error handling -->
+
+---
+*Generated by Helix Planning Agent*
+`, taskID, time.Now().Format("2006-01-02"))
+
+	err = os.WriteFile(filepath.Join(taskDir, "requirements.md"), []byte(requirementsTemplate), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to create requirements.md: %w", err)
+	}
+
+	// Create design.md template
+	designTemplate := fmt.Sprintf(`# Technical Design
+
+**SpecTask ID**: %s
+**Created**: %s
+
+## Architecture Overview
+
+<!-- High-level architecture and component diagram -->
+
+## Data Model
+
+<!-- Database schema changes, API contracts -->
+
+## Component Design
+
+<!-- Detailed component specifications -->
+
+## Security Considerations
+
+<!-- Authentication, authorization, data protection -->
+
+## Performance Considerations
+
+<!-- Scalability, caching, optimization strategies -->
+
+## Integration Points
+
+<!-- External APIs, services, dependencies -->
+
+---
+*Generated by Helix Planning Agent*
+`, taskID, time.Now().Format("2006-01-02"))
+
+	err = os.WriteFile(filepath.Join(taskDir, "design.md"), []byte(designTemplate), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to create design.md: %w", err)
+	}
+
+	// Create progress.md template with checklist
+	progressTemplate := fmt.Sprintf(`# Implementation Progress
+
+**SpecTask ID**: %s
+**Created**: %s
+**Status**: Not started
+
+## Task Checklist
+
+<!-- Planning agent: Add tasks here in [ ] format -->
+<!-- Implementation agent: Mark [~] when starting, [x] when done -->
+
+### Tasks
+- [ ] Example task 1
+- [ ] Example task 2
+- [ ] Example task 3
+
+## Current Status
+
+**Current Task**: None
+**Agent**: Not assigned
+**Last Updated**: %s
+
+---
+*Task progress tracked via git commits to this file*
+`, taskID, time.Now().Format("2006-01-02"), time.Now().Format("2006-01-02 15:04:05"))
+
+	err = os.WriteFile(filepath.Join(taskDir, "progress.md"), []byte(progressTemplate), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to create progress.md: %w", err)
+	}
+
+	// Create sessions subdirectory
+	sessionsDir := filepath.Join(taskDir, "sessions")
+	err = os.MkdirAll(sessionsDir, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create sessions directory: %w", err)
+	}
+
+	log.Info().
+		Str("task_id", taskID).
+		Str("task_dir", taskDir).
+		Msg("Initialized organized task directory in helix-design-docs")
+
+	return taskDir, nil
 }
 
 // GetCurrentTask finds the task currently in progress (marked with [~])
