@@ -106,6 +106,8 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const [runnerRDPViewerOpen, setRunnerRDPViewerOpen] = useState<string | null>(null) // runner ID
   const [approvalLoading, setApprovalLoading] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [selectedDemoRepo, setSelectedDemoRepo] = useState('')
+  const [useDemoRepo, setUseDemoRepo] = useState(false)
   
   // Use ref to store API to prevent dependency issues
   const apiRef = useRef(api)
@@ -303,31 +305,55 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   }
 
   const createTwoPhaseTask = async () => {
-    if (!newTaskPrompt.trim() || !selectedProjectId) {
-      setError('Please enter a prompt and select a project')
+    if (!newTaskPrompt.trim()) {
+      setError('Please enter a prompt')
+      return
+    }
+
+    // Validate project or demo repo selection
+    if (!useDemoRepo && !selectedProjectId) {
+      setError('Please select a project or use a demo repo')
+      return
+    }
+
+    if (useDemoRepo && !selectedDemoRepo) {
+      setError('Please select a demo repository')
       return
     }
 
     setCreateTaskLoading(true)
     try {
-      await apiRef.current.getApiClient().v1SpecTasksFromPromptCreate({
-        project_id: selectedProjectId,
-        prompt: newTaskPrompt,
-        type: newTaskType,
-        priority: newTaskPriority
-      })
+      if (useDemoRepo) {
+        // Create task with demo repo
+        await apiRef.current.post('/api/v1/spec-tasks/from-demo', {
+          prompt: newTaskPrompt,
+          demo_repo: selectedDemoRepo,
+          type: newTaskType,
+          priority: newTaskPriority
+        })
+      } else {
+        // Create task with existing project
+        await apiRef.current.getApiClient().v1SpecTasksFromPromptCreate({
+          project_id: selectedProjectId,
+          prompt: newTaskPrompt,
+          type: newTaskType,
+          priority: newTaskPriority
+        })
+      }
 
       // Reset form
       setNewTaskPrompt('')
       setNewTaskPriority('medium')
       setNewTaskType('feature')
       setSelectedProjectId('')
+      setSelectedDemoRepo('')
+      setUseDemoRepo(false)
       setCreateWorkItemOpen(false)
-      
+
       // Refresh data
       const response = await apiRef.current.getApiClient().v1AgentsFleetList()
       setDashboardData(response.data)
-      
+
       // Also refresh external agent connections
       try {
         const connectionsResponse = await api.get('/api/v1/external-agents/connections')
@@ -337,7 +363,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       } catch (extErr) {
         console.warn('Failed to refresh external agent connections')
       }
-      
+
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to create task')
@@ -1161,21 +1187,51 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
               helperText="Be as specific or as general as you like - the AI will ask for clarification if needed"
             />
 
-            {/* Project selection */}
-            <FormControl fullWidth>
-              <InputLabel>Project</InputLabel>
-              <Select
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                label="Project"
+            {/* Demo repo toggle */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="body2">Use demo repository:</Typography>
+              <Button
+                variant={useDemoRepo ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setUseDemoRepo(!useDemoRepo)}
               >
-                {apps.map((app) => (
-                  <MenuItem key={app.id} value={app.id}>
-                    {app.config.helix.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                {useDemoRepo ? 'Yes' : 'No'}
+              </Button>
+            </Box>
+
+            {/* Project or Demo repo selection */}
+            {useDemoRepo ? (
+              <FormControl fullWidth>
+                <InputLabel>Demo Repository</InputLabel>
+                <Select
+                  value={selectedDemoRepo}
+                  onChange={(e) => setSelectedDemoRepo(e.target.value)}
+                  label="Demo Repository"
+                >
+                  <MenuItem value="nodejs-todo">Node.js Todo App</MenuItem>
+                  <MenuItem value="python-api">Python FastAPI Service</MenuItem>
+                  <MenuItem value="react-dashboard">React Admin Dashboard</MenuItem>
+                  <MenuItem value="linkedin-outreach">LinkedIn Outreach Campaign</MenuItem>
+                  <MenuItem value="helix-blog-posts">Helix Blog Posts Project</MenuItem>
+                  <MenuItem value="empty">Empty Project</MenuItem>
+                </Select>
+              </FormControl>
+            ) : (
+              <FormControl fullWidth>
+                <InputLabel>Project</InputLabel>
+                <Select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  label="Project"
+                >
+                  {apps.map((app) => (
+                    <MenuItem key={app.id} value={app.id}>
+                      {app.config.helix.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
 
             <Grid container spacing={2}>
               {/* Task type */}
@@ -1231,10 +1287,10 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
           <Button onClick={() => setCreateWorkItemOpen(false)} disabled={createTaskLoading}>
             Cancel
           </Button>
-          <Button 
+          <Button
             variant="contained"
             onClick={createTwoPhaseTask}
-            disabled={createTaskLoading || !newTaskPrompt.trim() || !selectedProjectId}
+            disabled={createTaskLoading || !newTaskPrompt.trim() || (!useDemoRepo && !selectedProjectId) || (useDemoRepo && !selectedDemoRepo)}
           >
             {createTaskLoading ? 'Creating...' : 'Start Spec-Driven Development'}
           </Button>

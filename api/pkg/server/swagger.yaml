@@ -669,6 +669,29 @@ definitions:
       severity:
         type: string
     type: object
+  server.AgentProgressItem:
+    properties:
+      agent_id:
+        type: string
+      current_task:
+        $ref: '#/definitions/server.TaskItemDTO'
+      last_update:
+        type: string
+      phase:
+        type: string
+      task_id:
+        type: string
+      task_name:
+        type: string
+      tasks_after:
+        items:
+          $ref: '#/definitions/server.TaskItemDTO'
+        type: array
+      tasks_before:
+        items:
+          $ref: '#/definitions/server.TaskItemDTO'
+        type: array
+    type: object
   server.AppCreateResponse:
     properties:
       config:
@@ -796,6 +819,20 @@ definitions:
       sample_type:
         type: string
     type: object
+  server.CreateSpecTaskFromDemoRequest:
+    properties:
+      demo_repo:
+        type: string
+      priority:
+        type: string
+      prompt:
+        type: string
+      type:
+        type: string
+    required:
+    - demo_repo
+    - prompt
+    type: object
   server.CreateSpecTaskRepositoryRequest:
     properties:
       description:
@@ -818,6 +855,17 @@ definitions:
       amount:
         type: number
       org_id:
+        type: string
+    type: object
+  server.DesignDocsResponse:
+    properties:
+      current_task_index:
+        type: integer
+      design_markdown:
+        type: string
+      progress_markdown:
+        type: string
+      task_id:
         type: string
     type: object
   server.ForkSampleProjectRequest:
@@ -888,6 +936,15 @@ definitions:
   server.LicenseKeyRequest:
     properties:
       license_key:
+        type: string
+    type: object
+  server.LiveAgentFleetProgressResponse:
+    properties:
+      agents:
+        items:
+          $ref: '#/definitions/server.AgentProgressItem'
+        type: array
+      timestamp:
         type: string
     type: object
   server.LogsSummary:
@@ -1196,6 +1253,15 @@ definitions:
       size:
         type: integer
       spec_task_id:
+        type: string
+    type: object
+  server.TaskItemDTO:
+    properties:
+      description:
+        type: string
+      index:
+        type: integer
+      status:
         type: string
     type: object
   server.TaskProgressResponse:
@@ -5775,6 +5841,62 @@ definitions:
         additionalProperties: true
         type: object
     type: object
+  types.StreamingAccessGrant:
+    properties:
+      access_level:
+        description: What they can do
+        type: string
+      created:
+        type: string
+      expires_at:
+        type: string
+      granted_at:
+        description: When
+        type: string
+      granted_by:
+        description: Audit
+        type: string
+      granted_role:
+        type: string
+      granted_team_id:
+        type: string
+      granted_user_id:
+        description: Who can access it
+        type: string
+      id:
+        type: string
+      owner_user_id:
+        description: Who owns it
+        type: string
+      pde_id:
+        type: string
+      revoked_at:
+        type: string
+      revoked_by:
+        type: string
+      session_id:
+        description: What is being shared
+        type: string
+      updated:
+        type: string
+    type: object
+  types.StreamingTokenResponse:
+    properties:
+      access_level:
+        type: string
+      expires_at:
+        type: string
+      moonlight_app_id:
+        type: integer
+      moonlight_host_id:
+        type: integer
+      stream_token:
+        type: string
+      wolf_lobby_id:
+        type: string
+      wolf_lobby_pin:
+        type: string
+    type: object
   types.SystemSettingsRequest:
     properties:
       huggingface_token:
@@ -6464,6 +6586,25 @@ paths:
       summary: Get agent fleet data
       tags:
       - agents
+  /api/v1/agents/fleet/live-progress:
+    get:
+      description: Get real-time progress of all agents working on SpecTasks
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.LiveAgentFleetProgressResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get live agent fleet progress
+      tags:
+      - SpecTasks
   /api/v1/agents/help-requests:
     get:
       description: List help requests from agents needing human assistance
@@ -8598,6 +8739,45 @@ paths:
       summary: Stop a personal development environment
       tags:
       - PersonalDevEnvironments
+  /api/v1/personal-dev-environments/{id}/stream-token:
+    get:
+      consumes:
+      - application/json
+      description: Generate time-limited token for PDE streaming access with RBAC
+      parameters:
+      - description: PDE ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.StreamingTokenResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get PDE streaming token
+      tags:
+      - PersonalDevEnvironments
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -9263,6 +9443,168 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/sessions/{id}/stream-token:
+    get:
+      consumes:
+      - application/json
+      description: Generate time-limited token for streaming session access with RBAC
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.StreamingTokenResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get streaming token
+      tags:
+      - Streaming
+  /api/v1/sessions/{id}/streaming-access:
+    get:
+      consumes:
+      - application/json
+      description: List all active streaming access grants for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.StreamingAccessGrant'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: List streaming access grants
+      tags:
+      - Streaming
+    post:
+      consumes:
+      - application/json
+      description: Grant streaming access to another user/team/role
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Access grant details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.StreamingAccessGrant'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.StreamingAccessGrant'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create streaming access grant
+      tags:
+      - Streaming
+  /api/v1/sessions/{id}/streaming-access/{grant_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Revoke a streaming access grant
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Grant ID
+        in: path
+        name: grant_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Revoke streaming access
+      tags:
+      - Streaming
   /api/v1/sessions/{id}/zed-config:
     get:
       consumes:
@@ -9538,6 +9880,35 @@ paths:
       summary: List spec-driven tasks
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{id}/design-docs:
+    get:
+      description: Get the design documents from helix-design-docs worktree
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.DesignDocsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get design docs for SpecTask
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{taskId}:
     get:
       description: Get detailed information about a specific spec-driven task
@@ -10245,6 +10616,38 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
+  /api/v1/spec-tasks/from-demo:
+    post:
+      consumes:
+      - application/json
+      description: Create a new SpecTask with a demo repository
+      parameters:
+      - description: Demo task request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateSpecTaskFromDemoRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Create SpecTask from demo repo
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/from-prompt:
     post:
       consumes:

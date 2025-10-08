@@ -41,7 +41,7 @@ type OrchestratedTask struct {
 	CurrentTaskIndex  int                       `json:"current_task_index"`
 	TaskList          []TaskItem                `json:"task_list"`
 	LastUpdate        time.Time                 `json:"last_update"`
-	Phase             types.TaskStatus          `json:"phase"`
+	Phase             string                    `json:"phase"`
 }
 
 // LiveProgressHandler handles live progress updates for dashboard
@@ -56,7 +56,7 @@ type LiveAgentProgress struct {
 	TasksBefore  []TaskItem  `json:"tasks_before"`
 	TasksAfter   []TaskItem  `json:"tasks_after"`
 	LastUpdate   time.Time   `json:"last_update"`
-	Phase        types.TaskStatus `json:"phase"`
+	Phase        string      `json:"phase"`
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator
@@ -137,29 +137,34 @@ func (o *SpecTaskOrchestrator) orchestrationLoop(ctx context.Context) {
 
 // processTasks processes all active tasks
 func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
-	// Get all tasks that need orchestration
-	tasks, err := o.store.ListSpecTasks(ctx, &types.ListSpecTasksRequest{
-		Statuses: []types.TaskStatus{
-			types.TaskStatusBacklog,
-			types.TaskStatusSpecGeneration,
-			types.TaskStatusSpecReview,
-			types.TaskStatusSpecRevision,
-			types.TaskStatusImplementationQueued,
-			types.TaskStatusImplementation,
-		},
-	})
+	// Get all tasks (we'll filter active ones)
+	tasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list tasks for orchestration")
 		return
 	}
 
+	// Filter to only active tasks
+	activeStatuses := map[string]bool{
+		types.TaskStatusBacklog:              true,
+		types.TaskStatusSpecGeneration:       true,
+		types.TaskStatusSpecReview:           true,
+		types.TaskStatusSpecRevision:         true,
+		types.TaskStatusImplementationQueued: true,
+		types.TaskStatusImplementation:       true,
+	}
+
 	for _, task := range tasks {
+		if !activeStatuses[task.Status] {
+			continue
+		}
+
 		err := o.processTask(ctx, task)
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("task_id", task.ID).
-				Str("status", string(task.Status)).
+				Str("status", task.Status).
 				Msg("Failed to process task")
 		}
 	}
@@ -205,10 +210,10 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 func (o *SpecTaskOrchestrator) handleSpecGeneration(ctx context.Context, task *types.SpecTask) error {
 	// Check if spec generation session is complete
 	// This would integrate with existing SpecDrivenTaskService
-	// For now, we'll assume spec is ready when session completes
+	// For now, we'll assume spec is ready when all spec documents exist
 
-	// Check if task has a spec document
-	if task.SpecDocument != "" {
+	// Check if task has spec documents (requirements, design, implementation plan)
+	if task.RequirementsSpec != "" && task.TechnicalDesign != "" && task.ImplementationPlan != "" {
 		// Spec is ready, move to review
 		log.Info().
 			Str("task_id", task.ID).

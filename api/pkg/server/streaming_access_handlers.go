@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -287,7 +288,7 @@ func (apiServer *HelixAPIServer) createSessionStreamingAccess(_ http.ResponseWri
 
 	// Parse request
 	var grantReq types.StreamingAccessGrant
-	if err := ReadRequestBody(req, &grantReq); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&grantReq); err != nil {
 		return nil, system.NewHTTPError400("invalid request")
 	}
 
