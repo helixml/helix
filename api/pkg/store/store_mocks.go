@@ -506,6 +506,21 @@ func (mr *MockStoreMockRecorder) CreateRole(ctx, role any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRole", reflect.TypeOf((*MockStore)(nil).CreateRole), ctx, role)
 }
 
+// CreateSSHKey mocks base method.
+func (m *MockStore) CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types.SSHKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSSHKey", ctx, key)
+	ret0, _ := ret[0].(*types.SSHKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateSSHKey indicates an expected call of CreateSSHKey.
+func (mr *MockStoreMockRecorder) CreateSSHKey(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSSHKey", reflect.TypeOf((*MockStore)(nil).CreateSSHKey), ctx, key)
+}
+
 // CreateSecret mocks base method.
 func (m *MockStore) CreateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -1023,6 +1038,20 @@ func (mr *MockStoreMockRecorder) DeleteRole(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockStore)(nil).DeleteRole), ctx, id)
 }
 
+// DeleteSSHKey mocks base method.
+func (m *MockStore) DeleteSSHKey(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSSHKey", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSSHKey indicates an expected call of DeleteSSHKey.
+func (mr *MockStoreMockRecorder) DeleteSSHKey(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSSHKey", reflect.TypeOf((*MockStore)(nil).DeleteSSHKey), ctx, id)
+}
+
 // DeleteSecret mocks base method.
 func (m *MockStore) DeleteSecret(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1220,6 +1249,20 @@ func (mr *MockStoreMockRecorder) DeleteWallet(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWallet", reflect.TypeOf((*MockStore)(nil).DeleteWallet), ctx, id)
 }
 
+// DeleteZedSettingsOverride mocks base method.
+func (m *MockStore) DeleteZedSettingsOverride(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteZedSettingsOverride", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteZedSettingsOverride indicates an expected call of DeleteZedSettingsOverride.
+func (mr *MockStoreMockRecorder) DeleteZedSettingsOverride(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).DeleteZedSettingsOverride), ctx, sessionID)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -1293,21 +1336,6 @@ func (m *MockStore) GetAgentRunner(ctx context.Context, runnerID string) (*types
 func (mr *MockStoreMockRecorder) GetAgentRunner(ctx, runnerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentRunner", reflect.TypeOf((*MockStore)(nil).GetAgentRunner), ctx, runnerID)
-}
-
-// GetAgentRunnerRDPPassword mocks base method.
-func (m *MockStore) GetAgentRunnerRDPPassword(ctx context.Context, runnerID string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAgentRunnerRDPPassword", ctx, runnerID)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAgentRunnerRDPPassword indicates an expected call of GetAgentRunnerRDPPassword.
-func (mr *MockStoreMockRecorder) GetAgentRunnerRDPPassword(ctx, runnerID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).GetAgentRunnerRDPPassword), ctx, runnerID)
 }
 
 // GetAgentSession mocks base method.
@@ -1850,6 +1878,21 @@ func (mr *MockStoreMockRecorder) GetRole(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRole", reflect.TypeOf((*MockStore)(nil).GetRole), ctx, id)
 }
 
+// GetSSHKey mocks base method.
+func (m *MockStore) GetSSHKey(ctx context.Context, id string) (*types.SSHKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSSHKey", ctx, id)
+	ret0, _ := ret[0].(*types.SSHKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSSHKey indicates an expected call of GetSSHKey.
+func (mr *MockStoreMockRecorder) GetSSHKey(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSSHKey", reflect.TypeOf((*MockStore)(nil).GetSSHKey), ctx, id)
+}
+
 // GetSecret mocks base method.
 func (m *MockStore) GetSecret(ctx context.Context, id string) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -2225,6 +2268,21 @@ func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
 }
 
+// GetZedSettingsOverride mocks base method.
+func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetZedSettingsOverride", ctx, sessionID)
+	ret0, _ := ret[0].(*types.ZedSettingsOverride)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetZedSettingsOverride indicates an expected call of GetZedSettingsOverride.
+func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
+}
+
 // ListAPIKeys mocks base method.
 func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -2588,6 +2646,21 @@ func (mr *MockStoreMockRecorder) ListRoles(ctx, organizationID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoles", reflect.TypeOf((*MockStore)(nil).ListRoles), ctx, organizationID)
 }
 
+// ListSSHKeys mocks base method.
+func (m *MockStore) ListSSHKeys(ctx context.Context, userID string) ([]*types.SSHKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSSHKeys", ctx, userID)
+	ret0, _ := ret[0].([]*types.SSHKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSSHKeys indicates an expected call of ListSSHKeys.
+func (mr *MockStoreMockRecorder) ListSSHKeys(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSSHKeys", reflect.TypeOf((*MockStore)(nil).ListSSHKeys), ctx, userID)
+}
+
 // ListSecrets mocks base method.
 func (m *MockStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -2915,21 +2988,6 @@ func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
 }
 
-// RotateAgentRunnerRDPPassword mocks base method.
-func (m *MockStore) RotateAgentRunnerRDPPassword(ctx context.Context, runnerID string) (*types.AgentRunner, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RotateAgentRunnerRDPPassword", ctx, runnerID)
-	ret0, _ := ret[0].(*types.AgentRunner)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// RotateAgentRunnerRDPPassword indicates an expected call of RotateAgentRunnerRDPPassword.
-func (mr *MockStoreMockRecorder) RotateAgentRunnerRDPPassword(ctx, runnerID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RotateAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).RotateAgentRunnerRDPPassword), ctx, runnerID)
-}
-
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
@@ -3015,20 +3073,6 @@ func (m *MockStore) UpdateAgentRunnerHeartbeat(ctx context.Context, runnerID str
 func (mr *MockStoreMockRecorder) UpdateAgentRunnerHeartbeat(ctx, runnerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunnerHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunnerHeartbeat), ctx, runnerID)
-}
-
-// UpdateAgentRunnerRDPPassword mocks base method.
-func (m *MockStore) UpdateAgentRunnerRDPPassword(ctx context.Context, runnerID, newPassword string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateAgentRunnerRDPPassword", ctx, runnerID, newPassword)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateAgentRunnerRDPPassword indicates an expected call of UpdateAgentRunnerRDPPassword.
-func (mr *MockStoreMockRecorder) UpdateAgentRunnerRDPPassword(ctx, runnerID, newPassword any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAgentRunnerRDPPassword", reflect.TypeOf((*MockStore)(nil).UpdateAgentRunnerRDPPassword), ctx, runnerID, newPassword)
 }
 
 // UpdateAgentRunnerStatus mocks base method.
@@ -3310,6 +3354,20 @@ func (mr *MockStoreMockRecorder) UpdateRole(ctx, role any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRole", reflect.TypeOf((*MockStore)(nil).UpdateRole), ctx, role)
 }
 
+// UpdateSSHKeyLastUsed mocks base method.
+func (m *MockStore) UpdateSSHKeyLastUsed(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSSHKeyLastUsed", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSSHKeyLastUsed indicates an expected call of UpdateSSHKeyLastUsed.
+func (mr *MockStoreMockRecorder) UpdateSSHKeyLastUsed(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSSHKeyLastUsed", reflect.TypeOf((*MockStore)(nil).UpdateSSHKeyLastUsed), ctx, id)
+}
+
 // UpdateSecret mocks base method.
 func (m *MockStore) UpdateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -3572,6 +3630,20 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpsertZedSettingsOverride mocks base method.
+func (m *MockStore) UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertZedSettingsOverride", ctx, override)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertZedSettingsOverride indicates an expected call of UpsertZedSettingsOverride.
+func (mr *MockStoreMockRecorder) UpsertZedSettingsOverride(ctx, override any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).UpsertZedSettingsOverride), ctx, override)
 }
 
 // MockEmbeddingsStore is a mock of EmbeddingsStore interface.

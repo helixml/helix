@@ -4486,11 +4486,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get RDP connection details for accessing a session via RDP",
+                "description": "Get Wolf streaming connection details for accessing a session (replaces RDP)",
                 "tags": [
                     "sessions"
                 ],
-                "summary": "Get RDP connection info for a session",
+                "summary": "Get Wolf connection info for a session",
                 "parameters": [
                     {
                         "type": "string",
@@ -4526,6 +4526,191 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.StepInfo"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-config": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get Helix-managed Zed MCP configuration for a session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Get Zed configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ZedConfigResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-config/user": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Update user's custom Zed settings overrides",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Update Zed user settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "User settings overrides",
+                        "name": "overrides",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get merged Helix + user Zed settings for a session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Get merged Zed settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -5954,6 +6139,216 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.SampleTypesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all SSH keys for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "List SSH keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SSHKeyResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new SSH key for git operations",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Create SSH key",
+                "parameters": [
+                    {
+                        "description": "SSH key details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys/generate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Generate a new SSH key pair",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Generate SSH key",
+                "parameters": [
+                    {
+                        "description": "SSH key generation parameters",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyGenerateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyGenerateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete an SSH key",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Delete SSH key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SSH key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -8688,6 +9083,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "container_name": {
+                    "description": "Container information for direct network access",
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -8750,6 +9149,10 @@ const docTemplate = `{
                 "userID": {
                     "description": "Always required",
                     "type": "string"
+                },
+                "vnc_port": {
+                    "description": "VNC port inside container (5901)",
+                    "type": "integer"
                 },
                 "wolf_session_id": {
                     "description": "Wolf's numeric session ID for API calls",
@@ -11476,6 +11879,18 @@ const docTemplate = `{
                     "description": "Whether to auto-connect RDP viewer",
                     "type": "boolean"
                 },
+                "display_height": {
+                    "description": "Streaming resolution height (default: 1600)",
+                    "type": "integer"
+                },
+                "display_refresh_rate": {
+                    "description": "Streaming refresh rate (default: 60)",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Video settings for streaming (Phase 3.5) - matches PDE display settings",
+                    "type": "integer"
+                },
                 "env_vars": {
                     "description": "Environment variables in KEY=VALUE format",
                     "type": "array",
@@ -13938,6 +14353,78 @@ const docTemplate = `{
                 "RuntimeVLLM"
             ]
         },
+        "types.SSHKeyCreateRequest": {
+            "type": "object",
+            "required": [
+                "key_name",
+                "private_key",
+                "public_key"
+            ],
+            "properties": {
+                "key_name": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyGenerateRequest": {
+            "type": "object",
+            "required": [
+                "key_name"
+            ],
+            "properties": {
+                "key_name": {
+                    "type": "string"
+                },
+                "key_type": {
+                    "description": "\"ed25519\" or \"rsa\", defaults to ed25519",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyGenerateResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "description": "Only returned once during generation",
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyResponse": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "last_used": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SchedulingDecision": {
             "type": "object",
             "properties": {
@@ -14341,6 +14828,18 @@ const docTemplate = `{
                     "description": "Agent type: \"helix\" or \"zed_external\"",
                     "type": "string"
                 },
+                "agent_video_height": {
+                    "description": "Streaming resolution height (default: 1600)",
+                    "type": "integer"
+                },
+                "agent_video_refresh_rate": {
+                    "description": "Streaming refresh rate (default: 60)",
+                    "type": "integer"
+                },
+                "agent_video_width": {
+                    "description": "Video settings for external agent sessions (Phase 3.5)",
+                    "type": "integer"
+                },
                 "app_query_params": {
                     "description": "Passing through user defined app params",
                     "type": "object",
@@ -14446,6 +14945,10 @@ const docTemplate = `{
                 },
                 "uploaded_data_entity_id": {
                     "description": "when we do fine tuning or RAG, we need to know which data entity we used",
+                    "type": "string"
+                },
+                "wolf_lobby_pin": {
+                    "description": "PIN for Wolf lobby access (Phase 3: Multi-tenancy)",
                     "type": "string"
                 },
                 "work_session_id": {
@@ -16440,6 +16943,19 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ZedConfigResponse": {
+            "type": "object",
+            "properties": {
+                "context_servers": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "version": {
+                    "description": "Unix timestamp of app config update",
+                    "type": "integer"
                 }
             }
         },

@@ -156,6 +156,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
 		&types.PersonalDevEnvironment{},
+		&types.SSHKey{},
+		&types.ZedSettingsOverride{},
 	)
 	if err != nil {
 		return err

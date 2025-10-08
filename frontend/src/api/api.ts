@@ -601,6 +601,8 @@ export interface ServerPersonalDevEnvironmentResponse {
   appID?: string;
   /** MCP servers enabled */
   configured_tools?: string[];
+  /** Container information for direct network access */
+  container_name?: string;
   createdAt?: string;
   /** Connected data sources */
   data_sources?: string[];
@@ -627,6 +629,8 @@ export interface ServerPersonalDevEnvironmentResponse {
   threadCount?: number;
   /** Always required */
   userID?: string;
+  /** VNC port inside container (5901) */
+  vnc_port?: number;
   /** Wolf's numeric session ID for API calls */
   wolf_session_id?: string;
 }
@@ -1648,6 +1652,12 @@ export enum TypesEffect {
 export interface TypesExternalAgentConfig {
   /** Whether to auto-connect RDP viewer */
   auto_connect_rdp?: boolean;
+  /** Streaming resolution height (default: 1600) */
+  display_height?: number;
+  /** Streaming refresh rate (default: 60) */
+  display_refresh_rate?: number;
+  /** Video settings for streaming (Phase 3.5) - matches PDE display settings */
+  display_width?: number;
   /** Environment variables in KEY=VALUE format */
   env_vars?: string[];
   /** Relative path for the project directory */
@@ -2639,6 +2649,34 @@ export enum TypesRuntime {
   RuntimeVLLM = "vllm",
 }
 
+export interface TypesSSHKeyCreateRequest {
+  key_name: string;
+  private_key: string;
+  public_key: string;
+}
+
+export interface TypesSSHKeyGenerateRequest {
+  key_name: string;
+  /** "ed25519" or "rsa", defaults to ed25519 */
+  key_type?: string;
+}
+
+export interface TypesSSHKeyGenerateResponse {
+  id?: string;
+  key_name?: string;
+  /** Only returned once during generation */
+  private_key?: string;
+  public_key?: string;
+}
+
+export interface TypesSSHKeyResponse {
+  created?: string;
+  id?: string;
+  key_name?: string;
+  last_used?: string;
+  public_key?: string;
+}
+
 export interface TypesSchedulingDecision {
   available_runners?: string[];
   created?: string;
@@ -2809,6 +2847,12 @@ export interface TypesSessionMetadata {
   active_tools?: string[];
   /** Agent type: "helix" or "zed_external" */
   agent_type?: string;
+  /** Streaming resolution height (default: 1600) */
+  agent_video_height?: number;
+  /** Streaming refresh rate (default: 60) */
+  agent_video_refresh_rate?: number;
+  /** Video settings for external agent sessions (Phase 3.5) */
+  agent_video_width?: number;
   /** Passing through user defined app params */
   app_query_params?: Record<string, string>;
   /** which assistant are we talking to? */
@@ -2855,6 +2899,8 @@ export interface TypesSessionMetadata {
   text_finetune_enabled?: boolean;
   /** when we do fine tuning or RAG, we need to know which data entity we used */
   uploaded_data_entity_id?: string;
+  /** PIN for Wolf lobby access (Phase 3: Multi-tenancy) */
+  wolf_lobby_pin?: string;
   /** ID of associated WorkSession */
   work_session_id?: string;
   /** Associated Zed instance ID */
@@ -3642,6 +3688,12 @@ export interface TypesWorkloadSummary {
   runtime?: string;
   summary?: string;
   updated?: string;
+}
+
+export interface TypesZedConfigResponse {
+  context_servers?: Record<string, any>;
+  /** Unix timestamp of app config update */
+  version?: number;
 }
 
 export interface TypesZedInstanceEvent {
@@ -6286,11 +6338,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get RDP connection details for accessing a session via RDP
+     * @description Get Wolf streaming connection details for accessing a session (replaces RDP)
      *
      * @tags sessions
      * @name V1SessionsRdpConnectionDetail
-     * @summary Get RDP connection info for a session
+     * @summary Get Wolf connection info for a session
      * @request GET:/api/v1/sessions/{id}/rdp-connection
      * @secure
      */
@@ -6314,6 +6366,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/step-info`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get Helix-managed Zed MCP configuration for a session
+     *
+     * @tags Zed
+     * @name V1SessionsZedConfigDetail
+     * @summary Get Zed configuration
+     * @request GET:/api/v1/sessions/{id}/zed-config
+     * @secure
+     */
+    v1SessionsZedConfigDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesZedConfigResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/zed-config`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update user's custom Zed settings overrides
+     *
+     * @tags Zed
+     * @name V1SessionsZedConfigUserCreate
+     * @summary Update Zed user settings
+     * @request POST:/api/v1/sessions/{id}/zed-config/user
+     * @secure
+     */
+    v1SessionsZedConfigUserCreate: (id: string, overrides: Record<string, any>, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/zed-config/user`,
+        method: "POST",
+        body: overrides,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get merged Helix + user Zed settings for a session
+     *
+     * @tags Zed
+     * @name V1SessionsZedSettingsDetail
+     * @summary Get merged Zed settings
+     * @request GET:/api/v1/sessions/{id}/zed-settings
+     * @secure
+     */
+    v1SessionsZedSettingsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/zed-settings`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -6939,6 +7049,84 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/specs/sample-types`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all SSH keys for the current user
+     *
+     * @tags SSHKeys
+     * @name V1SshKeysList
+     * @summary List SSH keys
+     * @request GET:/api/v1/ssh-keys
+     * @secure
+     */
+    v1SshKeysList: (params: RequestParams = {}) =>
+      this.request<TypesSSHKeyResponse[], SystemHTTPError>({
+        path: `/api/v1/ssh-keys`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new SSH key for git operations
+     *
+     * @tags SSHKeys
+     * @name V1SshKeysCreate
+     * @summary Create SSH key
+     * @request POST:/api/v1/ssh-keys
+     * @secure
+     */
+    v1SshKeysCreate: (request: TypesSSHKeyCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesSSHKeyResponse, SystemHTTPError>({
+        path: `/api/v1/ssh-keys`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete an SSH key
+     *
+     * @tags SSHKeys
+     * @name V1SshKeysDelete
+     * @summary Delete SSH key
+     * @request DELETE:/api/v1/ssh-keys/{id}
+     * @secure
+     */
+    v1SshKeysDelete: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSSHKeyResponse, SystemHTTPError>({
+        path: `/api/v1/ssh-keys/${id}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Generate a new SSH key pair
+     *
+     * @tags SSHKeys
+     * @name V1SshKeysGenerateCreate
+     * @summary Generate SSH key
+     * @request POST:/api/v1/ssh-keys/generate
+     * @secure
+     */
+    v1SshKeysGenerateCreate: (request: TypesSSHKeyGenerateRequest, params: RequestParams = {}) =>
+      this.request<TypesSSHKeyGenerateResponse, SystemHTTPError>({
+        path: `/api/v1/ssh-keys/generate`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

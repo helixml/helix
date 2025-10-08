@@ -18,6 +18,7 @@ import Create from './pages/Create'
 import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
+import SSHKeys from './pages/SSHKeys'
 import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
@@ -241,6 +242,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Secrets />
+  ),
+}, {
+  name: 'ssh-keys',
+  path: '/ssh-keys',
+  meta: {
+    drawer: true,
+    title: 'SSH Keys',
+  },
+  render: () => (
+    <SSHKeys />
   ),
 }, {
   name: 'oauth-connections',
