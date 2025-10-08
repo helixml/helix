@@ -214,6 +214,11 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 		return err
 	}
 
+	log.Info().
+		Str("url", url).
+		Str("body", string(jsonData)).
+		Msg("Sending pairing request to moonlight-web")
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
@@ -225,6 +230,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 	// This is a streaming endpoint - it will return pairing status updates
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to call moonlight-web /api/pair")
 		return err
 	}
 	defer resp.Body.Close()
@@ -232,6 +238,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 	// Read initial response
 	body, _ := io.ReadAll(resp.Body)
 	log.Info().
+		Int("status", resp.StatusCode).
 		Str("response", string(body)).
 		Msg("Pairing request initiated in moonlight-web")
 
