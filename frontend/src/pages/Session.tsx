@@ -1322,6 +1322,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 <ScreenshotViewer
                   sessionId={sessionID}
                   isRunner={false}
+                  wolfLobbyId={session?.data?.wolf_lobby_id}
+                  enableStreaming={true}
                   onError={(error) => {
                     console.error('Screenshot viewer error:', error);
                   }}
