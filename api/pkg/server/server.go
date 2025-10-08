@@ -111,6 +111,9 @@ type HelixAPIServer struct {
 	zedPlanningService          *services.ZedPlanningService
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
+	specTaskOrchestrator        *services.SpecTaskOrchestrator
+	externalAgentPool           *services.ExternalAgentPool
+	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
 }
 
 func NewServer(
@@ -321,6 +324,28 @@ func NewServer(
 		apiServer.gitRepositoryService,
 		"/workspace", // Default workspace path for Zed agents
 	)
+
+	// Initialize SpecTask Orchestrator components
+	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
+		"Helix System",
+		"system@helix.ml",
+	)
+	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
+	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
+		store,
+		controller,
+		apiServer.gitRepositoryService,
+		apiServer.specDrivenTaskService,
+		apiServer.externalAgentPool,
+		apiServer.designDocsWorktreeManager,
+	)
+
+	// Start orchestrator
+	go func() {
+		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {
+			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
+		}
+	}()
 
 	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
 	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {

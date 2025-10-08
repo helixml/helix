@@ -92,12 +92,6 @@ func (m *DesignDocsWorktreeManager) SetupWorktree(ctx context.Context, repoPath 
 		return "", fmt.Errorf("failed to create worktree parent directory: %w", err)
 	}
 
-	// Add worktree
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get main worktree: %w", err)
-	}
-
 	// Note: go-git doesn't have direct worktree add support
 	// We'll use a simpler approach: clone the branch to the worktree path
 	err = m.setupWorktreeDirectory(repo, branchRefName, worktreePath)
@@ -173,12 +167,12 @@ func (m *DesignDocsWorktreeManager) setupWorktreeDirectory(repo *git.Repository,
 		return fmt.Errorf("failed to checkout tree: %w", err)
 	}
 
-	// Create .git file pointing to main repo
-	gitFile := filepath.Join(worktreePath, ".git")
-	gitDirPath := filepath.Join(repo.Storer.(*git.GitFileSystemStorer).DotGitPath(), "worktrees", "helix-design-docs")
-	err = os.WriteFile(gitFile, []byte(fmt.Sprintf("gitdir: %s\n", gitDirPath)), 0644)
+	// Note: For simplicity, we'll initialize as a separate git repo for the design docs
+	// This avoids complexity with go-git's limited worktree support
+	// The design docs will have their own git history on helix-design-docs branch
+	_, err = git.PlainInit(worktreePath, false)
 	if err != nil {
-		return fmt.Errorf("failed to create .git file: %w", err)
+		return fmt.Errorf("failed to init design docs repo: %w", err)
 	}
 
 	return nil
