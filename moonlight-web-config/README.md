@@ -101,23 +101,30 @@ coturn:
 
 ## Development Setup
 
-For development, you can use the defaults:
+For development:
 
-```bash
-# .env (development)
-MOONLIGHT_INTERNAL_PAIRING_PIN=  # Leave empty, random PIN generated automatically
+### Initial Pairing (One-Time)
 
-# config.json (development)
-{
-  "credentials": "helix"
-}
-```
+Pairing must be completed once manually:
 
-The auto-pairing system will:
-1. Generate a random secure PIN if not set
-2. Log the PIN for reference
-3. Automatically pair on startup
-4. Save pairing data to data.json (persists across restarts)
+1. **Start the stack**: `docker compose -f docker-compose.dev.yaml up -d`
+2. **Get the PIN from Wolf logs**:
+   ```bash
+   docker compose -f docker-compose.dev.yaml logs moonlight-web | grep Pin
+   # Look for: {"Pin":"1234"}
+   ```
+3. **Open moonlight-web UI**: http://localhost:8081
+4. **Login**: Username and password both `helix` (from config.json)
+5. **Click on Wolf host** → Enter the PIN when prompted
+6. **Pairing complete!** Certificates saved to `data.json`
+
+### Auto-Pairing (Future Restarts)
+
+After initial manual pairing:
+- Certificates persist in `data.json`
+- moonlight-web automatically reconnects using saved certificates
+- No PIN needed for subsequent connections
+- Certificates remain valid unless Wolf is reset
 
 ## How Pairing Works
 
