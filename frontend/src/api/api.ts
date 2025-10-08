@@ -560,6 +560,12 @@ export interface ServerDesignDocsResponse {
   task_id?: string;
 }
 
+export interface ServerDesignDocsShareLinkResponse {
+  expires_at?: string;
+  share_url?: string;
+  token?: string;
+}
+
 export interface ServerForkSampleProjectRequest {
   description?: string;
   private?: boolean;
@@ -2935,6 +2941,8 @@ export interface TypesSessionMetadata {
   text_finetune_enabled?: boolean;
   /** when we do fine tuning or RAG, we need to know which data entity we used */
   uploaded_data_entity_id?: string;
+  /** Wolf lobby ID for streaming */
+  wolf_lobby_id?: string;
   /** PIN for Wolf lobby access (Phase 3: Multi-tenancy) */
   wolf_lobby_pin?: string;
   /** ID of associated WorkSession */
@@ -3624,10 +3632,10 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -6774,6 +6782,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerDesignDocsResponse, SystemHTTPError>({
         path: `/api/v1/spec-tasks/${id}/design-docs`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Generate a token-based shareable link for viewing design documents on any device
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignDocsShareCreate
+     * @summary Generate shareable design docs link
+     * @request POST:/api/v1/spec-tasks/{id}/design-docs/share
+     * @secure
+     */
+    v1SpecTasksDesignDocsShareCreate: (id: string, params: RequestParams = {}) =>
+      this.request<ServerDesignDocsShareLinkResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${id}/design-docs/share`,
+        method: "POST",
         secure: true,
         format: "json",
         ...params,

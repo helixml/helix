@@ -258,6 +258,8 @@ services:
         # Workaround for Nvidia zero-copy OpenGL context thrashing bug
         # https://github.com/games-on-whales/wolf/pull/179#issuecomment-3058215348
         - WOLF_USE_ZERO_COPY=FALSE
+        # Internal moonlight-web pairing PIN (secure random, shared via env)
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         - /tmp/sockets:/tmp/sockets:rw
@@ -289,6 +291,9 @@ services:
       ports:
         - "8081:8080"  # Web interface
         - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      environment:
+        # Internal pairing PIN (shared with Wolf, secure random in production)
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       volumes:
         - ./moonlight-web-config:/app/server:rw
       networks:
