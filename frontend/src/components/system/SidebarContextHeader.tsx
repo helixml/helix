@@ -40,7 +40,7 @@ const SidebarContextHeader: React.FC = () => {
         boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
         <Typography
           variant="subtitle1"
           onClick={handleNameClick}

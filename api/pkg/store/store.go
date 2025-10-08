@@ -465,6 +465,18 @@ type Store interface {
 	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
 	DeletePersonalDevEnvironment(ctx context.Context, id string) error
+
+	// SSH Key methods
+	CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types.SSHKey, error)
+	GetSSHKey(ctx context.Context, id string) (*types.SSHKey, error)
+	ListSSHKeys(ctx context.Context, userID string) ([]*types.SSHKey, error)
+	UpdateSSHKeyLastUsed(ctx context.Context, id string) error
+	DeleteSSHKey(ctx context.Context, id string) error
+
+	// Zed Settings Override methods
+	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
+	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)
+	DeleteZedSettingsOverride(ctx context.Context, sessionID string) error
 }
 
 type EmbeddingsStore interface {

@@ -21,6 +21,7 @@ import {
   Computer as ComputerIcon,
   Tv as TvIcon,
   SportsEsports as GamepadIcon,
+  AddBox as AddComputerIcon,
 } from '@mui/icons-material'
 
 import useApi from '../../hooks/useApi'
@@ -52,25 +53,25 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const loadPendingRequests = async () => {
+  const loadPendingRequests = async (showLoading = false) => {
     try {
-      setLoading(true)
+      if (showLoading) {
+        setLoading(true)
+      }
       setError(null)
 
       const response = await api.get('/api/v1/wolf/pairing/pending')
-      console.log('🔍 Pairing API response (already unwrapped by api.get):', response)
-      console.log('🔍 Response type:', typeof response, Array.isArray(response))
 
       // api.get() already returns res.data, so response IS the array
       const requests = response || []
-      console.log('🔍 Setting pending requests:', requests, 'Length:', requests.length)
       setPendingRequests(requests)
-      console.log('🔍 After setPendingRequests, state should update...')
     } catch (err: any) {
       console.error('Failed to load pending pair requests:', err)
       setError(err.message || 'Failed to load pending requests')
     } finally {
-      setLoading(false)
+      if (showLoading) {
+        setLoading(false)
+      }
     }
   }
 
@@ -142,10 +143,10 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
 
   useEffect(() => {
     if (open) {
-      loadPendingRequests()
-      
-      // Poll for new requests every 5 seconds
-      const interval = setInterval(loadPendingRequests, 5000)
+      loadPendingRequests(true) // Show loading spinner on initial load
+
+      // Poll for new requests every 5 seconds (no loading spinner during polling)
+      const interval = setInterval(() => loadPendingRequests(false), 5000)
       return () => clearInterval(interval)
     }
   }, [open])
@@ -153,18 +154,27 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>
-        Moonlight Client Pairing
+        Pair Moonlight Client
       </DialogTitle>
-      
+
       <DialogContent>
         {success ? (
           <Alert severity="success" sx={{ mb: 2 }}>
-            Pairing completed successfully! You can now access your personal dev environments via Moonlight.
+            Pairing completed successfully! You can now access your sessions via Moonlight.
           </Alert>
         ) : (
           <>
+            <Alert severity="info" icon={<AddComputerIcon />} sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold">
+                In Moonlight: Add PC → Enter <code style={{ padding: '2px 6px', background: 'rgba(0,0,0,0.1)', borderRadius: '3px' }}>{window.location.hostname}</code>
+              </Typography>
+              <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
+                For iOS: Use <a href="https://apps.apple.com/us/app/voidlink/id6747717070" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>VoidLink</a> - allows external network connections outside your LAN
+              </Typography>
+            </Alert>
+
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Complete the pairing process to allow Moonlight clients to connect to your personal development environments.
+              After adding the PC, Moonlight will show a 4-digit PIN. Select the pairing request below and enter that PIN to complete the connection.
             </Typography>
 
             {error && (
@@ -258,7 +268,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={() => loadPendingRequests()} disabled={loading}>
+        <Button onClick={() => loadPendingRequests(true)} disabled={loading}>
           Refresh
         </Button>
         <Button onClick={handleClose}>

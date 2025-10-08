@@ -268,18 +268,11 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 		SendChan:    make(chan types.ExternalAgentCommand, 100),
 	}
 
-	// Register connection
+	// Register connection with agent ID
 	apiServer.externalAgentWSManager.registerConnection(agentID, wsConn)
 	defer apiServer.externalAgentWSManager.unregisterConnection(agentID)
 
-	// Start goroutines for handling connection
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-
-	// Start message sender
-	go apiServer.handleExternalAgentSender(ctx, wsConn)
-
-	// Check if this agent has a pending Helix session with initial message
+	// Check if this agent has a Helix session mapping
 	// agentID could be either agent_session_id (req_*) or helix_session_id (ses_*)
 	helixSessionID := ""
 	if strings.HasPrefix(agentID, "ses_") {
@@ -290,13 +283,22 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 			Str("helix_session_id", helixSessionID).
 			Msg("🚀 [HELIX] External agent connected with Helix session ID, checking for initial message")
 	} else if mappedHelixID, exists := apiServer.externalAgentSessionMapping[agentID]; exists {
-		// Agent session ID mapping
+		// Agent session ID mapping - register connection with BOTH IDs for routing
 		helixSessionID = mappedHelixID
+		apiServer.externalAgentWSManager.registerConnection(helixSessionID, wsConn)
+		defer apiServer.externalAgentWSManager.unregisterConnection(helixSessionID)
 		log.Info().
 			Str("agent_session_id", agentID).
 			Str("helix_session_id", helixSessionID).
-			Msg("🚀 [HELIX] External agent connected with agent session ID, checking for initial message")
+			Msg("🚀 [HELIX] External agent connected with agent session ID, registered with BOTH IDs for routing")
 	}
+
+	// Start goroutines for handling connection
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+
+	// Start message sender
+	go apiServer.handleExternalAgentSender(ctx, wsConn)
 
 	if helixSessionID != "" {
 
@@ -889,6 +891,7 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		if targetInteraction != nil {
 			// Update the existing interaction with the AI response content
 			// IMPORTANT: Keep state as Waiting - only message_completed marks it as Complete
+			// NOTE: Zed sends full content each time (not incremental), so overwriting is correct
 			targetInteraction.ResponseMessage = content
 			targetInteraction.Updated = time.Now()
 
@@ -1005,45 +1008,23 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, co
 	}
 	command.Data["session_id"] = sessionID
 
-	apiServer.externalAgentWSManager.mu.RLock()
-	connections := apiServer.externalAgentWSManager.connections
-	apiServer.externalAgentWSManager.mu.RUnlock()
-
-	if len(connections) == 0 {
-		return fmt.Errorf("no external agent connections available")
+	// Get the WebSocket connection for this session
+	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
+	if !exists || wsConn == nil {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
 	}
 
-	// Broadcast to all connected Zed agents
-	sentCount := 0
-	for agentID, conn := range connections {
-		select {
-		case conn.SendChan <- command:
-			sentCount++
-			log.Debug().
-				Str("agent_id", agentID).
-				Str("session_id", sessionID).
-				Str("command_type", command.Type).
-				Msg("Sent command to external Zed agent")
-		default:
-			log.Warn().
-				Str("agent_id", agentID).
-				Str("session_id", sessionID).
-				Msg("External agent send channel full, skipping")
-		}
+	// Send command to the specific Zed agent
+	select {
+	case wsConn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("command_type", command.Type).
+			Msg("✅ Sent command to specific external Zed agent")
+		return nil
+	default:
+		return fmt.Errorf("external agent send channel full for session %s", sessionID)
 	}
-
-	if sentCount == 0 {
-		return fmt.Errorf("failed to send command to any external agent connections")
-	}
-
-	log.Info().
-		Int("sent_count", sentCount).
-		Int("total_connections", len(connections)).
-		Str("session_id", sessionID).
-		Str("command_type", command.Type).
-		Msg("Broadcasted command to external Zed agents")
-
-	return nil
 }
 
 // registerConnection registers a new external agent connection

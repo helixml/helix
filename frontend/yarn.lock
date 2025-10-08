@@ -933,11 +933,6 @@
     "@babel/runtime" "^7.25.7"
     "@mui/utils" "^5.16.6 || ^6.0.0 || ^7.0.0 || ^7.0.0-beta"
 
-"@novnc/novnc@^1.6.0":
-  version "1.6.0"
-  resolved "https://registry.npmjs.org/@novnc/novnc/-/novnc-1.6.0.tgz"
-  integrity sha512-CJrmdSe9Yt2ZbLsJpVFoVkEu0KICEvnr3njW25Nz0jodaiFJtg8AYLGZogRYy0/N5HUWkGUsCmegKXYBSqwygw==
-
 "@popperjs/core@^2.11.8":
   version "2.11.8"
   resolved "https://registry.npmjs.org/@popperjs/core/-/core-2.11.8.tgz"

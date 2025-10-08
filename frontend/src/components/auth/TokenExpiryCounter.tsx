@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import InfoIcon from '@mui/icons-material/Info';
 import useAccount from '../../hooks/useAccount';
 
 export const TokenExpiryCounter: React.FC = () => {
@@ -41,17 +43,25 @@ export const TokenExpiryCounter: React.FC = () => {
   if (!timeRemaining) return null;
 
   return (
-    <Typography
-      variant="caption"
-      sx={{
-        fontSize: '0.7rem',
-        color: 'text.secondary',
-        opacity: 0.7,
-        ml: 1
-      }}
-    >
-      Token: {timeRemaining}
-    </Typography>
+    <Tooltip title={`Token expires in: ${timeRemaining}`} placement="bottom">
+      <IconButton
+        size="small"
+        sx={{
+          ml: 0.5,
+          p: 0.25,
+          color: '#fff',
+          opacity: 0.6,
+          minWidth: 'auto',
+          width: 'auto',
+          '&:hover': {
+            opacity: 1,
+            bgcolor: 'rgba(255, 255, 255, 0.1)'
+          }
+        }}
+      >
+        <InfoIcon sx={{ fontSize: '0.9rem' }} />
+      </IconButton>
+    </Tooltip>
   );
 };
 
