@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -69,47 +68,55 @@ func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
 	log.Info().Msg("🔐 Wolf not paired - initiating automatic pairing")
 
 	// Step 3: Trigger pairing request from moonlight-web to Wolf
-	// moonlight-web will create a pairing request when it fetches serverinfo
-	if err := s.triggerPairingRequest(); err != nil {
+	// This will make moonlight-web generate a PIN and start the Moonlight protocol
+	// Keep the stream open so moonlight-web can receive certificates
+	pin, pairStream, err := s.triggerPairingRequest()
+	if err != nil {
 		return fmt.Errorf("failed to trigger pairing: %w", err)
 	}
+	defer pairStream.Body.Close()
 
-	// Step 4: Get pending pair request from Wolf
-	time.Sleep(2 * time.Second) // Give Wolf time to register the request
+	log.Info().Str("pin", pin).Msg("moonlight-web generated PIN for pairing")
+
+	// Step 4: Get the pair_secret from Wolf's pending pairing request
+	// Wolf creates a pair_secret when moonlight-web calls /pair
+	// We need this pair_secret to complete pairing via Wolf's internal API
+	time.Sleep(1 * time.Second) // Give Wolf time to create pair request
+
 	pendingRequests, err := s.wolfClient.GetPendingPairRequests()
 	if err != nil {
-		return fmt.Errorf("failed to get pending pair requests from Wolf: %w", err)
+		log.Warn().Err(err).Msg("Could not get pending requests from Wolf internal API")
 	}
 
-	if len(pendingRequests) == 0 {
-		return fmt.Errorf("no pending pairing requests found in Wolf")
+	var pairSecret string
+	if len(pendingRequests) > 0 {
+		pairSecret = pendingRequests[0].PairSecret
+		log.Info().Str("pair_secret", pairSecret).Msg("Found pair_secret from Wolf internal API")
 	}
 
-	// Use the first pending request (should be from moonlight-web)
-	pairRequest := pendingRequests[0]
-	pairSecret := pairRequest.PairSecret
-	if pairSecret == "" {
-		return fmt.Errorf("invalid pair request: missing pair_secret")
-	}
-
-	// Step 5: Get PIN from environment (shared between Wolf and Helix)
-	// In production, this should be a secure random value set in .env
-	pin := os.Getenv("MOONLIGHT_INTERNAL_PAIRING_PIN")
-	if pin == "" {
-		// Fallback for development: generate a random 4-digit PIN
-		// This will be logged so admin can see it
-		pin = generateSecurePIN()
-		log.Warn().
+	// Step 5: Complete pairing by sending PIN to Wolf via Moonlight HTTP protocol
+	// This allows moonlight-web to complete the crypto handshake and receive certificates
+	if pairSecret != "" {
+		log.Info().
+			Str("pair_secret", pairSecret).
 			Str("pin", pin).
-			Msg("⚠️ MOONLIGHT_INTERNAL_PAIRING_PIN not set - using random PIN (set in .env for production!)")
-	}
+			Msg("Submitting PIN to Wolf via Moonlight protocol HTTP endpoint")
 
-	// Step 6: Complete pairing in Wolf using existing Wolf client method
-	if err := s.wolfClient.PairClient(pairSecret, pin); err != nil {
-		return fmt.Errorf("failed to complete Wolf pairing: %w", err)
-	}
+		if err := s.submitPINToWolf(pairSecret, pin); err != nil {
+			return fmt.Errorf("failed to submit PIN to Wolf: %w", err)
+		}
 
-	log.Info().Msg("✅ Successfully paired moonlight-web with Wolf automatically")
+		log.Info().Msg("✅ PIN submitted to Wolf - waiting for moonlight-web to receive certificates")
+
+		// Step 6: Read the final pairing result from the stream
+		// This should be "Paired" if successful
+		finalResult, _ := io.ReadAll(pairStream.Body)
+		log.Info().
+			Str("final_response", string(finalResult)).
+			Msg("moonlight-web pairing stream completed")
+	} else {
+		return fmt.Errorf("could not find pair_secret from Wolf - pairing cannot be completed")
+	}
 
 	// Step 7: moonlight-web will receive the pairing response and save certificates
 	// Verify pairing completed
@@ -200,8 +207,64 @@ func (s *MoonlightWebPairingService) checkDataJsonForCerts() (bool, error) {
 	return false, nil
 }
 
+// submitPINToWolf submits the PIN to Wolf's Moonlight HTTP protocol endpoint
+// This completes the pairing handshake and allows moonlight-web to receive certificates
+func (s *MoonlightWebPairingService) submitPINToWolf(pairSecret, pin string) error {
+	// Try both methods to ensure compatibility:
+
+	// Method 1: Use Wolf's internal API (faster, better error handling)
+	log.Info().Msg("Submitting PIN via Wolf internal API")
+	if err := s.wolfClient.PairClient(pairSecret, pin); err != nil {
+		log.Warn().Err(err).Msg("Wolf internal API pairing failed, trying HTTP protocol")
+	} else {
+		log.Info().Msg("✅ Wolf internal API accepted the PIN")
+	}
+
+	// Method 2: Also try Wolf's HTTP /pin/ endpoint for Moonlight protocol
+	// This ensures moonlight-web gets the certificates via the Moonlight protocol
+	url := "http://wolf:47989/pin/"
+
+	// Send PIN and secret as JSON (Wolf's Moonlight HTTP server expects this)
+	pinData := map[string]string{
+		"pin":    pin,
+		"secret": pairSecret,
+	}
+
+	jsonData, err := json.Marshal(pinData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal PIN data: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create PIN submission request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to submit PIN to Wolf HTTP endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Info().
+		Int("status", resp.StatusCode).
+		Str("response", string(body)).
+		Msg("Submitted PIN to Wolf Moonlight HTTP protocol")
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("Wolf rejected PIN: status %d, response: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // triggerPairingRequest makes moonlight-web initiate a pairing request to Wolf
-func (s *MoonlightWebPairingService) triggerPairingRequest() error {
+// Returns the PIN generated by moonlight-web and the open HTTP response stream
+// Caller MUST close the response body after reading the final pairing result
+func (s *MoonlightWebPairingService) triggerPairingRequest() (string, *http.Response, error) {
 	// Call moonlight-web's pair endpoint to initiate pairing
 	url := fmt.Sprintf("%s/api/pair", s.moonlightWebURL)
 
@@ -211,7 +274,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	log.Info().
@@ -221,28 +284,44 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.credentials)
 
 	// This is a streaming endpoint - it will return pairing status updates
+	// DO NOT close the response body yet - we need to keep stream open!
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to call moonlight-web /api/pair")
-		return err
+		return "", nil, err
 	}
-	defer resp.Body.Close()
 
-	// Read initial response
-	body, _ := io.ReadAll(resp.Body)
-	log.Info().
-		Int("status", resp.StatusCode).
-		Str("response", string(body)).
-		Msg("Pairing request initiated in moonlight-web")
+	log.Info().Int("status", resp.StatusCode).Msg("moonlight-web /api/pair streaming response started")
 
-	return nil
+	// Read first JSON object from NDJSON stream to get PIN
+	// Response format: {"Pin":"0681"}\n"PairError" OR {"Pin":"0681"}\n"Paired"
+	var pinResponse struct {
+		Pin string `json:"Pin"`
+	}
+
+	// Use JSON decoder to read first object from stream
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&pinResponse); err != nil {
+		resp.Body.Close()
+		return "", nil, fmt.Errorf("could not parse PIN from stream: %w", err)
+	}
+
+	if pinResponse.Pin == "" {
+		resp.Body.Close()
+		return "", nil, fmt.Errorf("PIN is empty in response")
+	}
+
+	log.Info().Str("pin", pinResponse.Pin).Msg("✅ Extracted PIN from moonlight-web stream")
+
+	// Return PIN and the open response body so caller can complete pairing and read final result
+	return pinResponse.Pin, resp, nil
 }
 
 // InitializeOnStartup should be called when Helix API starts
