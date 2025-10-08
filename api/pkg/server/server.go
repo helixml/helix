@@ -800,6 +800,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
+	// Moonlight Web Stream reverse proxy (no auth required - handles its own)
+	router.PathPrefix("/moonlight/").HandlerFunc(apiServer.proxyToMoonlightWeb)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 

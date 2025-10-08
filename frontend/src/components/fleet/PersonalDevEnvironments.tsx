@@ -604,6 +604,8 @@ const PersonalDevEnvironments: FC<PersonalDevEnvironmentsProps> = ({ apps }) => 
                         <ScreenshotViewer
                           sessionId={environment.instanceID || ''}
                           isPersonalDevEnvironment={true}
+                          wolfLobbyId={environment.wolf_lobby_id}
+                          enableStreaming={true}
                           width={environment.display_width || 1920}
                           height={environment.display_height || 1080}
                         />

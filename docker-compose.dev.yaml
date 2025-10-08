@@ -281,6 +281,22 @@ services:
       network_mode: host
       restart: unless-stopped
 
+    # Moonlight Web Stream - Browser-based Moonlight streaming
+    moonlight-web:
+      build:
+        context: ../moonlight-web-stream
+        dockerfile: Dockerfile
+      ports:
+        - "8081:8080"  # Web interface
+        - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      volumes:
+        - ./moonlight-web-config:/app/server:rw
+      networks:
+        - default
+      restart: unless-stopped
+      depends_on:
+        - wolf
+
     # Zed Agent Task Runner Pool (replaces gptscript runner entirely)
     # Scale with: docker-compose up --scale zed-runner=5
     # zed-runner:

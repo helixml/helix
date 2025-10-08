@@ -1,35 +1,41 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Typography, Alert, IconButton, Button, Paper, Chip } from '@mui/material';
-import { Refresh, OpenInNew, Fullscreen, FullscreenExit } from '@mui/icons-material';
+import { Box, Typography, Alert, IconButton, Button, Paper, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Refresh, OpenInNew, Fullscreen, FullscreenExit, Videocam, CameraAlt } from '@mui/icons-material';
+import MoonlightStreamViewer from './MoonlightStreamViewer';
 
 interface ScreenshotViewerProps {
   sessionId: string;
   isRunner?: boolean;
   isPersonalDevEnvironment?: boolean;
+  wolfLobbyId?: string; // For Moonlight streaming mode
   onError?: (error: string) => void;
   width?: number;
   height?: number;
   className?: string;
   autoRefresh?: boolean;
   refreshInterval?: number; // in milliseconds
+  enableStreaming?: boolean; // Enable streaming mode toggle
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   sessionId,
   isRunner = false,
   isPersonalDevEnvironment = false,
+  wolfLobbyId,
   onError,
   width = 1024,
   height = 768,
   className = '',
   autoRefresh = true,
   refreshInterval = 2000, // Default 2 seconds
+  enableStreaming = true, // Enable streaming by default
 }) => {
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [streamingMode, setStreamingMode] = useState<'screenshot' | 'stream'>('screenshot');
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // Construct screenshot endpoint
@@ -125,6 +131,63 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // If in streaming mode, render MoonlightWebPlayer instead
+  if (streamingMode === 'stream' && enableStreaming) {
+    return (
+      <Box
+        ref={containerRef}
+        className={className}
+        sx={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          backgroundColor: '#000',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Mode Toggle */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1001,
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            borderRadius: 1,
+          }}
+        >
+          <ToggleButtonGroup
+            value={streamingMode}
+            exclusive
+            onChange={(_, value) => value && setStreamingMode(value)}
+            size="small"
+          >
+            <ToggleButton value="screenshot" sx={{ color: 'white' }}>
+              <CameraAlt fontSize="small" sx={{ mr: 0.5 }} />
+              Screenshot
+            </ToggleButton>
+            <ToggleButton value="stream" sx={{ color: 'white' }}>
+              <Videocam fontSize="small" sx={{ mr: 0.5 }} />
+              Live Stream
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+
+        <MoonlightStreamViewer
+          sessionId={sessionId}
+          wolfLobbyId={wolfLobbyId}
+          isPersonalDevEnvironment={isPersonalDevEnvironment}
+          onConnectionChange={onConnectionChange}
+          onError={onError}
+          width={width}
+          height={height}
+        />
+      </Box>
+    );
+  }
+
   return (
     <Box
       ref={containerRef}
@@ -138,6 +201,37 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         flexDirection: 'column',
       }}
     >
+      {/* Mode Toggle */}
+      {enableStreaming && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1001,
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            borderRadius: 1,
+          }}
+        >
+          <ToggleButtonGroup
+            value={streamingMode}
+            exclusive
+            onChange={(_, value) => value && setStreamingMode(value)}
+            size="small"
+          >
+            <ToggleButton value="screenshot" sx={{ color: 'white' }}>
+              <CameraAlt fontSize="small" sx={{ mr: 0.5 }} />
+              Screenshot
+            </ToggleButton>
+            <ToggleButton value="stream" sx={{ color: 'white' }}>
+              <Videocam fontSize="small" sx={{ mr: 0.5 }} />
+              Live Stream
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
+
       {/* Toolbar */}
       <Box
         sx={{
