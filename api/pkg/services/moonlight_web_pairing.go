@@ -210,18 +210,10 @@ func (s *MoonlightWebPairingService) checkDataJsonForCerts() (bool, error) {
 // submitPINToWolf submits the PIN to Wolf's Moonlight HTTP protocol endpoint
 // This completes the pairing handshake and allows moonlight-web to receive certificates
 func (s *MoonlightWebPairingService) submitPINToWolf(pairSecret, pin string) error {
-	// Try both methods to ensure compatibility:
+	// CRITICAL: Only use Wolf's HTTP /pin/ endpoint (Moonlight protocol)
+	// DO NOT use Wolf internal API - it breaks the Moonlight protocol stream!
+	// The internal API completes the promise, preventing moonlight-web from receiving certificates
 
-	// Method 1: Use Wolf's internal API (faster, better error handling)
-	log.Info().Msg("Submitting PIN via Wolf internal API")
-	if err := s.wolfClient.PairClient(pairSecret, pin); err != nil {
-		log.Warn().Err(err).Msg("Wolf internal API pairing failed, trying HTTP protocol")
-	} else {
-		log.Info().Msg("✅ Wolf internal API accepted the PIN")
-	}
-
-	// Method 2: Also try Wolf's HTTP /pin/ endpoint for Moonlight protocol
-	// This ensures moonlight-web gets the certificates via the Moonlight protocol
 	url := "http://wolf:47989/pin/"
 
 	// Send PIN and secret as JSON (Wolf's Moonlight HTTP server expects this)
@@ -234,6 +226,12 @@ func (s *MoonlightWebPairingService) submitPINToWolf(pairSecret, pin string) err
 	if err != nil {
 		return fmt.Errorf("failed to marshal PIN data: %w", err)
 	}
+
+	log.Info().
+		Str("url", url).
+		Str("pin", pin).
+		Str("secret", pairSecret).
+		Msg("Submitting PIN to Wolf Moonlight protocol HTTP /pin/ endpoint")
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -252,12 +250,13 @@ func (s *MoonlightWebPairingService) submitPINToWolf(pairSecret, pin string) err
 	log.Info().
 		Int("status", resp.StatusCode).
 		Str("response", string(body)).
-		Msg("Submitted PIN to Wolf Moonlight HTTP protocol")
+		Msg("Submitted PIN to Wolf /pin/ endpoint")
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("Wolf rejected PIN: status %d, response: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("Wolf /pin/ rejected PIN: status %d, response: %s", resp.StatusCode, string(body))
 	}
 
+	log.Info().Msg("✅ Wolf accepted PIN via Moonlight protocol")
 	return nil
 }
 
@@ -274,7 +273,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() (string, *http.Resp
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	log.Info().
@@ -284,7 +283,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() (string, *http.Resp
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
