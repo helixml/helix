@@ -51,7 +51,7 @@ func (apiServer *HelixAPIServer) generateDesignDocsShareLink(_ http.ResponseWrit
 	}
 
 	// Verify access
-	if task.CreatedBy != user.ID && !isAdmin(req) {
+	if task.CreatedBy != user.ID && !isAdmin(user) {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
