@@ -868,6 +868,15 @@ definitions:
       task_id:
         type: string
     type: object
+  server.DesignDocsShareLinkResponse:
+    properties:
+      expires_at:
+        type: string
+      share_url:
+        type: string
+      token:
+        type: string
+    type: object
   server.ForkSampleProjectRequest:
     properties:
       description:
@@ -5084,6 +5093,9 @@ definitions:
         description: when we do fine tuning or RAG, we need to know which data entity
           we used
         type: string
+      wolf_lobby_id:
+        description: Wolf lobby ID for streaming
+        type: string
       wolf_lobby_pin:
         description: 'PIN for Wolf lobby access (Phase 3: Multi-tenancy)'
         type: string
@@ -6295,16 +6307,16 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -9907,6 +9919,36 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get design docs for SpecTask
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{id}/design-docs/share:
+    post:
+      description: Generate a token-based shareable link for viewing design documents
+        on any device
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.DesignDocsShareLinkResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Generate shareable design docs link
       tags:
       - SpecTasks
   /api/v1/spec-tasks/{taskId}:

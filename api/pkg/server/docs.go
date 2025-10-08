@@ -5423,6 +5423,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{id}/design-docs/share": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Generate a token-based shareable link for viewing design documents on any device",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Generate shareable design docs link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.DesignDocsShareLinkResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}": {
             "get": {
                 "description": "Get detailed information about a specific spec-driven task",
@@ -9422,6 +9468,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.DesignDocsShareLinkResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "share_url": {
+                    "type": "string"
+                },
+                "token": {
                     "type": "string"
                 }
             }
@@ -15489,6 +15549,10 @@ const docTemplate = `{
                     "description": "when we do fine tuning or RAG, we need to know which data entity we used",
                     "type": "string"
                 },
+                "wolf_lobby_id": {
+                    "description": "Wolf lobby ID for streaming",
+                    "type": "string"
+                },
                 "wolf_lobby_pin": {
                     "description": "PIN for Wolf lobby access (Phase 3: Multi-tenancy)",
                     "type": "string"
@@ -17236,16 +17300,16 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
