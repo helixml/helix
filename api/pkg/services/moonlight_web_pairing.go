@@ -159,7 +159,7 @@ func (s *MoonlightWebPairingService) isWolfPaired() (bool, error) {
 		return false, err
 	}
 
-	req.SetBasicAuth(s.credentials, s.credentials)
+	req.Header.Set("Authorization", "Bearer "+s.credentials)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -225,7 +225,7 @@ func (s *MoonlightWebPairingService) triggerPairingRequest() error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(s.credentials, s.credentials)
+	req.Header.Set("Authorization", "Bearer "+s.credentials)
 
 	// This is a streaming endpoint - it will return pairing status updates
 	resp, err := http.DefaultClient.Do(req)
