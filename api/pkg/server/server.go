@@ -922,6 +922,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
 
+	// SpecTask shareable design docs (authenticated)
+	authRouter.HandleFunc("/spec-tasks/{id}/design-docs/share", system.Wrapper(apiServer.generateDesignDocsShareLink)).Methods(http.MethodPost)
+
+	// Public design docs viewer (token-based, no auth)
+	subRouter.HandleFunc("/spec-tasks/{id}/view", apiServer.viewDesignDocsPublic).Methods(http.MethodGet)
+
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/samples/initialize", apiServer.initializeSampleRepositories).Methods(http.MethodPost)

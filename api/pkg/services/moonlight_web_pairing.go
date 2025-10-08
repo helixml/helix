@@ -3,10 +3,12 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -90,9 +92,17 @@ func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
 		return fmt.Errorf("invalid pair request: missing pair_secret")
 	}
 
-	// Step 5: Generate PIN for pairing
-	// Use a well-known PIN for internal moonlight-web (production-safe since localhost-only)
-	pin := "0000" // Internal pairing PIN - moonlight-web is trusted localhost service
+	// Step 5: Get PIN from environment (shared between Wolf and Helix)
+	// In production, this should be a secure random value set in .env
+	pin := os.Getenv("MOONLIGHT_INTERNAL_PAIRING_PIN")
+	if pin == "" {
+		// Fallback for development: generate a random 4-digit PIN
+		// This will be logged so admin can see it
+		pin = generateSecurePIN()
+		log.Warn().
+			Str("pin", pin).
+			Msg("⚠️ MOONLIGHT_INTERNAL_PAIRING_PIN not set - using random PIN (set in .env for production!)")
+	}
 
 	// Step 6: Complete pairing in Wolf using existing Wolf client method
 	if err := s.wolfClient.PairClient(pairSecret, pin); err != nil {
@@ -241,4 +251,20 @@ func (s *MoonlightWebPairingService) InitializeOnStartup(ctx context.Context) er
 	}()
 
 	return nil
+}
+
+// generateSecurePIN generates a cryptographically secure 4-digit PIN
+func generateSecurePIN() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based if crypto rand fails
+		return fmt.Sprintf("%04d", time.Now().UnixNano()%10000)
+	}
+
+	// Convert to 4-digit PIN (0000-9999)
+	pin := ""
+	for _, byte := range b {
+		pin += fmt.Sprintf("%d", byte%10)
+	}
+	return pin
 }
