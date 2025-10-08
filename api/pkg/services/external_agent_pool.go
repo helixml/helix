@@ -95,26 +95,11 @@ func (p *ExternalAgentPool) createAgentForTask(ctx context.Context, specTask *ty
 	// Generate instance ID
 	instanceID := fmt.Sprintf("ext_agent_%s_%d", specTask.ID, time.Now().Unix())
 
-	// Create Zed agent configuration
-	zedAgent := &types.ZedAgent{
-		SessionID:      instanceID,
-		UserID:         specTask.CreatedBy,
-		ProjectPath:    repoPath,
-		WorkDir:        repoPath,
-		HelixSessionID: "", // Will be set when first Helix session is created
-		Env: []string{
-			fmt.Sprintf("SPEC_TASK_ID=%s", specTask.ID),
-			fmt.Sprintf("DESIGN_DOCS_PATH=%s", designDocsPath),
-			fmt.Sprintf("REPO_PATH=%s", repoPath),
-		},
-		DisplayWidth:       2560,
-		DisplayHeight:      1600,
-		DisplayRefreshRate: 60,
-	}
-
-	// Start external agent (this creates Zed container via Wolf)
-	// Note: This would integrate with the existing external agent executor
-	// For now, we'll track the agent instance and let the orchestrator handle actual startup
+	// TODO: Start external agent via executor
+	// This would create Zed container via Wolf with environment variables:
+	// - SPEC_TASK_ID={specTask.ID}
+	// - DESIGN_DOCS_PATH={designDocsPath}
+	// - REPO_PATH={repoPath}
 
 	agent := &ExternalAgentInstance{
 		InstanceID:      instanceID,

@@ -450,6 +450,17 @@ export interface OpenaiViolence {
   severity?: string;
 }
 
+export interface ServerAgentProgressItem {
+  agent_id?: string;
+  current_task?: ServerTaskItemDTO;
+  last_update?: string;
+  phase?: string;
+  task_id?: string;
+  task_name?: string;
+  tasks_after?: ServerTaskItemDTO[];
+  tasks_before?: ServerTaskItemDTO[];
+}
+
 export interface ServerAppCreateResponse {
   config?: TypesAppConfig;
   created?: string;
@@ -521,6 +532,13 @@ export interface ServerCreateSampleRepositoryRequest {
   sample_type?: string;
 }
 
+export interface ServerCreateSpecTaskFromDemoRequest {
+  demo_repo: string;
+  priority?: string;
+  prompt: string;
+  type?: string;
+}
+
 export interface ServerCreateSpecTaskRepositoryRequest {
   description?: string;
   name?: string;
@@ -533,6 +551,13 @@ export interface ServerCreateSpecTaskRepositoryRequest {
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
+}
+
+export interface ServerDesignDocsResponse {
+  current_task_index?: number;
+  design_markdown?: string;
+  progress_markdown?: string;
+  task_id?: string;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -576,6 +601,11 @@ export interface ServerInitializeSampleRepositoriesResponse {
 
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerLiveAgentFleetProgressResponse {
+  agents?: ServerAgentProgressItem[];
+  timestamp?: string;
 }
 
 export interface ServerLogsSummary {
@@ -748,6 +778,12 @@ export interface ServerSpecDocumentContentResponse {
   last_modified?: string;
   size?: number;
   spec_task_id?: string;
+}
+
+export interface ServerTaskItemDTO {
+  description?: string;
+  index?: number;
+  status?: string;
 }
 
 export interface ServerTaskProgressResponse {
@@ -3313,6 +3349,40 @@ export interface TypesStepInfoDetails {
   arguments?: Record<string, any>;
 }
 
+export interface TypesStreamingAccessGrant {
+  /** What they can do */
+  access_level?: string;
+  created?: string;
+  expires_at?: string;
+  /** When */
+  granted_at?: string;
+  /** Audit */
+  granted_by?: string;
+  granted_role?: string;
+  granted_team_id?: string;
+  /** Who can access it */
+  granted_user_id?: string;
+  id?: string;
+  /** Who owns it */
+  owner_user_id?: string;
+  pde_id?: string;
+  revoked_at?: string;
+  revoked_by?: string;
+  /** What is being shared */
+  session_id?: string;
+  updated?: string;
+}
+
+export interface TypesStreamingTokenResponse {
+  access_level?: string;
+  expires_at?: string;
+  moonlight_app_id?: number;
+  moonlight_host_id?: number;
+  stream_token?: string;
+  wolf_lobby_id?: string;
+  wolf_lobby_pin?: string;
+}
+
 export interface TypesSystemSettingsRequest {
   huggingface_token?: string;
 }
@@ -3873,6 +3943,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/agents/fleet`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get real-time progress of all agents working on SpecTasks
+     *
+     * @tags SpecTasks
+     * @name V1AgentsFleetLiveProgressList
+     * @summary Get live agent fleet progress
+     * @request GET:/api/v1/agents/fleet/live-progress
+     * @secure
+     */
+    v1AgentsFleetLiveProgressList: (params: RequestParams = {}) =>
+      this.request<ServerLiveAgentFleetProgressResponse, SystemHTTPError>({
+        path: `/api/v1/agents/fleet/live-progress`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -5785,6 +5873,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Generate time-limited token for PDE streaming access with RBAC
+     *
+     * @tags PersonalDevEnvironments
+     * @name V1PersonalDevEnvironmentsStreamTokenDetail
+     * @summary Get PDE streaming token
+     * @request GET:/api/v1/personal-dev-environments/{id}/stream-token
+     * @secure
+     */
+    v1PersonalDevEnvironmentsStreamTokenDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesStreamingTokenResponse, SystemHTTPError>({
+        path: `/api/v1/personal-dev-environments/${id}/stream-token`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -6370,6 +6477,83 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Generate time-limited token for streaming session access with RBAC
+     *
+     * @tags Streaming
+     * @name V1SessionsStreamTokenDetail
+     * @summary Get streaming token
+     * @request GET:/api/v1/sessions/{id}/stream-token
+     * @secure
+     */
+    v1SessionsStreamTokenDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesStreamingTokenResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/stream-token`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all active streaming access grants for a session
+     *
+     * @tags Streaming
+     * @name V1SessionsStreamingAccessDetail
+     * @summary List streaming access grants
+     * @request GET:/api/v1/sessions/{id}/streaming-access
+     * @secure
+     */
+    v1SessionsStreamingAccessDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesStreamingAccessGrant[], SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/streaming-access`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Grant streaming access to another user/team/role
+     *
+     * @tags Streaming
+     * @name V1SessionsStreamingAccessCreate
+     * @summary Create streaming access grant
+     * @request POST:/api/v1/sessions/{id}/streaming-access
+     * @secure
+     */
+    v1SessionsStreamingAccessCreate: (id: string, request: TypesStreamingAccessGrant, params: RequestParams = {}) =>
+      this.request<TypesStreamingAccessGrant, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/streaming-access`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Revoke a streaming access grant
+     *
+     * @tags Streaming
+     * @name V1SessionsStreamingAccessDelete
+     * @summary Revoke streaming access
+     * @request DELETE:/api/v1/sessions/{id}/streaming-access/{grant_id}
+     * @secure
+     */
+    v1SessionsStreamingAccessDelete: (id: string, grantId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/streaming-access/${grantId}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get Helix-managed Zed MCP configuration for a session
      *
      * @tags Zed
@@ -6573,6 +6757,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks`,
         method: "GET",
         query: query,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the design documents from helix-design-docs worktree
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignDocsDetail
+     * @summary Get design docs for SpecTask
+     * @request GET:/api/v1/spec-tasks/{id}/design-docs
+     * @secure
+     */
+    v1SpecTasksDesignDocsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerDesignDocsResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${id}/design-docs`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -6993,6 +7195,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new SpecTask with a demo repository
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksFromDemoCreate
+     * @summary Create SpecTask from demo repo
+     * @request POST:/api/v1/spec-tasks/from-demo
+     * @secure
+     */
+    v1SpecTasksFromDemoCreate: (request: ServerCreateSpecTaskFromDemoRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/from-demo`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

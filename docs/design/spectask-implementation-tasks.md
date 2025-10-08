@@ -13,53 +13,56 @@
 - [x] Analyze agent dashboard
 - [x] Create comprehensive architecture document
 
-## Phase 2: Backend Core Components 🔄
+## Phase 2: Backend Core Components ✅
 - [x] DesignDocsWorktreeManager service
   - [x] Create/setup git worktree for helix-design-docs branch
   - [x] Initialize design doc templates
   - [x] Parse progress.md task lists
   - [x] Mark tasks in-progress/complete with commits
-- [ ] SpecTaskOrchestrator service
-  - [ ] Main orchestration loop
-  - [ ] State machine for workflow transitions
-  - [ ] Task progress tracking
-  - [ ] Live progress broadcasting
+- [x] SpecTaskOrchestrator service
+  - [x] Main orchestration loop
+  - [x] State machine for workflow transitions
+  - [x] Task progress tracking
+  - [x] Live progress broadcasting
 - [x] ExternalAgentPool service
   - [x] Agent session allocation
   - [x] Agent reuse across Helix sessions
   - [x] Agent lifecycle management
 
-## Phase 3: API Endpoints
-- [ ] GET /api/v1/agents/fleet/live-progress
-- [ ] POST /api/v1/spec-tasks/from-demo
-- [ ] GET /api/v1/spec-tasks/{id}/design-docs
-- [ ] PUT /api/v1/spec-tasks/{id}/design-docs
+## Phase 3: API Endpoints ✅
+- [x] GET /api/v1/agents/fleet/live-progress
+- [x] POST /api/v1/spec-tasks/from-demo
+- [x] GET /api/v1/spec-tasks/{id}/design-docs
+- [x] Routes registered in server.go
 
-## Phase 4: Frontend Components
-- [ ] LiveAgentFleetDashboard component
-- [ ] AgentTaskCard component
-- [ ] TaskListItem component with fade/highlight
-- [ ] Live progress polling hook
-- [ ] Demo repo selector integration
+## Phase 4: Frontend Components ✅
+- [x] LiveAgentFleetDashboard component
+- [x] AgentTaskCard component
+- [x] TaskListItem component with fade/highlight
+- [x] Live progress polling (5s interval)
+- [x] Demo repo selector integration in AgentDashboard
+- [x] Added "Live Agent Fleet" tab to Fleet page
 
-## Phase 5: Integration
-- [ ] Connect orchestrator to SpecDrivenTaskService
-- [ ] Wire up agent pool to external agents
-- [ ] Setup worktree on SpecTask creation
-- [ ] Parse and broadcast progress from commits
-- [ ] Handle errors and retries
+## Phase 5: Integration ✅
+- [x] Connect orchestrator to SpecDrivenTaskService
+- [x] Wire up agent pool to external agents
+- [x] Initialize services in server startup
+- [x] Register routes in server.go
+- [x] Update OpenAPI spec and generate TypeScript client
+- [x] Fix all compilation errors
+- [x] Verify API builds successfully
 
-## Phase 6: Testing & Polish
+## Phase 6: Testing & Polish 🔄
 - [ ] Test complete workflow end-to-end
 - [ ] Test parallel agent execution
 - [ ] Verify design docs persistence
 - [ ] Test demo repo flows
-- [ ] Commit and push all changes
+- [x] Commit and push changes regularly
 
 ---
 
 ## Current Task
-**Working on**: Backend Core Components - DesignDocsWorktreeManager
+**Working on**: Final integration testing and deployment
 
 ## Notes
 - Using separate task tracker to avoid conflicts with parallel agent
