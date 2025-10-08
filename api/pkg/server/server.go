@@ -546,6 +546,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
 
+	// Streaming access control endpoints
+	authRouter.HandleFunc("/sessions/{id}/stream-token", system.Wrapper(apiServer.getSessionStreamingToken)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/streaming-access", system.Wrapper(apiServer.createSessionStreamingAccess)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/streaming-access", system.Wrapper(apiServer.listSessionStreamingAccess)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/streaming-access/{grant_id}", system.Wrapper(apiServer.revokeSessionStreamingAccess)).Methods(http.MethodDelete)
+
+	authRouter.HandleFunc("/personal-dev-environments/{id}/stream-token", system.Wrapper(apiServer.getPDEStreamingToken)).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)

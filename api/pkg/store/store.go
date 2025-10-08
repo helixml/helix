@@ -477,6 +477,18 @@ type Store interface {
 	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
 	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)
 	DeleteZedSettingsOverride(ctx context.Context, sessionID string) error
+
+	// Streaming access control
+	CreateStreamingAccessGrant(ctx context.Context, grant *types.StreamingAccessGrant) (*types.StreamingAccessGrant, error)
+	GetStreamingAccessGrant(ctx context.Context, id string) (*types.StreamingAccessGrant, error)
+	GetStreamingAccessGrantByUser(ctx context.Context, sessionID, userID string) (*types.StreamingAccessGrant, error)
+	GetStreamingAccessGrantByTeam(ctx context.Context, sessionID, teamID string) (*types.StreamingAccessGrant, error)
+	GetStreamingAccessGrantByRole(ctx context.Context, sessionID, role string) (*types.StreamingAccessGrant, error)
+	ListStreamingAccessGrants(ctx context.Context, sessionID string) ([]*types.StreamingAccessGrant, error)
+	RevokeStreamingAccessGrant(ctx context.Context, grantID, revokedBy string) error
+	LogStreamingAccess(ctx context.Context, log *types.StreamingAccessAuditLog) error
+	UpdateStreamingAccessDisconnect(ctx context.Context, logID string) error
+	ListStreamingAccessAuditLogs(ctx context.Context, userID, sessionID string, limit int) ([]*types.StreamingAccessAuditLog, error)
 }
 
 type EmbeddingsStore interface {
