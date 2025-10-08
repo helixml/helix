@@ -483,9 +483,10 @@ This is a forward-only branch specifically for design documents. All your design
 
 **DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
 Your documents go in a task-specific directory:
-.git-worktrees/helix-design-docs/tasks/%s_%s/
+.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
 
-Where the directory name is: {task_id}_{YYYYMMDD}
+Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
+(Date first for sorting, branch name for readability)
 
 **Required Files in This Directory:**
 1. requirements.md - Requirements specification
@@ -499,10 +500,10 @@ Where the directory name is: {task_id}_{YYYYMMDD}
 cd .git-worktrees/helix-design-docs
 
 # Create your task directory (if not exists)
-mkdir -p tasks/%s_%s
+mkdir -p tasks/%s_%s_%s
 
 # Work in your task directory
-cd tasks/%s_%s
+cd tasks/%s_%s_%s
 
 # Create the three required documents:
 # 1. requirements.md with user stories and acceptance criteria
@@ -540,10 +541,10 @@ They can continue chatting with you to refine the design before approval.
 
 Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
 		task.ProjectID, task.Type, task.Priority, task.ID,
-		task.ID, time.Now().Format("20060102"),  // Directory name: task_id_date
-		task.ID, time.Now().Format("20060102"),  // mkdir command
-		task.ID, time.Now().Format("20060102"),  // cd command
-		task.ID)                                  // Commit message
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command
+		task.ID)                                                                       // Commit message
 }
 
 // buildImplementationPrompt creates the prompt for implementation Zed agent
@@ -555,11 +556,13 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 
 **CRITICAL: Design Documents Location**
 The approved design documents are in a task-specific directory in the helix-design-docs worktree:
-.git-worktrees/helix-design-docs/tasks/%s_%s/
+.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
+
+Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE:**
 ` + "```" + `
-.git-worktrees/helix-design-docs/tasks/%s_%s/
+.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
 ├── requirements.md      (approved requirements)
 ├── design.md           (approved technical design)
 ├── progress.md         (YOUR TASK CHECKLIST - track here!)
@@ -575,7 +578,7 @@ The progress.md file contains your task checklist in this format:
 **Your Workflow:**
 ` + "```bash" + `
 # Navigate to your task directory
-cd .git-worktrees/helix-design-docs/tasks/%s_%s
+cd .git-worktrees/helix-design-docs/tasks/%s_%s_%s
 
 # Read your design documents
 cat requirements.md
@@ -594,7 +597,7 @@ cd /workspace/repos/{repo}
 # ... do the coding work ...
 
 # When done, mark complete
-cd .git-worktrees/helix-design-docs/tasks/%s_%s
+cd .git-worktrees/helix-design-docs/tasks/%s_%s_%s
 sed -i 's/- \[~\] Task name/- \[x\] Task name/' progress.md
 git add progress.md
 git commit -m "🤖 Completed: Task name"
@@ -628,10 +631,10 @@ git push origin helix-design-docs
 
 Start by reading the design documents from the worktree, then work through the task list systematically.`,
 		task.Name, task.ID,
-		task.ID, time.Now().Format("20060102"),  // Directory structure 1
-		task.ID, time.Now().Format("20060102"),  // Directory structure 2
-		task.ID, time.Now().Format("20060102"),  // cd command 1
-		task.ID, time.Now().Format("20060102"),  // cd command 2 (after coding)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 1
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 2
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 1
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 2
 		task.OriginalPrompt)
 }
 
