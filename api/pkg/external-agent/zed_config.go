@@ -39,7 +39,8 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIKey string `json:"api_key"`
+	APIKey string `json:"api_key,omitempty"`
+	APIURL string `json:"api_url,omitempty"` // Helix proxy URL for model API
 }
 
 type AssistantSettings struct {
@@ -99,21 +100,18 @@ func GenerateZedMCPConfig(
 
 	// Configure language model from assistant settings
 	if assistant.Provider != "" && assistant.Model != "" {
-		// Get API key from environment based on provider
-		apiKey := getAPIKeyForProvider(assistant.Provider)
-		if apiKey != "" {
-			config.LanguageModels = map[string]LanguageModelConfig{
-				assistant.Provider: {
-					APIKey: apiKey,
-				},
-			}
-			config.Assistant = &AssistantSettings{
-				Version: "2",
-				DefaultModel: &ModelConfig{
-					Provider: assistant.Provider,
-					Model:    assistant.Model,
-				},
-			}
+		// Configure Zed to use Helix as OpenAI-compatible proxy
+		config.LanguageModels = map[string]LanguageModelConfig{
+			assistant.Provider: {
+				APIURL: fmt.Sprintf("%s/v1/chat/completions", helixAPIURL),
+			},
+		}
+		config.Assistant = &AssistantSettings{
+			Version: "2",
+			DefaultModel: &ModelConfig{
+				Provider: assistant.Provider,
+				Model:    assistant.Model,
+			},
 		}
 	}
 
