@@ -20,7 +20,6 @@ type ZedMCPConfig struct {
 	ExternalSync   *ExternalSyncConfig             `json:"external_sync,omitempty"`
 	Agent          *AgentConfig                    `json:"agent,omitempty"`
 	Theme          string                          `json:"theme,omitempty"`
-	Version        int                             `json:"version,omitempty"` // Preserved by Zed settings system
 }
 
 type ExternalSyncConfig struct {
@@ -76,7 +75,6 @@ func GenerateZedMCPConfig(
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
-		Version:        1, // Zed settings version
 	}
 
 	// Set base Helix integration settings (always required)
@@ -106,16 +104,10 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// Configure language model from assistant settings
-	// Note: API keys come from environment variables (ANTHROPIC_API_KEY, etc), not settings.json
-	// language_models section only configures api_url (custom endpoints) and available_models
+	// Configure assistant default model
+	// Note: API keys come from environment variables (ANTHROPIC_API_KEY, etc)
+	// Don't set language_models section unless customizing api_url or available_models
 	if assistant.Provider != "" && assistant.Model != "" {
-		config.LanguageModels = map[string]LanguageModelConfig{
-			assistant.Provider: {
-				APIURL: "", // Empty = use default provider URL (anthropic.com, etc)
-				// API key comes from ANTHROPIC_API_KEY environment variable
-			},
-		}
 		config.Assistant = &AssistantSettings{
 			Version: "2",
 			DefaultModel: &ModelConfig{
