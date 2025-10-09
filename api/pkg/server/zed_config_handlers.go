@@ -97,9 +97,14 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	// Build language models config
 	languageModels := make(map[string]interface{})
 	for provider, config := range zedConfig.LanguageModels {
-		languageModels[provider] = map[string]interface{}{
-			"api_key": config.APIKey,
+		modelConfig := make(map[string]interface{})
+		if config.APIKey != "" {
+			modelConfig["api_key"] = config.APIKey
 		}
+		if config.APIURL != "" {
+			modelConfig["api_url"] = config.APIURL
+		}
+		languageModels[provider] = modelConfig
 	}
 
 	// Build assistant config

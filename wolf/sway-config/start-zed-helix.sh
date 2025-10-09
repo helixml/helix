@@ -36,24 +36,29 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     echo "Configured git user.email: $GIT_USER_EMAIL"
 fi
 
-# Wait for settings-sync-daemon to create initial configuration
-# This ensures Zed has proper settings before first launch
+# Wait for settings-sync-daemon to create complete configuration
+# This ensures Zed has proper settings INCLUDING language_models before first launch
 echo "Waiting for Zed configuration to be initialized..."
 WAIT_COUNT=0
 MAX_WAIT=60  # Wait up to 60 seconds
 
-while [ ! -f "$HOME/.config/zed/settings.json" ] && [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    if [ -f "$HOME/.config/zed/settings.json" ]; then
+        # Check if settings.json has language_models configured
+        if grep -q "language_models" "$HOME/.config/zed/settings.json" 2>/dev/null; then
+            echo "✅ Zed configuration ready with language_models"
+            break
+        fi
+    fi
     sleep 1
     WAIT_COUNT=$((WAIT_COUNT + 1))
     if [ $((WAIT_COUNT % 10)) -eq 0 ]; then
-        echo "Still waiting for settings.json... ($WAIT_COUNT seconds)"
+        echo "Still waiting for complete settings.json... ($WAIT_COUNT seconds)"
     fi
 done
 
-if [ -f "$HOME/.config/zed/settings.json" ]; then
-    echo "✅ Zed configuration ready (settings.json exists)"
-else
-    echo "⚠️  Warning: settings.json not found after ${MAX_WAIT}s, proceeding anyway..."
+if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+    echo "⚠️  Warning: Complete settings not ready after ${MAX_WAIT}s, proceeding anyway..."
 fi
 
 # Trap signals to prevent script exit when Zed is closed
