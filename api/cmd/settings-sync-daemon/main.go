@@ -140,18 +140,13 @@ func (d *SettingsDaemon) syncFromHelix() error {
 		d.helixSettings["theme"] = config.Theme
 	}
 
-	// Load existing user settings (if file exists)
-	if _, err := os.Stat(SettingsPath); err == nil {
-		data, _ := os.ReadFile(SettingsPath)
-		var current map[string]interface{}
-		if json.Unmarshal(data, &current) == nil {
-			d.userOverrides = extractUserOverrides(current, d.helixSettings)
-		}
-	}
+	// Don't load existing settings as user overrides on startup
+	// This prevents old/stale settings from being treated as user preferences
+	// User overrides are only tracked from changes made AFTER Helix config is written
+	d.userOverrides = make(map[string]interface{})
 
-	// Merge and write
-	merged := mergeSettings(d.helixSettings, d.userOverrides)
-	return d.writeSettings(merged)
+	// Write Helix settings directly (no merge on initial sync)
+	return d.writeSettings(d.helixSettings)
 }
 
 // mergeSettings applies three-way merge: Helix base + User overrides
