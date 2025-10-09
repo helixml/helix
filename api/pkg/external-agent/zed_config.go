@@ -75,7 +75,7 @@ func GenerateZedMCPConfig(
 		Enabled: true,
 		WebsocketSync: &WebsocketSyncConfig{
 			Enabled:     true,
-			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync", helixAPIURL),
+			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
 	config.Agent = &AgentConfig{
@@ -86,10 +86,16 @@ func GenerateZedMCPConfig(
 	config.Theme = "One Dark"
 
 	// Get primary assistant (first assistant or default)
-	if len(app.Config.Helix.Assistants) == 0 {
-		return config, nil // No assistants configured
+	var assistant types.AssistantConfig
+	if len(app.Config.Helix.Assistants) > 0 {
+		assistant = app.Config.Helix.Assistants[0]
+	} else {
+		// External agents with no app config - use default anthropic/claude
+		assistant = types.AssistantConfig{
+			Provider: "anthropic",
+			Model:    "claude-sonnet-4-5",
+		}
 	}
-	assistant := app.Config.Helix.Assistants[0]
 
 	// Configure language model from assistant settings
 	if assistant.Provider != "" && assistant.Model != "" {
