@@ -91,11 +91,29 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Detect supported video formats
       const supportedFormats = await getSupportedVideoFormats();
 
+      // If we have a wolfLobbyId, fetch apps to find the correct app ID
+      let actualAppId = appId;
+      if (wolfLobbyId) {
+        try {
+          const response = await fetch('/moonlight/api/apps');
+          const appsData = await response.json();
+
+          // Find app matching our session - Wolf creates apps with titles containing session info
+          // or use the first available app as fallback
+          if (appsData.apps && appsData.apps.length > 0) {
+            actualAppId = appsData.apps[0].id;
+            setStatus(`Found Moonlight app ID: ${actualAppId}`);
+          }
+        } catch (err) {
+          console.warn('Failed to fetch Moonlight apps, using default app ID:', err);
+        }
+      }
+
       // Create Stream instance
       const stream = new Stream(
         api,
-        hostId, // Wolf host ID
-        appId, // App ID (Wolf lobby)
+        hostId, // Wolf host ID (always 0 for local)
+        actualAppId, // Moonlight app ID
         settings,
         supportedFormats,
         [width, height]
