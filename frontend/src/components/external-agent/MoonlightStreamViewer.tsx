@@ -95,17 +95,28 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       let actualAppId = appId;
       if (wolfLobbyId) {
         try {
-          const response = await fetch('/moonlight/api/apps');
-          const appsData = await response.json();
+          const response = await fetch('/moonlight/api/apps', {
+            headers: {
+              'Authorization': `Bearer helix`,
+            },
+          });
 
-          // Find app matching our session - Wolf creates apps with titles containing session info
-          // or use the first available app as fallback
-          if (appsData.apps && appsData.apps.length > 0) {
-            actualAppId = appsData.apps[0].id;
-            setStatus(`Found Moonlight app ID: ${actualAppId}`);
+          if (!response.ok) {
+            console.warn(`Moonlight apps API returned ${response.status}`);
+          } else {
+            const text = await response.text();
+            if (text) {
+              const appsData = JSON.parse(text);
+              // Find app matching our session - Wolf creates apps with titles containing session info
+              // or use the first available app as fallback
+              if (appsData.apps && appsData.apps.length > 0) {
+                actualAppId = appsData.apps[0].id;
+                console.log(`Found Moonlight app ID: ${actualAppId}`, appsData.apps[0]);
+              }
+            }
           }
-        } catch (err) {
-          console.warn('Failed to fetch Moonlight apps, using default app ID:', err);
+        } catch (err: any) {
+          console.warn('Failed to fetch Moonlight apps, using default app ID:', err.message);
         }
       }
 
