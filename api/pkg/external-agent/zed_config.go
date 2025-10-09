@@ -33,9 +33,10 @@ type WebsocketSyncConfig struct {
 }
 
 type AgentConfig struct {
-	AlwaysAllowToolActions bool `json:"always_allow_tool_actions"`
-	ShowOnboarding         bool `json:"show_onboarding"`
-	AutoOpenPanel          bool `json:"auto_open_panel"`
+	DefaultModel           *ModelConfig `json:"default_model,omitempty"`
+	AlwaysAllowToolActions bool         `json:"always_allow_tool_actions"`
+	ShowOnboarding         bool         `json:"show_onboarding"`
+	AutoOpenPanel          bool         `json:"auto_open_panel"`
 }
 
 type LanguageModelConfig struct {
@@ -85,13 +86,6 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	config.Agent = &AgentConfig{
-		AlwaysAllowToolActions: true,
-		ShowOnboarding:         false,
-		AutoOpenPanel:          true,
-	}
-	config.Theme = "One Dark"
-
 	// Get primary assistant (first assistant or default)
 	var assistant types.AssistantConfig
 	if len(app.Config.Helix.Assistants) > 0 {
@@ -100,13 +94,25 @@ func GenerateZedMCPConfig(
 		// External agents with no app config - use default anthropic/claude
 		assistant = types.AssistantConfig{
 			Provider: "anthropic",
-			Model:    "claude-sonnet-4-5",
+			Model:    "claude-sonnet-4-5-latest",
 		}
 	}
 
+	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
+	config.Agent = &AgentConfig{
+		DefaultModel: &ModelConfig{
+			Provider: assistant.Provider,
+			Model:    assistant.Model,
+		},
+		AlwaysAllowToolActions: true,
+		ShowOnboarding:         false,
+		AutoOpenPanel:          true,
+	}
+	config.Theme = "One Dark"
+
 	// Don't configure assistant or language_models sections
-	// Zed will use ANTHROPIC_API_KEY environment variable and its own defaults
-	// Only configure external_sync, agent, theme, and context_servers (MCPs)
+	// Zed will use ANTHROPIC_API_KEY environment variable
+	// default_model goes in agent section!
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
 	if hasNativeTools(assistant) {
