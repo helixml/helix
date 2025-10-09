@@ -20,6 +20,7 @@ type ZedMCPConfig struct {
 	ExternalSync   *ExternalSyncConfig             `json:"external_sync,omitempty"`
 	Agent          *AgentConfig                    `json:"agent,omitempty"`
 	Theme          string                          `json:"theme,omitempty"`
+	Version        int                             `json:"version,omitempty"` // Preserved by Zed settings system
 }
 
 type ExternalSyncConfig struct {
@@ -39,8 +40,14 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIKey string `json:"api_key,omitempty"`
-	APIURL string `json:"api_url,omitempty"` // Helix proxy URL for model API
+	APIURL          string            `json:"api_url"` // Custom API URL (empty = use default provider URL)
+	AvailableModels []AvailableModel  `json:"available_models,omitempty"` // Custom models to add
+}
+
+type AvailableModel struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	MaxTokens   int    `json:"max_tokens,omitempty"`
 }
 
 type AssistantSettings struct {
@@ -69,6 +76,7 @@ func GenerateZedMCPConfig(
 ) (*ZedMCPConfig, error) {
 	config := &ZedMCPConfig{
 		ContextServers: make(map[string]ContextServerConfig),
+		Version:        1, // Zed settings version
 	}
 
 	// Set base Helix integration settings (always required)
@@ -99,22 +107,21 @@ func GenerateZedMCPConfig(
 	}
 
 	// Configure language model from assistant settings
+	// Note: API keys come from environment variables (ANTHROPIC_API_KEY, etc), not settings.json
+	// language_models section only configures api_url (custom endpoints) and available_models
 	if assistant.Provider != "" && assistant.Model != "" {
-		// Get API key from environment - Zed calls provider directly (not through Helix proxy)
-		apiKey := getAPIKeyForProvider(assistant.Provider)
-		if apiKey != "" {
-			config.LanguageModels = map[string]LanguageModelConfig{
-				assistant.Provider: {
-					APIKey: apiKey,
-				},
-			}
-			config.Assistant = &AssistantSettings{
-				Version: "2",
-				DefaultModel: &ModelConfig{
-					Provider: assistant.Provider,
-					Model:    assistant.Model,
-				},
-			}
+		config.LanguageModels = map[string]LanguageModelConfig{
+			assistant.Provider: {
+				APIURL: "", // Empty = use default provider URL (anthropic.com, etc)
+				// API key comes from ANTHROPIC_API_KEY environment variable
+			},
+		}
+		config.Assistant = &AssistantSettings{
+			Version: "2",
+			DefaultModel: &ModelConfig{
+				Provider: assistant.Provider,
+				Model:    assistant.Model,
+			},
 		}
 	}
 
