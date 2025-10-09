@@ -9,7 +9,7 @@ import {
   VolumeUp,
   VolumeOff,
 } from '@mui/icons-material';
-import { getApi } from '../../lib/moonlight-web-ts/api';
+import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
@@ -95,28 +95,25 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       let actualAppId = appId;
       if (wolfLobbyId) {
         try {
-          const response = await fetch('/moonlight/api/apps', {
-            headers: {
-              'Authorization': `Bearer helix`,
-            },
-          });
+          // Use the authenticated API client to fetch apps
+          const apps = await apiGetApps(api, {});
 
-          if (!response.ok) {
-            console.warn(`Moonlight apps API returned ${response.status}`);
+          // Find app matching our session or use the first available app
+          if (apps && apps.length > 0) {
+            actualAppId = apps[0].id;
+            console.log(`Found Moonlight app ID: ${actualAppId}`, apps[0]);
+            setStatus(`Connecting to app: ${apps[0].title || actualAppId}`);
           } else {
-            const text = await response.text();
-            if (text) {
-              const appsData = JSON.parse(text);
-              // Find app matching our session - Wolf creates apps with titles containing session info
-              // or use the first available app as fallback
-              if (appsData.apps && appsData.apps.length > 0) {
-                actualAppId = appsData.apps[0].id;
-                console.log(`Found Moonlight app ID: ${actualAppId}`, appsData.apps[0]);
-              }
-            }
+            console.warn('No Moonlight apps available');
+            setError('No streaming apps available');
+            setIsConnecting(false);
+            return;
           }
         } catch (err: any) {
-          console.warn('Failed to fetch Moonlight apps, using default app ID:', err.message);
+          console.warn('Failed to fetch Moonlight apps:', err.message);
+          setError('Failed to fetch streaming apps');
+          setIsConnecting(false);
+          return;
         }
       }
 
