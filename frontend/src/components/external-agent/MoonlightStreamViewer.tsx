@@ -71,10 +71,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setStatus('Connecting to streaming server...');
 
     try {
+      // CRITICAL: Set credentials in sessionStorage BEFORE calling getApi
+      // This prevents the blocking credential prompt modal
+      sessionStorage.setItem('mlCredentials', 'helix');
+
       // Create API instance pointing to our moonlight-web backend
       const api = await getApi('/moonlight/api');
 
-      // Set credentials (must match moonlight-web-config/config.json)
+      // Credentials already set above
       api.credentials = 'helix';
 
       // Get default stream settings and customize
