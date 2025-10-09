@@ -354,7 +354,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
             color: 'white',
           }}
         >
-          <Typography variant="body1">Loading screenshot...</Typography>
+          <Typography variant="body1">Loading desktop...</Typography>
         </Box>
       )}
 
