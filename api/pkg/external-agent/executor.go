@@ -99,16 +99,17 @@ type ZedThreadInfo struct {
 
 // ZedSession represents a single Zed session
 type ZedSession struct {
-	SessionID     string    `json:"session_id"`
-	UserID        string    `json:"user_id"`
-	Status        string    `json:"status"`
-	StartTime     time.Time `json:"start_time"`
-	LastAccess    time.Time `json:"last_access"`
-	ProjectPath   string    `json:"project_path,omitempty"`
-	WolfAppID     string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
-	WolfSessionID int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
-	WolfLobbyID   string    `json:"wolf_lobby_id,omitempty"`   // NEW: Lobby ID for auto-start approach
-	ContainerName string    `json:"container_name,omitempty"`
+	SessionID      string    `json:"session_id"`       // Agent session ID (key for external agents)
+	HelixSessionID string    `json:"helix_session_id"` // Helix session ID (for screenshot lookup)
+	UserID         string    `json:"user_id"`
+	Status         string    `json:"status"`
+	StartTime      time.Time `json:"start_time"`
+	LastAccess     time.Time `json:"last_access"`
+	ProjectPath    string    `json:"project_path,omitempty"`
+	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
+	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
+	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // NEW: Lobby ID for auto-start approach
+	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
 }
 
 // NewPoolExecutor creates a new pool-based executor

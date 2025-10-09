@@ -297,14 +297,15 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Track session with lobby ID
 	session := &ZedSession{
-		SessionID:     agent.SessionID,
-		UserID:        agent.UserID,
-		Status:        "running", // Container is running immediately with lobbies
-		StartTime:     time.Now(),
-		LastAccess:    time.Now(),
-		ProjectPath:   agent.ProjectPath,
-		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Track lobby ID
-		ContainerName: containerHostname,
+		SessionID:      agent.SessionID,
+		HelixSessionID: helixSessionID, // Store Helix session ID for screenshot lookup
+		UserID:         agent.UserID,
+		Status:         "running", // Container is running immediately with lobbies
+		StartTime:      time.Now(),
+		LastAccess:     time.Now(),
+		ProjectPath:    agent.ProjectPath,
+		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Track lobby ID
+		ContainerName:  containerHostname,
 	}
 	w.sessions[agent.SessionID] = session
 
@@ -1473,17 +1474,28 @@ func validateDisplayParams(width, height, fps int) error {
 }
 
 // FindContainerBySessionID finds an external agent container by its Helix session ID
-// External agent containers are named zed-external-{session_id_without_ses_prefix}
-func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, sessionID string) (string, error) {
-	// Container name is derived from session ID: zed-external-01k6d7vaf6s4k5mr3zfm4q6f5y
-	// Strip "ses_" prefix from session ID
-	sessionIDPart := strings.TrimPrefix(sessionID, "ses_")
-	containerName := fmt.Sprintf("zed-external-%s", sessionIDPart)
+// Returns the container hostname (DNS name) for connecting to screenshot server
+func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
+	w.mutex.RLock()
+	defer w.mutex.RUnlock()
 
-	log.Info().
-		Str("session_id", sessionID).
-		Str("container_name", containerName).
-		Msg("Constructed external agent container name from session ID")
+	// External agent sessions are keyed by agent session ID, but we need to find by Helix session ID
+	// Search through all sessions to find the one with matching HelixSessionID
+	for agentSessionID, session := range w.sessions {
+		if session.HelixSessionID == helixSessionID {
+			log.Info().
+				Str("helix_session_id", helixSessionID).
+				Str("agent_session_id", agentSessionID).
+				Str("container_hostname", session.ContainerName).
+				Msg("Found external agent container by Helix session ID")
+			return session.ContainerName, nil
+		}
+	}
 
-	return containerName, nil
+	log.Error().
+		Str("helix_session_id", helixSessionID).
+		Int("total_sessions", len(w.sessions)).
+		Msg("No external agent session found with this Helix session ID")
+
+	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
 }
