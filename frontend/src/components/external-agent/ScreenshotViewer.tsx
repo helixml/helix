@@ -132,7 +132,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   }, []);
 
   // If in streaming mode, render MoonlightWebPlayer instead
-  if (streamingMode === 'stream' && enableStreaming) {
+  if (streamingMode === 'stream' && enableStreaming && wolfLobbyId) {
     return (
       <Box
         ref={containerRef}
@@ -179,7 +179,6 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
           sessionId={sessionId}
           wolfLobbyId={wolfLobbyId}
           isPersonalDevEnvironment={isPersonalDevEnvironment}
-          onConnectionChange={onConnectionChange}
           onError={onError}
           width={width}
           height={height}

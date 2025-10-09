@@ -9,6 +9,10 @@ import {
   VolumeUp,
   VolumeOff,
 } from '@mui/icons-material';
+import { getApi } from '../../lib/moonlight-web-ts/api';
+import { Stream } from '../../lib/moonlight-web-ts/stream/index';
+import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
+import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 
 interface MoonlightStreamViewerProps {
   sessionId: string;
@@ -59,53 +63,29 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
 
-  // Load moonlight-web-stream modules dynamically
-  const loadMoonlightModules = useCallback(async () => {
-    try {
-      // Import Stream class from compiled moonlight-web modules
-      const streamModule = await import('/moonlight-static/stream/index.js');
-      const apiModule = await import('/moonlight-static/api.js');
-
-      return { Stream: streamModule.Stream, getApi: apiModule.getApi };
-    } catch (err: any) {
-      throw new Error(`Failed to load moonlight modules: ${err.message}`);
-    }
-  }, []);
 
   // Connect to stream
   const connect = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
-    setStatus('Loading streaming modules...');
+    setStatus('Connecting to streaming server...');
 
     try {
-      // Load moonlight-web modules
-      const { Stream, getApi } = await loadMoonlightModules();
-
-      setStatus('Connecting to streaming server...');
-
       // Create API instance pointing to our moonlight-web backend
       const api = await getApi('/moonlight/api');
 
       // Set credentials (must match moonlight-web-config/config.json)
       api.credentials = 'helix';
 
-      // Stream settings (defaults from moonlight-web)
-      const settings = {
-        bitrate: 20000, // kbps
-        packetSize: 1024,
-        fps: 60,
-        width,
-        height,
-        videoSampleQueueSize: 5,
-        audioSampleQueueSize: 5,
-        playAudioLocal: !audioEnabled,
-        dontForceH264: false, // Use H.264 for compatibility
-      };
+      // Get default stream settings and customize
+      const settings = defaultStreamSettings();
+      settings.bitrate = 20000;
+      settings.packetSize = 1024;
+      settings.fps = 60;
+      settings.playAudioLocal = !audioEnabled;
 
       // Detect supported video formats
-      const videoFormatModule = await import('/moonlight-static/stream/video.js');
-      const supportedFormats = await videoFormatModule.getSupportedVideoFormats();
+      const supportedFormats = await getSupportedVideoFormats();
 
       // Create Stream instance
       const stream = new Stream(
@@ -114,7 +94,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         appId, // App ID (Wolf lobby)
         settings,
         supportedFormats,
-        [window.innerWidth, window.innerHeight]
+        [width, height]
       );
 
       streamRef.current = stream;
@@ -158,7 +138,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setIsConnecting(false);
       onError?.(errorMsg);
     }
-  }, [hostId, appId, width, height, audioEnabled, loadMoonlightModules, onConnectionChange, onError]);
+  }, [hostId, appId, width, height, audioEnabled, onConnectionChange, onError]);
 
   // Disconnect
   const disconnect = useCallback(() => {

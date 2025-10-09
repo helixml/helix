@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/helixml/helix/api/pkg/client"
 )
 
 const (
@@ -21,7 +21,9 @@ const (
 )
 
 type SettingsDaemon struct {
-	helixClient  *client.Client
+	httpClient   *http.Client
+	apiURL       string
+	apiToken     string
 	sessionID    string
 	watcher      *fsnotify.Watcher
 	lastModified time.Time
@@ -52,18 +54,11 @@ func main() {
 	log.Printf("Helix API URL: %s", helixURL)
 	log.Printf("Settings path: %s", SettingsPath)
 
-	// Create Helix API client
-	helixClient, err := client.NewClient(context.Background(), &client.ClientOptions{
-		URL:   helixURL,
-		Token: helixToken,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create Helix client: %v", err)
-	}
-
 	daemon := &SettingsDaemon{
-		helixClient: helixClient,
-		sessionID:   sessionID,
+		httpClient: http.DefaultClient,
+		apiURL:     helixURL,
+		apiToken:   helixToken,
+		sessionID:  sessionID,
 	}
 
 	// Initial sync from Helix → local
@@ -93,21 +88,56 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	ctx := context.Background()
 
 	// Fetch Helix-managed config
-	resp, err := d.helixClient.Get(ctx, fmt.Sprintf("/api/v1/sessions/%s/zed-config", d.sessionID), nil)
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/zed-config", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch Helix config: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
 	}
 
 	var config struct {
 		ContextServers map[string]interface{} `json:"context_servers"`
+		LanguageModels map[string]interface{} `json:"language_models"`
+		Assistant      map[string]interface{} `json:"assistant"`
+		ExternalSync   map[string]interface{} `json:"external_sync"`
+		Agent          map[string]interface{} `json:"agent"`
+		Theme          string                 `json:"theme"`
 		Version        int64                  `json:"version"`
 	}
-	if err := json.Unmarshal(resp, &config); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse Helix config: %w", err)
 	}
 
 	d.helixSettings = map[string]interface{}{
 		"context_servers": config.ContextServers,
+	}
+	if config.LanguageModels != nil {
+		d.helixSettings["language_models"] = config.LanguageModels
+	}
+	if config.Assistant != nil {
+		d.helixSettings["assistant"] = config.Assistant
+	}
+	if config.ExternalSync != nil {
+		d.helixSettings["external_sync"] = config.ExternalSync
+	}
+	if config.Agent != nil {
+		d.helixSettings["agent"] = config.Agent
+	}
+	if config.Theme != "" {
+		d.helixSettings["theme"] = config.Theme
 	}
 
 	// Load existing user settings (if file exists)
@@ -281,8 +311,28 @@ func (d *SettingsDaemon) syncToHelix() error {
 		return err
 	}
 
-	_, err = d.helixClient.Post(ctx, fmt.Sprintf("/api/v1/sessions/%s/zed-config/user", d.sessionID), payload)
-	return err
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/zed-config/user", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("failed to sync to Helix: status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // pollHelixChanges checks for app config updates from Helix
@@ -300,21 +350,56 @@ func (d *SettingsDaemon) pollHelixChanges() {
 func (d *SettingsDaemon) checkHelixUpdates() error {
 	ctx := context.Background()
 
-	resp, err := d.helixClient.Get(ctx, fmt.Sprintf("/api/v1/sessions/%s/zed-config", d.sessionID), nil)
+	url := fmt.Sprintf("%s/api/v1/sessions/%s/zed-config", d.apiURL, d.sessionID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return err
 	}
 
+	if d.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiToken)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to fetch config: status %d", resp.StatusCode)
+	}
+
 	var config struct {
 		ContextServers map[string]interface{} `json:"context_servers"`
+		LanguageModels map[string]interface{} `json:"language_models"`
+		Assistant      map[string]interface{} `json:"assistant"`
+		ExternalSync   map[string]interface{} `json:"external_sync"`
+		Agent          map[string]interface{} `json:"agent"`
+		Theme          string                 `json:"theme"`
 		Version        int64                  `json:"version"`
 	}
-	if err := json.Unmarshal(resp, &config); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		return err
 	}
 
 	newHelixSettings := map[string]interface{}{
 		"context_servers": config.ContextServers,
+	}
+	if config.LanguageModels != nil {
+		newHelixSettings["language_models"] = config.LanguageModels
+	}
+	if config.Assistant != nil {
+		newHelixSettings["assistant"] = config.Assistant
+	}
+	if config.ExternalSync != nil {
+		newHelixSettings["external_sync"] = config.ExternalSync
+	}
+	if config.Agent != nil {
+		newHelixSettings["agent"] = config.Agent
+	}
+	if config.Theme != "" {
+		newHelixSettings["theme"] = config.Theme
 	}
 
 	// Check if Helix settings changed

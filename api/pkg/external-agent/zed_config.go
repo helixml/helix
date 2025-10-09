@@ -15,6 +15,41 @@ import (
 // ZedMCPConfig represents Zed's MCP configuration format
 type ZedMCPConfig struct {
 	ContextServers map[string]ContextServerConfig `json:"context_servers"`
+	LanguageModels map[string]LanguageModelConfig `json:"language_models,omitempty"`
+	Assistant      *AssistantSettings              `json:"assistant,omitempty"`
+	ExternalSync   *ExternalSyncConfig             `json:"external_sync,omitempty"`
+	Agent          *AgentConfig                    `json:"agent,omitempty"`
+	Theme          string                          `json:"theme,omitempty"`
+}
+
+type ExternalSyncConfig struct {
+	Enabled       bool                 `json:"enabled"`
+	WebsocketSync *WebsocketSyncConfig `json:"websocket_sync,omitempty"`
+}
+
+type WebsocketSyncConfig struct {
+	Enabled     bool   `json:"enabled"`
+	ExternalURL string `json:"external_url"`
+}
+
+type AgentConfig struct {
+	AlwaysAllowToolActions bool `json:"always_allow_tool_actions"`
+	ShowOnboarding         bool `json:"show_onboarding"`
+	AutoOpenPanel          bool `json:"auto_open_panel"`
+}
+
+type LanguageModelConfig struct {
+	APIKey string `json:"api_key"`
+}
+
+type AssistantSettings struct {
+	Version      string       `json:"version"`
+	DefaultModel *ModelConfig `json:"default_model,omitempty"`
+}
+
+type ModelConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 type ContextServerConfig struct {
@@ -35,11 +70,46 @@ func GenerateZedMCPConfig(
 		ContextServers: make(map[string]ContextServerConfig),
 	}
 
+	// Set base Helix integration settings (always required)
+	config.ExternalSync = &ExternalSyncConfig{
+		Enabled: true,
+		WebsocketSync: &WebsocketSyncConfig{
+			Enabled:     true,
+			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync", helixAPIURL),
+		},
+	}
+	config.Agent = &AgentConfig{
+		AlwaysAllowToolActions: true,
+		ShowOnboarding:         false,
+		AutoOpenPanel:          true,
+	}
+	config.Theme = "One Dark"
+
 	// Get primary assistant (first assistant or default)
 	if len(app.Config.Helix.Assistants) == 0 {
 		return config, nil // No assistants configured
 	}
 	assistant := app.Config.Helix.Assistants[0]
+
+	// Configure language model from assistant settings
+	if assistant.Provider != "" && assistant.Model != "" {
+		// Get API key from environment based on provider
+		apiKey := getAPIKeyForProvider(assistant.Provider)
+		if apiKey != "" {
+			config.LanguageModels = map[string]LanguageModelConfig{
+				assistant.Provider: {
+					APIKey: apiKey,
+				},
+			}
+			config.Assistant = &AssistantSettings{
+				Version: "2",
+				DefaultModel: &ModelConfig{
+					Provider: assistant.Provider,
+					Model:    assistant.Model,
+				},
+			}
+		}
+	}
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
 	if hasNativeTools(assistant) {
@@ -148,6 +218,20 @@ func sanitizeName(name string) string {
 		}
 	}
 	return strings.Trim(result.String(), "-")
+}
+
+// getAPIKeyForProvider retrieves the API key for a given provider from environment
+func getAPIKeyForProvider(provider string) string {
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		return os.Getenv("ANTHROPIC_API_KEY")
+	case "openai":
+		return os.Getenv("OPENAI_API_KEY")
+	case "together":
+		return os.Getenv("TOGETHER_API_KEY")
+	default:
+		return ""
+	}
 }
 
 // GetZedConfigForSession retrieves Zed MCP config for a session
