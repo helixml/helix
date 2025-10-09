@@ -21,9 +21,7 @@ import (
 // @Failure 500 {object} system.HTTPError
 // @Security ApiKeyAuth
 // @Router /api/v1/agents/fleet/live-progress [get]
-func (apiServer *HelixAPIServer) getAgentFleetLiveProgress(_ http.ResponseWriter, req *http.Request) (*LiveAgentFleetProgressResponse, *system.HTTPError) {
-	ctx := req.Context()
-
+func (apiServer *HelixAPIServer) getAgentFleetLiveProgress(_ http.ResponseWriter, _ *http.Request) (*LiveAgentFleetProgressResponse, *system.HTTPError) {
 	// Get orchestrator (would be initialized in server startup)
 	orchestrator := apiServer.GetOrchestrator()
 	if orchestrator == nil {

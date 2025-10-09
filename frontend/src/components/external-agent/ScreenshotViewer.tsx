@@ -37,6 +37,8 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamingMode, setStreamingMode] = useState<'screenshot' | 'stream'>('screenshot');
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const mountTimeRef = React.useRef<Date>(new Date());
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // Construct screenshot endpoint
   const getScreenshotEndpoint = useCallback(() => {
@@ -76,14 +78,24 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       setScreenshotUrl(url);
       setLastRefresh(new Date());
       setIsLoading(false);
+      setIsInitialLoading(false); // First successful fetch ends initial loading
       setError(null);
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to fetch screenshot';
-      setError(errorMsg);
-      onError?.(errorMsg);
-      setIsLoading(false);
+
+      // During initial loading (first 60 seconds), suppress errors
+      // Container takes time to start and screenshot server to initialize
+      if (isInitialLoading) {
+        // Keep loading state, don't show error yet
+        setIsLoading(true);
+      } else {
+        // After grace period, show actual errors
+        setError(errorMsg);
+        onError?.(errorMsg);
+        setIsLoading(false);
+      }
     }
-  }, [getScreenshotEndpoint, screenshotUrl, onError]);
+  }, [getScreenshotEndpoint, screenshotUrl, onError, isInitialLoading]);
 
   // Auto-refresh screenshot with RAF for higher priority
   useEffect(() => {
@@ -112,6 +124,15 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   useEffect(() => {
     fetchScreenshot();
   }, [sessionId]);
+
+  // End initial loading grace period after 60 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 60000); // 60 seconds grace period for container startup
+
+    return () => clearTimeout(timer);
+  }, []);
 
   // Cleanup screenshot URL on unmount
   useEffect(() => {
