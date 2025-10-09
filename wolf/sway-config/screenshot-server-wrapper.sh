@@ -4,7 +4,7 @@
 # Replaces /usr/local/bin/screenshot-server with env-aware version
 
 # Ensure we have correct Wayland display
-export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-1}
+export WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-2}
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/sockets}
 
 echo "Screenshot server wrapper starting with WAYLAND_DISPLAY=$WAYLAND_DISPLAY" >&2
