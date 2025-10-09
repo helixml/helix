@@ -100,7 +100,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
           // Find app matching our session or use the first available app
           if (apps && apps.length > 0) {
-            actualAppId = apps[0].id;
+            actualAppId = apps[0].app_id; // Note: field is app_id not id
             console.log(`Found Moonlight app ID: ${actualAppId}`, apps[0]);
             setStatus(`Connecting to app: ${apps[0].title || actualAppId}`);
           } else {
