@@ -143,6 +143,13 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 			"show_onboarding":           zedConfig.Agent.ShowOnboarding,
 			"auto_open_panel":           zedConfig.Agent.AutoOpenPanel,
 		}
+		// Add default_model if configured
+		if zedConfig.Agent.DefaultModel != nil {
+			agentConfig["default_model"] = map[string]interface{}{
+				"provider": zedConfig.Agent.DefaultModel.Provider,
+				"model":    zedConfig.Agent.DefaultModel.Model,
+			}
+		}
 	}
 
 	// Use app.Updated for version, or current time if app is minimal
