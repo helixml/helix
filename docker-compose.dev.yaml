@@ -28,8 +28,6 @@ services:
             target: api-dev-env
         ports:
             - ${API_PORT:-8080}:8080
-            # RDP proxy port range for Guacamole connections
-            - "15900-15999:15900-15999"
         restart: always
         env_file:
             - .env
@@ -88,12 +86,6 @@ services:
             - RAG_PGVECTOR_PROVIDER=helix
             # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
-            # Guacamole configuration
-            - GUACAMOLE_SERVER_URL=${GUACAMOLE_SERVER_URL:-http://guacamole-client:8080}
-            - GUACAMOLE_USERNAME=${GUACAMOLE_USERNAME:-guacadmin}
-            - GUACAMOLE_PASSWORD=${GUACAMOLE_PASSWORD:-guacadmin}
-            # Direct VNC proxy for local development (bypasses reverse dial)
-            - DIRECT_VNC_PROXY=${DIRECT_VNC_PROXY:-true}
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
@@ -126,7 +118,7 @@ services:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-            - POSTGRES_DATABASES=keycloak,guacamole_db
+            - POSTGRES_DATABASES=keycloak
     # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
@@ -238,7 +230,7 @@ services:
         #   - 7317:7317
 
     wolf:
-      image: ghcr.io/games-on-whales/wolf:wolf-ui
+      image: wolf:helix-fixed
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
@@ -522,38 +514,6 @@ services:
             - pgvector
         extra_hosts:
             - "host.docker.internal:host-gateway"
-
-    # Apache Guacamole for web-based RDP access
-    guacamole:
-        image: guacamole/guacd:1.5.4
-        restart: always
-        # ports:
-        #   - 4822:4822
-
-
-
-
-
-    guacamole-client:
-        image: guacamole/guacamole:1.5.5
-        restart: always
-        ports:
-            - ${GUACAMOLE_PORT:-8090}:8080
-        environment:
-            - GUACD_HOSTNAME=guacamole
-            - GUACD_PORT=4822
-            - POSTGRES_HOSTNAME=postgres
-            - POSTGRES_PORT=5432
-            - POSTGRES_DATABASE=guacamole_db
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-            - JAVA_OPTS=-Djava.awt.headless=true -Dcom.sun.management.jmxremote=false -XX:+UseContainerSupport -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap
-        depends_on:
-            - postgres
-            - guacamole
-
-
-
 
 volumes:
     helix-keycloak-db:

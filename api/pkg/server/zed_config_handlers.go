@@ -36,9 +36,14 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
+	// Verify access: either user owns this session OR request is using runner token
 	user := getRequestUser(req)
-	if user == nil || session.Owner != user.ID {
+	if user == nil {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Allow runner token OR session owner
+	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 
@@ -66,7 +71,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError500("failed to generate Zed config")
 	}
 
-	// Convert to response format
+	// Convert to response format - include ALL fields from zedConfig
 	contextServers := make(map[string]interface{})
 	for name, server := range zedConfig.ContextServers {
 		serverMap := map[string]interface{}{
@@ -79,8 +84,59 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		contextServers[name] = serverMap
 	}
 
+	// Build language models config
+	languageModels := make(map[string]interface{})
+	for provider, config := range zedConfig.LanguageModels {
+		languageModels[provider] = map[string]interface{}{
+			"api_key": config.APIKey,
+		}
+	}
+
+	// Build assistant config
+	var assistant map[string]interface{}
+	if zedConfig.Assistant != nil {
+		assistant = map[string]interface{}{
+			"version": zedConfig.Assistant.Version,
+		}
+		if zedConfig.Assistant.DefaultModel != nil {
+			assistant["default_model"] = map[string]interface{}{
+				"provider": zedConfig.Assistant.DefaultModel.Provider,
+				"model":    zedConfig.Assistant.DefaultModel.Model,
+			}
+		}
+	}
+
+	// Build external_sync config
+	var externalSync map[string]interface{}
+	if zedConfig.ExternalSync != nil {
+		externalSync = map[string]interface{}{
+			"enabled": zedConfig.ExternalSync.Enabled,
+		}
+		if zedConfig.ExternalSync.WebsocketSync != nil {
+			externalSync["websocket_sync"] = map[string]interface{}{
+				"enabled":      zedConfig.ExternalSync.WebsocketSync.Enabled,
+				"external_url": zedConfig.ExternalSync.WebsocketSync.ExternalURL,
+			}
+		}
+	}
+
+	// Build agent config
+	var agentConfig map[string]interface{}
+	if zedConfig.Agent != nil {
+		agentConfig = map[string]interface{}{
+			"always_allow_tool_actions": zedConfig.Agent.AlwaysAllowToolActions,
+			"show_onboarding":           zedConfig.Agent.ShowOnboarding,
+			"auto_open_panel":           zedConfig.Agent.AutoOpenPanel,
+		}
+	}
+
 	response := &types.ZedConfigResponse{
 		ContextServers: contextServers,
+		LanguageModels: languageModels,
+		Assistant:      assistant,
+		ExternalSync:   externalSync,
+		Agent:          agentConfig,
+		Theme:          zedConfig.Theme,
 		Version:        app.Updated.Unix(),
 	}
 
@@ -113,9 +169,14 @@ func (apiServer *HelixAPIServer) updateZedUserSettings(_ http.ResponseWriter, re
 		return nil, system.NewHTTPError404("session not found")
 	}
 
-	// Verify user owns this session
+	// Verify access: either user owns this session OR request is using runner token
 	user := getRequestUser(req)
-	if user == nil || session.Owner != user.ID {
+	if user == nil {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Allow runner token OR session owner
+	if user.TokenType != types.TokenTypeRunner && session.Owner != user.ID {
 		return nil, system.NewHTTPError403("access denied")
 	}
 

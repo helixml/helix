@@ -2005,6 +2005,11 @@ type ZedSettingsOverride struct {
 // ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
 type ZedConfigResponse struct {
 	ContextServers map[string]interface{} `json:"context_servers"`
+	LanguageModels map[string]interface{} `json:"language_models,omitempty"`
+	Assistant      map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync   map[string]interface{} `json:"external_sync,omitempty"`
+	Agent          map[string]interface{} `json:"agent,omitempty"`
+	Theme          string                 `json:"theme,omitempty"`
 	Version        int64                  `json:"version"` // Unix timestamp of app config update
 }
 

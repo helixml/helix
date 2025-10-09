@@ -68,6 +68,39 @@ pkill -f "cargo build" && pkill -f rustc
 5. Auto-restart script launches updated binary in 2 seconds
 6. No container recreation needed - directory bind-mount survives inode changes
 
+## CRITICAL: Sway Container Image Build Process
+
+**ALWAYS use the stack command for building the Sway image - NEVER use docker build directly**
+
+```bash
+# ✅ CORRECT: Build helix-sway image using stack script
+./stack build-sway
+
+# ❌ WRONG: Direct docker commands may miss important configurations
+docker build -f Dockerfile.sway-helix -t helix-sway:latest .
+```
+
+**Why stack script is MANDATORY:**
+- Ensures correct image tag (`helix-sway:latest`)
+- Consistent build process with other stack operations
+- Provides clear success/failure feedback with feature summary
+- Used by Wolf executor for both PDEs and External Agents
+
+**When to rebuild the Sway image:**
+- After modifying startup scripts in `wolf/sway-config/`
+- After modifying `Dockerfile.sway-helix`
+- After updating Go daemons (settings-sync-daemon, screenshot-server)
+- After changing Sway/waybar configurations
+
+**Critical files in the Sway image:**
+- `/usr/local/bin/start-zed-helix.sh` - Zed startup script with initialization wait
+- `/opt/gow/startup-app.sh` - GOW launcher configuration
+- `/usr/local/bin/settings-sync-daemon` - Zed settings synchronization
+- `/usr/local/bin/screenshot-server` - Screenshot capture for streaming
+
+**After rebuilding, NEW external agent sessions will use the updated image automatically.**
+Existing containers will NOT pick up changes - you must create a new session to test.
+
 ## Key Development Rules (from design.md)
 
 ### ALWAYS Follow These Rules:
