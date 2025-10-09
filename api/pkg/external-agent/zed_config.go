@@ -100,18 +100,21 @@ func GenerateZedMCPConfig(
 
 	// Configure language model from assistant settings
 	if assistant.Provider != "" && assistant.Model != "" {
-		// Configure Zed to use Helix as OpenAI-compatible proxy
-		config.LanguageModels = map[string]LanguageModelConfig{
-			assistant.Provider: {
-				APIURL: fmt.Sprintf("%s/v1/chat/completions", helixAPIURL),
-			},
-		}
-		config.Assistant = &AssistantSettings{
-			Version: "2",
-			DefaultModel: &ModelConfig{
-				Provider: assistant.Provider,
-				Model:    assistant.Model,
-			},
+		// Get API key from environment - Zed calls provider directly (not through Helix proxy)
+		apiKey := getAPIKeyForProvider(assistant.Provider)
+		if apiKey != "" {
+			config.LanguageModels = map[string]LanguageModelConfig{
+				assistant.Provider: {
+					APIKey: apiKey,
+				},
+			}
+			config.Assistant = &AssistantSettings{
+				Version: "2",
+				DefaultModel: &ModelConfig{
+					Provider: assistant.Provider,
+					Model:    assistant.Model,
+				},
+			}
 		}
 	}
 
