@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/services"
@@ -49,7 +50,7 @@ func (apiServer *HelixAPIServer) getAgentFleetLiveProgress(_ http.ResponseWriter
 
 	response := &LiveAgentFleetProgressResponse{
 		Agents:    agents,
-		Timestamp: ctx.Value("request_time").(string),
+		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
 	return response, nil
