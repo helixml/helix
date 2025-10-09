@@ -79,7 +79,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		OwnerType: types.OwnerTypeUser,
 		Type:      types.SessionTypeText,
 		Mode:      types.SessionModeInference,
-		ModelName: "claude-3.5-sonnet",
+		ModelName: "claude-sonnet-4-5-latest", // Force Sonnet 4.5 for external agents
 		Created:   time.Now(),
 		Updated:   time.Now(),
 		Metadata: types.SessionMetadata{
