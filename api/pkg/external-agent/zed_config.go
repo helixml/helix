@@ -104,18 +104,9 @@ func GenerateZedMCPConfig(
 		}
 	}
 
-	// Configure assistant default model
-	// Note: API keys come from environment variables (ANTHROPIC_API_KEY, etc)
-	// Don't set language_models section unless customizing api_url or available_models
-	if assistant.Provider != "" && assistant.Model != "" {
-		config.Assistant = &AssistantSettings{
-			Version: "2",
-			DefaultModel: &ModelConfig{
-				Provider: assistant.Provider,
-				Model:    assistant.Model,
-			},
-		}
-	}
+	// Don't configure assistant or language_models sections
+	// Zed will use ANTHROPIC_API_KEY environment variable and its own defaults
+	// Only configure external_sync, agent, theme, and context_servers (MCPs)
 
 	// 1. Add Helix native tools as helix-cli MCP proxy
 	if hasNativeTools(assistant) {
