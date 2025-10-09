@@ -86,16 +86,28 @@ func GenerateZedMCPConfig(
 			ExternalURL: fmt.Sprintf("%s/api/v1/external-agents/sync?session_id=%s", helixAPIURL, sessionID),
 		},
 	}
-	// Get primary assistant (first assistant or default)
-	var assistant types.AssistantConfig
-	if len(app.Config.Helix.Assistants) > 0 {
-		assistant = app.Config.Helix.Assistants[0]
-	} else {
-		// External agents with no app config - use default anthropic/claude
-		assistant = types.AssistantConfig{
-			Provider: "anthropic",
-			Model:    "claude-sonnet-4-5-latest",
-		}
+	// ALWAYS use claude-sonnet-4-5-latest for Zed agents (ignore app database config)
+	// The Helix UI doesn't expose model selection for Zed agents yet
+	//
+	// TODO: When adding model selection UI for Zed agents:
+	// - Uncomment the code below to read from app.Config.Helix.Assistants[0]
+	// - Add UI validation to only allow models compatible with Zed
+	// - Zed supports: Anthropic, OpenAI, Google, etc - NOT all Helix models work
+	//
+	// var assistant types.AssistantConfig
+	// if len(app.Config.Helix.Assistants) > 0 {
+	// 	assistant = app.Config.Helix.Assistants[0]
+	// } else {
+	// 	assistant = types.AssistantConfig{
+	// 		Provider: "anthropic",
+	// 		Model:    "claude-sonnet-4-5-latest",
+	// 	}
+	// }
+
+	// Force sonnet-4-5-latest for now
+	assistant := types.AssistantConfig{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4-5-latest",
 	}
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)
