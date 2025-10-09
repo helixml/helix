@@ -1,0 +1,46 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Moonlight</title>
+    <link rel="icon" href="resources/moonlight.svg" sizes="any" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="index.js" defer></script>
+
+    <!-- Manifest for Mobile Apps as Website -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Moonlight Web for game streaming with your pc" />
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Apple Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Moonlight Web">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+
+<body>
+    <!-- Modal -->
+    <div id="modal-overlay" class="modal-background modal-disabled">
+        <!-- Modal Content -->
+        <div id="modal-parent" class="modal-content">
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu-background context-menu-disabled">
+    </div>
+
+    <!-- Errors -->
+    <div id="error-list">
+    </div>
+
+    <!-- Main App View -->
+    <div id="root">
+    </div>
+
+</body>
+
+</html>

@@ -87,7 +87,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"RUST_LOG=info", // Enable Rust logging for Zed
 		// Settings sync daemon configuration
 		fmt.Sprintf("HELIX_SESSION_ID=%s", config.SessionID),
-		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
+		// CRITICAL: Must use Docker network hostname, not localhost, from inside container
+		"HELIX_API_URL=http://api:8080",
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
 	}

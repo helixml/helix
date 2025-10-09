@@ -29,7 +29,7 @@ const ZedSettingsViewer: React.FC<ZedSettingsViewerProps> = ({ sessionId }) => {
 
   const { data: settings, isLoading, error } = useQuery({
     queryKey: ['zed-settings', sessionId],
-    queryFn: () => apiClient.v1SessionsZedSettingsList(sessionId),
+    queryFn: () => apiClient.v1SessionsZedSettingsDetail(sessionId),
     select: (response) => response.data || {},
     refetchInterval: 30000, // Refresh every 30 seconds to show live changes
   });
@@ -54,21 +54,7 @@ const ZedSettingsViewer: React.FC<ZedSettingsViewerProps> = ({ sessionId }) => {
   const serverCount = Object.keys(contextServers).length;
 
   if (serverCount === 0) {
-    return (
-      <Card sx={{ m: 2 }}>
-        <CardContent>
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <ExtensionIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="body1" color="text.secondary">
-              No MCP tools configured
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Configure tools in the app settings to make them available in Zed
-            </Typography>
-          </Box>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
 
   return (

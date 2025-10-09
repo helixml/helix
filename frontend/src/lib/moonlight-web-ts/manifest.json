@@ -1,0 +1,9 @@
+{
+  "name": "Moonlight Web",
+  "short_name": "Moonlight",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#303030",
+  "theme_color": "#000000",
+  "icons": []
+}

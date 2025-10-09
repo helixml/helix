@@ -159,16 +159,18 @@ EOF
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
-    echo "exec /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
+    # Pass required environment variables to settings-sync-daemon
+    echo "exec env HELIX_SESSION_ID=\$HELIX_SESSION_ID HELIX_API_URL=\$HELIX_API_URL HELIX_API_TOKEN=\$HELIX_API_TOKEN /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1" >> $HOME/.config/sway/config
 
     # Add resolution and app launch (like the original launcher)
     echo "output * resolution ${GAMESCOPE_WIDTH}x${GAMESCOPE_HEIGHT} position 0,0" >> $HOME/.config/sway/config
-    echo -n "workspace main; exec $@" >> $HOME/.config/sway/config
+    echo "workspace main; exec $@" >> $HOME/.config/sway/config
 
-    # Add killall sway if needed
-    if [ "$SWAY_STOP_ON_APP_EXIT" == "yes" ]; then
-      echo -n " && killall sway" >> $HOME/.config/sway/config
-    fi
+    # DISABLED: Do not kill Sway on app exit - Zed has auto-restart loop
+    # External agents and PDEs need persistent Sway compositor for reconnection
+    # if [ "$SWAY_STOP_ON_APP_EXIT" == "yes" ]; then
+    #   echo -n " && killall sway" >> $HOME/.config/sway/config
+    # fi
 
     # Start sway
     dbus-run-session -- sway --unsupported-gpu
