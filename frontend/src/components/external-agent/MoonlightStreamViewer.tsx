@@ -96,7 +96,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       if (wolfLobbyId) {
         try {
           // Use the authenticated API client to fetch apps
-          const apps = await apiGetApps(api, {});
+          const apps = await apiGetApps(api, { host_id: hostId });
 
           // Find app matching our session or use the first available app
           if (apps && apps.length > 0) {
