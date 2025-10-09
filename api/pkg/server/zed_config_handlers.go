@@ -47,11 +47,21 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get app
-	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
-		return nil, system.NewHTTPError500("failed to get app")
+	// Get app (for external agents, parent_app may be empty)
+	var app *types.App
+	if session.ParentApp != "" {
+		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
+			return nil, system.NewHTTPError500("failed to get app")
+		}
+	} else {
+		// External agent sessions don't have a parent app - create minimal app config
+		log.Debug().Str("session_id", sessionID).Msg("Session has no parent_app (likely external agent), using default config")
+		app = &types.App{
+			ID:     "external-agent-default",
+			Config: types.AppConfig{},
+		}
 	}
 
 	// Generate Zed MCP config
@@ -130,6 +140,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		}
 	}
 
+	// Use app.Updated for version, or current time if app is minimal
+	version := app.Updated.Unix()
+	if version == 0 {
+		version = session.Updated.Unix()
+	}
+
 	response := &types.ZedConfigResponse{
 		ContextServers: contextServers,
 		LanguageModels: languageModels,
@@ -137,7 +153,7 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 		ExternalSync:   externalSync,
 		Agent:          agentConfig,
 		Theme:          zedConfig.Theme,
-		Version:        app.Updated.Unix(),
+		Version:        version,
 	}
 
 	return response, nil
