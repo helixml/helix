@@ -231,6 +231,9 @@ services:
 
     wolf:
       image: wolf:helix-fixed
+      networks:
+        default:
+          ipv4_address: 172.19.0.50
       environment:
         - NVIDIA_DRIVER_CAPABILITIES=all
         - NVIDIA_VISIBLE_DEVICES=all
@@ -238,12 +241,12 @@ services:
         - XDG_RUNTIME_DIR=/tmp/sockets
         - HOST_APPS_STATE_FOLDER=/etc/wolf
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-        # Debug logging for HTTPS connection issues
-        - WOLF_LOG_LEVEL=DEBUG
-        - GST_DEBUG=2
+        # Debug logging for HTTPS connection issues and UDP/RTP activity
+        - WOLF_LOG_LEVEL=TRACE
+        - GST_DEBUG=3
         # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
         - WOLF_INTERNAL_MAC=00:11:22:33:44:55
-        - WOLF_INTERNAL_IP=127.0.0.1
+        - WOLF_INTERNAL_IP=172.19.0.50
         # Fix HTTPS SSL certificate paths for proper SSL operation
         - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
         - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
@@ -291,13 +294,15 @@ services:
       ports:
         - "8081:8080"  # Web interface
         - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      networks:
+        - default
       environment:
+        # Enable trace logging for debugging UDP/streaming issues
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       volumes:
         - ./moonlight-web-config:/app/server:rw
-      networks:
-        - default
       restart: unless-stopped
       depends_on:
         - wolf
@@ -533,3 +538,6 @@ volumes:
 networks:
     default:
         name: helix_default
+        ipam:
+            config:
+                - subnet: 172.19.0.0/16
