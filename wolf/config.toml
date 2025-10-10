@@ -564,6 +564,38 @@ ixSmtuQvlP2UbmM53FfwoGxEn6Z+KL+SR7EeWGcEElPTVFJ6PuV/Aqx7KFJqZkU9\r
     run_uid = 1000
     v_scroll_acceleration = 1.0
 
+[[paired_clients]]
+app_state_folder = '9950542253436598280'
+client_cert = """-----BEGIN CERTIFICATE-----\r
+MIIDNzCCAh+gAwIBAgIBADANBgkqhkiG9w0BAQsFADBfMQswCQYDVQQGEwJVUzEL\r
+MAkGA1UECAwCQ0ExFjAUBgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4\r
+YW1wbGUgQ29ycDEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjUxMDA5MTQ0MDE5\r
+WhcNMjYxMDA5MTQ0MDE5WjBfMQswCQYDVQQGEwJVUzELMAkGA1UECAwCQ0ExFjAU\r
+BgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4YW1wbGUgQ29ycDEUMBIG\r
+A1UEAwwLZXhhbXBsZS5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB\r
+AQCkfX7oikDCf6MdUxBLw4kN3vsM7SSqQCmTBI0VfLu/MGvMtGNVsxflul61NUI3\r
+Nq151WwkIijJpcY5tacha/MfoamV4ZP7Guo3a1UWH3DpdW/s7F39WkJlDyVAUn6M\r
+YBNS87+u2ZDb37LB0wjJamGNBnMg/qWvrJKROn/vtt+c7UUIERR6PENdyAvo9L3Y\r
+BSpAkiaiQjUAx64f1vMV8ufsnJKm2eykaZ/X9yUqq1StlMva9WBItxVlXbouJZp1\r
+XHoQY2kiAlXw0ZGQmQdAcXjrIPfQxhHqCa1VZPleCeIoZSe4LIR6xGD5lzWbRhB/\r
+CawBPtlKaE7+zuYPN9VbGBTzAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAA85P7j6\r
+5f/u/Fcj4dpAm1/3AIxnp7Ofd4xE/4+BKn4cR2SEQTcj8qV2ftRgr0l+LR2vw11F\r
+IYcdSFMuA6nA7c0k2ge4ey5CDQwpOMQsWU/eozHAn5HGeWsZHr9RJ1lGsojDA0+f\r
+OSkXYRwemxLBoMTiIAOAmqLNwtbPXm5hMnP6R2QtoOBI0X5jeyDHlw1fUC2zI/aa\r
+W5qeQgvB/u6HNqQ8QG4p53gFXT/ctvoCtcSusKCPVHuU18hn8xw69tA1VdEKT9Rc\r
+ywYtypG8AtH7B9npE7cXwasyi/bf8C5d+zjDH1ZB36W73/aZ9zwO8SXWUQM9/aTe\r
+sNJ1vdUxyxymcow=\r
+-----END CERTIFICATE-----\r
+"""
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
 [[profiles]]
 id = 'moonlight-profile-id'
 

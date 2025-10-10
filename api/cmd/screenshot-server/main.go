@@ -7,8 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+var cachedWaylandDisplay string
 
 func main() {
 	port := os.Getenv("SCREENSHOT_PORT")
@@ -39,32 +42,73 @@ func handleScreenshot(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Join(tmpDir, fmt.Sprintf("screenshot-%d.png", time.Now().UnixNano()))
 	defer os.Remove(filename)
 
-	// Run grim to capture screenshot
-	// Use wayland-1 (Sway compositor) not wayland-2 (Wolf lobby compositor)
-	// With wolf-ui lobbies: wayland-1 = Sway, wayland-2 = Wolf
-	cmd := exec.Command("grim", filename)
-
 	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if xdgRuntimeDir == "" {
 		xdgRuntimeDir = "/tmp/sockets" // Wolf-UI uses /tmp/sockets not /run/user/wolf
 	}
 
-	// Get WAYLAND_DISPLAY from environment, default to wayland-1 (Sway)
-	waylandDisplay := os.Getenv("WAYLAND_DISPLAY")
-	if waylandDisplay == "" {
-		waylandDisplay = "wayland-1"
+	// Try all available Wayland sockets until one works
+	// This handles race conditions where Wolf creates wayland-1 (capture only)
+	// and Sway creates wayland-2 (supports screencopy protocol)
+	var output []byte
+	var err error
+
+	// Try cached display first if available
+	if cachedWaylandDisplay != "" {
+		cmd := exec.Command("grim", filename)
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("WAYLAND_DISPLAY=%s", cachedWaylandDisplay),
+			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		)
+		output, err = cmd.CombinedOutput()
 	}
 
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
-		fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
-	)
+	// If cached failed or doesn't exist, try all sockets
+	if err != nil || cachedWaylandDisplay == "" {
+		// Find all wayland-* sockets
+		entries, readErr := os.ReadDir(xdgRuntimeDir)
+		if readErr != nil {
+			log.Printf("Failed to read XDG_RUNTIME_DIR: %v", readErr)
+			http.Error(w, "Failed to find Wayland sockets", http.StatusInternalServerError)
+			return
+		}
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Failed to capture screenshot: %v, output: %s", err, string(output))
-		http.Error(w, fmt.Sprintf("Failed to capture screenshot: %v", err), http.StatusInternalServerError)
-		return
+		waylandSockets := []string{}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "wayland-") && !strings.HasSuffix(entry.Name(), ".lock") {
+				waylandSockets = append(waylandSockets, entry.Name())
+			}
+		}
+
+		if len(waylandSockets) == 0 {
+			log.Printf("No Wayland sockets found in %s", xdgRuntimeDir)
+			http.Error(w, "No Wayland sockets available", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Trying Wayland sockets: %v", waylandSockets)
+
+		// Try each socket until one works
+		for _, socket := range waylandSockets {
+			cmd := exec.Command("grim", filename)
+			cmd.Env = append(os.Environ(),
+				fmt.Sprintf("WAYLAND_DISPLAY=%s", socket),
+				fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+			)
+			output, err = cmd.CombinedOutput()
+			if err == nil {
+				cachedWaylandDisplay = socket // Cache for next time
+				log.Printf("Successfully captured screenshot using %s", socket)
+				break
+			}
+			log.Printf("Failed to capture with %s: %v, output: %s", socket, err, string(output))
+		}
+
+		if err != nil {
+			log.Printf("Failed to capture screenshot with any Wayland socket")
+			http.Error(w, fmt.Sprintf("Failed to capture screenshot: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Read the screenshot file
