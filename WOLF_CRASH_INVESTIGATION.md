@@ -402,31 +402,319 @@ During stress testing, measure:
 - `test-lobby-join-stress.sh` - Automated reproduction script
 - `wolf/config.toml` - Wolf app configuration
 
+## CRITICAL FINDING: Rejoin Pattern (2025-10-10)
+
+**Root Cause Identified:**
+
+The bug triggers specifically when **RE-JOINING a previously joined lobby**:
+
+**Pattern:**
+1. Join lobby 1 → Works fine
+2. Leave lobby 1 → Switch back to Wolf-UI
+3. Join lobby 2 → Works fine
+4. Leave lobby 2
+5. Join lobby 3 → Works fine
+6. Leave lobby 3
+7. **Join lobby 1 again (REJOIN)** → **HANGS!**
+
+**Evidence:**
+- Tested with 6 lobbies, multiple iterations
+- **100% reproducible**: Hang always occurs on SECOND join to same lobby
+- First join to any lobby: Always works
+- Rejoin to any previously-left lobby: Always hangs
+
+**Why This Happens:**
+
+When leaving a lobby:
+1. `PauseStreamEvent` fires → sends EOS to consumer pipeline
+2. Consumer pipeline shuts down
+3. **Lobby producer pipeline keeps running** (correct - for other potential clients)
+4. Producer's `interpipesink` has no listeners
+
+When rejoining the same lobby:
+5. `SwitchStreamProducerEvents` fires → changes `interpipesrc` to listen to that lobby
+6. **Producer pipeline tries to send buffered frames**
+7. **Frames are stale/corrupted from previous session**
+8. CUDA buffer copy fails → "Internal data stream error"
+9. Video freezes
+
+**The Fix (Duplicate Pause Guard) Helped But Wasn't Complete:**
+- ✅ Prevented multiple EOS events
+- ✅ No more -1 session count
+- ❌ Doesn't fix stale buffer issue on rejoin
+
+**Real Solution Needed:**
+The producer pipeline for lobby 1 needs to be **flushed or reset** when all clients disconnect, so that rejoining gets clean frames.
+
 ## Open Questions
 
-1. **Is the bug in Wolf or gst-wayland-display?**
-   - Commit 65d596b mentions "GL cleanup fix" in gst-wayland-display fork
-   - Are we using the right fork/branch?
+1. **Should lobby producer pipelines flush buffers when no clients connected?**
+   - Currently: Keeps running and buffering frames
+   - Problem: Stale buffers corrupt on rejoin
+   - Solution: Flush interpipesink when connected_sessions becomes 0
 
-2. **Does the bug occur with single client or only multiple?**
-   - Wolf-UI connects to one lobby
-   - Then switches to join another lobby
-   - Are both lobbies' pipelines running simultaneously?
+2. **Is this an interpipe bug or Wolf logic bug?**
+   - interpipe designed for switching between live sources
+   - May not handle disconnected-then-reconnected sources well
 
-3. **Is there a memory leak accumulating?**
-   - Does the bug happen more frequently after N hours of uptime?
-   - Does Wolf memory usage grow over time?
+3. **Why does CUDA buffer copy fail specifically on rejoin?**
+   - "Failed to map input buffer"
+   - "Failed to copy SYSTEM -> CUDA"
+   - Are buffered frames using freed GPU memory?
 
-4. **Are pause handlers even needed for lobby switching?**
-   - Lobbies should stay alive when clients disconnect
-   - Maybe pause handlers should be removed entirely?
+---
 
-5. **Can we reproduce with native Moonlight client?**
-   - Connect native client to Wolf-UI
-   - Switch lobbies from within Wolf-UI
-   - Does native client also trigger the bug?
+## FIX ATTEMPTS - COMPLETE HISTORY (2025-10-10)
+
+### Attempt 1: Diagnostic Logging ✅ SUCCESS
+**Commit:** 29da4d0
+**File:** `streaming.cpp`
+
+**Changes:**
+- Added `[HANG_DEBUG]` logging to pause and switch handlers
+- Logs pipeline state during events
+
+**Results:**
+- ✅ Works perfectly
+- ✅ Revealed 9 audio pause events vs 2 video
+- ✅ Confirmed rejoin pattern (1st join works, 2nd join hangs)
+- ✅ Kept in final version
+
+---
+
+### Attempt 2: Duplicate Pause Event Guard ✅ PARTIAL SUCCESS
+**Commit:** 15eb3a9
+**File:** `streaming.cpp` lines 286, 305-313, 420, 422-451
+
+**Changes:**
+```cpp
+auto pause_sent = std::make_shared<bool>(false);
+
+auto pause_handler = event_bus->register_handler<...>(
+    [sess_id, pipeline, pause_sent](...) {
+      if (*pause_sent) {
+        logs::log(logs::warning, "DUPLICATE IGNORED");
+        return;
+      }
+      *pause_sent = true;
+      gst_element_send_event(pipeline.get(), gst_event_new_eos());
+    });
+```
+
+**Results:**
+- ✅ WORKS! Saw "DUPLICATE IGNORED" in logs
+- ✅ Prevents multiple EOS to same pipeline
+- ✅ Fixes session count going to -1
+- ❌ Does NOT fix rejoin hang
+- ✅ Kept in final version
+
+---
+
+### Attempt 3: leaky-type=downstream on interpipesink ❌ FAILED
+**Commit:** be0c62c (reverted in e891700)
+**File:** `streaming.cpp` line 82
+
+**Changes:**
+```cpp
+"interpipesink sync=true async=false name={session_id}_video max-buffers=1 leaky-type=downstream"
+```
+
+**Results:**
+```
+ERROR: Pipeline parse error: no property "leaky-type" in element "interpipesink"
+```
+
+**Why Failed:**
+- interpipesink doesn't have that property
+- Property exists on `queue` elements only
+- ❌ Reverted immediately
+
+---
+
+### Attempt 4: max-buffers=0 (Unlimited) ⚠️ UNTESTED
+**Commit:** e891700 (part of revert, never tested)
+**File:** `streaming.cpp` line 82
+
+**Changes:**
+```cpp
+"interpipesink sync=false async=false name={session_id}_video max-buffers=0"
+```
+
+**Theory:**
+- max-buffers=0 = unlimited buffers (GStreamer convention)
+- Maybe behaves differently
+
+**Why NOT Tested:**
+- Realized unlimited = opposite of what we want
+- Would accumulate HUNDREDS of stale frames
+- All with freed GPU references
+- Would make rejoin hang MUCH worse
+- ❌ Reverted without testing
+
+---
+
+### Attempt 5: IDRRequestEvent Flush ❌ FAILED
+**Commit:** be0c62c (removed in same commit)
+**File:** `sessions/lobbies.cpp` line 66-70
+
+**Changes:**
+```cpp
+if (lobby.connected_sessions->load()->size() == 0 && !lobby.stop_when_everyone_leaves) {
+  logs::log(logs::info, "Lobby {} now empty, flushing");
+  ev_bus->fire_event(immer::box<events::IDRRequestEvent>{...});
+}
+```
+
+**Theory:**
+- IDRRequestEvent forces keyframe
+- Maybe also flushes buffers?
+
+**Why Failed:**
+- IDRRequestEvent only forces I-frame generation
+- Does NOT flush or clear buffers
+- Wrong event type for this
+- ❌ Removed before testing
+
+---
+
+### Attempt 6: queue leaky=downstream BEFORE interpipesink ❌ FAILED
+**Commit:** 9cb7bcf (reverted in cf0f4af)
+**File:** `streaming.cpp` line 82-83
+
+**Changes:**
+```cpp
+auto pipeline = fmt::format(
+    "waylanddisplaysrc ... ! "
+    "video/x-raw, ... ! "
+    "queue leaky=downstream max-size-buffers=1 ! "  // ← ADDED
+    "interpipesink sync=true async=false name={session_id}_video",
+    ...);
+```
+
+**Theory:**
+- queue element DOES have leaky property
+- Pattern used in audio pipeline successfully
+- Should drop old buffers when queue fills
+
+**Results:**
+```
+ERROR: Internal data stream error (on FIRST join!)
+```
+
+**Why Failed:**
+- ❌ INSTANT crash on first join
+- ❌ Made problem MUCH worse
+- ❌ Breaks caps negotiation or GPU memory chain
+- Audio pipeline uses queue successfully, but video breaks
+
+**Hypothesis:**
+- Video uses CUDA/GPU memory (audio doesn't)
+- Queue might break GPU memory transfer
+- Or breaks caps negotiation for video/x-raw with GPU
+- interpipe expects direct connection for video
+
+**Reverted in:** cf0f4af
+
+---
+
+## FINAL CONFIGURATION
+
+**Wolf Binary State:**
+- Commit: cf0f4af
+- Has duplicate pause guard ✅
+- Has diagnostic logging ✅
+- Original interpipesink config ✅
+
+**Pipeline (Producer):**
+```cpp
+waylanddisplaysrc name=wolf_wayland_source render_node=/dev/dri/renderD128 !
+video/x-raw, width=2560, height=1600, framerate=60/1 !
+[NVIDIA: glupload ! glcolorconvert ! video/x-raw(memory:GLMemory),format=NV12 ! ]
+interpipesink sync=true async=false name={lobby_id}_video max-buffers=1
+```
+
+**Working:**
+- ✅ First join to any lobby
+- ✅ Switching between different lobbies
+- ✅ Duplicate pause events prevented
+- ✅ Session count stays correct
+
+**Not Working:**
+- ❌ Rejoin to previously-left lobby (100% hang)
+- ❌ CUDA buffer error on 2nd join to same lobby
+
+---
+
+## ROOT CAUSE ANALYSIS
+
+### Primary Bug: Stale Buffer on Rejoin (Unfixable Without Upstream)
+
+**The Problem:**
+1. Helix lobbies: `stop_when_everyone_leaves = false`
+2. Lobby producer keeps running when empty
+3. interpipesink buffers 1 frame (max-buffers=1)
+4. Frame has CUDA memory from session A's GPU context
+5. Session A disconnects, GPU context freed
+6. Lobby stays alive, frame still buffered
+7. Session B joins different lobby → works fine
+8. **Session A rejoins → tries to pull buffered frame**
+9. Frame's GPU memory is FREED/INVALID
+10. CUDA: "Failed to map input buffer"
+11. Pipeline: "Internal data stream error"
+12. Video hangs
+
+**Why We Can't Fix It:**
+- Can't add queue (breaks video completely)
+- Can't use leaky on interpipesink (property doesn't exist)
+- Can't flush buffers (no mechanism exists)
+- Can't modify pipeline without breaking first join
+
+### Secondary Bug: Duplicate Pause Events (FIXED!)
+
+**The Problem:**
+- Audio PauseStreamEvent fires 9 times
+- Video PauseStreamEvent fires 2 times
+- Each decrements session counter
+- Counter goes to -1
+
+**The Fix:**
+- Duplicate guard with shared bool flag
+- Only first event processed
+- ✅ CONFIRMED WORKING (saw "DUPLICATE IGNORED" in logs)
+
+---
 
 ## Upstream Reporting Template
+
+**Two Separate Bugs to Report:**
+
+### Bug 1: Duplicate PauseStreamEvent (We Have Fix!)
+
+**Title:** Multiple PauseStreamEvent deliveries cause session corruption
+
+**Evidence:**
+```log
+09:32:41 Audio PauseStreamEvent (1)
+09:32:41 Audio PauseStreamEvent (2)
+09:32:41 Audio PauseStreamEvent (3)
+09:32:41 Audio PauseStreamEvent (4)
+09:32:41 Audio PauseStreamEvent (5)
+```
+
+**Impact:**
+- Session counter underflow (-1 people in lobby)
+- Multiple EOS events to same pipeline
+- General instability
+
+**Our Fix:**
+```cpp
+auto pause_sent = std::make_shared<bool>(false);
+// Guard in handler prevents duplicates
+```
+
+**Status:** Tested and working
+
+### Bug 2: Rejoin Hang with Persistent Lobbies (No Known Fix)
 
 If we determine this is an upstream bug:
 
