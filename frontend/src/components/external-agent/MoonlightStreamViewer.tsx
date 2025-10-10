@@ -247,10 +247,84 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [videoEnabled, audioEnabled]);
 
+  // Calculate stream rectangle for mouse coordinate mapping
+  const getStreamRect = useCallback((): DOMRect => {
+    if (!videoRef.current || !streamRef.current) {
+      return new DOMRect(0, 0, width, height);
+    }
+
+    const videoSize = streamRef.current.getStreamerSize() || [width, height];
+    const videoAspect = videoSize[0] / videoSize[1];
+
+    const boundingRect = videoRef.current.getBoundingClientRect();
+    const boundingRectAspect = boundingRect.width / boundingRect.height;
+
+    let x = boundingRect.x;
+    let y = boundingRect.y;
+    let videoMultiplier;
+
+    if (boundingRectAspect > videoAspect) {
+      videoMultiplier = boundingRect.height / videoSize[1];
+      const boundingRectHalfWidth = boundingRect.width / 2;
+      const videoHalfWidth = videoSize[0] * videoMultiplier / 2;
+      x += boundingRectHalfWidth - videoHalfWidth;
+    } else {
+      videoMultiplier = boundingRect.width / videoSize[0];
+      const boundingRectHalfHeight = boundingRect.height / 2;
+      const videoHalfHeight = videoSize[1] * videoMultiplier / 2;
+      y += boundingRectHalfHeight - videoHalfHeight;
+    }
+
+    return new DOMRect(
+      x,
+      y,
+      videoSize[0] * videoMultiplier,
+      videoSize[1] * videoMultiplier
+    );
+  }, [width, height]);
+
+  // Input event handlers
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onMouseDown(event.nativeEvent, getStreamRect());
+  }, [getStreamRect]);
+
+  const handleMouseUp = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onMouseUp(event.nativeEvent);
+  }, []);
+
+  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onMouseMove(event.nativeEvent, getStreamRect());
+  }, [getStreamRect]);
+
+  const handleWheel = useCallback((event: React.WheelEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onMouseWheel(event.nativeEvent);
+  }, []);
+
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+  }, []);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onKeyDown(event.nativeEvent);
+  }, []);
+
+  const handleKeyUp = useCallback((event: React.KeyboardEvent) => {
+    event.preventDefault();
+    streamRef.current?.getInput().onKeyUp(event.nativeEvent);
+  }, []);
+
   return (
     <Box
       ref={containerRef}
       className={className}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
       sx={{
         position: 'relative',
         width: '100%',
@@ -259,6 +333,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         backgroundColor: '#000',
         display: 'flex',
         flexDirection: 'column',
+        outline: 'none',
       }}
     >
       {/* Toolbar */}
@@ -344,6 +419,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         autoPlay
         playsInline
         controls={false}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseMove={handleMouseMove}
+        onWheel={handleWheel}
+        onContextMenu={handleContextMenu}
         style={{
           width: '100%',
           height: '100%',
