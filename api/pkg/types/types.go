@@ -1556,6 +1556,12 @@ type SlackTrigger struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
+type CrispTrigger struct {
+	Enabled    bool   `json:"enabled,omitempty"`
+	Identifier string `json:"identifier" yaml:"identifier"`
+	Token      string `json:"token" yaml:"token"`
+}
+
 type CronTrigger struct {
 	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
@@ -1572,6 +1578,7 @@ type Trigger struct {
 	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
 	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
@@ -2205,6 +2212,7 @@ type TriggerType string
 
 const (
 	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"
 	// TODO: discord
