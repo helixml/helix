@@ -147,7 +147,7 @@ EOF
     echo "output * bg /usr/share/backgrounds/helix-logo.png fill" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Configure HiDPI scaling for display WL-1" >> $HOME/.config/sway/config
-    echo "output WL-1 scale 3" >> $HOME/.config/sway/config
+    echo "output WL-1 scale 2" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
     echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config

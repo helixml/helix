@@ -88,8 +88,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
 
-      // Detect supported video formats
-      const supportedFormats = await getSupportedVideoFormats();
+      // Force H264 only for compatibility with Wolf-UI
+      // getSupportedVideoFormats() might return AV1 which Wolf-UI doesn't handle well
+      const supportedFormats = {
+        H264: true,
+        H264_HIGH8_444: false,
+        H265: false,
+        H265_MAIN10: false,
+        H265_REXT8_444: false,
+        H265_REXT10_444: false,
+        AV1_MAIN8: false,
+        AV1_MAIN10: false,
+        AV1_HIGH8_444: false,
+        AV1_HIGH10_444: false
+      };
 
       // If we have a wolfLobbyId, fetch apps to find the correct app ID
       let actualAppId = appId;
