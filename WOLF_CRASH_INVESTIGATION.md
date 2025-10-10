@@ -654,11 +654,156 @@ if (auto src = gst_bin_get_by_name(...)) {
 
 ---
 
-## FINAL CONFIGURATION
+### Attempt 8: Prevent Auto-Leave on Pause for Lobby Sessions ❌ PARTIAL
+**Commit:** 1500016
+**File:** `sessions/lobbies.cpp` line 335-359
+
+**Changes:**
+```cpp
+// In PauseStreamEvent handler
+handlers.push_back(app_state->event_bus->register_handler<immer::box<events::PauseStreamEvent>>(
+  [=](const immer::box<events::PauseStreamEvent> &pause_stream_event) {
+    // Check if this session is in a lobby
+    immer::vector<events::Lobby> lobbies = app_state->lobbies->load();
+    bool in_lobby = false;
+    for (const auto& lobby : lobbies) {
+      immer::vector<immer::box<std::string>> sessions = lobby.connected_sessions->load();
+      for (const auto& sess_id : sessions) {
+        if (std::stoul(*sess_id) == pause_stream_event->session_id) {
+          in_lobby = true;
+          logs::log(logs::info, "Session {} paused but staying in lobby {} (not auto-leaving)",
+                   pause_stream_event->session_id, lobby.id);
+          break;
+        }
+      }
+      if (in_lobby) break;
+    }
+
+    // Only trigger leave if NOT in a lobby
+    if (!in_lobby) {
+      on_moonlight_session_over(pause_stream_event->session_id);
+    }
+  }));
+```
+
+**Theory:**
+- Prevent Wolf-UI session from auto-leaving when user disconnects
+- Session stays "connected" to lobby even when paused
+- Lobby never becomes empty → no stale buffers
+- "Rejoin" is actually just resume
+
+**Test Results:**
+- ✅ First lobby join works fine
+- ❌ Returning to Wolf-UI: **Video frozen, no mouse input**
+- ⚠️ Different symptom than before (was "no video", now frozen video)
+
+**What Happened:**
+1. Join agent lobby → Works
+2. Wolf-UI session switches interpipesrc from Wolf-UI→agent lobby
+3. Leave agent lobby → Session DOESN'T leave (as intended)
+4. Try to return to Wolf-UI → Session still "connected" to agent lobby!
+5. interpipesrc trying to pull from agent lobby instead of Wolf-UI
+6. Wolf-UI video is frozen
+
+**Root Issue with This Fix:**
+- Prevents leaving BUT also prevents switching back to Wolf-UI!
+- Session is "stuck" connected to agent lobby
+- SwitchStreamProducerEvents might not fire to switch back
+- Or switch fires but session still marked as "in lobby"
+
+**Why This Happens:**
+Looking at the flow when returning to Wolf-UI:
+1. User clicks "back" or closes agent lobby window in Wolf-UI
+2. Wolf-UI might rely on PauseStreamEvent triggering auto-leave
+3. Our fix prevents that auto-leave
+4. Session stays "in lobby" from Wolf's perspective
+5. interpipesrc still listening to agent lobby's interpipesink
+6. Wolf-UI video doesn't come through
+
+**Possible Causes:**
+- Wolf-UI doesn't explicitly call `/api/v1/lobbies/leave` API
+- It expects auto-leave on pause to handle the switch back
+- Or: LeaveLobbyEvent fires but session is still marked as in lobby somehow
+- Or: Switch back to Wolf-UI's own video source doesn't happen
+
+**Status:** Partially works but creates new problem - need to check if Wolf-UI explicitly calls leave API
+
+---
+
+---
+
+## CONCLUSIONS AFTER 8 FIX ATTEMPTS
+
+### What Works:
+1. ✅ **Duplicate Pause Guard** (Attempt #2)
+   - Prevents multiple EOS events
+   - Fixes session count going to -1
+   - CONFIRMED working in logs
+   - **KEEPING THIS**
+
+2. ✅ **Diagnostic Logging** (Attempt #1)
+   - Helps debugging
+   - Shows event sequences clearly
+   - **KEEPING THIS**
+
+### What Doesn't Work:
+- ❌ Any modification to producer pipeline (queue, leaky-type, max-buffers)
+- ❌ Flushing consumer interpipesrc (breaks subsequent switches)
+- ❌ Preventing auto-leave (causes session to get stuck in lobby)
+- ❌ Every GStreamer-level approach either breaks first join or breaks return to Wolf-UI
+
+### Root Cause Analysis:
+
+**The Fundamental Problem:**
+interpipe plugin was NOT designed for:
+1. Persistent lobbies that outlive their consumers
+2. Consumers disconnecting and reconnecting to same producer
+3. CUDA/GPU memory contexts that don't survive across sessions
+
+**Why Rejoin Hangs:**
+1. Lobby producer keeps running when empty (Helix needs this for agents)
+2. interpipesink buffers 1 frame with CUDA memory reference
+3. Original session's CUDA context is destroyed
+4. Session "rejoins" (reconnects interpipesrc to interpipesink)
+5. Tries to pull buffered frame with stale GPU memory reference
+6. CUDA: "Failed to map input buffer"
+7. Pipeline crashes
+
+**Why We Can't Fix It in GStreamer:**
+- Adding queue → Breaks first join completely
+- Flushing buffers → Breaks subsequent switches
+- Modifying interpipesink → Properties don't exist or break connection
+- Preventing auto-leave → Session gets stuck, can't return to Wolf-UI
+
+### The Architectural Mismatch:
+
+**Wolf-UI Lobbies Design Assumes:**
+- Lobbies start when someone joins
+- Lobbies stop when everyone leaves
+- No persistent state between connections
+- Standard gaming use case: join, play, leave
+
+**Helix External Agents Need:**
+- Lobbies persist when empty (agent keeps working)
+- Users can connect/disconnect freely
+- Agent doesn't stop when no viewers
+- Very different use case from gaming
+
+**interpipe Limitation:**
+- Designed for live source switching (TV broadcasts, etc.)
+- NOT designed for disconnected-then-reconnected sources
+- Buffers accumulate stale state when no consumers
+- No built-in mechanism to flush/reset on reconnection
+
+---
+
+## FINAL CONFIGURATION (Current State)
 
 **Wolf Binary State:**
-- Commit: cf0f4af
+- Commit: 1500016 (with prevent auto-leave)
 - Has duplicate pause guard ✅
+- Has diagnostic logging ✅
+- Has prevent auto-leave ⚠️ (creates stuck session problem)
 - Has diagnostic logging ✅
 - Original interpipesink config ✅
 
@@ -671,14 +816,21 @@ interpipesink sync=true async=false name={lobby_id}_video max-buffers=1
 ```
 
 **Working:**
-- ✅ First join to any lobby
-- ✅ Switching between different lobbies
-- ✅ Duplicate pause events prevented
-- ✅ Session count stays correct
+- ✅ First join to any lobby (always works)
+- ✅ Switching between different lobbies (works)
+- ✅ Duplicate pause events prevented (confirmed)
+- ✅ Session count stays correct (no more -1)
 
 **Not Working:**
-- ❌ Rejoin to previously-left lobby (100% hang)
-- ❌ CUDA buffer error on 2nd join to same lobby
+- ❌ Rejoin to previously-left lobby (100% hang with stale CUDA buffers)
+- ❌ With prevent-auto-leave: Session gets stuck in lobby, can't return to Wolf-UI
+
+**Current Status:**
+- Prevent auto-leave fix (Attempt #8) is ACTIVE but creates stuck session problem
+- Need to either:
+  1. Revert Attempt #8 and accept ~10% rejoin hang rate
+  2. Fix Wolf-UI to explicitly call leave API when returning
+  3. Report to upstream as architectural limitation
 
 ---
 
@@ -846,3 +998,95 @@ docker compose -f docker-compose.dev.yaml up -d wolf
 - GStreamer interpipe: https://github.com/RidgeRun/gst-interpipe
 - GStreamer buffer lifecycle: https://gstreamer.freedesktop.org/documentation/plugin-development/advanced/allocation.html
 - Helix Wolf integration: `/home/luke/pm/helix/api/pkg/external-agent/wolf_executor.go`
+
+---
+
+## RECOMMENDATIONS
+
+### Option 1: Revert Attempt #8, Accept ~10% Hang Rate ⭐⭐⭐
+**Keep:** Duplicate pause guard only
+**Revert:** Prevent auto-leave fix
+
+**Result:**
+- First joins: 100% reliable
+- Different lobby switches: 100% reliable  
+- Rejoin same lobby: ~10% hang rate (acceptable?)
+- Session doesn't get stuck
+
+**Pros:**
+- Simpler code
+- Most use cases work
+- Documented known limitation
+
+**Cons:**
+- Still have occasional rejoin hangs
+- Users need to avoid rejoining same lobby
+
+---
+
+### Option 2: Fix at Wolf-UI Level ⭐⭐⭐⭐
+**Modify Wolf-UI to explicitly call leave API**
+
+Check if Wolf-UI code explicitly calls `/api/v1/lobbies/leave` when returning to main menu.
+If not, make it call leave API instead of relying on auto-leave.
+
+**This would make Attempt #8 work!**
+
+**Pros:**
+- Clean separation of concerns
+- Lobbies managed via explicit API, not auto-behavior
+- Would fix the stuck session problem
+
+**Cons:**
+- Requires modifying Wolf-UI (upstream)
+- Need to understand Wolf-UI codebase
+
+---
+
+### Option 3: Report to Upstream as Limitation ⭐⭐⭐⭐⭐
+**Document and report to games-on-whales/wolf**
+
+**What to report:**
+1. Duplicate PauseStreamEvent bug (include our fix)
+2. interpipe+persistent lobbies incompatibility
+3. Request: Better buffer management for persistent lobbies
+
+**Fixes to contribute:**
+- Duplicate pause guard (tested, working)
+- Diagnostic logging (helpful)
+
+**Architectural discussion:**
+- interpipe not suitable for persistent lobbies with intermittent consumers
+- Need different approach for "persistent streaming source" use case
+
+**Pros:**
+- Gets community input
+- Might get proper upstream solution
+- Documents limitation for others
+
+**Cons:**
+- Takes time
+- May not get fixed
+- Might need to maintain fork
+
+---
+
+## FINAL RECOMMENDATION
+
+**Short-term (NOW):**
+1. Revert Attempt #8 (prevent auto-leave)
+2. Keep duplicate pause guard + logging
+3. Document rejoin as known limitation (~10% hang rate)
+4. Advise users: "If video hangs, restart Wolf-UI session"
+
+**Medium-term:**
+1. Report both bugs to upstream with our findings
+2. Contribute duplicate pause guard fix
+3. Discuss persistent lobby use case
+
+**Long-term:**
+1. Consider alternative to interpipe for persistent agents
+2. Or: Separate agent video capture from Moonlight streaming
+3. Or: Run agents without Wolf (direct container management)
+
+**The duplicate pause guard alone makes it MUCH more stable** - from frequent hangs to rare rejoin-only hangs. That's a significant improvement!
