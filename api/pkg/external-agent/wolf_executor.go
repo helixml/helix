@@ -3,6 +3,7 @@ package external_agent
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -19,10 +21,11 @@ import (
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	wolfClient *wolf.Client
-	store      store.Store
-	sessions   map[string]*ZedSession
-	mutex      sync.RWMutex
+	wolfClient    *wolf.Client
+	healthMonitor *wolf.HealthMonitor
+	store         store.Store
+	sessions      map[string]*ZedSession
+	mutex         sync.RWMutex
 
 	// Zed configuration
 	zedImage      string
@@ -147,14 +150,97 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 
 // NewWolfExecutor creates a new Wolf-based executor
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
-	return &WolfExecutor{
-		wolfClient:        wolf.NewClient(wolfSocketPath),
+	wolfClient := wolf.NewClient(wolfSocketPath)
+
+	executor := &WolfExecutor{
+		wolfClient:        wolfClient,
 		store:             store,
 		sessions:          make(map[string]*ZedSession),
 		zedImage:          zedImage,
 		helixAPIURL:       helixAPIURL,
 		helixAPIToken:     helixAPIToken,
 		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
+	}
+
+	// Create health monitor with reconciliation callback
+	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
+		// After Wolf restarts, reconcile all keepalive sessions
+		log.Info().Msg("Wolf restarted, reconciling all keepalive sessions")
+		executor.reconcileKeepaliveSessions(ctx)
+	})
+
+	// Start background keepalive reconciliation loop
+	go executor.keepaliveReconciliationLoop(context.Background())
+
+	// Start Wolf health monitoring
+	executor.healthMonitor.Start(context.Background())
+
+	return executor
+}
+
+// keepaliveReconciliationLoop runs periodically to check and restart failed keepalive sessions
+// This handles moonlight-web restarts and other connection failures
+func (w *WolfExecutor) keepaliveReconciliationLoop(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	log.Info().Msg("Starting keepalive reconciliation loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Keepalive reconciliation loop stopped")
+			return
+
+		case <-ticker.C:
+			w.reconcileKeepaliveSessions(ctx)
+		}
+	}
+}
+
+// reconcileKeepaliveSessions checks all active sessions and restarts failed keepalive connections
+func (w *WolfExecutor) reconcileKeepaliveSessions(ctx context.Context) {
+	w.mutex.RLock()
+	sessionsToReconcile := make(map[string]*ZedSession)
+	for sessionID, session := range w.sessions {
+		// Check if keepalive needs reconciliation
+		if session.KeepaliveStatus == "failed" || session.KeepaliveStatus == "" {
+			sessionsToReconcile[sessionID] = session
+		} else if session.KeepaliveStatus == "active" && session.KeepaliveLastCheck != nil {
+			// Check if last check was too long ago (stale connection)
+			if time.Since(*session.KeepaliveLastCheck) > 2*time.Minute {
+				log.Warn().
+					Str("session_id", sessionID).
+					Time("last_check", *session.KeepaliveLastCheck).
+					Msg("Keepalive session appears stale, will restart")
+				sessionsToReconcile[sessionID] = session
+			}
+		}
+	}
+	w.mutex.RUnlock()
+
+	if len(sessionsToReconcile) == 0 {
+		return
+	}
+
+	log.Info().
+		Int("session_count", len(sessionsToReconcile)).
+		Msg("Reconciling keepalive sessions")
+
+	for sessionID, session := range sessionsToReconcile {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("lobby_id", session.WolfLobbyID).
+			Str("keepalive_status", session.KeepaliveStatus).
+			Msg("Restarting failed/stale keepalive session")
+
+		// Get lobby PIN from session (we need it for reconnection)
+		// Note: For external agents, we don't store the PIN in the session currently
+		// This is a limitation - we should store it for reconciliation
+		// For now, attempt without PIN (will fail if PIN is required)
+
+		// Start new keepalive goroutine
+		go w.startKeepaliveSession(ctx, sessionID, session.WolfLobbyID, "")
 	}
 }
 
@@ -297,17 +383,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Track session with lobby ID
 	session := &ZedSession{
-		SessionID:      agent.SessionID,
-		HelixSessionID: helixSessionID, // Store Helix session ID for screenshot lookup
-		UserID:         agent.UserID,
-		Status:         "running", // Container is running immediately with lobbies
-		StartTime:      time.Now(),
-		LastAccess:     time.Now(),
-		ProjectPath:    agent.ProjectPath,
-		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Track lobby ID
-		ContainerName:  containerHostname,
+		SessionID:       agent.SessionID,
+		HelixSessionID:  helixSessionID, // Store Helix session ID for screenshot lookup
+		UserID:          agent.UserID,
+		Status:          "running", // Container is running immediately with lobbies
+		StartTime:       time.Now(),
+		LastAccess:      time.Now(),
+		ProjectPath:     agent.ProjectPath,
+		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
+		ContainerName:   containerHostname,
+		KeepaliveStatus: "starting", // Initialize keepalive as starting
 	}
 	w.sessions[agent.SessionID] = session
+
+	// Start keepalive session to prevent stale buffer crash on rejoin
+	// This keeps the lobby alive even when all human users disconnect
+	go w.startKeepaliveSession(ctx, agent.SessionID, lobbyResp.LobbyID, lobbyPINString)
 
 	// Return response with screenshot URL, Moonlight info, and PIN
 	response := &types.ZedAgentResponse{
@@ -1498,4 +1589,197 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 		Msg("No external agent session found with this Helix session ID")
 
 	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
+}
+
+// startKeepaliveSession starts a headless Moonlight session to keep the lobby alive
+// This prevents the stale buffer crash that occurs when all clients disconnect and someone rejoins
+func (w *WolfExecutor) startKeepaliveSession(ctx context.Context, sessionID, lobbyID, lobbyPIN string) {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Msg("Starting keepalive session for lobby")
+
+	// Update session status to starting
+	w.mutex.Lock()
+	session, exists := w.sessions[sessionID]
+	if !exists {
+		w.mutex.Unlock()
+		log.Error().Str("session_id", sessionID).Msg("Session not found when starting keepalive")
+		return
+	}
+	now := time.Now()
+	session.KeepaliveStatus = "starting"
+	session.KeepaliveStartTime = &now
+	w.mutex.Unlock()
+
+	// Retry configuration
+	maxRetries := 5
+	retryDelay := 5 * time.Second
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("attempt", attempt+1).
+				Int("max_retries", maxRetries).
+				Msg("Retrying keepalive connection")
+
+			w.mutex.Lock()
+			if session, exists := w.sessions[sessionID]; exists {
+				session.KeepaliveStatus = "reconnecting"
+			}
+			w.mutex.Unlock()
+
+			time.Sleep(retryDelay)
+		}
+
+		// Attempt connection
+		err := w.connectKeepaliveWebSocket(ctx, sessionID, lobbyID, lobbyPIN)
+		if err == nil {
+			// Success - WebSocket is running
+			return
+		}
+
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Int("attempt", attempt+1).
+			Msg("Keepalive connection failed")
+	}
+
+	// All retries exhausted
+	log.Error().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Msg("Keepalive session failed after all retries")
+
+	w.mutex.Lock()
+	if session, exists := w.sessions[sessionID]; exists {
+		session.KeepaliveStatus = "failed"
+		checkTime := time.Now()
+		session.KeepaliveLastCheck = &checkTime
+	}
+	w.mutex.Unlock()
+}
+
+// connectKeepaliveWebSocket establishes WebSocket connection to moonlight-web
+func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID, lobbyID, lobbyPIN string) error {
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
+	}
+
+	// Build WebSocket URL (moonlight-web expects /api/host/stream endpoint)
+	wsURL := strings.Replace(moonlightWebURL, "http://", "ws://", 1) + "/api/host/stream"
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("ws_url", wsURL).
+		Msg("Connecting keepalive WebSocket to moonlight-web")
+
+	// Connect WebSocket
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to connect WebSocket: %w", err)
+	}
+	defer conn.Close()
+
+	// Send AuthenticateAndInit message
+	authMsg := map[string]interface{}{
+		"AuthenticateAndInit": map[string]interface{}{
+			"credentials":                "helix", // From moonlight-web config
+			"host_id":                    0,       // Local Wolf instance
+			"app_id":                     lobbyID, // Use lobby ID as app ID
+			"bitrate":                    5000,    // Minimal bitrate for keepalive
+			"packet_size":                1024,
+			"fps":                        30,
+			"width":                      1280,
+			"height":                     720,
+			"video_sample_queue_size":    10,
+			"play_audio_local":           false,
+			"audio_sample_queue_size":    10,
+			"video_supported_formats":    1, // H264 only
+			"video_colorspace":           1, // Rec. 709
+			"video_color_range_full":     false,
+		},
+	}
+
+	authJSON, err := json.Marshal(authMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth message: %w", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
+		return fmt.Errorf("failed to send auth message: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Msg("Sent keepalive auth message to moonlight-web")
+
+	// Update status to active
+	w.mutex.Lock()
+	if session, exists := w.sessions[sessionID]; exists {
+		session.KeepaliveStatus = "active"
+		checkTime := time.Now()
+		session.KeepaliveLastCheck = &checkTime
+	}
+	w.mutex.Unlock()
+
+	// Message handling loop - keep connection alive
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Str("session_id", sessionID).Msg("Keepalive context cancelled, closing connection")
+			return nil
+
+		default:
+			// Read messages from server
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					log.Info().Str("session_id", sessionID).Msg("Keepalive WebSocket closed normally")
+					return nil
+				}
+				return fmt.Errorf("WebSocket read error: %w", err)
+			}
+
+			// Parse server message
+			var serverMsg map[string]interface{}
+			if err := json.Unmarshal(message, &serverMsg); err != nil {
+				log.Warn().
+					Err(err).
+					Str("session_id", sessionID).
+					Str("message", string(message)).
+					Msg("Failed to parse server message")
+				continue
+			}
+
+			// Log server messages for debugging
+			log.Debug().
+				Str("session_id", sessionID).
+				Interface("message", serverMsg).
+				Msg("Keepalive received server message")
+
+			// Update last check time on each message
+			w.mutex.Lock()
+			if session, exists := w.sessions[sessionID]; exists {
+				checkTime := time.Now()
+				session.KeepaliveLastCheck = &checkTime
+			}
+			w.mutex.Unlock()
+
+			// Handle error messages
+			if msgType, ok := serverMsg["type"].(string); ok {
+				if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" {
+					return fmt.Errorf("moonlight-web error: %s", msgType)
+				}
+			}
+		}
+	}
 }

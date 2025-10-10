@@ -522,3 +522,25 @@ func (c *Client) ListLobbies(ctx context.Context) ([]Lobby, error) {
 
 	return result.Lobbies, nil
 }
+
+// CheckHealth performs a health check on Wolf by attempting to list apps
+// Returns error if Wolf is not responding or has crashed
+func (c *Client) CheckHealth(ctx context.Context) error {
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/v1/apps", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create health check request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("Wolf health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Wolf health check returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}

@@ -109,7 +109,13 @@ type ZedSession struct {
 	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
 	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
 	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // NEW: Lobby ID for auto-start approach
+	WolfLobbyPIN   string    `json:"wolf_lobby_pin,omitempty"`  // NEW: Lobby PIN for reconnection
 	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
+
+	// Keepalive session tracking (prevents stale buffer crash on rejoin)
+	KeepaliveStatus    string     `json:"keepalive_status"`               // "active", "starting", "failed", "disabled"
+	KeepaliveStartTime *time.Time `json:"keepalive_start_time,omitempty"` // When keepalive was started
+	KeepaliveLastCheck *time.Time `json:"keepalive_last_check,omitempty"` // Last health check time
 }
 
 // NewPoolExecutor creates a new pool-based executor
