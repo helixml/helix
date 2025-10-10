@@ -255,7 +255,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		StopWhenEveryoneLeaves: true, // FIX: Stop lobby when empty to prevent stale buffer hang on rejoin (upstream Wolf/interpipe limitation)
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,

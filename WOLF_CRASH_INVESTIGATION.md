@@ -617,6 +617,43 @@ ERROR: Internal data stream error (on FIRST join!)
 
 ---
 
+### Attempt 7: Flush Consumer interpipesrc Before Switch ❌ FAILED
+**Commit:** ca2ad24 (reverted in a0acb44)
+**File:** `streaming.cpp` line 349-352
+
+**Changes:**
+```cpp
+// In switch handler, BEFORE changing listen-to
+auto pipe_name = fmt::format("interpipesrc_{}_video", sess_id);
+if (auto src = gst_bin_get_by_name(...)) {
+  // Flush interpipesrc to clear stale state
+  gst_element_send_event(src, gst_event_new_flush_start());
+  gst_element_send_event(src, gst_event_new_flush_stop(true));
+
+  // Then switch
+  g_object_set(src, "listen-to", video_interpipe.c_str(), nullptr);
+}
+```
+
+**Theory:**
+- Target CONSUMER side (where error occurs)
+- Flush stale CUDA buffers from interpipesrc
+- Clean state before reconnecting
+
+**Results:**
+- ✅ First lobby join worked
+- ❌ Returning to Wolf-UI failed ("no video received")
+- ❌ Flush breaks subsequent switches
+
+**Why Failed:**
+- Flush events too disruptive to interpipe
+- Breaks connection state that can't be restored
+- interpipe not designed for flush-during-operation
+
+**Reverted in:** a0acb44
+
+---
+
 ## FINAL CONFIGURATION
 
 **Wolf Binary State:**
