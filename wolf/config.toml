@@ -596,6 +596,35 @@ sNJ1vdUxyxymcow=\r
     run_uid = 1000
     v_scroll_acceleration = 1.0
 
+[[paired_clients]]
+app_state_folder = '13167995418182798030'
+client_cert = '''-----BEGIN CERTIFICATE-----
+MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjUwOTIzMDkwNzUxWhcNNDUwOTE4MDkw
+NzUxWjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC/8m4LzcR1olm414iGSe78HYS7n2Ni
+6+vlZtxtjwruEmCmKzAzviIYY5A+Zqu4s+9ZsoURGSVL70DCsjfowmBViKWKl/y2
+llPIh70wVQaSzYR4Ddf3HHPk7XVgSdeyw6S4BlTQ1WOTHEAa2Pia5+m3r9JXtS4D
+hKaz6NCq1HG0ORG9E4HqmZ98TMWQmjbWROJOBxCOwaqso4sIOoDwaQIJ558uUwK3
+/n7eY66JaRGunRGnKG8br0GMyEve1ALJpaorTPyVaU2A/tMMre6f5b6//B2ew/bA
+VwMnK9yDZEOQSr+gjwT08UVGh/MLLBxCzB8XlV2Fl+qHLPEb4drD7I4LAgMBAAEw
+DQYJKoZIhvcNAQELBQADggEBADJDHKWzPr8IFw6jqSNXQ/y19CQ1LGNh2sjWBILJ
+pwH3/tSF6SA7/KXCueFFKj8UY1aXcaf05J/SBBJDlGhhv+KoadR9zRWzPBX7hCrb
+JC0H8IT4VPeVYQ9JdQrTyllnNfx3t8ur2yvMalTPIWRuZeu1XtXB7GmBkZCqTCfI
+jbl63Irq9l3Z41Zd3LL6iptmp7lswliTDHlFk9xKQPi40aj+gQ6XlwBZ2AiSbg6K
+Ybr4Rdr7BQO8lkS6FIPwGDVse25rNmNAlyFjCGlz7u3RijbUgrfZv/aDkWPUqTcg
+8aFOz8oaymRnCC7wdEQgsY/Q+nyVQQA+gXq04e0t+O6pyLs=
+-----END CERTIFICATE-----
+'''
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
 [[profiles]]
 id = 'moonlight-profile-id'
 
