@@ -591,3 +591,49 @@ See `/home/luke/pm/helix/WOLF_KEEPALIVE_DESIGN.md` for complete architecture, im
 2. **Advanced Monitoring**: Metrics dashboard for keepalive health across all lobbies
 3. **Smart Reconnection**: Exponential backoff and circuit breaker patterns for problematic lobbies
 4. **Alerting**: Notification when keepalive fails repeatedly for specific lobby
+
+---
+
+## NEXT ITEMS TO WORK ON
+
+**Priority Issues for Next Session:**
+
+### 1. Video Corruption Issue ⚠️
+
+**Description**: Video stream shows corrupted/distorted frames during Moonlight streaming
+
+**Status**: Identified, not yet debugged
+
+**Next Steps**:
+- Analyze GStreamer pipeline configuration for encoding/decoding issues
+- Check CUDA buffer handling in Wolf streaming pipeline
+- Verify video codec compatibility between Wolf producer and moonlight-web consumer
+- Test with different video settings (resolution, bitrate, codec)
+- Review Wolf logs for video encoding errors
+
+**Relevant Files**:
+- Wolf streaming pipeline configuration
+- moonlight-web video decoder settings
+- GStreamer caps negotiation logs
+
+### 2. Input Offset Issue 🖱️
+
+**Description**: Mouse/keyboard input appears offset from expected position
+
+**Status**: Identified, not yet debugged
+
+**Next Steps**:
+- Verify display resolution matches between Wolf container and Moonlight client
+- Check coordinate transformation in input handling
+- Review Wayland input event forwarding
+- Test with different display resolutions to isolate the issue
+- Compare input handling between working XFCE desktop and Sway compositor
+
+**Relevant Files**:
+- Wolf input event handling code
+- Sway compositor configuration
+- Display resolution settings in lobby creation
+
+**Planned Work Date**: Monday 2025-10-14 or later
+
+---
