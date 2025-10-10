@@ -357,56 +357,34 @@ echo -e "OPTIONS rtsp://127.0.0.1:48010 RTSP/1.0\r\n\r\n" | nc 127.0.0.1 48010
 4. **Fix include paths systematically** when integrating Wolf code
 5. **Test each server component individually** before full integration
 
-### Wolf Parallel Sessions Support
+### Wolf Version and Modifications
 
-**CRITICAL: Wolf has been modified to allow session persistence while enabling proper cleanup**
+**IMPORTANT: We use upstream wolf-ui branch with minimal modifications**
 
-The Moonlight client sends various stop/cancel signals when users quit or disconnect. By default, this would stop the streaming session and container. We've modified Wolf to distinguish between:
+**Wolf Repository**: `/home/luke/pm/wolf` on branch `wolf-ui`
+**Base**: Upstream games-on-whales/wolf wolf-ui branch (lobbies support)
 
-1. **Moonlight protocol events** (client-initiated) - Sessions persist
-2. **Wolf internal API** (Helix-initiated) - Proper cleanup happens
+**Our Modifications** (commits by Luke Marsden only):
 
-**Modification Locations - Moonlight Protocol (client-initiated, sessions persist)**:
+1. **57321eb**: Auto-pairing PIN support
+   - File: `src/moonlight-server/rest/servers.cpp`
+   - Reads `MOONLIGHT_INTERNAL_PAIRING_PIN` env var to auto-fulfill pairing
+   - Enables automated pairing with moonlight-web without manual PIN entry
 
-1. `/home/luke/pm/wolf/src/moonlight-server/control/control.cpp`
-   - TERMINATION packet handling (line ~205): Disabled PauseStreamEvent firing
-   - DISCONNECT event handling (line ~175): Disabled PauseStreamEvent firing
-   - **Result**: Sessions continue running when client quits or disconnects via control protocol
+2. **84d4c01**: Phase 5 HTTP support for Moonlight pairing protocol
+   - Adds HTTP endpoint support for pairing phase 5
+   - Works with auto-pairing feature
 
-2. `/home/luke/pm/wolf/src/moonlight-server/rest/endpoints.hpp`
-   - Function: `cancel` (line ~514): Disabled StopStreamEvent firing
-   - **Result**: Sessions continue running when client calls `/cancel` HTTPS endpoint
-   - This endpoint is part of Moonlight HTTPS protocol used during pairing/launch
+3. **307c3de + 45339fe**: These cancel each other out (remove then revert)
 
-3. `/home/luke/pm/wolf/src/moonlight-server/rest/servers.cpp`
-   - Function: HTTPS `serverinfo` handler (line ~123): Always passes `std::nullopt` instead of `client_session`
-   - **Result**: Moonlight client always sees server as available (not busy)
-   - Prevents client from complaining "running game wasn't started on this PC"
-   - Allows starting new sessions without client trying to stop existing ones first
+**Result**: Essentially running **upstream wolf-ui branch** with only auto-pairing additions.
 
-4. `/home/luke/pm/wolf/src/moonlight-server/rest/endpoints.hpp`
-   - Function: `launch` (line ~456): Added duplicate prevention check
-   - Checks if client already has active session for the same app
-   - If yes, reuses existing session instead of creating new container
-   - **Result**: Prevents duplicate containers when client calls /launch repeatedly
-   - Works with serverinfo hiding - client calls /launch instead of /resume
+**Known Issues from Upstream**:
+- GStreamer refcount errors (`gst_mini_object_unref`) flooding logs
+- Occasional zombie process (PID becomes unresponsive)
+- These are upstream wolf-ui branch bugs, not from our changes
 
-**Unmodified (intentionally) - Wolf Internal API (Helix-initiated, proper cleanup)**:
-
-- `/home/luke/pm/wolf/src/moonlight-server/api/endpoints.cpp`
-- Function: `endpoint_StreamSessionStop` - Still fires StopStreamEvent
-- **Result**: When Helix calls `/api/v1/sessions/stop`, containers are properly stopped and removed
-- This prevents session/container reuse bugs when deleting and recreating PDEs
-
-**To rebuild Wolf with modifications**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml down wolf && docker compose -f docker-compose.dev.yaml up -d wolf`
-
-This enables:
-- ✅ Session persistence when clients quit (Ctrl+Shift+Alt+Q)
-- ✅ Session persistence when clients call /cancel endpoint
-- ✅ Reconnection to existing sessions without restart
-- ✅ Multiple parallel Personal Dev Environment sessions
-- ✅ Proper container cleanup when Helix explicitly deletes PDEs
-- ✅ No session/container reuse bugs
+**To rebuild Wolf**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml down wolf && docker compose -f docker-compose.dev.yaml up -d wolf`
 
 ## Using Generated TypeScript Client and React Query
 
