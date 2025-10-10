@@ -703,3 +703,63 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		Str("container_name", containerName).
 		Msg("Successfully retrieved screenshot from external agent container")
 }
+
+// @Summary Get keepalive session status
+// @Description Get keepalive session health status for an external agent
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Session ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/external-agents/{sessionID}/keepalive [get]
+func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	if sessionID == "" {
+		http.Error(res, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get session from executor
+	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Session not found for keepalive status")
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		return
+	}
+
+	// Calculate connection uptime
+	var uptimeSeconds int64
+	if session.KeepaliveStartTime != nil {
+		uptimeSeconds = int64(time.Since(*session.KeepaliveStartTime).Seconds())
+	}
+
+	// Build response
+	response := map[string]interface{}{
+		"session_id":              session.SessionID,
+		"lobby_id":                session.WolfLobbyID,
+		"keepalive_status":        session.KeepaliveStatus,
+		"keepalive_start_time":    session.KeepaliveStartTime,
+		"keepalive_last_check":    session.KeepaliveLastCheck,
+		"connection_uptime_seconds": uptimeSeconds,
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
+}
