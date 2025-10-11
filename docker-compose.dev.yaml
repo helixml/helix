@@ -26,8 +26,12 @@ services:
             context: .
             dockerfile: Dockerfile
             target: api-dev-env
+        networks:
+            default:
+                ipv4_address: 172.19.0.20
         ports:
             - ${API_PORT:-8080}:8080
+            - "3478:3478/udp"  # TURN server for WebRTC NAT traversal
         restart: always
         env_file:
             - .env
@@ -90,6 +94,13 @@ services:
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            # TURN server configuration for WebRTC
+            - TURN_ENABLED=true
+            - TURN_PUBLIC_IP=172.19.0.20
+            - TURN_PORT=3478
+            - TURN_REALM=helix.ai
+            - TURN_USERNAME=helix
+            - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
@@ -301,6 +312,10 @@ services:
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        # TURN server for WebRTC NAT traversal
+        - TURN_SERVER=turn:172.19.0.20:3478
+        - TURN_USERNAME=helix
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
       volumes:
         - ./moonlight-web-config:/app/server:rw
       restart: unless-stopped
