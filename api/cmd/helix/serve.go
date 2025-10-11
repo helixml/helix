@@ -37,6 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
+	"github.com/helixml/helix/api/pkg/turn"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
@@ -242,6 +243,26 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	ps, err := pubsub.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create pubsub provider: %w", err)
+	}
+
+	// Start TURN server for WebRTC NAT traversal if enabled
+	var turnServer *turn.Server
+	if cfg.TURN.Enabled {
+		turnServer, err = turn.New(turn.Config{
+			PublicIP: cfg.TURN.PublicIP,
+			Port:     cfg.TURN.Port,
+			Realm:    cfg.TURN.Realm,
+			Username: cfg.TURN.Username,
+			Password: cfg.TURN.Password,
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to start TURN server, WebRTC may not work properly")
+		} else {
+			cm.RegisterCallbackWithContext(func(ctx context.Context) error {
+				return turnServer.Close()
+			})
+			log.Info().Msgf("TURN server enabled for WebRTC at %s:%d", cfg.TURN.PublicIP, cfg.TURN.Port)
+		}
 	}
 
 	if cfg.WebServer.RunnerToken == "" {
