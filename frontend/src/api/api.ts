@@ -996,7 +996,10 @@ export interface TypesCreateTeamRequest {
 
 export interface TypesCrispTrigger {
   enabled?: boolean;
+  /** Token identifier */
   identifier?: string;
+  /** Optional */
+  nickname?: string;
   token?: string;
 }
 
@@ -1259,6 +1262,8 @@ export interface TypesInteraction {
   tool_calls?: GithubComSashabaranovGoOpenaiToolCall[];
   /** Model function calling, not to be mistaken with Helix tools */
   tools?: GithubComSashabaranovGoOpenaiTool[];
+  /** Session (default), slack, crisp, etc */
+  trigger?: string;
   updated?: string;
   usage?: GithubComHelixmlHelixApiPkgTypesUsage;
   user_id?: string;
@@ -2084,6 +2089,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  trigger?: string;
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;

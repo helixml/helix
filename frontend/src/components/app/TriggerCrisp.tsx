@@ -37,6 +37,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
   // State for Crisp configuration
   const [identifier, setIdentifier] = useState<string>(crispTrigger?.identifier || '')
   const [token, setToken] = useState<string>(crispTrigger?.token || '')
+  const [nickname, setNickname] = useState<string>(crispTrigger?.nickname || '')
   const [showToken, setShowToken] = useState<boolean>(false)
 
   // If crisp is configured, we need to get the status of the bot
@@ -50,6 +51,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
     if (crispTrigger) {
       setIdentifier(crispTrigger.identifier || '')
       setToken(crispTrigger.token || '')
+      setNickname(crispTrigger.nickname || '')
     }
   }, [crispTrigger])
 
@@ -63,7 +65,8 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
           crisp: { 
             enabled: true, 
             identifier: currentCrispTrigger.identifier || '', 
-            token: currentCrispTrigger.token || ''
+            token: currentCrispTrigger.token || '',
+            nickname: currentCrispTrigger.nickname || ''
           } 
         }]
         onUpdate(newTriggers)
@@ -73,7 +76,8 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
           crisp: { 
             enabled: true, 
             identifier: '', 
-            token: ''
+            token: '',
+            nickname: ''
           } 
         }]
         onUpdate(newTriggers)
@@ -86,7 +90,8 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
           crisp: { 
             enabled: false, 
             identifier: currentCrispTrigger.identifier || '', 
-            token: currentCrispTrigger.token || ''
+            token: currentCrispTrigger.token || '',
+            nickname: currentCrispTrigger.nickname || ''
           } 
         }]
         onUpdate(updatedTriggers)
@@ -100,21 +105,27 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
 
   const handleIdentifierChange = (value: string) => {
     setIdentifier(value)
-    updateCrispTrigger(value, token)
+    updateCrispTrigger(value, token, nickname)
   }
 
   const handleTokenChange = (value: string) => {
     setToken(value)
-    updateCrispTrigger(identifier, value)
+    updateCrispTrigger(identifier, value, nickname)
   }
 
-  const updateCrispTrigger = (identifierValue: string, tokenValue: string) => {
+  const handleNicknameChange = (value: string) => {
+    setNickname(value)
+    updateCrispTrigger(identifier, token, value)
+  }
+
+  const updateCrispTrigger = (identifierValue: string, tokenValue: string, nicknameValue: string) => {
     const currentCrispTrigger = triggers.find(t => t.crisp)?.crisp
     const newTriggers = [...triggers.filter(t => !t.crisp), { 
       crisp: { 
         enabled: true, 
         identifier: identifierValue, 
-        token: tokenValue
+        token: tokenValue,
+        nickname: nicknameValue
       } 
     }]
     onUpdate(newTriggers)
@@ -155,32 +166,32 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
           {/* Identifier */}
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
-              Website Identifier
+              Identifier
             </Typography>
             <TextField
               fullWidth
               size="small"
-              placeholder="your-website-identifier"
+              placeholder="your-token-identifier"
               value={identifier}
               onChange={(e) => handleIdentifierChange(e.target.value)}
               disabled={readOnly || !hasCrispTrigger}
-              helperText="Your Crisp website identifier"
+              helperText="Your Crisp token identifier"
             />
           </Box>
 
           {/* Token */}
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
-              API Token
+              Key
             </Typography>
             <TextField
               fullWidth
               size="small"
-              placeholder="your-api-token"
+              placeholder="your-key"
               value={token}
               onChange={(e) => handleTokenChange(e.target.value)}
               disabled={readOnly || !hasCrispTrigger}
-              helperText="Your Crisp API token"
+              helperText="Your Crisp key"
               type={showToken ? 'text' : 'password'}
               autoComplete="new-password"
               InputProps={{
@@ -197,6 +208,22 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
                   </InputAdornment>
                 ),
               }}
+            />
+          </Box>
+
+          {/* Nickname */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+              Bot Nickname (Optional)
+            </Typography>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Helix"
+              value={nickname}
+              onChange={(e) => handleNicknameChange(e.target.value)}
+              disabled={readOnly || !hasCrispTrigger}
+              helperText="The nickname that will appear in Crisp chat (defaults to 'Helix' if empty). As an operator you can also trigger the bot by typing 'Hey <bot_nickname>'"
             />
           </Box>
 
