@@ -6758,6 +6758,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CrispTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CronTrigger": {
             "type": "object",
             "properties": {
@@ -10337,6 +10351,9 @@ const docTemplate = `{
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOpsTrigger"
                 },
+                "crisp": {
+                    "$ref": "#/definitions/types.CrispTrigger"
+                },
                 "cron": {
                     "$ref": "#/definitions/types.CronTrigger"
                 },
@@ -10488,11 +10505,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "slack",
+                "crisp",
                 "azure_devops",
                 "cron"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
+                "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron"
             ]
@@ -10528,6 +10547,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.ProviderEndpointType"
                         }
                     ]
+                },
+                "headers": {
+                    "description": "Custom headers for the endpoint",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "models": {
                     "type": "array",

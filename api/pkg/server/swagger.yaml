@@ -1562,6 +1562,15 @@ definitions:
       organization_id:
         type: string
     type: object
+  types.CrispTrigger:
+    properties:
+      enabled:
+        type: boolean
+      identifier:
+        type: string
+      token:
+        type: string
+    type: object
   types.CronTrigger:
     properties:
       enabled:
@@ -4071,6 +4080,8 @@ definitions:
     properties:
       azure_devops:
         $ref: '#/definitions/types.AzureDevOpsTrigger'
+      crisp:
+        $ref: '#/definitions/types.CrispTrigger'
       cron:
         $ref: '#/definitions/types.CronTrigger'
       discord:
@@ -4175,11 +4186,13 @@ definitions:
   types.TriggerType:
     enum:
     - slack
+    - crisp
     - azure_devops
     - cron
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
+    - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
   types.UpdateOrganizationMemberRequest:
@@ -4202,6 +4215,11 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ProviderEndpointType'
         description: 'global, user (TODO: orgs, teams)'
+      headers:
+        additionalProperties:
+          type: string
+        description: Custom headers for the endpoint
+        type: object
       models:
         items:
           type: string
