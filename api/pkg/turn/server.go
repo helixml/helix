@@ -3,9 +3,13 @@ package turn
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/pion/turn/v4"
 )
@@ -32,6 +36,35 @@ type Config struct {
 	Password string
 }
 
+// detectPublicIP attempts to detect the public IP using api.ipify.org with a timeout
+func detectPublicIP() string {
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get("https://api.ipify.org?format=text")
+	if err != nil {
+		log.Printf("[TURN] Could not detect public IP via api.ipify.org: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[TURN] Could not read public IP response: %v", err)
+		return ""
+	}
+
+	publicIP := strings.TrimSpace(string(body))
+	if net.ParseIP(publicIP) == nil {
+		log.Printf("[TURN] Invalid public IP detected: %s", publicIP)
+		return ""
+	}
+
+	log.Printf("[TURN] Detected public IP: %s", publicIP)
+	return publicIP
+}
+
 // New creates and starts a new TURN server
 func New(cfg Config) (*Server, error) {
 	// Set defaults
@@ -48,9 +81,31 @@ func New(cfg Config) (*Server, error) {
 		cfg.Password = "helix-turn-secret"
 	}
 
-	// Validate required config
-	if cfg.PublicIP == "" {
-		return nil, fmt.Errorf("PublicIP is required")
+	// Always try to auto-detect public IP, use configured as fallback
+	configuredIP := cfg.PublicIP
+	if detectedIP := detectPublicIP(); detectedIP != "" {
+		cfg.PublicIP = detectedIP
+		log.Printf("[TURN] Using auto-detected public IP: %s (configured was: %s)", detectedIP, configuredIP)
+	} else {
+		// Fallback to configured value
+		if configuredIP == "" {
+			return nil, fmt.Errorf("PublicIP is required and could not be auto-detected")
+		}
+		log.Printf("[TURN] Could not auto-detect public IP, using configured: %s", cfg.PublicIP)
+	}
+
+	// Resolve Docker hostname to IP for local relay address
+	localIP := configuredIP
+	if net.ParseIP(configuredIP) == nil {
+		// It's a hostname, resolve it
+		addrs, err := net.LookupHost(configuredIP)
+		if err != nil || len(addrs) == 0 {
+			log.Printf("[TURN] Could not resolve %s to IP, using public IP for all relays", configuredIP)
+			localIP = cfg.PublicIP
+		} else {
+			localIP = addrs[0]
+			log.Printf("[TURN] Resolved %s to %s for local relay", configuredIP, localIP)
+		}
 	}
 
 	// Create UDP listener
@@ -62,7 +117,7 @@ func New(cfg Config) (*Server, error) {
 	// Generate auth key for username/password
 	authKey := turn.GenerateAuthKey(cfg.Username, cfg.Realm, cfg.Password)
 
-	// Create TURN server
+	// Create TURN server with both local and public relay addresses
 	turnServer, err := turn.NewServer(turn.ServerConfig{
 		Realm: cfg.Realm,
 		// AuthHandler validates credentials
@@ -73,12 +128,21 @@ func New(cfg Config) (*Server, error) {
 			log.Printf("[TURN] Authentication failed for user: %s from %s", username, srcAddr)
 			return nil, false
 		},
-		// PacketConnConfigs defines UDP listeners
+		// PacketConnConfigs defines UDP listeners with multiple relay addresses
 		PacketConnConfigs: []turn.PacketConnConfig{
+			// Local Docker network relay for low-latency connections
 			{
 				PacketConn: udpListener,
 				RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
-					RelayAddress: net.ParseIP(cfg.PublicIP),
+					RelayAddress: net.ParseIP(localIP), // Use local Docker IP for local clients
+					Address:      "0.0.0.0",
+				},
+			},
+			// Public IP relay for external clients
+			{
+				PacketConn: udpListener,
+				RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
+					RelayAddress: net.ParseIP(cfg.PublicIP), // Use public IP for external clients
 					Address:      "0.0.0.0",
 				},
 			},
