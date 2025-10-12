@@ -91,25 +91,8 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 		func(reg *crisp.EventsRegister) {
 			c.setStatus(true, "Crisp bot connected")
 
-			fmt.Print("XXX WebSocket channel is connected: now listening for events\n")
-
-			// User hits send button
-			// [message:send/text] crisp.EventsReceiveTextMessage{EventsGeneric:crisp.EventsGeneric{RoutingIDs:[]},
-			// EventsReceiveGenericMessage:crisp.EventsReceiveGenericMessage{EventsReceiveGenericMessageType:crisp.EventsReceiveGenericMessageType{Type:"text"},
-			// EventsSessionGeneric:crisp.EventsSessionGeneric{EventsWebsiteGeneric:crisp.EventsWebsiteGeneric{WebsiteID:"ac7f9077-a943-4521-a259-cff0e877a49b"},
-			// EventsSessionGenericUnbound:crisp.EventsSessionGenericUnbound{SessionID:"session_b3269776-df9c-483b-a894-f762148da1c0"}},
-			// From:"user", Origin:"chat", Stamped:true, Timestamp:1760201391530, Fingerprint:176020139095962,
-			// User:crisp.EventsReceiveCommonMessageUser{UserID:"session_b3269776-df9c-483b-a894-f762148da1c0", Nickname:"visitor523"}},
-			// Content:"I have a problem with installation"}
-			reg.On("message:send/text", func(evt crisp.EventsReceiveTextMessage) {
-				fmt.Printf("[message:send/text] XXXXXX\n")
-
-				spew.Dump(evt)
-
-				// TODO:
-				// 1. Load history of the conversation
-				// 2. If needed - summarize it first
-
+			// User hits send button (done typing)
+			_ = reg.On("message:send/text", func(evt crisp.EventsReceiveTextMessage) {
 				err := c.handleTextMessage(c.ctx, client, evt)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to handle text message")
@@ -117,98 +100,93 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 
 			})
 
-			reg.On("message:send/file", func(evt crisp.EventsReceiveFileMessage) {
-				fmt.Printf("[message:send/file] %s\n", evt)
-
+			_ = reg.On("message:send/file", func(evt crisp.EventsReceiveFileMessage) {
 				err := c.handleFileMessage(c.ctx, client, evt)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to handle file message")
 				}
-
 			})
 
-			reg.On("message:send/animation", func(evt crisp.EventsReceiveAnimationMessage) {
-				fmt.Printf("[message:send/animation] %s\n", evt)
+			_ = reg.On("message:send/animation", func(_ crisp.EventsReceiveAnimationMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/audio", func(evt crisp.EventsReceiveAudioMessage) {
-				fmt.Printf("[message:send/audio] %s\n", evt)
+			_ = reg.On("message:send/audio", func(_ crisp.EventsReceiveAudioMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/picker", func(evt crisp.EventsReceivePickerMessage) {
-				fmt.Printf("[message:send/picker] %s\n", evt)
+			_ = reg.On("message:send/picker", func(_ crisp.EventsReceivePickerMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/field", func(evt crisp.EventsReceiveFieldMessage) {
-				fmt.Printf("[message:send/field] %s\n", evt)
+			_ = reg.On("message:send/field", func(_ crisp.EventsReceiveFieldMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/carousel", func(evt crisp.EventsReceiveCarouselMessage) {
-				fmt.Printf("[message:send/carousel] %s\n", evt)
+			_ = reg.On("message:send/carousel", func(_ crisp.EventsReceiveCarouselMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/note", func(evt crisp.EventsReceiveNoteMessage) {
-				fmt.Printf("[message:send/note] %s\n", evt)
+			_ = reg.On("message:send/note", func(_ crisp.EventsReceiveNoteMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:send/event", func(evt crisp.EventsReceiveEventMessage) {
-				fmt.Printf("[message:send/event] %s\n", evt)
+			_ = reg.On("message:send/event", func(_ crisp.EventsReceiveEventMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/text", func(evt crisp.EventsReceiveTextMessage) {
-				fmt.Printf("[message:received/text] %s\n", evt)
+			_ = reg.On("message:received/text", func(_ crisp.EventsReceiveTextMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/file", func(evt crisp.EventsReceiveFileMessage) {
-				fmt.Printf("[message:received/file] %s\n", evt)
+			_ = reg.On("message:received/file", func(_ crisp.EventsReceiveFileMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/animation", func(evt crisp.EventsReceiveAnimationMessage) {
-				fmt.Printf("[message:received/animation] %s\n", evt)
+			_ = reg.On("message:received/animation", func(_ crisp.EventsReceiveAnimationMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/audio", func(evt crisp.EventsReceiveAudioMessage) {
-				fmt.Printf("[message:received/audio] %s\n", evt)
+			_ = reg.On("message:received/audio", func(_ crisp.EventsReceiveAudioMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/picker", func(evt crisp.EventsReceivePickerMessage) {
-				fmt.Printf("[message:received/picker] %s\n", evt)
+			_ = reg.On("message:received/picker", func(_ crisp.EventsReceivePickerMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/field", func(evt crisp.EventsReceiveFieldMessage) {
-				fmt.Printf("[message:received/field] %s\n", evt)
+			_ = reg.On("message:received/field", func(_ crisp.EventsReceiveFieldMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/carousel", func(evt crisp.EventsReceiveCarouselMessage) {
-				fmt.Printf("[message:received/carousel] %s\n", evt)
+			_ = reg.On("message:received/carousel", func(_ crisp.EventsReceiveCarouselMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/note", func(evt crisp.EventsReceiveNoteMessage) {
-				fmt.Printf("[message:received/note] %s\n", evt)
+			_ = reg.On("message:received/note", func(_ crisp.EventsReceiveNoteMessage) {
+				// Nothing to do
 			})
 
-			reg.On("message:received/event", func(evt crisp.EventsReceiveEventMessage) {
-				fmt.Printf("[message:received/event] %s\n", evt)
+			_ = reg.On("message:received/event", func(_ crisp.EventsReceiveEventMessage) {
+				// Nothing to do
 			})
 
 			// User typing message
-			reg.On("message:compose:send", func(evt crisp.EventsReceiveMessageComposeSend) {
-				fmt.Printf("[message:compose:send] %s\n", evt)
-				spew.Dump(evt)
+			_ = reg.On("message:compose:send", func(_ crisp.EventsReceiveMessageComposeSend) {
+				// Nothing to do
 			})
 
-			reg.On("message:compose:receive", func(evt crisp.EventsReceiveMessageComposeReceive) {
-				fmt.Printf("[message:compose:receive] %s\n", evt)
+			_ = reg.On("message:compose:receive", func(_ crisp.EventsReceiveMessageComposeReceive) {
+				// Nothing to do
 			})
 		},
 
 		func() {
-			fmt.Print("XXX WebSocket channel is disconnected: will try to reconnect\n")
 			c.setStatus(false, "Crisp bot disconnected, reconnecting...")
 		},
 
 		func(err error) {
-			fmt.Printf("XXXWebSocket channel error: %+v\n", err)
+			log.Error().Err(err).Str("app_id", c.app.ID).Msg("Crisp bot websocket error")
 			c.setStatus(false, fmt.Sprintf("Crisp bot websocket error: %v", err))
 		},
 	)
@@ -230,12 +208,19 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		return fmt.Errorf("session ID is nil")
 	}
 
+	if evt.EventsWebsiteGeneric.WebsiteID == nil {
+		log.Error().Str("app_id", c.app.ID).Any("event", evt).Msg("crisp website ID is nil")
+		return fmt.Errorf("website ID is nil")
+	}
+
 	if evt.Content == nil {
 		log.Error().Str("app_id", c.app.ID).Any("event", evt).Msg("crisp content is nil")
 		return fmt.Errorf("content is nil")
 	}
 
-	conversation, _, err := client.Website.GetConversation("ac7f9077-a943-4521-a259-cff0e877a49b", *evt.SessionID)
+	websiteID := *evt.EventsWebsiteGeneric.WebsiteID
+
+	conversation, _, err := client.Website.GetConversation(websiteID, *evt.SessionID)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get conversation")
 		return fmt.Errorf("failed to get conversation: %w", err)
@@ -305,16 +290,7 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 	}
 
 	// Send response back to Crisp
-	_, _, err = client.Website.SendTextMessageInConversation("ac7f9077-a943-4521-a259-cff0e877a49b", *evt.SessionID, crisp.ConversationTextMessageNew{
-		Type:      "text",
-		Content:   resp.ResponseMessage,
-		Origin:    "chat",
-		Automated: ptr.To(true),
-		From:      "operator",
-		User: crisp.ConversationAllMessageNewUser{
-			Nickname: "Helix",
-		},
-	})
+	err = c.sendMessage(ctx, client, websiteID, *evt.SessionID, resp.ResponseMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send message to Crisp: %w", err)
 	}
@@ -324,4 +300,28 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 
 func (c *CrispBot) handleFileMessage(ctx context.Context, client *crisp.Client, evt crisp.EventsReceiveFileMessage) error {
 	return nil
+}
+
+func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteID, sessionID, message string) error {
+	nickname := c.trigger.Nickname
+	if nickname == "" {
+		nickname = "Helix"
+	}
+
+	_, _, err := client.Website.SendTextMessageInConversation(websiteID, sessionID, crisp.ConversationTextMessageNew{
+		Type:      "text",
+		Content:   message,
+		Origin:    "chat",
+		Automated: ptr.To(true),
+		From:      "operator",
+		User: crisp.ConversationAllMessageNewUser{
+			Nickname: nickname,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send message to Crisp: %w", err)
+	}
+
+	return nil
+
 }
