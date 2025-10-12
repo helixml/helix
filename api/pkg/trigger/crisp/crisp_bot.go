@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/crisp-im/go-crisp-api/crisp/v3"
 	"github.com/davecgh/go-spew/spew"
@@ -30,7 +31,7 @@ func NewCrispBot(cfg *config.ServerConfig, store store.Store, controller *contro
 	}
 }
 
-type CrispBot struct {
+type CrispBot struct { //nolint:revive
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller *controller.Controller
@@ -93,11 +94,51 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 
 			// User hits send button (done typing)
 			_ = reg.On("message:send/text", func(evt crisp.EventsReceiveTextMessage) {
-				err := c.handleTextMessage(c.ctx, client, evt)
+				if evt.User == nil {
+					log.Warn().Str("app_id", c.app.ID).Any("event", evt).Msg("user is nil")
+					return
+				}
+				if evt.SessionID == nil {
+					log.Warn().Str("app_id", c.app.ID).Any("event", evt).Msg("session ID is nil")
+					return
+				}
+
+				if evt.WebsiteID == nil {
+					log.Warn().Str("app_id", c.app.ID).Any("event", evt).Msg("website ID is nil")
+					return
+				}
+
+				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, uint(*evt.Timestamp), *evt.Content)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to handle text message")
 				}
+			})
 
+			// When either bot or operator sends a message
+			_ = reg.On("message:received/text", func(evt crisp.EventsReceiveTextMessage) {
+				if evt.User == nil {
+					return
+				}
+				if *evt.User.Nickname == c.trigger.Nickname {
+					return // Do not reply to own messages
+				}
+
+				if evt.SessionID == nil {
+					return
+				}
+				if evt.WebsiteID == nil {
+					return
+				}
+
+				// If the message is not directed to the bot, ignore it
+				if !c.isMessageDirectedToBot(*evt.Content) {
+					return
+				}
+
+				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, uint(*evt.Timestamp), *evt.Content)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to handle text message")
+				}
 			})
 
 			_ = reg.On("message:send/file", func(evt crisp.EventsReceiveFileMessage) {
@@ -132,10 +173,6 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 			})
 
 			_ = reg.On("message:send/event", func(_ crisp.EventsReceiveEventMessage) {
-				// Nothing to do
-			})
-
-			_ = reg.On("message:received/text", func(_ crisp.EventsReceiveTextMessage) {
 				// Nothing to do
 			})
 
@@ -202,34 +239,37 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 	return nil
 }
 
-func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, evt crisp.EventsReceiveTextMessage) error {
-	if evt.SessionID == nil {
-		log.Error().Str("app_id", c.app.ID).Any("event", evt).Msg("crisp session ID is nil")
+func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, websiteID, crispSessionID string, messageTimestamp uint, content string) error {
+	if crispSessionID == "" {
+		log.Error().Str("app_id", c.app.ID).Str("crisp_session_id", crispSessionID).Msg("crisp session ID is empty")
 		return fmt.Errorf("session ID is nil")
 	}
 
-	if evt.EventsWebsiteGeneric.WebsiteID == nil {
-		log.Error().Str("app_id", c.app.ID).Any("event", evt).Msg("crisp website ID is nil")
+	if websiteID == "" {
+		log.Error().Str("app_id", c.app.ID).Str("website_id", websiteID).Msg("crisp website ID is empty")
 		return fmt.Errorf("website ID is nil")
 	}
 
-	if evt.Content == nil {
-		log.Error().Str("app_id", c.app.ID).Any("event", evt).Msg("crisp content is nil")
+	if content == "" {
+		log.Error().Str("app_id", c.app.ID).Str("content", content).Msg("crisp content is empty")
 		return fmt.Errorf("content is nil")
 	}
 
-	websiteID := *evt.EventsWebsiteGeneric.WebsiteID
+	log.Debug().
+		Str("app_id", c.app.ID).
+		Str("session_id", crispSessionID).
+		Msg("handleTextMessage")
 
-	conversation, _, err := client.Website.GetConversation(websiteID, *evt.SessionID)
+	messages, _, err := client.Website.GetMessagesInConversationBefore(websiteID, crispSessionID, messageTimestamp)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to get conversation")
-		return fmt.Errorf("failed to get conversation: %w", err)
+		log.Error().Err(err).Msg("failed to get message")
+		return fmt.Errorf("failed to get message: %w", err)
 	}
 
-	spew.Dump(conversation)
+	spew.Dump(messages)
 
 	// Check if we have existing crisp thread
-	thread, err := c.store.GetCrispThread(ctx, c.app.ID, *evt.SessionID)
+	thread, err := c.store.GetCrispThread(ctx, c.app.ID, crispSessionID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Error().Err(err).Msg("failed to get crisp thread")
 		return fmt.Errorf("failed to get crisp thread: %w", err)
@@ -259,7 +299,7 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 
 		// Create the new thread
 		_, err = c.store.CreateCrispThread(ctx, &types.CrispThread{
-			CrispSessionID: *evt.SessionID,
+			CrispSessionID: crispSessionID,
 			AppID:          c.app.ID,
 			SessionID:      session.ID,
 		})
@@ -283,14 +323,14 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		App:            c.app,
 		Session:        session,
 		User:           user,
-		PromptMessage:  types.MessageContent{Parts: []any{*evt.Content}},
+		PromptMessage:  types.MessageContent{Parts: []any{content}},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
 	// Send response back to Crisp
-	err = c.sendMessage(ctx, client, websiteID, *evt.SessionID, resp.ResponseMessage)
+	err = c.sendMessage(ctx, client, websiteID, crispSessionID, resp.ResponseMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send message to Crisp: %w", err)
 	}
@@ -323,5 +363,9 @@ func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteI
 	}
 
 	return nil
+}
 
+// We are looking for "Hey <bot_nickname>"
+func (c *CrispBot) isMessageDirectedToBot(message string) bool {
+	return strings.Contains(message, "Hey "+c.trigger.Nickname)
 }
