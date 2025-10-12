@@ -5,6 +5,7 @@ import GoogleIcon from '@mui/icons-material/Google'
 import AppleIcon from '@mui/icons-material/Apple'
 import CodeIcon from '@mui/icons-material/Code'
 import atlassianLogo from '../../../assets/img/atlassian-logo.png'
+import crispLogo from '../../../assets/img/crisp/logo.png'
 
 export const OllamaIcon = (props: any) => (
   <SvgIcon {...props} viewBox="0 0 24 24">
@@ -82,6 +83,14 @@ export const HubspotLogo = (props: any) => (
   </SvgIcon>
 )
 
+export const CrispLogo = (props: any) => (
+  <img 
+    src={crispLogo}     
+    style={{ width: props.sx?.fontSize || 24, height: props.sx?.fontSize || 24, marginRight: 16 }} 
+    alt="Crisp" 
+  />
+)
+
 // All built-in icons export
 export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   github: <GitHubIcon sx={{ fontSize: 30 }} />,
@@ -94,6 +103,7 @@ export const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   twitter: <TwitterLogo sx={{ fontSize: 30 }} />,
   apple: <AppleIcon sx={{ fontSize: 30 }} />,
   hubspot: <HubspotLogo sx={{ fontSize: 30 }} />,
+  crisp: <img src={crispLogo} style={{ width: 30, height: 30 }} alt="Crisp" />,
   custom: <CodeIcon sx={{ fontSize: 30 }} />,
 };
 
@@ -108,6 +118,8 @@ export const PROVIDER_COLORS: Record<string, string> = {
   facebook: '#1877F2',
   twitter: '#1DA1F2',
   apple: '#000000',
+  hubspot: '#FF7A59',
+  crisp: '#FF6B6B',
   custom: '#6c757d',
 };
 
@@ -122,6 +134,8 @@ export const PROVIDER_TYPES: Record<string, string> = {
   facebook: 'Facebook',
   twitter: 'Twitter',
   apple: 'Apple',
+  hubspot: 'HubSpot',
+  crisp: 'Crisp',
   custom: 'Custom',
 };
 
