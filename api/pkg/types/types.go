@@ -52,6 +52,8 @@ type Interaction struct {
 	Status         string           `json:"status"`
 	Error          string           `json:"error"`
 
+	Trigger string `json:"trigger"` // Session (default), slack, crisp, etc
+
 	RagResults []*SessionRAGResult `json:"rag_results" gorm:"type:jsonb;serializer:json"`
 
 	// Model function calling, not to be mistaken with Helix tools
@@ -568,6 +570,8 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+
+	Trigger string `json:"trigger"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -2208,7 +2212,20 @@ type SlackThread struct {
 	SessionID string `json:"session_id"`
 }
 
+type CrispThread struct {
+	CrispSessionID string    `json:"crisp_session_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"` // Helix session ID
+}
+
 type TriggerType string
+
+func (t TriggerType) String() string {
+	return string(t)
+}
 
 const (
 	TriggerTypeSlack       TriggerType = "slack"
