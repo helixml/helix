@@ -6765,6 +6765,11 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "identifier": {
+                    "description": "Token identifier",
+                    "type": "string"
+                },
+                "nickname": {
+                    "description": "Optional",
                     "type": "string"
                 },
                 "token": {
@@ -7441,6 +7446,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
                     }
+                },
+                "trigger": {
+                    "description": "Session (default), slack, crisp, etc",
+                    "type": "string"
                 },
                 "updated": {
                     "type": "string"
@@ -9458,6 +9467,9 @@ const docTemplate = `{
                 },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
+                    "type": "string"
+                },
+                "trigger": {
                     "type": "string"
                 },
                 "type": {

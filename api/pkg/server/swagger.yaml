@@ -1567,6 +1567,10 @@ definitions:
       enabled:
         type: boolean
       identifier:
+        description: Token identifier
+        type: string
+      nickname:
+        description: Optional
         type: string
       token:
         type: string
@@ -2031,6 +2035,9 @@ definitions:
         items:
           $ref: '#/definitions/github_com_sashabaranov_go-openai.Tool'
         type: array
+      trigger:
+        description: Session (default), slack, crisp, etc
+        type: string
       updated:
         type: string
       usage:
@@ -3457,6 +3464,8 @@ definitions:
         description: |-
           huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
           stabilityai/stable-diffusion-xl-base-1.0
+        type: string
+      trigger:
         type: string
       type:
         allOf:
