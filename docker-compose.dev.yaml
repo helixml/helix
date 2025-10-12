@@ -96,7 +96,7 @@ services:
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             # TURN server configuration for WebRTC
             - TURN_ENABLED=true
-            - TURN_PUBLIC_IP=172.19.0.20
+            - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api}  # Use 'api' hostname for local relay (auto-detects public IP)
             - TURN_PORT=3478
             - TURN_REALM=helix.ai
             - TURN_USERNAME=helix
@@ -312,10 +312,8 @@ services:
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-        # TURN server for WebRTC NAT traversal
-        - TURN_SERVER=turn:172.19.0.20:3478
-        - TURN_USERNAME=helix
-        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+        # Note: TURN config is in moonlight-web-config/config.json (webrtc_ice_servers)
+        # Both moonlight-web and browser clients use the same ICE servers from that config
       volumes:
         - ./moonlight-web-config:/app/server:rw
       restart: unless-stopped

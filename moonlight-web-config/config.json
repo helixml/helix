@@ -11,6 +11,14 @@
         "stun:stun3.l.google.com:19302",
         "stun:stun4.l.google.com:19302"
       ]
+    },
+    {
+      "urls": [
+        "turn:node01.lukemarsden.net:3478?transport=udp",
+        "turn:212.82.90.199:3478?transport=udp"
+      ],
+      "username": "helix",
+      "credential": "helix-turn-secret"
     }
   ],
   "webrtc_port_range": {
