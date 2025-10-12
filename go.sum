@@ -212,6 +212,8 @@ github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ3
 github.com/creack/pty v1.1.17/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
 github.com/creack/pty v1.1.20 h1:VIPb/a2s17qNeQgDnkfZC35RScx+blkKF8GV68n80J4=
 github.com/creack/pty v1.1.20/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
+github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749 h1:LR3qcC85SmtheB4EUMwEzpmgKvTn04OTwYIDEumnla4=
+github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749/go.mod h1:oolMmTBmvCsL/ZBwDYRMEwPbgK2KnENoZ1azcP4pAPg=
 github.com/cyphar/filepath-securejoin v0.4.1 h1:JyxxyPEaktOD+GAnqIqTf9A8tHyAG22rowi7HkoSU1s=
 github.com/cyphar/filepath-securejoin v0.4.1/go.mod h1:Sdj7gXlvMcPZsbhwhQ33GguGLDGQL7h7bg04C/+u9jI=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -471,6 +473,8 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/gptscript-ai/chat-completion-client v0.0.0-20241104122544-5fe75f07c131 h1:y2FcmT4X8U606gUS0teX5+JWX9K/NclsLEhHiyrd+EU=
 github.com/gptscript-ai/chat-completion-client v0.0.0-20241104122544-5fe75f07c131/go.mod h1:7P/o6/IWa1KqsntVf68hSnLKuu3+xuqm6lYhch1w4jo=
+github.com/graarh/golang-socketio v0.0.0-20170510162725-2c44953b9b5f h1:utzdm9zUvVWGRtIpkdE4+36n+Gv60kNb7mFvgGxLElY=
+github.com/graarh/golang-socketio v0.0.0-20170510162725-2c44953b9b5f/go.mod h1:8gudiNCFh3ZfvInknmoXzPeV17FSH+X2J5k2cUPIwnA=
 github.com/grokify/mogo v0.64.12 h1:BNrZ1qBFuX4qu5722CW6qtqu/mrrsZ3bhKu/w1KowKg=
 github.com/grokify/mogo v0.64.12/go.mod h1:lDhfYIiOhJo7C2U3aL00PlUU9gLvmTONi4MdIWoGmGM=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
