@@ -22,6 +22,11 @@ import (
 // curl -H "Content-Type: application/json" -X POST -d '{"email":"email@example.com","password":"your password"}' https://api.crisp.chat/v1/user/session/login
 
 func NewCrispBot(cfg *config.ServerConfig, store store.Store, controller *controller.Controller, app *types.App, trigger *types.CrispTrigger) *CrispBot {
+
+	if trigger.Nickname == "" {
+		trigger.Nickname = "Helix"
+	}
+
 	return &CrispBot{
 		cfg:        cfg,
 		store:      store,
@@ -85,8 +90,6 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 		[]string{
 			"message:send",
 			"message:received",
-			"message:compose:send",
-			"message:compose:receive",
 		},
 
 		func(reg *crisp.EventsRegister) {
@@ -339,15 +342,11 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 }
 
 func (c *CrispBot) handleFileMessage(ctx context.Context, client *crisp.Client, evt crisp.EventsReceiveFileMessage) error {
+	// TODO: handle images or just ignore it but include in the next prompt
 	return nil
 }
 
 func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteID, sessionID, message string) error {
-	nickname := c.trigger.Nickname
-	if nickname == "" {
-		nickname = "Helix"
-	}
-
 	_, _, err := client.Website.SendTextMessageInConversation(websiteID, sessionID, crisp.ConversationTextMessageNew{
 		Type:      "text",
 		Content:   message,
@@ -355,7 +354,7 @@ func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteI
 		Automated: ptr.To(true),
 		From:      "operator",
 		User: crisp.ConversationAllMessageNewUser{
-			Nickname: nickname,
+			Nickname: c.trigger.Nickname,
 		},
 	})
 	if err != nil {
