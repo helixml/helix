@@ -15,6 +15,7 @@ import { TypesTrigger } from '../../api/api'
 import { CrispLogo } from '../icons/ProviderIcons'
 import { IAppFlatState } from '../../types'
 import { useGetAppTriggerStatus } from '../../services/appService'
+import TriggerCrispSetup from './TriggerCrispSetup'
 
 interface TriggerCrispProps {
   app: IAppFlatState
@@ -39,6 +40,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
   const [token, setToken] = useState<string>(crispTrigger?.token || '')
   const [nickname, setNickname] = useState<string>(crispTrigger?.nickname || '')
   const [showToken, setShowToken] = useState<boolean>(false)
+  const [setupDialogOpen, setSetupDialogOpen] = useState<boolean>(false)
 
   // If crisp is configured, we need to get the status of the bot
   const { data: crispStatus, isLoading: isLoadingCrispStatus } = useGetAppTriggerStatus(appId, 'crisp', {
@@ -305,10 +307,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
             <Button
               variant="text"
               size="small"
-              onClick={() => {
-                // Open Crisp documentation or setup instructions
-                window.open('https://docs.crisp.chat/', '_blank')
-              }}
+              onClick={() => setSetupDialogOpen(true)}
               disabled={readOnly}
             >
               View setup instructions
@@ -316,6 +315,16 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
           </Box>
         </Box>
       )}
+
+      <TriggerCrispSetup
+        open={setupDialogOpen}
+        onClose={() => setSetupDialogOpen(false)}
+        app={app}
+        identifier={identifier}
+        token={token}
+        onIdentifierChange={handleIdentifierChange}
+        onTokenChange={handleTokenChange}
+      />
     </Box>
   )
 }
