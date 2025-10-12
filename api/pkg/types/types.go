@@ -1560,9 +1560,12 @@ type SlackTrigger struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
+// Crisp trigger configuration, create yours
+// here https://marketplace.crisp.chat/plugins/
 type CrispTrigger struct {
 	Enabled    bool   `json:"enabled,omitempty"`
-	Identifier string `json:"identifier" yaml:"identifier"`
+	Nickname   string `json:"nickname" yaml:"nickname"`     // Optional
+	Identifier string `json:"identifier" yaml:"identifier"` // Token identifier
 	Token      string `json:"token" yaml:"token"`
 }
 
