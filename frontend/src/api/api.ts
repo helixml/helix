@@ -994,6 +994,12 @@ export interface TypesCreateTeamRequest {
   organization_id?: string;
 }
 
+export interface TypesCrispTrigger {
+  enabled?: boolean;
+  identifier?: string;
+  token?: string;
+}
+
 export interface TypesCronTrigger {
   enabled?: boolean;
   input?: string;
@@ -2449,6 +2455,7 @@ export interface TypesToolZapierConfig {
 
 export interface TypesTrigger {
   azure_devops?: TypesAzureDevOpsTrigger;
+  crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
@@ -2512,6 +2519,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
 }
@@ -2528,9 +2536,9 @@ export interface TypesUpdateProviderEndpoint {
   description?: string;
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
-  models?: string[];
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
+  models?: string[];
 }
 
 export interface TypesUpdateTeamRequest {

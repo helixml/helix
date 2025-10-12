@@ -8,6 +8,7 @@ import { TypesTrigger } from '../../api/api'
 import TriggerCron from './TriggerCron'
 import TriggerSlack from './TriggerSlack'
 import TriggerAzureDevOps from './TriggerAzureDevOps'
+import TriggerCrisp from './TriggerCrisp'
 import { IAppFlatState } from '../../types'
 
 interface TriggersProps {
@@ -77,6 +78,18 @@ const Triggers: FC<TriggersProps> = ({
 
       {/* Azure DevOps Trigger */}
       <TriggerAzureDevOps
+        app={app}
+        appId={appId}
+        triggers={triggers}
+        onUpdate={onUpdate}
+        readOnly={readOnly}
+      />
+
+      {/* Add spacing between triggers */}
+      <Box sx={{ my: 3 }} />
+
+      {/* Crisp Trigger */}
+      <TriggerCrisp
         app={app}
         appId={appId}
         triggers={triggers}
