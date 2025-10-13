@@ -6758,6 +6758,25 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CrispTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "identifier": {
+                    "description": "Token identifier",
+                    "type": "string"
+                },
+                "nickname": {
+                    "description": "Optional",
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CronTrigger": {
             "type": "object",
             "properties": {
@@ -7427,6 +7446,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
                     }
+                },
+                "trigger": {
+                    "description": "Session (default), slack, crisp, etc",
+                    "type": "string"
                 },
                 "updated": {
                     "type": "string"
@@ -9446,6 +9469,9 @@ const docTemplate = `{
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
+                "trigger": {
+                    "type": "string"
+                },
                 "type": {
                     "description": "e.g. text, image",
                     "allOf": [
@@ -10337,6 +10363,9 @@ const docTemplate = `{
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOpsTrigger"
                 },
+                "crisp": {
+                    "$ref": "#/definitions/types.CrispTrigger"
+                },
                 "cron": {
                     "$ref": "#/definitions/types.CronTrigger"
                 },
@@ -10488,11 +10517,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "slack",
+                "crisp",
                 "azure_devops",
                 "cron"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
+                "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron"
             ]
@@ -10528,6 +10559,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.ProviderEndpointType"
                         }
                     ]
+                },
+                "headers": {
+                    "description": "Custom headers for the endpoint",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "models": {
                     "type": "array",

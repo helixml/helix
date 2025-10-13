@@ -52,6 +52,8 @@ type Interaction struct {
 	Status         string           `json:"status"`
 	Error          string           `json:"error"`
 
+	Trigger string `json:"trigger"` // Session (default), slack, crisp, etc
+
 	RagResults []*SessionRAGResult `json:"rag_results" gorm:"type:jsonb;serializer:json"`
 
 	// Model function calling, not to be mistaken with Helix tools
@@ -568,6 +570,8 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+
+	Trigger string `json:"trigger"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -1556,6 +1560,15 @@ type SlackTrigger struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
+// Crisp trigger configuration, create yours
+// here https://marketplace.crisp.chat/plugins/
+type CrispTrigger struct {
+	Enabled    bool   `json:"enabled,omitempty"`
+	Nickname   string `json:"nickname" yaml:"nickname"`     // Optional
+	Identifier string `json:"identifier" yaml:"identifier"` // Token identifier
+	Token      string `json:"token" yaml:"token"`
+}
+
 type CronTrigger struct {
 	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
@@ -1572,6 +1585,7 @@ type Trigger struct {
 	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
 	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
@@ -1884,11 +1898,12 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
-	LLMCallStepDefault           LLMCallStep = "default"
-	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
-	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
-	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
-	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+	LLMCallStepDefault               LLMCallStep = "default"
+	LLMCallStepIsActionable          LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest     LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse     LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle         LLMCallStep = "generate_title"
+	LLMCallStepSummarizeConversation LLMCallStep = "summarize_conversation"
 )
 
 // LLMCall used to store the request and response of LLM calls
@@ -2201,10 +2216,24 @@ type SlackThread struct {
 	SessionID string `json:"session_id"`
 }
 
+type CrispThread struct {
+	CrispSessionID string    `json:"crisp_session_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"` // Helix session ID
+}
+
 type TriggerType string
+
+func (t TriggerType) String() string {
+	return string(t)
+}
 
 const (
 	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"
 	// TODO: discord

@@ -26,9 +26,11 @@ type RunSessionRequest struct {
 	Session        *types.Session
 	User           *types.User
 
+	InteractionID string // Optional, will generate a new interaction ID if not provided
+
 	PromptMessage types.MessageContent
 
-	HistoryLimit int
+	HistoryLimit int // Do -1 to not include any interactions
 }
 
 const DefaultHistoryLimit = 6
@@ -43,13 +45,20 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		req.HistoryLimit = DefaultHistoryLimit
 	}
 
-	interactions, _, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
-		SessionID:    req.Session.ID,
-		GenerationID: req.Session.GenerationID,
-		PerPage:      req.HistoryLimit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
+	var (
+		interactions []*types.Interaction
+		err          error
+	)
+
+	if req.HistoryLimit != -1 {
+		interactions, _, err = c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    req.Session.ID,
+			GenerationID: req.Session.GenerationID,
+			PerPage:      req.HistoryLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
+		}
 	}
 
 	systemPrompt := req.Session.Metadata.SystemPrompt
@@ -58,11 +67,18 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		systemPrompt = req.App.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	interactionID := system.GenerateInteractionID()
+	var interactionID string
+
+	if req.InteractionID != "" {
+		interactionID = req.InteractionID
+	} else {
+		interactionID = system.GenerateInteractionID()
+	}
 
 	// Add the new message to the existing session
 	interaction := &types.Interaction{
 		ID:                   interactionID,
+		Trigger:              req.Session.Trigger,
 		GenerationID:         req.Session.GenerationID,
 		AppID:                req.App.ID,
 		Created:              time.Now(),

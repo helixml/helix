@@ -426,6 +426,11 @@ func filterOutEmptyTriggers(triggers []types.Trigger) []types.Trigger {
 			continue
 		}
 
+		if trigger.Crisp != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
 		// If we get here, the trigger is empty, safe to skip
 	}
 	return filtered
