@@ -23,7 +23,7 @@ require (
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/drone/envsubst v1.0.3
 	github.com/dustin/go-humanize v1.0.1
-	github.com/getkin/kin-openapi v0.127.0
+	github.com/getkin/kin-openapi v0.131.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-git/go-git/v5 v5.16.0
@@ -49,8 +49,8 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
-	github.com/nats-io/nats-server/v2 v2.10.14
-	github.com/nats-io/nats.go v1.38.0
+	github.com/nats-io/nats-server/v2 v2.10.27
+	github.com/nats-io/nats.go v1.39.1
 	github.com/nikoksr/notify v0.41.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
@@ -114,6 +114,8 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/ktrysmt/go-bitbucket v0.9.80 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
+	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
@@ -197,7 +199,6 @@ require (
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/imdario/mergo v0.3.13 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/invopop/yaml v0.3.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.6.0 // indirect
@@ -213,7 +214,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/mailgun/mailgun-go/v4 v4.9.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -222,19 +223,19 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mholt/archiver/v4 v4.0.0-alpha.8 // indirect
-	github.com/minio/highwayhash v1.0.2 // indirect
+	github.com/minio/highwayhash v1.0.3 // indirect
 	github.com/mitchellh/copystructure v1.0.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
-	github.com/nats-io/jwt/v2 v2.5.5 // indirect
-	github.com/nats-io/nkeys v0.4.9 // indirect
+	github.com/nats-io/jwt/v2 v2.7.3 // indirect
+	github.com/nats-io/nkeys v0.4.10 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/nwaples/rardecode/v2 v2.0.0-beta.2 // indirect
+	github.com/nwaples/rardecode/v2 v2.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.1.1 // indirect
-	github.com/opentracing/opentracing-go v1.2.0
+	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
@@ -259,7 +260,7 @@ require (
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/ulikunitz/xz v0.5.12 // indirect
+	github.com/ulikunitz/xz v0.5.14 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
