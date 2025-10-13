@@ -242,6 +242,7 @@ services:
 
     wolf:
       image: wolf:helix-fixed
+      # image: ghcr.io/games-on-whales/wolf:wolf-ui
       networks:
         default:
           ipv4_address: 172.19.0.50
@@ -253,7 +254,7 @@ services:
         - HOST_APPS_STATE_FOLDER=/etc/wolf
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         # Debug logging for HTTPS connection issues and UDP/RTP activity
-        - WOLF_LOG_LEVEL=TRACE
+        - WOLF_LOG_LEVEL=DEBUG
         - GST_DEBUG=3
         # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
         - WOLF_INTERNAL_MAC=00:11:22:33:44:55

@@ -116,6 +116,7 @@ type ZedSession struct {
 	KeepaliveStatus    string     `json:"keepalive_status"`               // "active", "starting", "failed", "disabled"
 	KeepaliveStartTime *time.Time `json:"keepalive_start_time,omitempty"` // When keepalive was started
 	KeepaliveLastCheck *time.Time `json:"keepalive_last_check,omitempty"` // Last health check time
+	KeepaliveError     string     `json:"keepalive_error,omitempty"`      // Error message if keepalive failed
 }
 
 // NewPoolExecutor creates a new pool-based executor

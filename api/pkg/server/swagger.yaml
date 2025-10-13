@@ -692,6 +692,19 @@ definitions:
           $ref: '#/definitions/server.TaskItemDTO'
         type: array
     type: object
+  server.AgentSandboxesDebugResponse:
+    properties:
+      lobbies:
+        items:
+          $ref: '#/definitions/server.WolfLobbyInfo'
+        type: array
+      memory:
+        $ref: '#/definitions/server.WolfSystemMemory'
+      sessions:
+        items:
+          $ref: '#/definitions/server.WolfSessionInfo'
+        type: array
+    type: object
   server.AppCreateResponse:
     properties:
       config:
@@ -1307,6 +1320,91 @@ definitions:
       task_id:
         type: string
       technical_design:
+        type: string
+    type: object
+  server.WolfClientConnection:
+    properties:
+      client_ip:
+        type: string
+      lobby_id:
+        description: null if orphaned
+        type: string
+      memory_bytes:
+        type: string
+      resolution:
+        type: string
+      session_id:
+        type: string
+    type: object
+  server.WolfLobbyInfo:
+    properties:
+      id:
+        type: string
+      multi_user:
+        type: boolean
+      name:
+        type: string
+      pin:
+        items:
+          type: integer
+        type: array
+      started_by_profile_id:
+        type: string
+      stop_when_everyone_leaves:
+        type: boolean
+    type: object
+  server.WolfLobbyMemory:
+    properties:
+      client_count:
+        type: string
+      lobby_id:
+        type: string
+      lobby_name:
+        type: string
+      memory_bytes:
+        type: string
+      resolution:
+        type: string
+    type: object
+  server.WolfSessionInfo:
+    properties:
+      app_id:
+        type: string
+      client_ip:
+        type: string
+      display_mode:
+        properties:
+          av1_supported:
+            type: boolean
+          height:
+            type: integer
+          hevc_supported:
+            type: boolean
+          refresh_rate:
+            type: integer
+          width:
+            type: integer
+        type: object
+      session_id:
+        type: string
+    type: object
+  server.WolfSystemMemory:
+    properties:
+      clients:
+        items:
+          $ref: '#/definitions/server.WolfClientConnection'
+        type: array
+      gstreamer_buffer_bytes:
+        type: string
+      lobbies:
+        items:
+          $ref: '#/definitions/server.WolfLobbyMemory'
+        type: array
+      process_rss_bytes:
+        type: string
+      success:
+        type: boolean
+      total_memory_bytes:
         type: string
     type: object
   services.CoordinationEvent:
@@ -6531,9 +6629,23 @@ definitions:
     type: object
   types.ZedConfigResponse:
     properties:
+      agent:
+        additionalProperties: true
+        type: object
+      assistant:
+        additionalProperties: true
+        type: object
       context_servers:
         additionalProperties: true
         type: object
+      external_sync:
+        additionalProperties: true
+        type: object
+      language_models:
+        additionalProperties: true
+        type: object
+      theme:
+        type: string
       version:
         description: Unix timestamp of app config update
         type: integer
@@ -6584,6 +6696,57 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/admin/agent-sandboxes/debug:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves combined debug data from Wolf (memory, lobbies, sessions)
+        for the Agent Sandboxes dashboard
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.AgentSandboxesDebugResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Wolf debugging data
+      tags:
+      - Admin
+  /api/v1/admin/agent-sandboxes/events:
+    get:
+      consumes:
+      - application/json
+      description: Proxies Server-Sent Events from Wolf for real-time monitoring
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: 'event: message'
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get Wolf real-time events (SSE)
+      tags:
+      - Admin
   /api/v1/agents/fleet:
     get:
       description: Get agent fleet data including active sessions, work queue, and
@@ -7509,6 +7672,42 @@ paths:
       summary: Get enhanced dashboard data with agent management
       tags:
       - dashboard
+  /api/v1/external-agents/{sessionID}/keepalive:
+    get:
+      consumes:
+      - application/json
+      description: Get keepalive session health status for an external agent
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get keepalive session status
+      tags:
+      - ExternalAgents
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner and type
