@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
@@ -287,6 +288,8 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	// Create trigger manager
 	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, notifierMock, controller)
 
+	anthropicProxy := anthropic.New(&cfg, suite.store, modelInfoProvider, nil)
+
 	// Create the API server
 	avatarsBucket := memblob.OpenBucket(nil)
 	helixAPIServer, err := server.NewServer(
@@ -307,6 +310,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		suite.oauth,
 		avatarsBucket,
 		triggerManager,
+		anthropicProxy,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
