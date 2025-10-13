@@ -1898,11 +1898,12 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
-	LLMCallStepDefault           LLMCallStep = "default"
-	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
-	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
-	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
-	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+	LLMCallStepDefault               LLMCallStep = "default"
+	LLMCallStepIsActionable          LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest     LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse     LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle         LLMCallStep = "generate_title"
+	LLMCallStepSummarizeConversation LLMCallStep = "summarize_conversation"
 )
 
 // LLMCall used to store the request and response of LLM calls
