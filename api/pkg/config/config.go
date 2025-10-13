@@ -498,6 +498,7 @@ type Triggers struct {
 	Discord Discord
 	Cron    Cron
 	Slack   Slack
+	Crisp   Crisp
 }
 
 type Discord struct {
@@ -508,6 +509,10 @@ type Discord struct {
 type Slack struct {
 	// Optional way to disable slack triggers across all apps/agents
 	Enabled bool `envconfig:"SLACK_ENABLED" default:"true"`
+}
+
+type Crisp struct {
+	Enabled bool `envconfig:"CRISP_ENABLED" default:"true"`
 }
 
 type Cron struct {

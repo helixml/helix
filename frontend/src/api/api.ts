@@ -994,6 +994,15 @@ export interface TypesCreateTeamRequest {
   organization_id?: string;
 }
 
+export interface TypesCrispTrigger {
+  enabled?: boolean;
+  /** Token identifier */
+  identifier?: string;
+  /** Optional */
+  nickname?: string;
+  token?: string;
+}
+
 export interface TypesCronTrigger {
   enabled?: boolean;
   input?: string;
@@ -1253,6 +1262,8 @@ export interface TypesInteraction {
   tool_calls?: GithubComSashabaranovGoOpenaiToolCall[];
   /** Model function calling, not to be mistaken with Helix tools */
   tools?: GithubComSashabaranovGoOpenaiTool[];
+  /** Session (default), slack, crisp, etc */
+  trigger?: string;
   updated?: string;
   usage?: GithubComHelixmlHelixApiPkgTypesUsage;
   user_id?: string;
@@ -2078,6 +2089,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  trigger?: string;
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;
@@ -2449,6 +2461,7 @@ export interface TypesToolZapierConfig {
 
 export interface TypesTrigger {
   azure_devops?: TypesAzureDevOpsTrigger;
+  crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
@@ -2512,6 +2525,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
 }
@@ -2528,9 +2542,9 @@ export interface TypesUpdateProviderEndpoint {
   description?: string;
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
-  models?: string[];
   /** Custom headers for the endpoint */
   headers?: Record<string, string>;
+  models?: string[];
 }
 
 export interface TypesUpdateTeamRequest {

@@ -327,6 +327,10 @@ type Store interface {
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
 
+	CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error)
+	GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error)
+	DeleteCrispThread(ctx context.Context, olderThan time.Time) error
+
 	// wallet methods
 	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
 	GetWallet(ctx context.Context, id string) (*types.Wallet, error)

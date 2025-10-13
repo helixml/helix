@@ -118,6 +118,21 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateCrispThread mocks base method.
+func (m *MockStore) CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCrispThread", ctx, thread)
+	ret0, _ := ret[0].(*types.CrispThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateCrispThread indicates an expected call of CreateCrispThread.
+func (mr *MockStoreMockRecorder) CreateCrispThread(ctx, thread any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCrispThread", reflect.TypeOf((*MockStore)(nil).CreateCrispThread), ctx, thread)
+}
+
 // CreateDataEntity mocks base method.
 func (m *MockStore) CreateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error) {
 	m.ctrl.T.Helper()
@@ -626,6 +641,20 @@ func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteApp(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
+}
+
+// DeleteCrispThread mocks base method.
+func (m *MockStore) DeleteCrispThread(ctx context.Context, olderThan time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCrispThread", ctx, olderThan)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCrispThread indicates an expected call of DeleteCrispThread.
+func (mr *MockStoreMockRecorder) DeleteCrispThread(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCrispThread", reflect.TypeOf((*MockStore)(nil).DeleteCrispThread), ctx, olderThan)
 }
 
 // DeleteDataEntity mocks base method.
@@ -1141,6 +1170,21 @@ func (m *MockStore) GetAppWithTools(ctx context.Context, id string) (*types.App,
 func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
+}
+
+// GetCrispThread mocks base method.
+func (m *MockStore) GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCrispThread", ctx, appID, crispSessionID)
+	ret0, _ := ret[0].(*types.CrispThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCrispThread indicates an expected call of GetCrispThread.
+func (mr *MockStoreMockRecorder) GetCrispThread(ctx, appID, crispSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCrispThread", reflect.TypeOf((*MockStore)(nil).GetCrispThread), ctx, appID, crispSessionID)
 }
 
 // GetDataEntity mocks base method.

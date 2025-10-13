@@ -222,8 +222,6 @@ func (s *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path strin
 		return false, "", fmt.Errorf("invalid app filestore path format: %s", path)
 	}
 
-	logger.Debug().Str("app_id", appID).Msg("Extracted app ID from path")
-
 	// Get the app to check permissions
 	app, err := s.Store.GetApp(ctx, appID)
 	if err != nil {
@@ -242,6 +240,5 @@ func (s *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path strin
 		return false, appID, nil
 	}
 
-	logger.Debug().Msg("User authorized to access app")
 	return true, appID, nil
 }

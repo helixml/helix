@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/trigger/azure"
+	"github.com/helixml/helix/api/pkg/trigger/crisp"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
 	"github.com/helixml/helix/api/pkg/trigger/slack"
@@ -62,6 +63,14 @@ func (t *Manager) Start(ctx context.Context) {
 		go func() {
 			defer t.wg.Done()
 			t.runSlack(ctx)
+		}()
+	}
+
+	if t.cfg.Triggers.Crisp.Enabled {
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.runCrisp(ctx)
 		}()
 	}
 
@@ -123,6 +132,23 @@ func (t *Manager) runSlack(ctx context.Context) {
 		err := slackTrigger.Start(ctx)
 		if err != nil {
 			log.Err(err).Msg("failed to start slack trigger, retrying in 10 seconds")
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+}
+
+func (t *Manager) runCrisp(ctx context.Context) {
+	crispTrigger := crisp.New(t.cfg, t.store, t.controller)
+
+	for {
+		err := crispTrigger.Start(ctx)
+		if err != nil {
+			log.Err(err).Msg("failed to start crisp trigger, retrying in 10 seconds")
 		}
 
 		select {

@@ -19,160 +19,72 @@ import TextField from '@mui/material/TextField'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import InputAdornment from '@mui/material/InputAdornment'
-import { SlackLogo } from '../icons/ProviderIcons'
+import { CrispLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import { IAppFlatState } from '../../types'
 
-import createSlackAppScreenshot from '../../../assets/img/slack/create_new_app.png'
-import createSlackAppManifest from '../../../assets/img/slack/manifest.png'
-import createSlackApp from '../../../assets/img/slack/create.png'
-import createSlackAppToken from '../../../assets/img/slack/app_token.png'
-import createSlackAppTokenScopes from '../../../assets/img/slack/app_token_scopes.png'
-import createSlackAppInstall from '../../../assets/img/slack/install_app.png'
-
-const getSlackAppManifest = (appName: string, description: string) => `{
-    "display_information": {
-        "name": "${appName}",
-        "description": "${description}",
-        "background_color": "#69264d"
-    },
-    "features": {
-        "app_home": {
-            "home_tab_enabled": false,
-            "messages_tab_enabled": true,
-            "messages_tab_read_only_enabled": true
-        },
-        "bot_user": {
-            "display_name": "${appName}",
-            "always_online": true
-        }
-    },
-    "oauth_config": {
-        "scopes": {
-            "bot": [
-                "app_mentions:read",
-                "channels:history",
-                "channels:join",
-                "channels:manage",
-                "channels:read",
-                "chat:write",
-                "chat:write.customize",
-                "chat:write.public",
-                "files:read",
-                "files:write",
-                "groups:history",
-                "groups:read",
-                "groups:write",
-                "im:history",
-                "im:read",
-                "im:write",
-                "links:read",
-                "links:write",
-                "mpim:history",
-                "mpim:read",
-                "mpim:write",
-                "pins:read",
-                "pins:write",
-                "reactions:read",
-                "reactions:write",
-                "reminders:read",
-                "reminders:write",
-                "team:read",
-                "usergroups:read",
-                "usergroups:write",
-                "users.profile:read",
-                "users:read",
-                "users:write",
-                "assistant:write",
-                "users:read.email"
-            ]
-        }
-    },
-    "settings": {
-        "event_subscriptions": {
-            "bot_events": [
-                "app_mention",
-                "message.channels"
-            ]
-        },
-        "interactivity": {
-            "is_enabled": true
-        },
-        "org_deploy_enabled": false,
-        "socket_mode_enabled": true,
-        "token_rotation_enabled": false
-    }
-}`
+import crispMarketplace from '../../../assets/img/crisp/marketplace.png'
+import crispProductionToken from '../../../assets/img/crisp/production_token.png'
 
 const setupSteps = [
   {
     step: 1,
-    text: 'Go to https://api.slack.com/apps',
-    link: 'https://api.slack.com/apps'
+    text: 'Go to https://marketplace.crisp.chat/ and register',
+    link: 'https://marketplace.crisp.chat/'
   },
   {
     step: 2,
-    text: 'Click "Create New App"',
-    image: createSlackAppScreenshot
+    text: 'Create a new plugin',
+    image: crispMarketplace
   },
   {
     step: 3,
-    text: 'Choose "From a manifest" and copy provided manifest into the text field'
+    text: 'Declare the following scopes for your plugin'
   },
   {
     step: 4,
-    text: 'Select workspace that you want to install the app to'
+    text: 'Activate the plugin in your Crisp dashboard'
   },
   {
     step: 5,
-    text: 'Copy paste the manifest into your app',
-    image: createSlackAppManifest
+    text: 'Copy the production identifier and key',
+    image: crispProductionToken
   },
   {
     step: 6,
-    text: 'Click "Create"',
-    image: createSlackApp
-  },
-  {
-    step: 7,
-    text: 'Click "Generate Token and Scopes" in the Basic Information section',
-    image: createSlackAppToken
-  },
-  {
-    step: 8,
-    text: 'Select all scopes and click "Generate"',
-    image: createSlackAppTokenScopes
-  },
-  {
-    step: 9,
-    text: 'Go to "Install App" and generate the "Bot User OAuth Token"',
-    image: createSlackAppInstall
+    text: 'Click "Install Plugin on Workspace" button in the Crisp plugin dashboard'
   }
 ]
 
-interface TriggerSlackSetupProps {
+const requiredScopes = [
+  'website:conversation:sessions',
+  'website:conversation:messages',
+  'website:conversation:events'
+]
+
+interface TriggerCrispSetupProps {
   open: boolean
   onClose: () => void
   app: IAppFlatState
-  appToken?: string
-  botToken?: string
-  onAppTokenChange?: (token: string) => void
-  onBotTokenChange?: (token: string) => void
+  identifier?: string
+  token?: string
+  onIdentifierChange?: (identifier: string) => void
+  onTokenChange?: (token: string) => void
 }
 
-const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
+const TriggerCrispSetup: FC<TriggerCrispSetupProps> = ({
   open,
   onClose,
   app,
-  appToken = '',
-  botToken = '',
-  onAppTokenChange,
-  onBotTokenChange
+  identifier = '',
+  token = '',
+  onIdentifierChange,
+  onTokenChange
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [manifestExpanded, setManifestExpanded] = useState(false)
-  const [showAppToken, setShowAppToken] = useState<boolean>(false)
-  const [showBotToken, setShowBotToken] = useState<boolean>(false)
+  const [scopesExpanded, setScopesExpanded] = useState(false)
+  const [showIdentifier, setShowIdentifier] = useState<boolean>(false)
+  const [showToken, setShowToken] = useState<boolean>(false)
 
   const handleImageClick = (imageSrc: string) => {
     setSelectedImage(imageSrc)
@@ -182,21 +94,21 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
     setSelectedImage(null)
   }
 
-  const handleCopyManifest = async () => {
-    const manifest = getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')
+  const handleCopyScopes = async () => {
+    const scopesText = requiredScopes.join(', ')
     try {
-      await navigator.clipboard.writeText(manifest)
+      await navigator.clipboard.writeText(scopesText)
     } catch (err) {
-      console.error('Failed to copy manifest:', err)
+      console.error('Failed to copy scopes:', err)
     }
   }
 
-  const handleAppTokenChange = (token: string) => {
-    onAppTokenChange?.(token)
+  const handleIdentifierChange = (value: string) => {
+    onIdentifierChange?.(value)
   }
 
-  const handleBotTokenChange = (token: string) => {
-    onBotTokenChange?.(token)
+  const handleTokenChange = (value: string) => {
+    onTokenChange?.(value)
   }
 
   return (
@@ -209,13 +121,13 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
       >
         <DialogTitle sx={{ pb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <SlackLogo sx={{ fontSize: 24, color: 'primary.main' }} />
-            <Typography variant="h6">Slack App Setup Instructions</Typography>
+            <CrispLogo sx={{ fontSize: 24, color: 'primary.main' }} />
+            <Typography variant="h6">Crisp Plugin Setup Instructions</Typography>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Follow these steps to set up your Slack app and get the required tokens:
+            Follow these steps to set up your Crisp plugin and get the required credentials:
           </Typography>
           
           <List sx={{ mb: 3 }}>
@@ -267,22 +179,19 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                     />
                   </Box>
                   
-                  {/* App Manifest for step 3 */}
                   {step.step === 3 && (
                     <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
                       <Box sx={{ 
                         border: '1px solid rgba(255,255,255,0.1)', 
                         borderRadius: 1, 
                         overflow: 'hidden',
-                        // backgroundColor: 'rgba(0,0,0,0.2)'
                       }}>
                         <Box sx={{ 
                           display: 'flex', 
                           alignItems: 'center', 
                           justifyContent: 'space-between',
                           p: 1.5,
-                          
-                          borderBottom: manifestExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
+                          borderBottom: scopesExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
                         }}>
                           <Typography 
                             variant="subtitle2" 
@@ -293,16 +202,16 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                                 color: 'primary.main'
                               }
                             }}
-                            onClick={() => setManifestExpanded(!manifestExpanded)}
+                            onClick={() => setScopesExpanded(!scopesExpanded)}
                           >
-                            App Manifest
+                            Required Scopes
                           </Typography>
                           <Box sx={{ display: 'flex', gap: 1 }}>
                             <Button
                               size="small"
                               variant="text"
                               startIcon={<ContentCopyIcon />}
-                              onClick={handleCopyManifest}
+                              onClick={handleCopyScopes}
                               sx={{ 
                                 minWidth: 'auto',
                                 px: 1.5,
@@ -314,14 +223,14 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                             </Button>
                             <IconButton
                               size="small"
-                              onClick={() => setManifestExpanded(!manifestExpanded)}
+                              onClick={() => setScopesExpanded(!scopesExpanded)}
                               sx={{ p: 0.5 }}
                             >
-                              {manifestExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                              {scopesExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                             </IconButton>
                           </Box>
                         </Box>
-                        {manifestExpanded && (
+                        {scopesExpanded && (
                           <Box sx={{ p: 2 }}>
                             <Box
                               component="pre"
@@ -338,7 +247,7 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                                 m: 0
                               }}
                             >
-                              {getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')}
+                              {requiredScopes.join(', ')}
                             </Box>
                           </Box>
                         )}
@@ -374,62 +283,57 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                     </Box>
                   )}
 
-                  {/* App Token field for step 7 */}
-                  {step.step === 7 && (
+                  {step.step === 5 && (
                     <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
                       <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
-                        Copy the generated App Token here:
+                        Paste your Crisp production identifier here:
                       </Typography>
                       <TextField
                         fullWidth
                         size="small"
-                        placeholder="xapp-..."
-                        value={appToken}
-                        onChange={(e) => handleAppTokenChange(e.target.value)}
-                        helperText="Your Slack app token (starts with xapp-)"
-                        type={showAppToken ? 'text' : 'password'}
-                        autoComplete="new-app-token-password"
+                        placeholder="your-plugin-identifier"
+                        value={identifier}
+                        onChange={(e) => handleIdentifierChange(e.target.value)}
+                        helperText="Your Crisp plugin identifier"
+                        type={showIdentifier ? 'text' : 'password'}
+                        autoComplete="new-identifier-password"
                         InputProps={{
                           endAdornment: (
                             <InputAdornment position="end">
                               <IconButton
-                                aria-label="toggle app token visibility"
-                                onClick={() => setShowAppToken(!showAppToken)}
+                                aria-label="toggle identifier visibility"
+                                onClick={() => setShowIdentifier(!showIdentifier)}
                                 edge="end"
                               >
-                                {showAppToken ? <VisibilityOff /> : <Visibility />}
+                                {showIdentifier ? <VisibilityOff /> : <Visibility />}
                               </IconButton>
                             </InputAdornment>
                           ),
                         }}
+                        sx={{ mb: 2 }}
                       />
-                    </Box>
-                  )}
-
-                  {/* Bot Token field for step 9 */}
-                  {step.step === 9 && (
-                    <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
+                      
                       <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
-                        Copy the generated Bot User OAuth Token here:
+                        Paste your Crisp production key here:
                       </Typography>
                       <TextField
                         fullWidth
                         size="small"
-                        placeholder="xoxb-..."
-                        value={botToken}
-                        onChange={(e) => handleBotTokenChange(e.target.value)}
-                        helperText="Your Slack bot token (starts with xoxb-)"
-                        type={showBotToken ? 'text' : 'password'}
-                        autoComplete="new-bot-token-password"
+                        placeholder="your-plugin-key"
+                        value={token}
+                        onChange={(e) => handleTokenChange(e.target.value)}
+                        helperText="Your Crisp plugin key"
+                        type={showToken ? 'text' : 'password'}
+                        autoComplete="new-token-password"
                         InputProps={{
                           endAdornment: (
                             <InputAdornment position="end">
                               <IconButton
-                                aria-label="toggle bot token visibility"
-                                onClick={() => setShowBotToken(!showBotToken)}
+                                aria-label="toggle token visibility"
+                                onClick={() => setShowToken(!showToken)}
                                 edge="end"
                               >
-                                {showBotToken ? <VisibilityOff /> : <Visibility />}
+                                {showToken ? <VisibilityOff /> : <Visibility />}
                               </IconButton>
                             </InputAdornment>
                           ),
@@ -501,4 +405,4 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   )
 }
 
-export default TriggerSlackSetup
+export default TriggerCrispSetup
