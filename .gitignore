@@ -40,3 +40,4 @@ test-zed-config/
 *.dump
 wolf/config.toml
 wolf/config.toml.v4.old
+moonlight-web-config/data.json

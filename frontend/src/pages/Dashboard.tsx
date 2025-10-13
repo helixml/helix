@@ -39,6 +39,7 @@ import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
+import AgentSandboxes from "../components/admin/AgentSandboxes";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -619,6 +620,16 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <SystemSettingsTable />
+                    </Box>
+                )}
+
+                {tab === "agent_sandboxes" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                        }}
+                    >
+                        <AgentSandboxes />
                     </Box>
                 )}
 
