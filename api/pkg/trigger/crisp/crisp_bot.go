@@ -111,7 +111,7 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 					return
 				}
 
-				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, uint(*evt.Timestamp), *evt.Content)
+				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, messageSourceUser, uint(*evt.Timestamp), *evt.Content)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to handle text message")
 				}
@@ -120,9 +120,17 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 			// When either bot or operator sends a message
 			_ = reg.On("message:received/text", func(evt crisp.EventsReceiveTextMessage) {
 				if evt.User == nil {
+					log.Info().Str("app_id", c.app.ID).Msg("user is nil")
 					return
 				}
+
+				if evt.Automated != nil && *evt.Automated {
+					log.Info().Str("app_id", c.app.ID).Msg("do not reply to automated messages")
+					return // Do not reply to automated messages
+				}
+
 				if *evt.User.Nickname == c.trigger.Nickname {
+					log.Info().Str("app_id", c.app.ID).Msg("do not reply to own messages")
 					return // Do not reply to own messages
 				}
 
@@ -135,10 +143,14 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 
 				// If the message is not directed to the bot, ignore it
 				if !c.isMessageDirectedToBot(*evt.Content) {
+					log.Info().
+						Str("content", *evt.Content).
+						Str("bot_nickname", c.trigger.Nickname).
+						Str("app_id", c.app.ID).Msg("message is not directed to bot")
 					return
 				}
 
-				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, uint(*evt.Timestamp), *evt.Content)
+				err := c.handleTextMessage(c.ctx, client, *evt.WebsiteID, *evt.SessionID, messageSourceOperator, uint(*evt.Timestamp), *evt.Content)
 				if err != nil {
 					log.Error().Err(err).Msg("failed to handle text message")
 				}
@@ -242,7 +254,14 @@ func (c *CrispBot) RunBot(ctx context.Context) error {
 	return nil
 }
 
-func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, websiteID, crispSessionID string, messageTimestamp uint, content string) error {
+type messageSource int
+
+const (
+	messageSourceOperator messageSource = iota
+	messageSourceUser
+)
+
+func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, websiteID, crispSessionID string, source messageSource, messageTimestamp uint, content string) error {
 	if crispSessionID == "" {
 		log.Error().Str("app_id", c.app.ID).Str("crisp_session_id", crispSessionID).Msg("crisp session ID is empty")
 		return fmt.Errorf("session ID is nil")
@@ -269,14 +288,17 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		return fmt.Errorf("failed to get message: %w", err)
 	}
 
+	fmt.Println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	spew.Dump(messages)
+	fmt.Println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 
 	if isInstructedToStop(c.trigger.Nickname, *messages) {
 		log.Info().Str("app_id", c.app.ID).Msg("bot is instructed to stop")
 		return nil
 	}
 
-	if isLastOperatorMessageHuman(c.trigger.Nickname, *messages) {
+	// If user is replying to human operator, ignore it
+	if source == messageSourceUser && isLastOperatorMessageHuman(c.trigger.Nickname, *messages) {
 		log.Info().Str("app_id", c.app.ID).Msg("last message is from the human operator")
 		return nil
 	}
@@ -376,7 +398,11 @@ func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteI
 
 // We are looking for "Hey <bot_nickname>"
 func (c *CrispBot) isMessageDirectedToBot(message string) bool {
-	return strings.Contains(message, "Hey "+c.trigger.Nickname)
+	return isMessageDirectedToBot(c.trigger.Nickname, message)
+}
+
+func isMessageDirectedToBot(nickName string, message string) bool {
+	return strings.Contains(strings.ToLower(message), "hey "+strings.ToLower(nickName))
 }
 
 // isInstructedToStop checks whether there's a message from today that says
@@ -415,6 +441,23 @@ func isInstructedToStop(nickName string, messages []crisp.ConversationMessage) b
 // human operator and the customer. We don't want to reply to the customer if the last message
 // is from the human operator. To achieve that we
 func isLastOperatorMessageHuman(nickName string, messages []crisp.ConversationMessage) bool {
-	// TODO: implement
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+
+		if ptr.From(message.From) != "operator" {
+			continue
+		}
+
+		if message.User == nil || message.User.Nickname == nil {
+			continue
+		}
+
+		if *message.User.Nickname != nickName {
+			return true
+		}
+
+		return false
+	}
+
 	return false
 }

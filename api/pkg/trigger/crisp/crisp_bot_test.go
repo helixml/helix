@@ -199,3 +199,46 @@ func Test_isLastOperatorMessageHuman(t *testing.T) {
 		assert.False(t, isHuman)
 	})
 }
+
+func Test_isMessageDirectedToBot(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		// Named input parameters for target function.
+		nickName string
+		message  string
+		want     bool
+	}{
+		{
+			name:     "Message is directed to bot",
+			nickName: "Helix",
+			message:  "Hey Helix",
+			want:     true,
+		},
+		{
+			name:     "Message is not directed to bot",
+			nickName: "Helix",
+			message:  "Hey John",
+			want:     false,
+		},
+		{
+			name:     "Message is directed to bot with different case",
+			nickName: "Helix",
+			message:  "Hey helix",
+			want:     true,
+		},
+		{
+			name:     "Message is directed to bot with different case",
+			nickName: "Helix",
+			message:  "Hey HELIX",
+			want:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isMessageDirectedToBot(tt.nickName, tt.message)
+			if got != tt.want {
+				t.Errorf("isMessageDirectedToBot() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
