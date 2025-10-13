@@ -229,6 +229,27 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
             />
           </Box>
 
+          {/* Example commands */}
+          <Box sx={{ mb: 3, p: 2}}>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              <strong>Example Commands:</strong>
+            </Typography>
+            <Box component="ul" sx={{ m: 0, pl: 2, '& li': { mb: 0.5 } }}>
+              <Typography component="li" variant="body2" color="text.secondary">
+                To trigger the bot as an operator (normally bot will ignore operator messages) say <strong>"Hey {nickname || 'Helix'}"</strong>
+              </Typography>
+              <Typography component="li" variant="body2" color="text.secondary">
+                To prevent bot from replying to user messages for current day say <strong>"{nickname || 'Helix'} stop"</strong>
+              </Typography>
+              <Typography component="li" variant="body2" color="text.secondary">
+                To re-enable bot to handle messages from the user say <strong>"{nickname || 'Helix'} continue"</strong>
+              </Typography>
+              <Typography component="li" variant="body2" color="text.secondary">
+                Normally bot will not reply to the user message after the human operator said something. This is to prevent scenarios where human operator and customer are talking and the bot would be also trying to get into the conversation.
+              </Typography>
+            </Box>
+          </Box>
+
           {/* Configuration summary */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
