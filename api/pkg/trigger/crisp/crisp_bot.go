@@ -271,6 +271,16 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 
 	spew.Dump(messages)
 
+	if isInstructedToStop(c.trigger.Nickname, *messages) {
+		log.Info().Str("app_id", c.app.ID).Msg("bot is instructed to stop")
+		return nil
+	}
+
+	if isLastOperatorMessageHuman(c.trigger.Nickname, *messages) {
+		log.Info().Str("app_id", c.app.ID).Msg("last message is from the human operator")
+		return nil
+	}
+
 	// Check if we have existing crisp thread
 	thread, err := c.store.GetCrispThread(ctx, c.app.ID, crispSessionID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -367,4 +377,44 @@ func (c *CrispBot) sendMessage(_ context.Context, client *crisp.Client, websiteI
 // We are looking for "Hey <bot_nickname>"
 func (c *CrispBot) isMessageDirectedToBot(message string) bool {
 	return strings.Contains(message, "Hey "+c.trigger.Nickname)
+}
+
+// isInstructedToStop checks whether there's a message from today that says
+// "<bot_nickname> stop" and there is no "<bot_nickname> continue" message after it
+func isInstructedToStop(nickName string, messages []crisp.ConversationMessage) bool {
+	var lastInstruction string
+
+	for _, message := range messages {
+		if ptr.From(message.Type) != "text" {
+			continue
+		}
+
+		content, ok := ptr.From(message.Content).(string)
+		if !ok {
+			continue
+		}
+
+		if ptr.From(message.From) != "operator" {
+			continue
+		}
+
+		stopCmd := nickName + " stop"
+		continueCmd := nickName + " continue"
+
+		if strings.Contains(content, stopCmd) {
+			lastInstruction = "stop"
+		} else if strings.Contains(content, continueCmd) {
+			lastInstruction = "continue"
+		}
+	}
+
+	return lastInstruction == "stop"
+}
+
+// isLastOperatorMessageHuman handles cases where there's a conversation between
+// human operator and the customer. We don't want to reply to the customer if the last message
+// is from the human operator. To achieve that we
+func isLastOperatorMessageHuman(nickName string, messages []crisp.ConversationMessage) bool {
+	// TODO: implement
+	return false
 }
