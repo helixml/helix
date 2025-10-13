@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/shared"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -319,6 +320,18 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 			log.Error().Err(err).Msg("failed to get helix session")
 			return fmt.Errorf("failed to get helix session: %w", err)
 		}
+
+		// Always reset generation ID
+		session.GenerationID++
+
+		err = c.controller.WriteSession(ctx, session)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", c.app.ID).
+				Msg("failed to update session")
+			return fmt.Errorf("failed to update session: %w", err)
+		}
 	} else {
 		newSession := shared.NewTriggerSession(ctx, types.TriggerTypeCrisp.String(), c.app)
 		session = newSession.Session
@@ -353,12 +366,29 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
+	interactionID := system.GenerateInteractionID()
+
+	promptMessage := content
+
+	if len(*messages) > 0 {
+		summary, err := c.summarizeConversation(user, session, interactionID, *messages)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to summarize conversation")
+			return fmt.Errorf("failed to summarize conversation: %w", err)
+		}
+
+		// Reconstruct the prompt to include the summary
+		promptMessage = fmt.Sprintf(`Here's a summary of the conversation so far: %s\n\nUser message:%s`, summary, content)
+	}
+
 	resp, err := c.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
 		OrganizationID: c.app.OrganizationID,
 		App:            c.app,
 		Session:        session,
 		User:           user,
-		PromptMessage:  types.MessageContent{Parts: []any{content}},
+		InteractionID:  interactionID,
+		PromptMessage:  types.MessageContent{Parts: []any{promptMessage}},
+		HistoryLimit:   -1, // Do not include any interactions
 	})
 	if err != nil {
 		return fmt.Errorf("failed to get response from inference API: %w", err)
@@ -373,7 +403,7 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 	return nil
 }
 
-func (c *CrispBot) handleFileMessage(ctx context.Context, client *crisp.Client, evt crisp.EventsReceiveFileMessage) error {
+func (c *CrispBot) handleFileMessage(_ context.Context, _ *crisp.Client, _ crisp.EventsReceiveFileMessage) error {
 	// TODO: handle images or just ignore it but include in the next prompt
 	return nil
 }
