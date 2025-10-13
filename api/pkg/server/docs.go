@@ -23,6 +23,86 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/admin/agent-sandboxes/debug": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retrieves combined debug data from Wolf (memory, lobbies, sessions) for the Agent Sandboxes dashboard",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get Wolf debugging data",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentSandboxesDebugResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/agent-sandboxes/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Proxies Server-Sent Events from Wolf for real-time monitoring",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get Wolf real-time events (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "event: message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents/fleet": {
             "get": {
                 "security": [
@@ -1481,6 +1561,62 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.AgentDashboardSummary"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/keepalive": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get keepalive session health status for an external agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get keepalive session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -9201,6 +9337,26 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AgentSandboxesDebugResponse": {
+            "type": "object",
+            "properties": {
+                "lobbies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfLobbyInfo"
+                    }
+                },
+                "memory": {
+                    "$ref": "#/definitions/server.WolfSystemMemory"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfSessionInfo"
+                    }
+                }
+            }
+        },
         "server.AppCreateResponse": {
             "type": "object",
             "properties": {
@@ -10130,6 +10286,136 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "technical_design": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfClientConnection": {
+            "type": "object",
+            "properties": {
+                "client_ip": {
+                    "type": "string"
+                },
+                "lobby_id": {
+                    "description": "null if orphaned",
+                    "type": "string"
+                },
+                "memory_bytes": {
+                    "type": "string"
+                },
+                "resolution": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfLobbyInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "multi_user": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pin": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "started_by_profile_id": {
+                    "type": "string"
+                },
+                "stop_when_everyone_leaves": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.WolfLobbyMemory": {
+            "type": "object",
+            "properties": {
+                "client_count": {
+                    "type": "string"
+                },
+                "lobby_id": {
+                    "type": "string"
+                },
+                "lobby_name": {
+                    "type": "string"
+                },
+                "memory_bytes": {
+                    "type": "string"
+                },
+                "resolution": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfSessionInfo": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "display_mode": {
+                    "type": "object",
+                    "properties": {
+                        "av1_supported": {
+                            "type": "boolean"
+                        },
+                        "height": {
+                            "type": "integer"
+                        },
+                        "hevc_supported": {
+                            "type": "boolean"
+                        },
+                        "refresh_rate": {
+                            "type": "integer"
+                        },
+                        "width": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfSystemMemory": {
+            "type": "object",
+            "properties": {
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfClientConnection"
+                    }
+                },
+                "gstreamer_buffer_bytes": {
+                    "type": "string"
+                },
+                "lobbies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfLobbyMemory"
+                    }
+                },
+                "process_rss_bytes": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "total_memory_bytes": {
                     "type": "string"
                 }
             }
@@ -17637,9 +17923,28 @@ const docTemplate = `{
         "types.ZedConfigResponse": {
             "type": "object",
             "properties": {
+                "agent": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "assistant": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "context_servers": {
                     "type": "object",
                     "additionalProperties": true
+                },
+                "external_sync": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "language_models": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "theme": {
+                    "type": "string"
                 },
                 "version": {
                     "description": "Unix timestamp of app config update",

@@ -461,6 +461,12 @@ export interface ServerAgentProgressItem {
   tasks_before?: ServerTaskItemDTO[];
 }
 
+export interface ServerAgentSandboxesDebugResponse {
+  lobbies?: ServerWolfLobbyInfo[];
+  memory?: ServerWolfSystemMemory;
+  sessions?: ServerWolfSessionInfo[];
+}
+
 export interface ServerAppCreateResponse {
   config?: TypesAppConfig;
   created?: string;
@@ -811,6 +817,54 @@ export interface ServerTaskSpecsResponse {
   status?: string;
   task_id?: string;
   technical_design?: string;
+}
+
+export interface ServerWolfClientConnection {
+  client_ip?: string;
+  /** null if orphaned */
+  lobby_id?: string;
+  memory_bytes?: string;
+  resolution?: string;
+  session_id?: string;
+}
+
+export interface ServerWolfLobbyInfo {
+  id?: string;
+  multi_user?: boolean;
+  name?: string;
+  pin?: number[];
+  started_by_profile_id?: string;
+  stop_when_everyone_leaves?: boolean;
+}
+
+export interface ServerWolfLobbyMemory {
+  client_count?: string;
+  lobby_id?: string;
+  lobby_name?: string;
+  memory_bytes?: string;
+  resolution?: string;
+}
+
+export interface ServerWolfSessionInfo {
+  app_id?: string;
+  client_ip?: string;
+  display_mode?: {
+    av1_supported?: boolean;
+    height?: number;
+    hevc_supported?: boolean;
+    refresh_rate?: number;
+    width?: number;
+  };
+  session_id?: string;
+}
+
+export interface ServerWolfSystemMemory {
+  clients?: ServerWolfClientConnection[];
+  gstreamer_buffer_bytes?: string;
+  lobbies?: ServerWolfLobbyMemory[];
+  process_rss_bytes?: string;
+  success?: boolean;
+  total_memory_bytes?: string;
 }
 
 export interface ServicesCoordinationEvent {
@@ -3769,7 +3823,12 @@ export interface TypesWorkloadSummary {
 }
 
 export interface TypesZedConfigResponse {
+  agent?: Record<string, any>;
+  assistant?: Record<string, any>;
   context_servers?: Record<string, any>;
+  external_sync?: Record<string, any>;
+  language_models?: Record<string, any>;
+  theme?: string;
   /** Unix timestamp of app config update */
   version?: number;
 }
@@ -3937,6 +3996,43 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Retrieves combined debug data from Wolf (memory, lobbies, sessions) for the Agent Sandboxes dashboard
+     *
+     * @tags Admin
+     * @name V1AdminAgentSandboxesDebugList
+     * @summary Get Wolf debugging data
+     * @request GET:/api/v1/admin/agent-sandboxes/debug
+     * @secure
+     */
+    v1AdminAgentSandboxesDebugList: (params: RequestParams = {}) =>
+      this.request<ServerAgentSandboxesDebugResponse, SystemHTTPError>({
+        path: `/api/v1/admin/agent-sandboxes/debug`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Proxies Server-Sent Events from Wolf for real-time monitoring
+     *
+     * @tags Admin
+     * @name V1AdminAgentSandboxesEventsList
+     * @summary Get Wolf real-time events (SSE)
+     * @request GET:/api/v1/admin/agent-sandboxes/events
+     * @secure
+     */
+    v1AdminAgentSandboxesEventsList: (params: RequestParams = {}) =>
+      this.request<string, SystemHTTPError>({
+        path: `/api/v1/admin/agent-sandboxes/events`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
     /**
      * @description Get agent fleet data including active sessions, work queue, and help requests without dashboard data
      *
@@ -4822,6 +4918,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/dashboard/agent`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get keepalive session health status for an external agent
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsKeepaliveDetail
+     * @summary Get keepalive session status
+     * @request GET:/api/v1/external-agents/{sessionID}/keepalive
+     * @secure
+     */
+    v1ExternalAgentsKeepaliveDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/keepalive`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

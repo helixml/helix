@@ -407,12 +407,13 @@ type StopLobbyRequest struct {
 
 // Lobby represents a Wolf lobby
 type Lobby struct {
-	ID                   string   `json:"id"`
-	Name                 string   `json:"name"`
-	StartedByProfileID   string   `json:"started_by_profile_id"`
-	MultiUser            bool     `json:"multi_user"`
-	StopWhenEveryoneLeaves bool   `json:"stop_when_everyone_leaves"`
-	PIN                  []int16  `json:"pin,omitempty"`
+	ID                     string      `json:"id"`
+	Name                   string      `json:"name"`
+	StartedByProfileID     string      `json:"started_by_profile_id"`
+	MultiUser              bool        `json:"multi_user"`
+	StopWhenEveryoneLeaves bool        `json:"stop_when_everyone_leaves"`
+	PIN                    []int16     `json:"pin,omitempty"`
+	Runner                 interface{} `json:"runner,omitempty"` // Runner configuration (used for extracting session ID from env vars)
 }
 
 // ListLobbiesResponse represents the response from listing lobbies
@@ -521,6 +522,50 @@ func (c *Client) ListLobbies(ctx context.Context) ([]Lobby, error) {
 	}
 
 	return result.Lobbies, nil
+}
+
+// JoinLobbyRequest represents the request to join a lobby with an existing session
+type JoinLobbyRequest struct {
+	LobbyID            string  `json:"lobby_id"`
+	MoonlightSessionID string  `json:"moonlight_session_id"` // Wolf expects string, not int64
+	PIN                []int16 `json:"pin,omitempty"`
+}
+
+// JoinLobby switches an existing Moonlight session to a specific lobby
+// This is how Wolf UI switches clients between lobbies
+func (c *Client) JoinLobby(ctx context.Context, req *JoinLobbyRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal join request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1/lobbies/join", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result GenericResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return nil
 }
 
 // CheckHealth performs a health check on Wolf by attempting to list apps

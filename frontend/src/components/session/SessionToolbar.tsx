@@ -127,6 +127,7 @@ export const SessionToolbar: FC<{
     keepalive_status: 'starting' | 'active' | 'reconnecting' | 'failed' | ''
     keepalive_start_time?: string
     keepalive_last_check?: string
+    keepalive_error?: string
     connection_uptime_seconds: number
   } | null>(null)
 
@@ -243,7 +244,7 @@ export const SessionToolbar: FC<{
         )
       case 'failed':
         return (
-          <Tooltip title="Keepalive session failed - will retry">
+          <Tooltip title={keepaliveStatus.keepalive_error || "Keepalive session failed - will retry"}>
             <Chip
               icon={<ErrorIcon />}
               label="Keepalive Failed"

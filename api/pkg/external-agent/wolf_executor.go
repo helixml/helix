@@ -1241,15 +1241,14 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 	} else {
 		deletedCount := 0
 		for _, lobby := range wolfLobbies {
-			// Only reconcile Personal Dev Environments (database-backed, long-lived)
-			// External agent sessions are ephemeral and handled separately
+			// Reconcile Personal Dev Environments (database-backed, long-lived)
 			if strings.HasPrefix(lobby.Name, "PDE:") {
 				// Check if this lobby ID is expected
 				if !expectedLobbyIDs[lobby.ID] {
 					log.Info().
 						Str("lobby_id", lobby.ID).
 						Str("lobby_name", lobby.Name).
-						Msg("Found orphaned Wolf lobby, stopping")
+						Msg("Found orphaned PDE Wolf lobby, stopping")
 
 					stopReq := &wolf.StopLobbyRequest{
 						LobbyID: lobby.ID,
@@ -1260,7 +1259,77 @@ func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
 						log.Error().
 							Err(err).
 							Str("lobby_id", lobby.ID).
-							Msg("Failed to stop orphaned Wolf lobby")
+							Msg("Failed to stop orphaned PDE Wolf lobby")
+					} else {
+						deletedCount++
+					}
+				}
+			}
+
+			// Reconcile External Agent sessions (ephemeral, in-memory tracked)
+			// These don't have database persistence, so check against in-memory sessions map
+			if strings.HasPrefix(lobby.Name, "Agent") {
+				// Check if this lobby ID is tracked in memory
+				lobbyTracked := false
+				for _, session := range w.sessions {
+					if session.WolfLobbyID == lobby.ID {
+						lobbyTracked = true
+						break
+					}
+				}
+
+				if !lobbyTracked {
+					log.Info().
+						Str("lobby_id", lobby.ID).
+						Str("lobby_name", lobby.Name).
+						Msg("Found orphaned external agent Wolf lobby, stopping")
+
+					// Extract session ID from lobby runner environment to look up PIN
+					var sessionID string
+					if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+						if envList, ok := runnerMap["env"].([]interface{}); ok {
+							for _, envItem := range envList {
+								if envStr, ok := envItem.(string); ok {
+									if strings.HasPrefix(envStr, "HELIX_SESSION_ID=") {
+										sessionID = strings.TrimPrefix(envStr, "HELIX_SESSION_ID=")
+										break
+									}
+								}
+							}
+						}
+					}
+
+					// Look up session from database to get PIN
+					var lobbyPIN []int16
+					if sessionID != "" {
+						helixSession, err := w.store.GetSession(ctx, sessionID)
+						if err == nil && helixSession.Metadata.WolfLobbyPIN != "" {
+							// Convert PIN string to []int16
+							for _, r := range helixSession.Metadata.WolfLobbyPIN {
+								lobbyPIN = append(lobbyPIN, int16(r-'0'))
+							}
+							log.Info().
+								Str("lobby_id", lobby.ID).
+								Str("session_id", sessionID).
+								Msg("Retrieved lobby PIN from session metadata for cleanup")
+						} else {
+							log.Warn().
+								Str("lobby_id", lobby.ID).
+								Str("session_id", sessionID).
+								Msg("Could not retrieve PIN for orphaned lobby - cleanup may fail")
+						}
+					}
+
+					stopReq := &wolf.StopLobbyRequest{
+						LobbyID: lobby.ID,
+						PIN:     lobbyPIN,
+					}
+					err := w.wolfClient.StopLobby(ctx, stopReq)
+					if err != nil {
+						log.Error().
+							Err(err).
+							Str("lobby_id", lobby.ID).
+							Msg("Failed to stop orphaned external agent Wolf lobby")
 					} else {
 						deletedCount++
 					}
@@ -1645,6 +1714,15 @@ func (w *WolfExecutor) startKeepaliveSession(ctx context.Context, sessionID, lob
 			Str("session_id", sessionID).
 			Int("attempt", attempt+1).
 			Msg("Keepalive connection failed")
+
+		// Store the error for the last attempt
+		if attempt == maxRetries-1 {
+			w.mutex.Lock()
+			if session, exists := w.sessions[sessionID]; exists {
+				session.KeepaliveError = err.Error()
+			}
+			w.mutex.Unlock()
+		}
 	}
 
 	// All retries exhausted
@@ -1658,6 +1736,7 @@ func (w *WolfExecutor) startKeepaliveSession(ctx context.Context, sessionID, lob
 		session.KeepaliveStatus = "failed"
 		checkTime := time.Now()
 		session.KeepaliveLastCheck = &checkTime
+		// KeepaliveError already set in the retry loop
 	}
 	w.mutex.Unlock()
 }
@@ -1675,6 +1754,7 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	log.Info().
 		Str("session_id", sessionID).
 		Str("ws_url", wsURL).
+		Str("lobby_id", lobbyID).
 		Msg("Connecting keepalive WebSocket to moonlight-web")
 
 	// Connect WebSocket
@@ -1688,13 +1768,55 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	}
 	defer conn.Close()
 
-	// Send AuthenticateAndInit message
+	// Set up ping/pong handler to keep connection alive and update timestamp
+	// This ensures KeepaliveLastCheck is updated even if no data messages are received
+	conn.SetPongHandler(func(appData string) error {
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("Keepalive received pong, updating timestamp")
+
+		w.mutex.Lock()
+		if session, exists := w.sessions[sessionID]; exists {
+			checkTime := time.Now()
+			session.KeepaliveLastCheck = &checkTime
+			log.Debug().
+				Str("session_id", sessionID).
+				Time("last_check", checkTime).
+				Msg("Updated KeepaliveLastCheck via pong handler")
+		}
+		w.mutex.Unlock()
+		return nil
+	})
+
+	// Find Wolf UI app ID by looking it up by name (ID changes between deployments)
+	// Wolf UI app is the meta-app that shows lobby list and handles lobby switching
+	apps, err := w.wolfClient.ListApps(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list Wolf apps: %w", err)
+	}
+
+	var wolfUIAppID string
+	for _, app := range apps {
+		if app.Title == "Wolf UI" {
+			wolfUIAppID = app.ID
+			log.Info().
+				Str("wolf_ui_app_id", wolfUIAppID).
+				Msg("Found Wolf UI app for keepalive connection")
+			break
+		}
+	}
+
+	if wolfUIAppID == "" {
+		return fmt.Errorf("Wolf UI app not found - cannot establish keepalive session")
+	}
+
+	// Send AuthenticateAndInit message to connect to Wolf UI app
 	authMsg := map[string]interface{}{
 		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":                "helix", // From moonlight-web config
-			"host_id":                    0,       // Local Wolf instance
-			"app_id":                     lobbyID, // Use lobby ID as app ID
-			"bitrate":                    5000,    // Minimal bitrate for keepalive
+			"credentials":                "helix",      // From moonlight-web config
+			"host_id":                    0,            // Local Wolf instance
+			"app_id":                     wolfUIAppID,  // Connect to Wolf UI app, not directly to lobby
+			"bitrate":                    5000,         // Minimal bitrate for keepalive
 			"packet_size":                1024,
 			"fps":                        30,
 			"width":                      1280,
@@ -1702,8 +1824,8 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 			"video_sample_queue_size":    10,
 			"play_audio_local":           false,
 			"audio_sample_queue_size":    10,
-			"video_supported_formats":    1, // H264 only
-			"video_colorspace":           1, // Rec. 709
+			"video_supported_formats":    1,     // H264 only
+			"video_colorspace":           1,     // Rec. 709
 			"video_color_range_full":     false,
 		},
 	}
@@ -1720,7 +1842,137 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	log.Info().
 		Str("session_id", sessionID).
 		Str("lobby_id", lobbyID).
-		Msg("Sent keepalive auth message to moonlight-web")
+		Msg("Sent keepalive auth message to moonlight-web, waiting for stream initialization")
+
+	// Moonlight-web DOES send JSON responses via WebSocket (UpdateApp, StageComplete, etc.)
+	// Listen for these messages to know when the stream is ready
+	// The streamer child process connects to Wolf and creates the session
+	streamReady := false
+	maxWaitTime := 15 * time.Second
+	startTime := time.Now()
+
+	for time.Since(startTime) < maxWaitTime {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			// Timeout is ok - keep waiting for messages
+			if err.Error() == "i/o timeout" {
+				continue
+			}
+			log.Warn().
+				Err(err).
+				Str("session_id", sessionID).
+				Msg("Error reading stream initialization message")
+			break
+		}
+
+		// Parse the server message
+		var serverMsg map[string]interface{}
+		if err := json.Unmarshal(message, &serverMsg); err != nil {
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("raw_message", string(message)).
+				Msg("Received non-JSON message (probably binary stream data)")
+			continue
+		}
+
+		log.Debug().
+			Str("session_id", sessionID).
+			Interface("message", serverMsg).
+			Msg("Received stream initialization message")
+
+		// Check for error messages
+		if msgType, ok := serverMsg["type"].(string); ok {
+			if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" {
+				return fmt.Errorf("moonlight-web stream init failed: %s", msgType)
+			}
+			if msgType == "ConnectionComplete" {
+				log.Info().
+					Str("session_id", sessionID).
+					Msg("Moonlight stream connection complete")
+				streamReady = true
+				break
+			}
+		}
+	}
+
+	if !streamReady {
+		log.Warn().
+			Str("session_id", sessionID).
+			Dur("waited", time.Since(startTime)).
+			Msg("Stream did not complete within timeout, checking for Wolf session anyway")
+	}
+
+	// Find the newly created session by listing all Wolf sessions
+	// We need to find the session connected to Wolf UI app
+	wolfSessions, err := w.wolfClient.Get(ctx, "/api/v1/sessions")
+	if err != nil {
+		return fmt.Errorf("failed to list Wolf sessions: %w", err)
+	}
+	defer wolfSessions.Body.Close()
+
+	var sessionsResp struct {
+		Success  bool `json:"success"`
+		Sessions []struct {
+			ClientID string `json:"client_id"`
+			AppID    string `json:"app_id"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(wolfSessions.Body).Decode(&sessionsResp); err != nil {
+		return fmt.Errorf("failed to decode Wolf sessions: %w", err)
+	}
+
+	// Find the session connected to Wolf UI app (our keepalive session)
+	var wolfSessionID string
+	for _, s := range sessionsResp.Sessions {
+		if s.AppID == wolfUIAppID {
+			// Use client_id directly as string (Wolf expects string)
+			wolfSessionID = s.ClientID
+			log.Info().
+				Str("helix_session_id", sessionID).
+				Str("wolf_session_id", wolfSessionID).
+				Str("app_id", s.AppID).
+				Msg("Found keepalive session in Wolf UI app")
+			break
+		}
+	}
+
+	if wolfSessionID == "" {
+		return fmt.Errorf("could not find keepalive session in Wolf (no sessions connected to Wolf UI app)")
+	}
+
+	// Convert PIN string to []int16 for Wolf API
+	var lobbyPINArray []int16
+	if lobbyPIN != "" {
+		for _, r := range lobbyPIN {
+			lobbyPINArray = append(lobbyPINArray, int16(r-'0'))
+		}
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Str("lobby_pin", lobbyPIN).
+		Interface("pin_array", lobbyPINArray).
+		Str("wolf_session_id", wolfSessionID).
+		Msg("Attempting to join lobby with PIN")
+
+	// Now switch this session to the target lobby
+	joinReq := &wolf.JoinLobbyRequest{
+		LobbyID:            lobbyID,
+		MoonlightSessionID: wolfSessionID,
+		PIN:                lobbyPINArray,
+	}
+
+	if err := w.wolfClient.JoinLobby(ctx, joinReq); err != nil {
+		return fmt.Errorf("failed to join lobby: %w", err)
+	}
+
+	log.Info().
+		Str("helix_session_id", sessionID).
+		Str("wolf_session_id", wolfSessionID).
+		Str("lobby_id", lobbyID).
+		Msg("Successfully switched keepalive session to target lobby")
 
 	// Update status to active
 	w.mutex.Lock()
@@ -1731,12 +1983,32 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	}
 	w.mutex.Unlock()
 
+	// Set up ping ticker to keep connection alive
+	// Send ping every 30 seconds to ensure pong responses update KeepaliveLastCheck
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
+
 	// Message handling loop - keep connection alive
 	for {
 		select {
 		case <-ctx.Done():
 			log.Info().Str("session_id", sessionID).Msg("Keepalive context cancelled, closing connection")
 			return nil
+
+		case <-pingTicker.C:
+			// Send ping to keep connection alive
+			// The pong response will trigger the pong handler which updates KeepaliveLastCheck
+			log.Debug().
+				Str("session_id", sessionID).
+				Msg("Sending keepalive ping")
+
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", sessionID).
+					Msg("Failed to send keepalive ping")
+				return fmt.Errorf("failed to send ping: %w", err)
+			}
 
 		default:
 			// Read messages from server
@@ -1771,6 +2043,11 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 			if session, exists := w.sessions[sessionID]; exists {
 				checkTime := time.Now()
 				session.KeepaliveLastCheck = &checkTime
+				log.Debug().
+					Str("session_id", sessionID).
+					Time("last_check", checkTime).
+					Str("message_type", fmt.Sprintf("%v", serverMsg["type"])).
+					Msg("Updated KeepaliveLastCheck via server message")
 			}
 			w.mutex.Unlock()
 
