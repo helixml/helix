@@ -291,6 +291,13 @@ export class Stream {
             return
         }
 
+        // In join mode, we wait for server's offer - don't create our own
+        // negotiationneeded can fire automatically when peer is created, but we must ignore it
+        if (this.mode === "join") {
+            this.debugLog("Join mode: ignoring negotiationneeded (waiting for server offer)")
+            return
+        }
+
         await this.peer.setLocalDescription()
 
         await this.sendLocalDescription()
