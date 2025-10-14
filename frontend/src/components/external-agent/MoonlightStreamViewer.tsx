@@ -143,7 +143,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       // Create Stream instance
-      // For external agents, connect to persistent streamer via peer endpoint
+      // Connect to persistent streamer via peer endpoint
       // Streamer ID format: "agent-{sessionId}" (created by backend via POST /api/streamers)
       const streamerID = `agent-${sessionId}`;
       const stream = new Stream(
@@ -153,9 +153,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         settings,
         supportedFormats,
         [width, height],
-        "peer", // Connect as WebRTC peer to existing streamer
-        undefined, // No session_id needed (streamer already initialized)
-        streamerID // Streamer ID
+        streamerID // Streamer ID - connects to /api/streamers/{id}/peer
       );
 
       streamRef.current = stream;
