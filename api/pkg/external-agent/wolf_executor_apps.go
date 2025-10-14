@@ -2,13 +2,16 @@ package external_agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -135,7 +138,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		DisplayFPS:        displayRefreshRate,
 	}, w.zedImage, w.helixAPIToken)
 
-	// Add app to Wolf (container auto-starts if auto_start_containers=true in Wolf config)
+	// Add app to Wolf
 	err = w.wolfClient.AddApp(ctx, app)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add external agent app to Wolf: %w", err)
@@ -146,12 +149,45 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		Str("session_id", agent.SessionID).
 		Msg("Wolf app created successfully for external agent (apps mode)")
 
+	// Wait for Wolf app to be available before attempting keepalive connection
+	// This prevents "AppNotFound" errors due to timing between app creation and availability
+	err = w.waitForWolfAppAvailableByTitle(ctx, wolfAppID, fmt.Sprintf("External Agent %s", agent.SessionID), 10*time.Second)
+	if err != nil {
+		// If app doesn't become available, remove it and fail
+		w.wolfClient.RemoveApp(ctx, wolfAppID)
+		return nil, fmt.Errorf("Wolf app not available after creation: %w", err)
+	}
+
+	// Give Wolf's HTTPS Moonlight server a moment to catch up with the internal API
+	// Moonlight-web queries via HTTPS protocol (port 47989), not the Unix socket API
+	// There can be a small propagation delay between the two
+	time.Sleep(2 * time.Second)
+
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("session_id", agent.SessionID).
+		Msg("Wolf app available, proceeding with keepalive connection")
+
+	// Establish keepalive WebSocket connection to moonlight-web to start the container
+	// This creates a persistent session in keepalive mode that runs the container headlessly
+	err = w.connectKeepaliveWebSocketForApp(ctx, wolfAppID, agent.SessionID)
+	if err != nil {
+		// If keepalive connection fails, remove the app to clean up
+		w.wolfClient.RemoveApp(ctx, wolfAppID)
+		return nil, fmt.Errorf("failed to create moonlight-web keepalive session: %w", err)
+	}
+
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("session_id", agent.SessionID).
+		Msg("Moonlight-web keepalive session established successfully for external agent (apps mode)")
+
 	// Track session (simple - no lobbies, no keepalive)
 	session := &ZedSession{
 		SessionID:      agent.SessionID,
 		HelixSessionID: helixSessionID,
 		UserID:         agent.UserID,
-		Status:         "starting", // Wolf auto-starts container
+		Status:         "starting",
 		StartTime:      time.Now(),
 		LastAccess:     time.Now(),
 		ProjectPath:    agent.ProjectPath,
@@ -191,6 +227,8 @@ func (w *AppWolfExecutor) StopZedAgent(ctx context.Context, sessionID string) er
 	}
 
 	// Remove app from Wolf (tears down container)
+	// In apps mode with moonlight-web persistence, the container lifecycle is managed by Wolf
+	// The moonlight-web session will be cleaned up automatically when the app is removed
 	if session.WolfAppID != "" {
 		err := w.wolfClient.RemoveApp(ctx, session.WolfAppID)
 		if err != nil {
@@ -366,6 +404,16 @@ func (w *AppWolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Co
 		Str("instance_id", instanceID).
 		Str("wolf_app_id", wolfAppID).
 		Msg("Wolf app created for PDE (apps mode)")
+
+	// Wait for Wolf app to be available before proceeding
+	// This ensures the app is fully registered in Wolf before we continue
+	// For PDEs, the title uses environmentName not instanceID
+	err = w.waitForWolfAppAvailableByTitle(ctx, wolfAppID, fmt.Sprintf("Personal Dev Environment %s", environmentName), 10*time.Second)
+	if err != nil {
+		// If app doesn't become available, remove it and fail
+		w.wolfClient.RemoveApp(ctx, wolfAppID)
+		return nil, fmt.Errorf("Wolf app not available after PDE creation: %w", err)
+	}
 
 	// Save to database
 	pde := &types.PersonalDevEnvironment{
@@ -567,8 +615,212 @@ func (w *AppWolfExecutor) FindContainerBySessionID(ctx context.Context, helixSes
 	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
 }
 
+// connectKeepaliveWebSocketForApp establishes WebSocket connection to moonlight-web for apps mode
+// This creates a persistent session in keepalive mode that starts and maintains the Wolf app container
+func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, wolfAppID, sessionID string) error {
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
+	}
+
+	// Build WebSocket URL (moonlight-web expects /api/host/stream endpoint)
+	wsURL := strings.Replace(moonlightWebURL, "http://", "ws://", 1) + "/api/host/stream"
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Str("ws_url", wsURL).
+		Msg("Connecting keepalive WebSocket to moonlight-web for apps mode")
+
+	// Connect WebSocket
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to connect WebSocket: %w", err)
+	}
+	defer conn.Close()
+
+	// Parse wolfAppID string to uint32 for moonlight-web API
+	appIDUint, err := strconv.ParseUint(wolfAppID, 10, 32)
+	if err != nil {
+		return fmt.Errorf("failed to parse wolf app ID %s: %w", wolfAppID, err)
+	}
+
+	// Send AuthenticateAndInit message with session persistence
+	// mode=keepalive: creates session without WebRTC peer (headless)
+	authMsg := map[string]interface{}{
+		"AuthenticateAndInit": map[string]interface{}{
+			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"), // Use MOONLIGHT_CREDENTIALS for auth
+			"session_id":              fmt.Sprintf("agent-%s", sessionID), // Persistent session ID
+			"mode":                    "keepalive",                        // Keepalive mode (no WebRTC)
+			"host_id":                 0,                                  // Local Wolf instance
+			"app_id":                  uint32(appIDUint),                  // Connect to the Wolf app (u32)
+			"bitrate":                 5000,                               // Minimal bitrate for keepalive
+			"packet_size":             1024,
+			"fps":                     30,
+			"width":                   1280,
+			"height":                  720,
+			"video_sample_queue_size": 10,
+			"play_audio_local":        false,
+			"audio_sample_queue_size": 10,
+			"video_supported_formats": 1,        // H264 only
+			"video_colorspace":        "Rec709", // String format for new API
+			"video_color_range_full":  false,
+		},
+	}
+
+	authJSON, err := json.Marshal(authMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth message: %w", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
+		return fmt.Errorf("failed to send auth message: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Sent keepalive auth message to moonlight-web with session persistence")
+
+	// Wait for stream initialization or error messages
+	maxWaitTime := 10 * time.Second
+	startTime := time.Now()
+	connected := false
+
+	for time.Since(startTime) < maxWaitTime {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			// Timeout is expected - moonlight-web closes WebSocket in keepalive mode
+			if strings.Contains(err.Error(), "i/o timeout") {
+				// Check if enough time passed for session creation
+				if time.Since(startTime) > 3*time.Second {
+					log.Info().
+						Str("session_id", sessionID).
+						Msg("Keepalive WebSocket closed as expected - session running headless")
+					connected = true
+					break
+				}
+				continue
+			}
+			// WebSocket closed normally (including close code 1005 - no status)
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
+				strings.Contains(err.Error(), "close 1005") {
+				log.Info().
+					Str("session_id", sessionID).
+					Msg("Keepalive WebSocket closed normally - session persisting")
+				connected = true
+				break
+			}
+			return fmt.Errorf("WebSocket error: %w", err)
+		}
+
+		// Parse server message
+		var serverMsg map[string]interface{}
+		if err := json.Unmarshal(message, &serverMsg); err != nil {
+			// Check if message is a JSON string (wrapped in quotes)
+			var msgString string
+			if err := json.Unmarshal(message, &msgString); err == nil {
+				// It's a string error message
+				if msgString == "AppNotFound" || msgString == "HostNotFound" || msgString == "HostNotPaired" || msgString == "InternalServerError" {
+					return fmt.Errorf("moonlight-web error: %s", msgString)
+				}
+			}
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("raw_message", string(message)).
+				Msg("Received non-JSON message")
+			continue
+		}
+
+		log.Debug().
+			Str("session_id", sessionID).
+			Interface("message", serverMsg).
+			Msg("Received initialization message")
+
+		// Check for error messages
+		if msgType, ok := serverMsg["type"].(string); ok {
+			if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" || msgType == "AppNotFound" {
+				return fmt.Errorf("moonlight-web error: %s", msgType)
+			}
+			if msgType == "ConnectionComplete" {
+				log.Info().
+					Str("session_id", sessionID).
+					Msg("Keepalive stream connected successfully")
+				connected = true
+				// Keep reading until WebSocket closes
+			}
+		}
+	}
+
+	if !connected {
+		return fmt.Errorf("keepalive session failed to initialize within timeout")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Keepalive session established - running headless in moonlight-web")
+
+	return nil
+}
+
 func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
 	return w.wolfClient
+}
+
+// waitForWolfAppAvailableByTitle waits for Wolf app to be available in Wolf's app list
+// This prevents "AppNotFound" errors from moonlight-web due to timing issues
+// We search by both ID and Title to be safe
+func (w *AppWolfExecutor) waitForWolfAppAvailableByTitle(ctx context.Context, wolfAppID, expectedTitle string, timeout time.Duration) error {
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("expected_title", expectedTitle).
+		Dur("timeout", timeout).
+		Msg("Waiting for Wolf app to be available")
+
+	startTime := time.Now()
+	checkInterval := 500 * time.Millisecond
+
+	for time.Since(startTime) < timeout {
+		// Query Wolf for app list
+		apps, err := w.wolfClient.ListApps(ctx)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("wolf_app_id", wolfAppID).
+				Msg("Failed to list Wolf apps, will retry")
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		// Check if our app is in the list (search by both ID and Title)
+		for _, app := range apps {
+			if app.ID == wolfAppID || app.Title == expectedTitle {
+				log.Info().
+					Str("wolf_app_id", wolfAppID).
+					Str("found_id", app.ID).
+					Str("found_title", app.Title).
+					Dur("elapsed", time.Since(startTime)).
+					Msg("Wolf app is now available")
+				return nil
+			}
+		}
+
+		log.Debug().
+			Str("wolf_app_id", wolfAppID).
+			Str("expected_title", expectedTitle).
+			Int("apps_count", len(apps)).
+			Msg("Wolf app not yet available, waiting...")
+
+		time.Sleep(checkInterval)
+	}
+
+	return fmt.Errorf("Wolf app %s (title: %s) not available after %v", wolfAppID, expectedTitle, timeout)
 }
 
 // Helper functions shared between apps and lobbies executors
