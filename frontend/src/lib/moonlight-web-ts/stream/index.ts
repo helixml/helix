@@ -46,7 +46,8 @@ export class Stream {
     private appId: number
 
     private settings: StreamSettings
-    private mode: "create" | "join" | "keepalive"
+    private mode: "create" | "join" | "keepalive" | "peer"
+    private streamerId?: string
 
     private eventTarget = new EventTarget()
 
@@ -66,10 +67,12 @@ export class Stream {
         settings: StreamSettings,
         supportedVideoFormats: VideoCodecSupport,
         viewerScreenSize: [number, number],
-        mode: "create" | "join" | "keepalive" = "create",
-        sessionId?: string
+        mode: "create" | "join" | "keepalive" | "peer" = "create",
+        sessionId?: string,
+        streamerId?: string
     ) {
         this.mode = mode
+        this.streamerId = streamerId
         this.api = api
         this.hostId = hostId
         this.appId = appId
@@ -79,7 +82,11 @@ export class Stream {
         this.streamerSize = getStreamerSize(settings, viewerScreenSize)
 
         // Configure web socket
-        this.ws = new WebSocket(`${api.host_url}/host/stream`)
+        // New mode "peer": Connect to multi-WebRTC peer endpoint for existing streamer
+        const wsEndpoint = (mode === "peer" && streamerId)
+            ? `/api/streamers/${streamerId}/peer`
+            : `/host/stream`;
+        this.ws = new WebSocket(`${api.host_url}${wsEndpoint}`)
         this.ws.addEventListener("error", this.onError.bind(this))
         this.ws.addEventListener("open", this.onWsOpen.bind(this))
         this.ws.addEventListener("close", this.onWsClose.bind(this))
@@ -90,31 +97,35 @@ export class Stream {
         // Use provided sessionId or generate unique one for "create" mode
         const finalSessionId = sessionId || `browser-${Date.now()}-${Math.random()}`;
 
-        this.sendWsMessage({
-            AuthenticateAndInit: {
-                credentials: this.api.credentials,
-                session_id: finalSessionId,
-                mode: mode,
-                // Browser clients use null for client_unique_id because:
-                // - In "create" mode: Each browser creates a new session with new pairing
-                // - In "join" mode: Browser joins existing keepalive session that already has unique client_unique_id
-                //   (the keepalive was created by Helix API with unique ID, browser reuses that MoonlightHost)
-                client_unique_id: null,
-                host_id: this.hostId,
-                app_id: this.appId,
-                bitrate: this.settings.bitrate,
-                packet_size: this.settings.packetSize,
-                fps,
-                width: this.streamerSize[0],
-                height: this.streamerSize[1],
-                video_sample_queue_size: this.settings.videoSampleQueueSize,
-                play_audio_local: this.settings.playAudioLocal,
-                audio_sample_queue_size: this.settings.audioSampleQueueSize,
-                video_supported_formats: createSupportedVideoFormatsBits(supportedVideoFormats),
-                video_colorspace: "Rec709", // TODO <---
-                video_color_range_full: true, // TODO <---
-            }
-        })
+        // In "peer" mode, don't send AuthenticateAndInit (streamer already initialized)
+        // The streamer was created via POST /api/streamers and is waiting for peer connections
+        if (mode !== "peer") {
+            this.sendWsMessage({
+                AuthenticateAndInit: {
+                    credentials: this.api.credentials,
+                    session_id: finalSessionId,
+                    mode: mode,
+                    // Browser clients use null for client_unique_id because:
+                    // - In "create" mode: Each browser creates a new session with new pairing
+                    // - In "join" mode: Browser joins existing keepalive session that already has unique client_unique_id
+                    //   (the keepalive was created by Helix API with unique ID, browser reuses that MoonlightHost)
+                    client_unique_id: null,
+                    host_id: this.hostId,
+                    app_id: this.appId,
+                    bitrate: this.settings.bitrate,
+                    packet_size: this.settings.packetSize,
+                    fps,
+                    width: this.streamerSize[0],
+                    height: this.streamerSize[1],
+                    video_sample_queue_size: this.settings.videoSampleQueueSize,
+                    play_audio_local: this.settings.playAudioLocal,
+                    audio_sample_queue_size: this.settings.audioSampleQueueSize,
+                    video_supported_formats: createSupportedVideoFormatsBits(supportedVideoFormats),
+                    video_colorspace: "Rec709", // TODO <---
+                    video_color_range_full: true, // TODO <---
+                }
+            })
+        }
 
         // Stream Input
         const streamInputConfig = defaultStreamInputConfig()
