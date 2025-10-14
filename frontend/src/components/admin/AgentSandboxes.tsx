@@ -190,21 +190,40 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             const expectedAppTitle = `External Agent ${helixSessionId}`
             const clientApp = apps.find(app => app.title === expectedAppTitle)
             if (!clientApp) {
-              console.warn(`No app found for client ${client.session_id}, expected title: ${expectedAppTitle}`)
+              console.warn(`[Dashboard] No app found for client ${client.session_id}`, {
+                expectedTitle: expectedAppTitle,
+                availableApps: apps.map(a => ({ id: a.id, title: a.title }))
+              })
               return null
             }
+            console.log(`[Dashboard] Found app for client ${client.session_id}:`, clientApp)
 
             // Find Wolf session connected to this app
-            const matchingSession = sessions.find(s => {
-              const sessionAppId = connectionMap.get(s.session_id)
-              return sessionAppId === clientApp.id
-            })
+            // Wolf sessions have app_id field directly
+            const matchingSession = sessions.find(s => s.app_id === clientApp.id)
+
+            if (!matchingSession) {
+              console.warn(`[Dashboard] No Wolf session found for app ${clientApp.id}`, {
+                clientSessionId: client.session_id,
+                appId: clientApp.id,
+                appTitle: clientApp.title,
+                sessionsCount: sessions.length,
+                firstFewSessions: sessions.slice(0, 3).map(s => ({ session_id: s.session_id, app_id: s.app_id }))
+              })
+              return null
+            }
+            console.log(`[Dashboard] Found Wolf session for app ${clientApp.id}:`, matchingSession)
 
             const clientPos = clientPositions.get(client.session_id)
-            const sessionUniqueKey = matchingSession ? `${matchingSession.session_id}-${matchingSession.app_id}` : null
-            const sessionPos = sessionUniqueKey ? sessionPositions.get(sessionUniqueKey) : null
+            const sessionUniqueKey = `${matchingSession.session_id}-${matchingSession.app_id}`
+            const sessionPos = sessionPositions.get(sessionUniqueKey)
+
             if (!clientPos || !sessionPos) {
-              console.warn(`Missing position for client ${client.session_id} or session ${matchingSession?.session_id}`)
+              console.warn(`Missing position for client ${client.session_id} or session ${sessionUniqueKey}`, {
+                hasClientPos: !!clientPos,
+                hasSessionPos: !!sessionPos,
+                sessionUniqueKey
+              })
               return null
             }
 
