@@ -110,11 +110,23 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // Use the authenticated API client to fetch apps
           const apps = await apiGetApps(api, { host_id: hostId });
 
-          // Find app matching our session or use the first available app
+          // Find app matching our session by title (format: "External Agent {sessionId}")
           if (apps && apps.length > 0) {
-            actualAppId = apps[0].app_id; // Note: field is app_id not id
-            console.log(`Found Moonlight app ID: ${actualAppId}`, apps[0]);
-            setStatus(`Connecting to app: ${apps[0].title || actualAppId}`);
+            const expectedTitle = `External Agent ${sessionId}`;
+            const matchingApp = apps.find((app: any) =>
+              app.title === expectedTitle || app.app_id.toString() === wolfLobbyId
+            );
+
+            if (matchingApp) {
+              actualAppId = matchingApp.app_id;
+              console.log(`Found matching Moonlight app: ${actualAppId}`, matchingApp);
+              setStatus(`Connecting to: ${matchingApp.title || actualAppId}`);
+            } else {
+              // Fallback to first app if no match (shouldn't happen)
+              actualAppId = apps[0].app_id;
+              console.warn('No matching app found, using first app:', apps[0]);
+              setStatus(`Connecting to app: ${apps[0].title || actualAppId}`);
+            }
           } else {
             console.warn('No Moonlight apps available');
             setError('No streaming apps available');
