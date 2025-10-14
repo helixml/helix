@@ -255,7 +255,7 @@ services:
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         # Debug logging for HTTPS connection issues and UDP/RTP activity
         - WOLF_LOG_LEVEL=DEBUG
-        - GST_DEBUG=3
+        - GST_DEBUG=1
         # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
         - WOLF_INTERNAL_MAC=00:11:22:33:44:55
         - WOLF_INTERNAL_IP=172.19.0.50

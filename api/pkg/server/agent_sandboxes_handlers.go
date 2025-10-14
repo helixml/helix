@@ -26,9 +26,10 @@ type AgentSandboxesDebugResponse struct {
 
 // MoonlightClientInfo represents a moonlight-web client connection
 type MoonlightClientInfo struct {
-	SessionID     string `json:"session_id"`
-	Mode          string `json:"mode"`           // "create", "keepalive", "join"
-	HasWebsocket  bool   `json:"has_websocket"`  // Is a WebRTC client currently connected?
+	SessionID       string  `json:"session_id"`
+	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Unique Moonlight client ID (null for browser clients)
+	Mode            string  `json:"mode"`                       // "create", "keepalive", "join"
+	HasWebsocket    bool    `json:"has_websocket"`              // Is a WebRTC client currently connected?
 }
 
 // WolfAppInfo represents a Wolf app (apps mode)
@@ -369,9 +370,10 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 	// Parse response
 	var sessionsResponse struct {
 		Sessions []struct {
-			SessionID    string `json:"session_id"`
-			Mode         string `json:"mode"`
-			HasWebsocket bool   `json:"has_websocket"`
+			SessionID       string  `json:"session_id"`
+			ClientUniqueID  *string `json:"client_unique_id"` // Unique Moonlight client ID
+			Mode            string  `json:"mode"`
+			HasWebsocket    bool    `json:"has_websocket"`
 		} `json:"sessions"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sessionsResponse); err != nil {
@@ -382,9 +384,10 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 	clients := make([]MoonlightClientInfo, len(sessionsResponse.Sessions))
 	for i, session := range sessionsResponse.Sessions {
 		clients[i] = MoonlightClientInfo{
-			SessionID:    session.SessionID,
-			Mode:         session.Mode,
-			HasWebsocket: session.HasWebsocket,
+			SessionID:      session.SessionID,
+			ClientUniqueID: session.ClientUniqueID,
+			Mode:           session.Mode,
+			HasWebsocket:   session.HasWebsocket,
 		}
 	}
 
