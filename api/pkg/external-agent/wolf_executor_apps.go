@@ -176,7 +176,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	maxRetries := 5
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err = w.connectKeepaliveWebSocketForApp(ctx, wolfAppID, agent.SessionID)
+		err = w.connectKeepaliveWebSocketForApp(ctx, wolfAppID, agent.SessionID, displayWidth, displayHeight, displayRefreshRate)
 		if err == nil {
 			break // Success!
 		}
@@ -648,7 +648,7 @@ func (w *AppWolfExecutor) FindContainerBySessionID(ctx context.Context, helixSes
 
 // connectKeepaliveWebSocketForApp establishes WebSocket connection to moonlight-web for apps mode
 // This creates a persistent session in keepalive mode that starts and maintains the Wolf app container
-func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, wolfAppID, sessionID string) error {
+func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, wolfAppID, sessionID string, displayWidth, displayHeight, displayFPS int) error {
 	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
 	if moonlightWebURL == "" {
 		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
@@ -682,18 +682,21 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, w
 
 	// Send AuthenticateAndInit message with session persistence
 	// mode=keepalive: creates session without WebRTC peer (headless)
+	// CRITICAL: client_unique_id must be unique per agent to avoid Moonlight protocol violations
+	// Each agent appears as a separate Moonlight client, enabling concurrent multi-app streaming
 	authMsg := map[string]interface{}{
 		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"), // Use MOONLIGHT_CREDENTIALS for auth
-			"session_id":              fmt.Sprintf("agent-%s", sessionID), // Persistent session ID
-			"mode":                    "keepalive",                        // Keepalive mode (no WebRTC)
-			"host_id":                 0,                                  // Local Wolf instance
-			"app_id":                  uint32(appIDUint),                  // Connect to the Wolf app (u32)
-			"bitrate":                 5000,                               // Minimal bitrate for keepalive
+			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),                // Use MOONLIGHT_CREDENTIALS for auth
+			"session_id":              fmt.Sprintf("agent-%s", sessionID),                // Persistent session ID
+			"mode":                    "keepalive",                                       // Keepalive mode (no WebRTC)
+			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),          // UNIQUE client ID per agent (fixes GStreamer refcount bugs)
+			"host_id":                 0,                                                 // Local Wolf instance
+			"app_id":                  uint32(appIDUint),                                 // Connect to the Wolf app (u32)
+			"bitrate":                 20000,                                             // Match agent display settings
 			"packet_size":             1024,
-			"fps":                     30,
-			"width":                   1280,
-			"height":                  720,
+			"fps":                     displayFPS,     // Use agent's configured FPS
+			"width":                   displayWidth,   // Use agent's configured width
+			"height":                  displayHeight,  // Use agent's configured height
 			"video_sample_queue_size": 10,
 			"play_audio_local":        false,
 			"audio_sample_queue_size": 10,

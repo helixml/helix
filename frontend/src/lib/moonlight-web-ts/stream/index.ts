@@ -46,6 +46,7 @@ export class Stream {
     private appId: number
 
     private settings: StreamSettings
+    private mode: "create" | "join" | "keepalive"
 
     private eventTarget = new EventTarget()
 
@@ -68,6 +69,7 @@ export class Stream {
         mode: "create" | "join" | "keepalive" = "create",
         sessionId?: string
     ) {
+        this.mode = mode
         this.api = api
         this.hostId = hostId
         this.appId = appId
@@ -93,6 +95,11 @@ export class Stream {
                 credentials: this.api.credentials,
                 session_id: finalSessionId,
                 mode: mode,
+                // Browser clients use null for client_unique_id because:
+                // - In "create" mode: Each browser creates a new session with new pairing
+                // - In "join" mode: Browser joins existing keepalive session that already has unique client_unique_id
+                //   (the keepalive was created by Helix API with unique ID, browser reuses that MoonlightHost)
+                client_unique_id: null,
                 host_id: this.hostId,
                 app_id: this.appId,
                 bitrate: this.settings.bitrate,
@@ -171,11 +178,16 @@ export class Stream {
 
         this.input.setPeer(this.peer)
 
-        // Maybe we already received data
+        // Handle remote description if already received
         if (this.remoteDescription) {
             await this.handleRemoteDescription(this.remoteDescription)
-        } else {
+        }
+        // In "create" and "keepalive" modes, browser initiates with offer
+        // In "join" mode, wait for server's offer (don't create our own)
+        else if (this.mode === "create" || this.mode === "keepalive") {
             await this.onNegotiationNeeded()
+        } else {
+            this.debugLog("Join mode: waiting for server offer")
         }
         await this.tryDequeueIceCandidates()
     }

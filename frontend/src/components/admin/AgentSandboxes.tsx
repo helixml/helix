@@ -338,8 +338,10 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             const pos = sessionPositions.get(uniqueKey)
             if (!pos) return null
 
-            const connectedLobby = connectionMap.get(session.session_id)
-            const isOrphaned = !connectedLobby
+            // In apps mode, session.app_id is the direct connection (no interpipe needed)
+            // In lobbies mode, connectionMap tracks which lobby the session is connected to
+            const connectedContainerId = isAppsMode ? session.app_id : connectionMap.get(session.session_id)
+            const isOrphaned = !connectedContainerId
 
             return (
               <g key={`session-${uniqueKey}`}>
@@ -406,10 +408,11 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
             const hasWebRTC = client.has_websocket
             const modeColor = client.mode === 'keepalive' ? '#ffc107' : client.mode === 'join' ? '#2196f3' : '#9c27b0'
+            const clientDisplay = client.client_unique_id || client.session_id.slice(-8)
 
             return (
               <g key={`client-${client.session_id}`}>
-                <Tooltip title={`Client: ${client.session_id} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
+                <Tooltip title={`Client: ${client.session_id} | Moonlight ID: ${client.client_unique_id || 'default'} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
@@ -421,19 +424,31 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                 </Tooltip>
                 <text
                   x={pos.x}
-                  y={pos.y - 3}
+                  y={pos.y - 8}
                   textAnchor="middle"
                   fill="white"
                   fontSize="9"
                 >
                   {client.mode}
                 </text>
+                {client.client_unique_id && (
+                  <text
+                    x={pos.x}
+                    y={pos.y + 2}
+                    textAnchor="middle"
+                    fill="rgba(255,255,255,0.7)"
+                    fontSize="7"
+                    fontWeight="bold"
+                  >
+                    {client.client_unique_id.slice(-12)}
+                  </text>
+                )}
                 <text
                   x={pos.x}
-                  y={pos.y + 7}
+                  y={pos.y + (client.client_unique_id ? 12 : 7)}
                   textAnchor="middle"
-                  fill="rgba(255,255,255,0.6)"
-                  fontSize="7"
+                  fill="rgba(255,255,255,0.5)"
+                  fontSize="6"
                 >
                   {hasWebRTC ? 'WebRTC' : 'headless'}
                 </text>
