@@ -1816,7 +1816,7 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	// Look up the Wolf app ID for this lobby by extracting from session
 	// For external agents created in lobby mode, they have a dedicated Wolf app per lobby
 	w.mutex.RLock()
-	session, sessionExists := w.sessions[sessionID]
+	_, sessionExists := w.sessions[sessionID]
 	w.mutex.RUnlock()
 
 	if !sessionExists {

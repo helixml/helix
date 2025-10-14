@@ -11,7 +11,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -635,13 +634,12 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 	}
 
 	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
+	if apiServer.externalAgentExecutor == nil {
 		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
 		return
 	}
 
-	containerName, err := wolfExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
 		http.Error(res, "External agent container not found", http.StatusNotFound)

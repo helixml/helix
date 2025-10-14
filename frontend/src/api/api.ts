@@ -462,9 +462,16 @@ export interface ServerAgentProgressItem {
 }
 
 export interface ServerAgentSandboxesDebugResponse {
+  /** Apps mode */
+  apps?: ServerWolfAppInfo[];
+  /** Lobbies mode */
   lobbies?: ServerWolfLobbyInfo[];
   memory?: ServerWolfSystemMemory;
+  /** NEW: moonlight-web client connections */
+  moonlight_clients?: ServerMoonlightClientInfo[];
   sessions?: ServerWolfSessionInfo[];
+  /** Current Wolf mode ("apps" or "lobbies") */
+  wolf_mode?: string;
 }
 
 export interface ServerAppCreateResponse {
@@ -636,6 +643,14 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
+}
+
+export interface ServerMoonlightClientInfo {
+  /** Is a WebRTC client currently connected? */
+  has_websocket?: boolean;
+  /** "create", "keepalive", "join" */
+  mode?: string;
+  session_id?: string;
 }
 
 export interface ServerPersonalDevEnvironmentResponse {
@@ -819,11 +834,26 @@ export interface ServerTaskSpecsResponse {
   technical_design?: string;
 }
 
+export interface ServerWolfAppInfo {
+  id?: string;
+  title?: string;
+}
+
+export interface ServerWolfAppMemory {
+  app_id?: string;
+  app_name?: string;
+  client_count?: number;
+  memory_bytes?: number;
+  resolution?: string;
+}
+
 export interface ServerWolfClientConnection {
+  /** apps mode: connected app */
+  app_id?: string;
   client_ip?: string;
-  /** null if orphaned */
+  /** lobbies mode: connected lobby */
   lobby_id?: string;
-  memory_bytes?: string;
+  memory_bytes?: number;
   resolution?: string;
   session_id?: string;
 }
@@ -841,7 +871,7 @@ export interface ServerWolfLobbyMemory {
   client_count?: string;
   lobby_id?: string;
   lobby_name?: string;
-  memory_bytes?: string;
+  memory_bytes?: number;
   resolution?: string;
 }
 
@@ -855,16 +885,20 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
+  /** Exposed as session_id for frontend */
   session_id?: string;
 }
 
 export interface ServerWolfSystemMemory {
+  /** Apps mode */
+  apps?: ServerWolfAppMemory[];
   clients?: ServerWolfClientConnection[];
-  gstreamer_buffer_bytes?: string;
+  gstreamer_buffer_bytes?: number;
+  /** Lobbies mode */
   lobbies?: ServerWolfLobbyMemory[];
-  process_rss_bytes?: string;
+  process_rss_bytes?: number;
   success?: boolean;
-  total_memory_bytes?: string;
+  total_memory_bytes?: number;
 }
 
 export interface ServicesCoordinationEvent {
@@ -3686,10 +3720,10 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
