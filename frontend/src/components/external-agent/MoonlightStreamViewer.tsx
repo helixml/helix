@@ -130,13 +130,17 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       // Create Stream instance
+      // For external agents, join the existing keepalive session instead of creating new
+      // Keepalive session ID format: "agent-{sessionId}"
       const stream = new Stream(
         api,
         hostId, // Wolf host ID (always 0 for local)
         actualAppId, // Moonlight app ID
         settings,
         supportedFormats,
-        [width, height]
+        [width, height],
+        "join", // Join existing keepalive session
+        `agent-${sessionId}` // Keepalive session ID format
       );
 
       streamRef.current = stream;

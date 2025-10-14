@@ -58,7 +58,16 @@ export class Stream {
 
     private streamerSize: [number, number]
 
-    constructor(api: Api, hostId: number, appId: number, settings: StreamSettings, supportedVideoFormats: VideoCodecSupport, viewerScreenSize: [number, number]) {
+    constructor(
+        api: Api,
+        hostId: number,
+        appId: number,
+        settings: StreamSettings,
+        supportedVideoFormats: VideoCodecSupport,
+        viewerScreenSize: [number, number],
+        mode: "create" | "join" | "keepalive" = "create",
+        sessionId?: string
+    ) {
         this.api = api
         this.hostId = hostId
         this.appId = appId
@@ -76,11 +85,14 @@ export class Stream {
 
         const fps = this.settings.fps
 
+        // Use provided sessionId or generate unique one for "create" mode
+        const finalSessionId = sessionId || `browser-${Date.now()}-${Math.random()}`;
+
         this.sendWsMessage({
             AuthenticateAndInit: {
                 credentials: this.api.credentials,
-                session_id: `browser-${Date.now()}-${Math.random()}`,  // NEW: unique session ID for browser
-                mode: "create",  // NEW: browser clients always create new sessions
+                session_id: finalSessionId,
+                mode: mode,
                 host_id: this.hostId,
                 app_id: this.appId,
                 bitrate: this.settings.bitrate,
