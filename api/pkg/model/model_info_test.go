@@ -33,7 +33,7 @@ func Test_GetGptOSS20B(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, "OpenAI: gpt-oss-20b", modelInfo.Name)
-	assert.Equal(t, "0.00000015", modelInfo.Pricing.Completion)
+	assert.Equal(t, "0.00000014", modelInfo.Pricing.Completion)
 }
 
 func Test_GetGeminiFlash_CustomUserProvider(t *testing.T) {
@@ -91,6 +91,20 @@ func Test_GetClaudeSonnet4(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "Anthropic: Claude Sonnet 4", modelInfo.Name)
+	assert.Equal(t, "0.000015", modelInfo.Pricing.Completion)
+}
+
+func Test_GetClaudeSonnet4_5(t *testing.T) {
+	b, err := NewBaseModelInfoProvider()
+	assert.NoError(t, err)
+
+	modelInfo, err := b.GetModelInfo(context.Background(), &ModelInfoRequest{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4.5",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "Anthropic: Claude Sonnet 4.5", modelInfo.Name)
 	assert.Equal(t, "0.000015", modelInfo.Pricing.Completion)
 }
 
