@@ -694,16 +694,30 @@ definitions:
     type: object
   server.AgentSandboxesDebugResponse:
     properties:
+      apps:
+        description: Apps mode
+        items:
+          $ref: '#/definitions/server.WolfAppInfo'
+        type: array
       lobbies:
+        description: Lobbies mode
         items:
           $ref: '#/definitions/server.WolfLobbyInfo'
         type: array
       memory:
         $ref: '#/definitions/server.WolfSystemMemory'
+      moonlight_clients:
+        description: 'NEW: moonlight-web client connections'
+        items:
+          $ref: '#/definitions/server.MoonlightClientInfo'
+        type: array
       sessions:
         items:
           $ref: '#/definitions/server.WolfSessionInfo'
         type: array
+      wolf_mode:
+        description: Current Wolf mode ("apps" or "lobbies")
+        type: string
     type: object
   server.AppCreateResponse:
     properties:
@@ -999,6 +1013,17 @@ definitions:
       original_provider:
         type: string
       reason:
+        type: string
+    type: object
+  server.MoonlightClientInfo:
+    properties:
+      has_websocket:
+        description: Is a WebRTC client currently connected?
+        type: boolean
+      mode:
+        description: '"create", "keepalive", "join"'
+        type: string
+      session_id:
         type: string
     type: object
   server.PersonalDevEnvironmentResponse:
@@ -1322,15 +1347,38 @@ definitions:
       technical_design:
         type: string
     type: object
+  server.WolfAppInfo:
+    properties:
+      id:
+        type: string
+      title:
+        type: string
+    type: object
+  server.WolfAppMemory:
+    properties:
+      app_id:
+        type: string
+      app_name:
+        type: string
+      client_count:
+        type: integer
+      memory_bytes:
+        type: integer
+      resolution:
+        type: string
+    type: object
   server.WolfClientConnection:
     properties:
+      app_id:
+        description: 'apps mode: connected app'
+        type: string
       client_ip:
         type: string
       lobby_id:
-        description: null if orphaned
+        description: 'lobbies mode: connected lobby'
         type: string
       memory_bytes:
-        type: string
+        type: integer
       resolution:
         type: string
       session_id:
@@ -1362,7 +1410,7 @@ definitions:
       lobby_name:
         type: string
       memory_bytes:
-        type: string
+        type: integer
       resolution:
         type: string
     type: object
@@ -1386,26 +1434,33 @@ definitions:
             type: integer
         type: object
       session_id:
+        description: Exposed as session_id for frontend
         type: string
     type: object
   server.WolfSystemMemory:
     properties:
+      apps:
+        description: Apps mode
+        items:
+          $ref: '#/definitions/server.WolfAppMemory'
+        type: array
       clients:
         items:
           $ref: '#/definitions/server.WolfClientConnection'
         type: array
       gstreamer_buffer_bytes:
-        type: string
+        type: integer
       lobbies:
+        description: Lobbies mode
         items:
           $ref: '#/definitions/server.WolfLobbyMemory'
         type: array
       process_rss_bytes:
-        type: string
+        type: integer
       success:
         type: boolean
       total_memory_bytes:
-        type: string
+        type: integer
     type: object
   services.CoordinationEvent:
     properties:
@@ -6405,16 +6460,16 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

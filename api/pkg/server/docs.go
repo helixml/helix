@@ -9340,7 +9340,15 @@ const docTemplate = `{
         "server.AgentSandboxesDebugResponse": {
             "type": "object",
             "properties": {
+                "apps": {
+                    "description": "Apps mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfAppInfo"
+                    }
+                },
                 "lobbies": {
+                    "description": "Lobbies mode",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.WolfLobbyInfo"
@@ -9349,11 +9357,22 @@ const docTemplate = `{
                 "memory": {
                     "$ref": "#/definitions/server.WolfSystemMemory"
                 },
+                "moonlight_clients": {
+                    "description": "NEW: moonlight-web client connections",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.MoonlightClientInfo"
+                    }
+                },
                 "sessions": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.WolfSessionInfo"
                     }
+                },
+                "wolf_mode": {
+                    "description": "Current Wolf mode (\"apps\" or \"lobbies\")",
+                    "type": "string"
                 }
             }
         },
@@ -9809,6 +9828,22 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.MoonlightClientInfo": {
+            "type": "object",
+            "properties": {
+                "has_websocket": {
+                    "description": "Is a WebRTC client currently connected?",
+                    "type": "boolean"
+                },
+                "mode": {
+                    "description": "\"create\", \"keepalive\", \"join\"",
+                    "type": "string"
+                },
+                "session_id": {
                     "type": "string"
                 }
             }
@@ -10290,18 +10325,53 @@ const docTemplate = `{
                 }
             }
         },
+        "server.WolfAppInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfAppMemory": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "app_name": {
+                    "type": "string"
+                },
+                "client_count": {
+                    "type": "integer"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "resolution": {
+                    "type": "string"
+                }
+            }
+        },
         "server.WolfClientConnection": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "apps mode: connected app",
+                    "type": "string"
+                },
                 "client_ip": {
                     "type": "string"
                 },
                 "lobby_id": {
-                    "description": "null if orphaned",
+                    "description": "lobbies mode: connected lobby",
                     "type": "string"
                 },
                 "memory_bytes": {
-                    "type": "string"
+                    "type": "integer"
                 },
                 "resolution": {
                     "type": "string"
@@ -10350,7 +10420,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "memory_bytes": {
-                    "type": "string"
+                    "type": "integer"
                 },
                 "resolution": {
                     "type": "string"
@@ -10387,6 +10457,7 @@ const docTemplate = `{
                     }
                 },
                 "session_id": {
+                    "description": "Exposed as session_id for frontend",
                     "type": "string"
                 }
             }
@@ -10394,6 +10465,13 @@ const docTemplate = `{
         "server.WolfSystemMemory": {
             "type": "object",
             "properties": {
+                "apps": {
+                    "description": "Apps mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfAppMemory"
+                    }
+                },
                 "clients": {
                     "type": "array",
                     "items": {
@@ -10401,22 +10479,23 @@ const docTemplate = `{
                     }
                 },
                 "gstreamer_buffer_bytes": {
-                    "type": "string"
+                    "type": "integer"
                 },
                 "lobbies": {
+                    "description": "Lobbies mode",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.WolfLobbyMemory"
                     }
                 },
                 "process_rss_bytes": {
-                    "type": "string"
+                    "type": "integer"
                 },
                 "success": {
                     "type": "boolean"
                 },
                 "total_memory_bytes": {
-                    "type": "string"
+                    "type": "integer"
                 }
             }
         },
@@ -17586,16 +17665,16 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

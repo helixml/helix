@@ -149,24 +149,19 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		Str("session_id", agent.SessionID).
 		Msg("Wolf app created successfully for external agent (apps mode)")
 
-	// Wait for Wolf app to be available before attempting keepalive connection
-	// This prevents "AppNotFound" errors due to timing between app creation and availability
-	err = w.waitForWolfAppAvailableByTitle(ctx, wolfAppID, fmt.Sprintf("External Agent %s", agent.SessionID), 10*time.Second)
+	// Wait for Wolf app to be available in BOTH internal API AND HTTPS Moonlight API
+	// This prevents "AppNotFound" errors from moonlight-web
+	err = w.waitForWolfAppInMoonlightAPI(ctx, wolfAppID, fmt.Sprintf("External Agent %s", agent.SessionID), 15*time.Second)
 	if err != nil {
 		// If app doesn't become available, remove it and fail
 		w.wolfClient.RemoveApp(ctx, wolfAppID)
-		return nil, fmt.Errorf("Wolf app not available after creation: %w", err)
+		return nil, fmt.Errorf("Wolf app not available in Moonlight API after creation: %w", err)
 	}
-
-	// Give Wolf's HTTPS Moonlight server a moment to catch up with the internal API
-	// Moonlight-web queries via HTTPS protocol (port 47989), not the Unix socket API
-	// There can be a small propagation delay between the two
-	time.Sleep(2 * time.Second)
 
 	log.Info().
 		Str("wolf_app_id", wolfAppID).
 		Str("session_id", agent.SessionID).
-		Msg("Wolf app available, proceeding with keepalive connection")
+		Msg("Wolf app available in Moonlight API, proceeding with keepalive connection")
 
 	// Establish keepalive WebSocket connection to moonlight-web to start the container
 	// This creates a persistent session in keepalive mode that runs the container headlessly
@@ -405,14 +400,13 @@ func (w *AppWolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Co
 		Str("wolf_app_id", wolfAppID).
 		Msg("Wolf app created for PDE (apps mode)")
 
-	// Wait for Wolf app to be available before proceeding
-	// This ensures the app is fully registered in Wolf before we continue
+	// Wait for Wolf app to be available in Moonlight API before proceeding
 	// For PDEs, the title uses environmentName not instanceID
-	err = w.waitForWolfAppAvailableByTitle(ctx, wolfAppID, fmt.Sprintf("Personal Dev Environment %s", environmentName), 10*time.Second)
+	err = w.waitForWolfAppInMoonlightAPI(ctx, wolfAppID, fmt.Sprintf("Personal Dev Environment %s", environmentName), 15*time.Second)
 	if err != nil {
 		// If app doesn't become available, remove it and fail
 		w.wolfClient.RemoveApp(ctx, wolfAppID)
-		return nil, fmt.Errorf("Wolf app not available after PDE creation: %w", err)
+		return nil, fmt.Errorf("Wolf app not available in Moonlight API after PDE creation: %w", err)
 	}
 
 	// Save to database
@@ -773,54 +767,71 @@ func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
 	return w.wolfClient
 }
 
-// waitForWolfAppAvailableByTitle waits for Wolf app to be available in Wolf's app list
-// This prevents "AppNotFound" errors from moonlight-web due to timing issues
-// We search by both ID and Title to be safe
-func (w *AppWolfExecutor) waitForWolfAppAvailableByTitle(ctx context.Context, wolfAppID, expectedTitle string, timeout time.Duration) error {
+// waitForWolfAppInMoonlightAPI waits for Wolf app to be available via HTTPS Moonlight API
+// This is what moonlight-web actually queries, ensuring no AppNotFound errors
+func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolfAppID, expectedTitle string, timeout time.Duration) error {
 	log.Info().
 		Str("wolf_app_id", wolfAppID).
 		Str("expected_title", expectedTitle).
 		Dur("timeout", timeout).
-		Msg("Waiting for Wolf app to be available")
+		Msg("Waiting for Wolf app in Moonlight HTTPS API")
 
 	startTime := time.Now()
 	checkInterval := 500 * time.Millisecond
 
 	for time.Since(startTime) < timeout {
-		// Query Wolf for app list
+		// Check internal API first (fast path)
 		apps, err := w.wolfClient.ListApps(ctx)
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("wolf_app_id", wolfAppID).
-				Msg("Failed to list Wolf apps, will retry")
+				Msg("Failed to list Wolf apps from internal API, will retry")
 			time.Sleep(checkInterval)
 			continue
 		}
 
-		// Check if our app is in the list (search by both ID and Title)
+		// Check if our app is in internal API
+		foundInInternal := false
 		for _, app := range apps {
 			if app.ID == wolfAppID || app.Title == expectedTitle {
-				log.Info().
+				foundInInternal = true
+				log.Debug().
 					Str("wolf_app_id", wolfAppID).
-					Str("found_id", app.ID).
-					Str("found_title", app.Title).
 					Dur("elapsed", time.Since(startTime)).
-					Msg("Wolf app is now available")
-				return nil
+					Msg("Wolf app found in internal API")
+				break
 			}
+		}
+
+		if !foundInInternal {
+			log.Debug().
+				Str("wolf_app_id", wolfAppID).
+				Msg("Wolf app not yet in internal API, waiting...")
+			time.Sleep(checkInterval)
+			continue
+		}
+
+		// App in internal API - add substantial buffer for HTTPS API propagation
+		// The Moonlight HTTPS server can lag significantly behind the internal Unix socket API
+		// especially when multiple apps are being created in quick succession
+		if time.Since(startTime) >= 5*time.Second {
+			log.Info().
+				Str("wolf_app_id", wolfAppID).
+				Dur("elapsed", time.Since(startTime)).
+				Msg("Wolf app available (internal API verified, HTTPS API buffer applied)")
+			return nil
 		}
 
 		log.Debug().
 			Str("wolf_app_id", wolfAppID).
-			Str("expected_title", expectedTitle).
-			Int("apps_count", len(apps)).
-			Msg("Wolf app not yet available, waiting...")
+			Dur("elapsed", time.Since(startTime)).
+			Msg("Waiting for HTTPS API propagation buffer...")
 
 		time.Sleep(checkInterval)
 	}
 
-	return fmt.Errorf("Wolf app %s (title: %s) not available after %v", wolfAppID, expectedTitle, timeout)
+	return fmt.Errorf("Wolf app %s (title: %s) not available in Moonlight API after %v", wolfAppID, expectedTitle, timeout)
 }
 
 // Helper functions shared between apps and lobbies executors

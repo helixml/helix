@@ -26,6 +26,9 @@ type Executor interface {
 	StopZedInstance(ctx context.Context, instanceID string) error
 	GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error)
 	ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error)
+
+	// Screenshot support
+	FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error)
 }
 
 // NATSExecutorAdapter adapts NATSExternalAgentService to the Executor interface
@@ -395,6 +398,11 @@ func (pe *PoolExecutor) CleanupExpiredSessions(ctx context.Context, timeout time
 	}
 }
 
+// FindContainerBySessionID implements Executor interface
+func (pe *PoolExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
+	return "", fmt.Errorf("screenshot support not available for pool-based executors")
+}
+
 // Private helper methods
 
 func (pe *PoolExecutor) createThreadInInstance(instanceID, threadID string, config map[string]interface{}) error {
@@ -634,4 +642,9 @@ func (adapter *NATSExecutorAdapter) ListInstanceThreads(instanceID string) ([]*Z
 		}
 	}
 	return nil, fmt.Errorf("instance not found: %s", instanceID)
+}
+
+// FindContainerBySessionID implements Executor interface
+func (adapter *NATSExecutorAdapter) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
+	return "", fmt.Errorf("screenshot support not available for NATS-based external agents")
 }

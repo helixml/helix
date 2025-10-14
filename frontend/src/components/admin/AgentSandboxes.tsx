@@ -22,58 +22,9 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
 
-interface WolfLobbyMemory {
-  lobby_id: string
-  lobby_name: string
-  resolution: string
-  client_count: string
-  memory_bytes: string
-}
 
-interface WolfClientConnection {
-  session_id: string
-  client_ip: string
-  resolution: string
-  lobby_id: string | null
-  memory_bytes: string
-}
 
-interface WolfSystemMemory {
-  success: boolean
-  process_rss_bytes: string
-  gstreamer_buffer_bytes: string
-  total_memory_bytes: string
-  lobbies: WolfLobbyMemory[]
-  clients: WolfClientConnection[]
-}
 
-interface WolfLobbyInfo {
-  id: string
-  name: string
-  started_by_profile_id: string
-  multi_user: boolean
-  stop_when_everyone_leaves: boolean
-  pin?: number[]
-}
-
-interface WolfSessionInfo {
-  session_id: string
-  client_ip: string
-  app_id: string
-  display_mode: {
-    width: number
-    height: number
-    refresh_rate: number
-    hevc_supported: boolean
-    av1_supported: boolean
-  }
-}
-
-interface AgentSandboxesDebugResponse {
-  memory: WolfSystemMemory | null
-  lobbies: WolfLobbyInfo[]
-  sessions: WolfSessionInfo[]
-}
 
 const formatBytes = (bytesStr: string): string => {
   const bytes = parseInt(bytesStr, 10)
@@ -84,37 +35,52 @@ const formatBytes = (bytesStr: string): string => {
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
 }
 
+const truncateName = (name: string, maxLength: number = 20): string => {
+  if (name.length <= maxLength) return name
+  return name.substring(0, maxLength - 3) + '...'
+}
+
 // GStreamer Pipeline Network Visualization Component
 const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = ({ data }) => {
+  // Support both apps and lobbies modes
+  const apps = data.apps || []
   const lobbies = data.lobbies || []
+  const isAppsMode = data.wolf_mode === 'apps'  // Use explicit wolf_mode field
+  const containers = isAppsMode ? apps : lobbies // Apps or Lobbies
+
   const sessions = data.sessions || []
+  const moonlightClients = data.moonlight_clients || []  // NEW: moonlight-web clients
   const memoryData = data.memory
-  const lobbyMemory = memoryData?.lobbies || []
+  const containerMemory = isAppsMode ? (memoryData?.apps || []) : (memoryData?.lobbies || [])
   const clientConnections = memoryData?.clients || []
 
-  // Build connection map: session_id -> lobby_id
+  // Build connection map: session_id -> container_id (app_id or lobby_id)
   const connectionMap = new Map<string, string>()
   clientConnections.forEach((client) => {
-    if (client.lobby_id) {
-      connectionMap.set(client.session_id, client.lobby_id)
+    const containerId = client.app_id || client.lobby_id
+    if (containerId) {
+      connectionMap.set(client.session_id, containerId)
     }
   })
 
-  // Layout parameters
+  // Layout parameters (3-tier architecture)
   const svgWidth = 1000
-  const svgHeight = 600
-  const lobbyRadius = 60
+  const svgHeight = 700  // Increased for 3 layers
+  const containerRadius = 60
   const sessionRadius = 30
-  const lobbyY = 150
-  const sessionY = 450
+  const clientRadius = 25
+  const containerY = 120  // Apps/Lobbies at top
+  const sessionY = 350    // Wolf sessions in middle
+  const clientY = 580     // Moonlight-web clients at bottom
 
-  // Position lobbies horizontally
-  const lobbyPositions = new Map<string, { x: number; y: number }>()
-  const lobbySpacing = svgWidth / (lobbies.length + 1)
-  lobbies.forEach((lobby, idx) => {
-    lobbyPositions.set(lobby.id, {
-      x: lobbySpacing * (idx + 1),
-      y: lobbyY,
+  // Position containers (apps or lobbies) horizontally
+  const containerPositions = new Map<string, { x: number; y: number }>()
+  const containerSpacing = svgWidth / (containers.length + 1)
+  containers.forEach((container, idx) => {
+    const containerId = 'id' in container ? container.id : container.id
+    containerPositions.set(containerId, {
+      x: containerSpacing * (idx + 1),
+      y: containerY,
     })
   })
 
@@ -128,15 +94,39 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
     })
   })
 
-  // Find memory for each lobby
-  const getLobbyMemory = (lobbyId: string): string => {
-    const mem = lobbyMemory.find((lm) => lm.lobby_id === lobbyId)
-    return mem ? formatBytes(mem.memory_bytes) : '0 B'
+  // Position moonlight-web clients horizontally
+  const clientPositions = new Map<string, { x: number; y: number }>()
+  const clientSpacing = svgWidth / (moonlightClients.length + 1)
+  moonlightClients.forEach((client, idx) => {
+    clientPositions.set(client.session_id, {
+      x: clientSpacing * (idx + 1),
+      y: clientY,
+    })
+  })
+
+  // Find memory for each container (app or lobby)
+  const getContainerMemory = (containerId: string): string => {
+    if (isAppsMode) {
+      const mem = containerMemory.find((am: any) => am.app_id === containerId)
+      return mem ? formatBytes(mem.memory_bytes) : '0 B'
+    } else {
+      const mem = containerMemory.find((lm: any) => lm.lobby_id === containerId)
+      return mem ? formatBytes(mem.memory_bytes) : '0 B'
+    }
   }
 
-  // Find client count for each lobby
-  const getLobbyClientCount = (lobbyId: string): number => {
-    return clientConnections.filter((c) => c.lobby_id === lobbyId).length
+  // Find client count for each container
+  const getContainerClientCount = (containerId: string): number => {
+    if (isAppsMode) {
+      return clientConnections.filter((c) => c.app_id === containerId).length
+    } else {
+      return clientConnections.filter((c) => c.lobby_id === containerId).length
+    }
+  }
+
+  // Get container name
+  const getContainerName = (container: any): string => {
+    return container.title || container.name || container.id
   }
 
   // Find session memory
@@ -149,60 +139,94 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
     <Card sx={{ height: '100%' }}>
       <CardHeader
         avatar={<AccountTreeIcon />}
-        title="GStreamer Pipeline Network"
-        subheader="Interpipe connections between lobbies (producers) and sessions (consumers)"
+        title="Streaming Pipeline Architecture"
+        subheader={`${isAppsMode ? 'Apps (1:1 direct)' : 'Lobbies (interpipe)'} → Wolf Sessions → Moonlight-web Clients`}
       />
       <CardContent>
         <svg width={svgWidth} height={svgHeight} style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
-          {/* Draw connection lines */}
+          {/* Draw container-to-session connection lines */}
           {sessions.map((session) => {
-            const connectedLobbyId = connectionMap.get(session.session_id)
-            if (!connectedLobbyId) return null
+            const connectedContainerId = connectionMap.get(session.session_id)
+            if (!connectedContainerId) return null
 
             const sessionPos = sessionPositions.get(session.session_id)
-            const lobbyPos = lobbyPositions.get(connectedLobbyId)
-            if (!sessionPos || !lobbyPos) return null
+            const containerPos = containerPositions.get(connectedContainerId)
+            if (!sessionPos || !containerPos) return null
 
             return (
               <g key={`connection-${session.session_id}`}>
                 <line
                   x1={sessionPos.x}
                   y1={sessionPos.y - sessionRadius}
-                  x2={lobbyPos.x}
-                  y2={lobbyPos.y + lobbyRadius}
+                  x2={containerPos.x}
+                  y2={containerPos.y + containerRadius}
                   stroke="#00c8ff"
                   strokeWidth="2"
                   strokeDasharray="5,5"
                   opacity="0.6"
                 />
                 <text
-                  x={(sessionPos.x + lobbyPos.x) / 2}
-                  y={(sessionPos.y + lobbyPos.y) / 2}
+                  x={(sessionPos.x + containerPos.x) / 2}
+                  y={(sessionPos.y + containerPos.y) / 2}
                   fill="rgba(255,255,255,0.5)"
                   fontSize="10"
                   textAnchor="middle"
                 >
-                  interpipe
+                  {isAppsMode ? 'direct' : 'interpipe'}
                 </text>
               </g>
             )
           })}
 
-          {/* Draw lobbies (producer pipelines) */}
-          {lobbies.map((lobby) => {
-            const pos = lobbyPositions.get(lobby.id)
+          {/* Draw session-to-client connection lines */}
+          {moonlightClients.map((client) => {
+            // Match client to session by session_id
+            const clientPos = clientPositions.get(client.session_id)
+            const sessionPos = sessionPositions.get(client.session_id)
+            if (!clientPos || !sessionPos) return null
+
+            return (
+              <g key={`client-connection-${client.session_id}`}>
+                <line
+                  x1={clientPos.x}
+                  y1={clientPos.y - clientRadius}
+                  x2={sessionPos.x}
+                  y2={sessionPos.y + sessionRadius}
+                  stroke={client.has_websocket ? "#4caf50" : "#ffc107"}
+                  strokeWidth="2"
+                  strokeDasharray={client.has_websocket ? "0" : "5,5"}
+                  opacity="0.7"
+                />
+                <text
+                  x={(clientPos.x + sessionPos.x) / 2}
+                  y={(clientPos.y + sessionPos.y) / 2}
+                  fill="rgba(255,255,255,0.5)"
+                  fontSize="10"
+                  textAnchor="middle"
+                >
+                  {client.has_websocket ? 'WebRTC' : 'headless'}
+                </text>
+              </g>
+            )
+          })}
+
+          {/* Draw containers (apps or lobbies - producer pipelines) */}
+          {containers.map((container) => {
+            const containerId = 'id' in container ? container.id : container.id
+            const containerName = getContainerName(container)
+            const pos = containerPositions.get(containerId)
             if (!pos) return null
 
-            const clientCount = getLobbyClientCount(lobby.id)
+            const clientCount = getContainerClientCount(containerId)
             const hasClients = clientCount > 0
 
             return (
-              <g key={`lobby-${lobby.id}`}>
-                <Tooltip title={`Lobby: ${lobby.name}`} arrow>
+              <g key={`container-${containerId}`}>
+                <Tooltip title={`${isAppsMode ? 'App' : 'Lobby'}: ${containerName}`} arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
-                    r={lobbyRadius}
+                    r={containerRadius}
                     fill={hasClients ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 193, 7, 0.2)'}
                     stroke={hasClients ? '#4caf50' : '#ffc107'}
                     strokeWidth="3"
@@ -216,34 +240,38 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   fontSize="12"
                   fontWeight="bold"
                 >
-                  {lobby.name}
+                  {truncateName(containerName, 15)}
                 </text>
                 <text x={pos.x} y={pos.y + 5} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="10">
-                  {getLobbyMemory(lobby.id)}
+                  {getContainerMemory(containerId)}
                 </text>
                 <text x={pos.x} y={pos.y + 20} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="9">
                   {clientCount} client{clientCount !== 1 ? 's' : ''}
                 </text>
                 {/* Producer pipeline indicator */}
-                <rect
-                  x={pos.x - 30}
-                  y={pos.y - lobbyRadius - 20}
-                  width="60"
-                  height="15"
-                  fill="rgba(103, 58, 183, 0.3)"
-                  stroke="#673ab7"
-                  strokeWidth="1"
-                  rx="3"
-                />
-                <text
-                  x={pos.x}
-                  y={pos.y - lobbyRadius - 9}
-                  textAnchor="middle"
-                  fill="white"
-                  fontSize="8"
-                >
-                  interpipesink
-                </text>
+                {!isAppsMode && (
+                  <>
+                    <rect
+                      x={pos.x - 30}
+                      y={pos.y - containerRadius - 20}
+                      width="60"
+                      height="15"
+                      fill="rgba(103, 58, 183, 0.3)"
+                      stroke="#673ab7"
+                      strokeWidth="1"
+                      rx="3"
+                    />
+                    <text
+                      x={pos.x}
+                      y={pos.y - containerRadius - 9}
+                      textAnchor="middle"
+                      fill="white"
+                      fontSize="8"
+                    >
+                      {isAppsMode ? 'direct pipeline' : 'interpipesink'}
+                    </text>
+                  </>
+                )}
               </g>
             )
           })}
@@ -287,24 +315,90 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   {getSessionMemory(session.session_id)}
                 </text>
                 {/* Consumer pipeline indicator */}
+                {!isAppsMode && (
+                  <>
+                    <rect
+                      x={pos.x - 30}
+                      y={pos.y + sessionRadius + 5}
+                      width="60"
+                      height="15"
+                      fill="rgba(63, 81, 181, 0.3)"
+                      stroke="#3f51b5"
+                      strokeWidth="1"
+                      rx="3"
+                    />
+                    <text
+                      x={pos.x}
+                      y={pos.y + sessionRadius + 16}
+                      textAnchor="middle"
+                      fill="white"
+                      fontSize="8"
+                    >
+                      {isAppsMode ? 'direct pipeline' : 'interpipesrc'}
+                    </text>
+                  </>
+                )}
+              </g>
+            )
+          })}
+
+          {/* Draw moonlight-web clients (WebRTC consumers) */}
+          {moonlightClients.map((client) => {
+            const pos = clientPositions.get(client.session_id)
+            if (!pos) return null
+
+            const hasWebRTC = client.has_websocket
+            const modeColor = client.mode === 'keepalive' ? '#ffc107' : client.mode === 'join' ? '#2196f3' : '#9c27b0'
+
+            return (
+              <g key={`client-${client.session_id}`}>
+                <Tooltip title={`Client: ${client.session_id} | Mode: ${client.mode} | WebRTC: ${hasWebRTC ? 'Yes' : 'No'}`} arrow>
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r={clientRadius}
+                    fill={hasWebRTC ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 193, 7, 0.2)'}
+                    stroke={hasWebRTC ? '#4caf50' : '#ffc107'}
+                    strokeWidth="2"
+                  />
+                </Tooltip>
+                <text
+                  x={pos.x}
+                  y={pos.y - 3}
+                  textAnchor="middle"
+                  fill="white"
+                  fontSize="9"
+                >
+                  {client.mode}
+                </text>
+                <text
+                  x={pos.x}
+                  y={pos.y + 7}
+                  textAnchor="middle"
+                  fill="rgba(255,255,255,0.6)"
+                  fontSize="7"
+                >
+                  {hasWebRTC ? 'WebRTC' : 'headless'}
+                </text>
+                {/* Client type indicator */}
                 <rect
-                  x={pos.x - 30}
-                  y={pos.y + sessionRadius + 5}
-                  width="60"
-                  height="15"
-                  fill="rgba(63, 81, 181, 0.3)"
-                  stroke="#3f51b5"
+                  x={pos.x - 25}
+                  y={pos.y + clientRadius + 5}
+                  width="50"
+                  height="12"
+                  fill="rgba(156, 39, 176, 0.3)"
+                  stroke="#9c27b0"
                   strokeWidth="1"
                   rx="3"
                 />
                 <text
                   x={pos.x}
-                  y={pos.y + sessionRadius + 16}
+                  y={pos.y + clientRadius + 14}
                   textAnchor="middle"
                   fill="white"
-                  fontSize="8"
+                  fontSize="7"
                 >
-                  interpipesrc
+                  moonlight-web
                 </text>
               </g>
             )
@@ -317,11 +411,11 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             </text>
             <circle cx="10" cy="20" r="8" fill="rgba(76, 175, 80, 0.2)" stroke="#4caf50" strokeWidth="2" />
             <text x="25" y="25" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Active Lobby (has clients)
+              Active {isAppsMode ? 'App' : 'Lobby'} (has clients)
             </text>
             <circle cx="10" cy="40" r="8" fill="rgba(255, 193, 7, 0.2)" stroke="#ffc107" strokeWidth="2" />
             <text x="25" y="45" fill="rgba(255,255,255,0.8)" fontSize="10">
-              Empty Lobby
+              Empty {isAppsMode ? 'App' : 'Lobby'}
             </text>
             <circle cx="10" cy="60" r="8" fill="rgba(33, 150, 243, 0.2)" stroke="#2196f3" strokeWidth="2" />
             <text x="25" y="65" fill="rgba(255,255,255,0.8)" fontSize="10">
@@ -331,14 +425,23 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             <text x="25" y="85" fill="rgba(255,255,255,0.8)" fontSize="10">
               Orphaned Session
             </text>
+            <circle cx="10" cy="100" r="8" fill="rgba(76, 175, 80, 0.2)" stroke="#4caf50" strokeWidth="2" />
+            <text x="25" y="105" fill="rgba(255,255,255,0.8)" fontSize="10">
+              WebRTC Client (active)
+            </text>
+            <circle cx="10" cy="120" r="8" fill="rgba(255, 193, 7, 0.2)" stroke="#ffc107" strokeWidth="2" />
+            <text x="25" y="125" fill="rgba(255,255,255,0.8)" fontSize="10">
+              Headless Client (keepalive)
+            </text>
           </g>
         </svg>
 
         <Box sx={{ mt: 2 }}>
           <Typography variant="caption" color="text.secondary">
-            <strong>Architecture:</strong> Lobbies run GStreamer producer pipelines (interpipesink). Sessions
-            consume streams via interpipesrc, which dynamically switches its listen-to property to connect to
-            different lobbies. Lines show active interpipe connections.
+            <strong>3-Tier Architecture:</strong> {isAppsMode
+              ? 'Apps mode - Direct 1:1 connections. Each app has its own GStreamer pipeline directly connected to one Wolf session.'
+              : 'Lobbies mode - Dynamic interpipe switching. Lobbies run interpipesink producers, sessions consume via interpipesrc and can dynamically switch between lobbies.'
+            } Moonlight-web Clients (bottom) connect to Wolf sessions via WebRTC (solid green = active WebRTC, dashed yellow = headless keepalive).
           </Typography>
         </Box>
       </CardContent>
@@ -355,13 +458,16 @@ const AgentSandboxes: FC = () => {
     queryKey: ['agent-sandboxes-debug'],
     queryFn: async () => {
       const response = await apiClient.v1AdminAgentSandboxesDebugList()
-      return response.data as AgentSandboxesDebugResponse
+      return response.data
     },
     refetchInterval: 5000,
   })
 
   const memoryData = data?.memory
+  const apps = data?.apps || []
   const lobbies = data?.lobbies || []
+  const isAppsMode = data?.wolf_mode === 'apps'  // Use explicit wolf_mode field
+  const containers = isAppsMode ? apps : lobbies
   const sessions = data?.sessions || []
 
   return (
@@ -374,7 +480,7 @@ const AgentSandboxes: FC = () => {
       </Box>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Monitor Wolf streaming infrastructure: GStreamer pipelines, interpipe connections, memory usage, and
+        Monitor Wolf streaming infrastructure: GStreamer pipelines, {isAppsMode ? 'direct connections' : 'interpipe connections'}, memory usage, and
         real-time streaming sessions
       </Typography>
 
@@ -423,9 +529,20 @@ const AgentSandboxes: FC = () => {
                   </Box>
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="subtitle2" gutterBottom>
-                    Per-Lobby Breakdown
+                    Per-{isAppsMode ? 'App' : 'Lobby'} Breakdown
                   </Typography>
-                  {memoryData.lobbies && memoryData.lobbies.length > 0 ? (
+                  {isAppsMode && memoryData.apps && memoryData.apps.length > 0 ? (
+                    memoryData.apps.map((app: any) => (
+                      <Box key={app.app_id} sx={{ mb: 1 }}>
+                        <Typography variant="body2">
+                          {app.app_name}: {formatBytes(app.memory_bytes)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {app.resolution} • {app.client_count} clients
+                        </Typography>
+                      </Box>
+                    ))
+                  ) : !isAppsMode && memoryData.lobbies && memoryData.lobbies.length > 0 ? (
                     memoryData.lobbies.map((lobby) => (
                       <Box key={lobby.lobby_id} sx={{ mb: 1 }}>
                         <Typography variant="body2">
@@ -438,7 +555,7 @@ const AgentSandboxes: FC = () => {
                     ))
                   ) : (
                     <Typography variant="body2" color="text.secondary">
-                      No lobbies active
+                      No {isAppsMode ? 'apps' : 'lobbies'} active
                     </Typography>
                   )}
                 </>
@@ -451,52 +568,62 @@ const AgentSandboxes: FC = () => {
           </Card>
         </Grid>
 
-        {/* Active Lobbies Panel */}
+        {/* Active Apps/Lobbies Panel */}
         <Grid item xs={12} md={6}>
           <Card sx={{ height: '100%' }}>
             <CardHeader
               avatar={<VideocamIcon />}
-              title="Active Lobbies"
-              subheader="Producer pipelines with interpipesink"
+              title={`Active ${isAppsMode ? 'Apps' : 'Lobbies'}`}
+              subheader={isAppsMode ? 'Direct GStreamer pipelines (1:1)' : 'Producer pipelines with interpipesink'}
             />
             <CardContent>
-              {lobbies.length > 0 ? (
+              {containers.length > 0 ? (
                 <Box>
-                  {lobbies.map((lobby) => (
-                    <Box
-                      key={lobby.id}
-                      sx={{
-                        mb: 2,
-                        p: 2,
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: 1,
-                      }}
-                    >
-                      <Typography variant="subtitle1" fontWeight="bold">
-                        {lobby.name}
-                      </Typography>
-                      <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                        {lobby.id}
-                      </Typography>
-                      <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        <Chip
-                          label={lobby.multi_user ? 'Multi-User' : 'Single-User'}
-                          size="small"
-                          color={lobby.multi_user ? 'success' : 'default'}
-                        />
-                        {lobby.stop_when_everyone_leaves && (
-                          <Chip label="Auto-Stop" size="small" color="warning" />
+                  {containers.map((container: any) => {
+                    const containerId = container.id
+                    const containerName = container.title || container.name
+                    return (
+                      <Box
+                        key={containerId}
+                        sx={{
+                          mb: 2,
+                          p: 2,
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          <Tooltip title={containerName} placement="top">
+                            <span>{truncateName(containerName)}</span>
+                          </Tooltip>
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                          {containerId}
+                        </Typography>
+                        {!isAppsMode && (
+                          <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip
+                              label={container.multi_user ? 'Multi-User' : 'Single-User'}
+                              size="small"
+                              color={container.multi_user ? 'success' : 'default'}
+                            />
+                            {container.stop_when_everyone_leaves && (
+                              <Chip label="Auto-Stop" size="small" color="warning" />
+                            )}
+                          </Box>
+                        )}
+                        {!isAppsMode && (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            GStreamer: interpipesink name="{containerId}_video" | interpipesink name="{containerId}_audio"
+                          </Typography>
                         )}
                       </Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        GStreamer: interpipesink name="{lobby.id}_video" | interpipesink name="{lobby.id}_audio"
-                      </Typography>
-                    </Box>
-                  ))}
+                    )
+                  })}
                 </Box>
               ) : (
                 <Typography variant="body2" color="text.secondary">
-                  No active lobbies
+                  No active {isAppsMode ? 'apps' : 'lobbies'}
                 </Typography>
               )}
             </CardContent>
@@ -509,27 +636,29 @@ const AgentSandboxes: FC = () => {
             <CardHeader
               avatar={<TimelineIcon />}
               title="Stream Sessions"
-              subheader="Consumer pipelines with interpipesrc"
+              subheader={isAppsMode ? 'Wolf sessions (direct connection)' : 'Consumer pipelines with interpipesrc'}
             />
             <CardContent>
               {sessions.length > 0 ? (
                 <Grid container spacing={2}>
                   {sessions.map((session) => {
                     const clientConn = memoryData?.clients.find((c) => c.session_id === session.session_id)
-                    const connectedLobby = clientConn?.lobby_id
-                      ? lobbies.find((l) => l.id === clientConn.lobby_id)
+                    const connectedContainerId = clientConn?.app_id || clientConn?.lobby_id
+                    const connectedContainer = connectedContainerId
+                      ? containers.find((c: any) => c.id === connectedContainerId)
                       : null
+                    const containerName = connectedContainer ? (connectedContainer.title || connectedContainer.name) : null
 
                     return (
                       <Grid item xs={12} md={6} key={session.session_id}>
                         <Box
                           sx={{
                             p: 2,
-                            border: connectedLobby
+                            border: connectedContainer
                               ? '1px solid rgba(33, 150, 243, 0.5)'
                               : '1px solid rgba(244, 67, 54, 0.5)',
                             borderRadius: 1,
-                            backgroundColor: connectedLobby
+                            backgroundColor: connectedContainer
                               ? 'rgba(33, 150, 243, 0.05)'
                               : 'rgba(244, 67, 54, 0.05)',
                           }}
@@ -541,8 +670,8 @@ const AgentSandboxes: FC = () => {
                                 IP: {session.client_ip}
                               </Typography>
                             </Box>
-                            {connectedLobby ? (
-                              <Chip label={`→ ${connectedLobby.name}`} size="small" color="primary" />
+                            {containerName ? (
+                              <Chip label={`→ ${containerName}`} size="small" color="primary" />
                             ) : (
                               <Chip label="Orphaned" size="small" color="error" />
                             )}
@@ -556,14 +685,15 @@ const AgentSandboxes: FC = () => {
                               ? 'HEVC'
                               : 'H264'}
                           </Typography>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}
-                          >
-                            interpipesrc listen-to="{connectedLobby ? connectedLobby.id : session.session_id}
-                            _video"
-                          </Typography>
+                          {!isAppsMode && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: 'block', mt: 1, fontFamily: 'monospace' }}
+                            >
+                              interpipesrc listen-to="{connectedContainerId || session.session_id}_video"
+                            </Typography>
+                          )}
                           {clientConn && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                               Memory: {formatBytes(clientConn.memory_bytes)}

@@ -6,44 +6,74 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/wolf"
 )
 
 // AgentSandboxesDebugResponse combines data from multiple Wolf endpoints
 // for comprehensive debugging of the agent streaming infrastructure
 type AgentSandboxesDebugResponse struct {
-	Memory   *WolfSystemMemory `json:"memory"`
-	Lobbies  []WolfLobbyInfo   `json:"lobbies"`
-	Sessions []WolfSessionInfo `json:"sessions"`
+	Memory           *WolfSystemMemory      `json:"memory"`
+	Apps             []WolfAppInfo          `json:"apps,omitempty"`    // Apps mode
+	Lobbies          []WolfLobbyInfo        `json:"lobbies,omitempty"` // Lobbies mode
+	Sessions         []WolfSessionInfo      `json:"sessions"`
+	MoonlightClients []MoonlightClientInfo  `json:"moonlight_clients"` // NEW: moonlight-web client connections
+	WolfMode         string                 `json:"wolf_mode"`         // Current Wolf mode ("apps" or "lobbies")
 }
 
-// WolfSystemMemory represents Wolf's system memory usage
+// MoonlightClientInfo represents a moonlight-web client connection
+type MoonlightClientInfo struct {
+	SessionID     string `json:"session_id"`
+	Mode          string `json:"mode"`           // "create", "keepalive", "join"
+	HasWebsocket  bool   `json:"has_websocket"`  // Is a WebRTC client currently connected?
+}
+
+// WolfAppInfo represents a Wolf app (apps mode)
+type WolfAppInfo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// WolfSystemMemory represents Wolf's system memory usage (supports both apps and lobbies modes)
 type WolfSystemMemory struct {
-	Success             bool                   `json:"success"`
-	ProcessRSSBytes     string                 `json:"process_rss_bytes"`
-	GStreamerBufferBytes string                `json:"gstreamer_buffer_bytes"`
-	TotalMemoryBytes    string                 `json:"total_memory_bytes"`
-	Lobbies             []WolfLobbyMemory      `json:"lobbies"`
-	Clients             []WolfClientConnection `json:"clients"`
+	Success              bool                   `json:"success"`
+	ProcessRSSBytes      int64                  `json:"process_rss_bytes"`
+	GStreamerBufferBytes int64                  `json:"gstreamer_buffer_bytes"`
+	TotalMemoryBytes     int64                  `json:"total_memory_bytes"`
+	Apps                 []WolfAppMemory        `json:"apps,omitempty"`    // Apps mode
+	Lobbies              []WolfLobbyMemory      `json:"lobbies,omitempty"` // Lobbies mode
+	Clients              []WolfClientConnection `json:"clients"`
 }
 
-// WolfLobbyMemory represents per-lobby memory usage
+// WolfAppMemory represents per-app memory usage (apps mode)
+type WolfAppMemory struct {
+	AppID       string `json:"app_id"`
+	AppName     string `json:"app_name"`
+	Resolution  string `json:"resolution"`
+	ClientCount int    `json:"client_count"`
+	MemoryBytes int64  `json:"memory_bytes"`
+}
+
+// WolfLobbyMemory represents per-lobby memory usage (lobbies mode)
 type WolfLobbyMemory struct {
 	LobbyID     string `json:"lobby_id"`
 	LobbyName   string `json:"lobby_name"`
 	Resolution  string `json:"resolution"`
 	ClientCount string `json:"client_count"`
-	MemoryBytes string `json:"memory_bytes"`
+	MemoryBytes int64  `json:"memory_bytes"`
 }
 
 // WolfClientConnection represents individual client connections for leak detection
 type WolfClientConnection struct {
-	SessionID   string  `json:"session_id"`
+	SessionID   int64   `json:"session_id"` // Wolf returns this as a number
 	ClientIP    string  `json:"client_ip"`
 	Resolution  string  `json:"resolution"`
-	LobbyID     *string `json:"lobby_id"` // null if orphaned
-	MemoryBytes string  `json:"memory_bytes"`
+	LobbyID     *string `json:"lobby_id,omitempty"` // lobbies mode: connected lobby
+	AppID       *string `json:"app_id,omitempty"`   // apps mode: connected app
+	MemoryBytes int64   `json:"memory_bytes"`
 }
 
 // WolfLobbyInfo represents a Wolf lobby
@@ -95,13 +125,17 @@ type wolfSessionRaw struct {
 // @Security ApiKeyAuth
 // @Router /api/v1/admin/agent-sandboxes/debug [get]
 func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, req *http.Request) {
-	// Get Wolf client from external agent executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	// Get Wolf client - works with both executor types
+	type WolfClientProvider interface {
+		GetWolfClient() *wolf.Client
+	}
+
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
 	if !ok {
 		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
 		return
 	}
-	wolfClient := wolfExecutor.GetWolfClient()
+	wolfClient := provider.GetWolfClient()
 
 	ctx := req.Context()
 	response := &AgentSandboxesDebugResponse{}
@@ -114,15 +148,31 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	}
 	response.Memory = memoryData
 
-	// Fetch lobbies
-	lobbiesData, err := fetchWolfLobbies(ctx, wolfClient)
-	if err != nil {
-		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf lobbies: %v", err), http.StatusInternalServerError)
-		return
+	// Check WOLF_MODE to determine whether to fetch apps or lobbies
+	wolfMode := os.Getenv("WOLF_MODE")
+	if wolfMode == "" {
+		wolfMode = "apps" // Default
 	}
-	response.Lobbies = lobbiesData
 
-	// Fetch sessions
+	if wolfMode == "lobbies" {
+		// Fetch lobbies (lobbies mode)
+		lobbiesData, err := fetchWolfLobbies(ctx, wolfClient)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("Failed to fetch Wolf lobbies: %v", err), http.StatusInternalServerError)
+			return
+		}
+		response.Lobbies = lobbiesData
+	} else {
+		// Fetch apps (apps mode)
+		appsData, err := fetchWolfApps(ctx, wolfClient)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("Failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
+			return
+		}
+		response.Apps = appsData
+	}
+
+	// Fetch sessions (both modes)
 	sessionsData, err := fetchWolfSessions(ctx, wolfClient)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf sessions: %v", err), http.StatusInternalServerError)
@@ -130,23 +180,26 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	}
 	response.Sessions = sessionsData
 
+	// Fetch moonlight-web client connections
+	moonlightClients, err := fetchMoonlightWebSessions(ctx)
+	if err != nil {
+		// Non-fatal - just log and continue without moonlight-web data
+		fmt.Printf("Warning: Failed to fetch moonlight-web sessions: %v\n", err)
+		response.MoonlightClients = []MoonlightClientInfo{}
+	} else {
+		response.MoonlightClients = moonlightClients
+	}
+
+	// Set Wolf mode in response so frontend knows which mode is active
+	response.WolfMode = wolfMode
+
 	// Return combined data
 	writeResponse(rw, response, http.StatusOK)
 }
 
 // fetchWolfMemoryData retrieves memory usage data from Wolf
-func fetchWolfMemoryData(ctx context.Context, wolfClient interface{}) (*WolfSystemMemory, error) {
-	// Type assert to get the concrete Wolf client type
-	type WolfClientGetter interface {
-		Get(ctx context.Context, path string) (*http.Response, error)
-	}
-
-	client, ok := wolfClient.(WolfClientGetter)
-	if !ok {
-		return nil, fmt.Errorf("wolf client does not implement Get method")
-	}
-
-	resp, err := client.Get(ctx, "/api/v1/system/memory")
+func fetchWolfMemoryData(ctx context.Context, wolfClient *wolf.Client) (*WolfSystemMemory, error) {
+	resp, err := wolfClient.Get(ctx, "/api/v1/system/memory")
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf memory endpoint: %w", err)
 	}
@@ -166,17 +219,8 @@ func fetchWolfMemoryData(ctx context.Context, wolfClient interface{}) (*WolfSyst
 }
 
 // fetchWolfLobbies retrieves all lobbies from Wolf
-func fetchWolfLobbies(ctx context.Context, wolfClient interface{}) ([]WolfLobbyInfo, error) {
-	type WolfClientGetter interface {
-		Get(ctx context.Context, path string) (*http.Response, error)
-	}
-
-	client, ok := wolfClient.(WolfClientGetter)
-	if !ok {
-		return nil, fmt.Errorf("wolf client does not implement Get method")
-	}
-
-	resp, err := client.Get(ctx, "/api/v1/lobbies")
+func fetchWolfLobbies(ctx context.Context, wolfClient *wolf.Client) ([]WolfLobbyInfo, error) {
+	resp, err := wolfClient.Get(ctx, "/api/v1/lobbies")
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf lobbies endpoint: %w", err)
 	}
@@ -202,18 +246,37 @@ func fetchWolfLobbies(ctx context.Context, wolfClient interface{}) ([]WolfLobbyI
 	return lobbiesResponse.Lobbies, nil
 }
 
+// fetchWolfApps retrieves all apps from Wolf (apps mode)
+func fetchWolfApps(ctx context.Context, wolfClient *wolf.Client) ([]WolfAppInfo, error) {
+	resp, err := wolfClient.Get(ctx, "/api/v1/apps")
+	if err != nil {
+		return nil, fmt.Errorf("failed to request Wolf apps endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf apps endpoint returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var appsResponse struct {
+		Success bool          `json:"success"`
+		Apps    []WolfAppInfo `json:"apps"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&appsResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode Wolf apps response: %w", err)
+	}
+
+	if !appsResponse.Success {
+		return nil, fmt.Errorf("Wolf apps endpoint returned success=false")
+	}
+
+	return appsResponse.Apps, nil
+}
+
 // fetchWolfSessions retrieves all streaming sessions from Wolf
-func fetchWolfSessions(ctx context.Context, wolfClient interface{}) ([]WolfSessionInfo, error) {
-	type WolfClientGetter interface {
-		Get(ctx context.Context, path string) (*http.Response, error)
-	}
-
-	client, ok := wolfClient.(WolfClientGetter)
-	if !ok {
-		return nil, fmt.Errorf("wolf client does not implement Get method")
-	}
-
-	resp, err := client.Get(ctx, "/api/v1/sessions")
+func fetchWolfSessions(ctx context.Context, wolfClient *wolf.Client) ([]WolfSessionInfo, error) {
+	resp, err := wolfClient.Get(ctx, "/api/v1/sessions")
 	if err != nil {
 		return nil, fmt.Errorf("failed to request Wolf sessions endpoint: %w", err)
 	}
@@ -261,6 +324,71 @@ func fetchWolfSessions(ctx context.Context, wolfClient interface{}) ([]WolfSessi
 	}
 
 	return sessions, nil
+}
+
+// fetchMoonlightWebSessions retrieves all client connections from moonlight-web
+func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, error) {
+	// Get moonlight-web URL from environment or use default
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
+	}
+
+	// Build request URL
+	url := fmt.Sprintf("%s/api/sessions", moonlightWebURL)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set authentication header (moonlight-web uses MOONLIGHT_CREDENTIALS)
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+	if credentials != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", credentials))
+	}
+
+	// Execute request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request moonlight-web sessions endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("moonlight-web sessions endpoint returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var sessionsResponse struct {
+		Sessions []struct {
+			SessionID    string `json:"session_id"`
+			Mode         string `json:"mode"`
+			HasWebsocket bool   `json:"has_websocket"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sessionsResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode moonlight-web sessions response: %w", err)
+	}
+
+	// Transform to our struct
+	clients := make([]MoonlightClientInfo, len(sessionsResponse.Sessions))
+	for i, session := range sessionsResponse.Sessions {
+		clients[i] = MoonlightClientInfo{
+			SessionID:    session.SessionID,
+			Mode:         session.Mode,
+			HasWebsocket: session.HasWebsocket,
+		}
+	}
+
+	return clients, nil
 }
 
 // @Summary Get Wolf real-time events (SSE)
