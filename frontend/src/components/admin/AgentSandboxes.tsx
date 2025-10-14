@@ -148,7 +148,8 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
         <svg width={svgWidth} height={svgHeight} style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
           {/* Draw container-to-session connection lines */}
           {sessions.map((session) => {
-            const connectedContainerId = connectionMap.get(session.session_id)
+            // In apps mode, session.app_id directly identifies the connected container
+            const connectedContainerId = session.app_id
             if (!connectedContainerId) return null
 
             const uniqueKey = `${session.session_id}-${session.app_id}`
