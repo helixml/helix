@@ -129,7 +129,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	// Create Wolf app
 	app := createSwayWolfAppForAppsMode(SwayWolfAppConfig{
 		WolfAppID:         wolfAppID,
-		Title:             fmt.Sprintf("External Agent %s", agent.SessionID),
+		Title:             fmt.Sprintf("Agent %s", getShortID(agent.SessionID)),
 		ContainerHostname: containerHostname,
 		UserID:            agent.UserID,
 		SessionID:         agent.SessionID,
@@ -907,6 +907,14 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 }
 
 // Helper functions shared between apps and lobbies executors
+
+// getShortID returns last 4 characters of an ID for compact display names
+func getShortID(id string) string {
+	if len(id) <= 4 {
+		return id
+	}
+	return id[len(id)-4:]
+}
 
 func generateWolfAppID(userID, environmentName string) string {
 	stableKey := fmt.Sprintf("%s-%s", userID, environmentName)

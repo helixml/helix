@@ -188,7 +188,9 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             const helixSessionId = client.session_id.replace(/^agent-/, '')
 
             // Find the app this client corresponds to by matching title
-            const expectedAppTitle = `External Agent ${helixSessionId}`
+            // Title format changed to "Agent {last4}" for compact display
+            const shortId = helixSessionId.slice(-4)
+            const expectedAppTitle = `Agent ${shortId}`
             const clientApp = apps.find(app => app.title === expectedAppTitle)
             if (!clientApp) {
               console.warn(`[Dashboard] No app found for client ${client.session_id}`, {
@@ -341,7 +343,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
             return (
               <g key={`session-${uniqueKey}`}>
-                <Tooltip title={`Session: ${session.session_id} | IP: ${session.client_ip}`} arrow>
+                <Tooltip title={`Session: ${session.session_id} | App: ${session.app_id} | IP: ${session.client_ip}`} arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
@@ -358,7 +360,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   fill="white"
                   fontSize="10"
                 >
-                  {session.session_id}
+                  {session.session_id.slice(-4)}
                 </text>
                 <text
                   x={pos.x}
