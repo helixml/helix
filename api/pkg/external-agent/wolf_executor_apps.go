@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
