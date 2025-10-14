@@ -46,8 +46,7 @@ export class Stream {
     private appId: number
 
     private settings: StreamSettings
-    private mode: "create" | "join" | "keepalive" | "peer"
-    private streamerId?: string
+    private streamerId: string
 
     private eventTarget = new EventTarget()
 
@@ -67,11 +66,8 @@ export class Stream {
         settings: StreamSettings,
         supportedVideoFormats: VideoCodecSupport,
         viewerScreenSize: [number, number],
-        mode: "create" | "join" | "keepalive" | "peer" = "create",
-        sessionId?: string,
-        streamerId?: string
+        streamerId: string
     ) {
-        this.mode = mode
         this.streamerId = streamerId
         this.api = api
         this.hostId = hostId
@@ -81,11 +77,9 @@ export class Stream {
 
         this.streamerSize = getStreamerSize(settings, viewerScreenSize)
 
-        // Configure web socket
-        // New mode "peer": Connect to multi-WebRTC peer endpoint for existing streamer
-        const wsEndpoint = (mode === "peer" && streamerId)
-            ? `/api/streamers/${streamerId}/peer`
-            : `/host/stream`;
+        // Connect to multi-WebRTC peer endpoint
+        // Streamer was created via POST /api/streamers by backend
+        const wsEndpoint = `/api/streamers/${streamerId}/peer`;
         this.ws = new WebSocket(`${api.host_url}${wsEndpoint}`)
         this.ws.addEventListener("error", this.onError.bind(this))
         this.ws.addEventListener("open", this.onWsOpen.bind(this))
@@ -94,38 +88,8 @@ export class Stream {
 
         const fps = this.settings.fps
 
-        // Use provided sessionId or generate unique one for "create" mode
-        const finalSessionId = sessionId || `browser-${Date.now()}-${Math.random()}`;
-
-        // In "peer" mode, don't send AuthenticateAndInit (streamer already initialized)
-        // The streamer was created via POST /api/streamers and is waiting for peer connections
-        if (mode !== "peer") {
-            this.sendWsMessage({
-                AuthenticateAndInit: {
-                    credentials: this.api.credentials,
-                    session_id: finalSessionId,
-                    mode: mode,
-                    // Browser clients use null for client_unique_id because:
-                    // - In "create" mode: Each browser creates a new session with new pairing
-                    // - In "join" mode: Browser joins existing keepalive session that already has unique client_unique_id
-                    //   (the keepalive was created by Helix API with unique ID, browser reuses that MoonlightHost)
-                    client_unique_id: null,
-                    host_id: this.hostId,
-                    app_id: this.appId,
-                    bitrate: this.settings.bitrate,
-                    packet_size: this.settings.packetSize,
-                    fps,
-                    width: this.streamerSize[0],
-                    height: this.streamerSize[1],
-                    video_sample_queue_size: this.settings.videoSampleQueueSize,
-                    play_audio_local: this.settings.playAudioLocal,
-                    audio_sample_queue_size: this.settings.audioSampleQueueSize,
-                    video_supported_formats: createSupportedVideoFormatsBits(supportedVideoFormats),
-                    video_colorspace: "Rec709", // TODO <---
-                    video_color_range_full: true, // TODO <---
-                }
-            })
-        }
+        // No AuthenticateAndInit needed - streamer is already initialized
+        // WebSocket opens and immediately starts receiving WebRTC signaling
 
         // Stream Input
         const streamInputConfig = defaultStreamInputConfig()
@@ -193,12 +157,9 @@ export class Stream {
         if (this.remoteDescription) {
             await this.handleRemoteDescription(this.remoteDescription)
         }
-        // In "create" and "keepalive" modes, browser initiates with offer
-        // In "join" mode, wait for server's offer (don't create our own)
-        else if (this.mode === "create" || this.mode === "keepalive") {
+        // In peer mode, browser always creates offer (fresh peer joining existing streamer)
+        else {
             await this.onNegotiationNeeded()
-        } else {
-            this.debugLog("Join mode: waiting for server offer")
         }
         await this.tryDequeueIceCandidates()
     }
@@ -299,13 +260,6 @@ export class Stream {
     private async onNegotiationNeeded() {
         if (!this.peer) {
             this.debugLog("OnNegotiationNeeded without a peer")
-            return
-        }
-
-        // In join mode, we wait for server's offer - don't create our own
-        // negotiationneeded can fire automatically when peer is created, but we must ignore it
-        if (this.mode === "join") {
-            this.debugLog("Join mode: ignoring negotiationneeded (waiting for server offer)")
             return
         }
 
