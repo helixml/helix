@@ -180,9 +180,21 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
           {/* Draw session-to-client connection lines */}
           {moonlightClients.map((client) => {
-            // Match client to session by session_id
+            // Extract Helix session ID from moonlight client session ID (format: "agent-{sessionId}")
+            const helixSessionId = client.session_id.replace(/^agent-/, '')
+
+            // Find Wolf session for this client by matching app_id
+            // Multiple Wolf sessions may exist for same app (same keepalive session ID)
+            const matchingSession = sessions.find(s => {
+              const connectedAppId = connectionMap.get(s.session_id)
+              // Match by app_id in connection map
+              return connectedAppId && apps.some(app =>
+                app.id === connectedAppId && app.title && app.title.includes(helixSessionId)
+              )
+            })
+
             const clientPos = clientPositions.get(client.session_id)
-            const sessionPos = sessionPositions.get(client.session_id)
+            const sessionPos = matchingSession ? sessionPositions.get(matchingSession.session_id) : null
             if (!clientPos || !sessionPos) return null
 
             return (
