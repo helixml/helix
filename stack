@@ -374,26 +374,36 @@ function start() {
   tmux select-pane -t 2 -T "Haystack Logs"
   tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
-  # Middle row (3-5): Wolf Logs, Zed Process, GPU Runner/Demos
-  tmux select-pane -t 3 -T "Wolf Logs"
-  tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
-
-  tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
-  tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
-
-  # Middle right pane (5) - contextual based on enabled services
+  # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
+    # WITH_RUNNER mode: Wolf logs in pane 3
+    tmux select-pane -t 3 -T "Wolf Logs"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+
+    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+
     # GPU runner logs with air hot reloading
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
     tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
-  elif [[ -n "$WITH_DEMOS" ]]; then
-    # Demos interactive session
-    tmux select-pane -t 5 -T "Demos"
-    tmux send-keys -t 5 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
   else
-    # Available for monitoring
-    tmux select-pane -t 5 -T "Available"
-    tmux send-keys -t 5 'echo "Pane available for monitoring"' C-m
+    # WITHOUT_RUNNER mode: Moonlight-web logs in pane 3, Wolf in pane 4
+    tmux select-pane -t 3 -T "Moonlight-web Logs"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f moonlight-web' C-m
+
+    tmux select-pane -t 4 -T "Wolf Logs"
+    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+
+    # Middle right pane (5) - contextual based on demos
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Demos interactive session
+      tmux select-pane -t 5 -T "Demos"
+      tmux send-keys -t 5 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+    else
+      # Hacking terminal
+      tmux select-pane -t 5 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 5 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
   fi
 
   # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
