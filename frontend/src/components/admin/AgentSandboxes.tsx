@@ -183,19 +183,26 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             // Extract Helix session ID from moonlight client session ID (format: "agent-{sessionId}")
             const helixSessionId = client.session_id.replace(/^agent-/, '')
 
-            // Find Wolf session for this client by matching app_id
-            // Multiple Wolf sessions may exist for same app (same keepalive session ID)
+            // Find the app this client corresponds to by matching title
+            const expectedAppTitle = `External Agent ${helixSessionId}`
+            const clientApp = apps.find(app => app.title === expectedAppTitle)
+            if (!clientApp) {
+              console.warn(`No app found for client ${client.session_id}, expected title: ${expectedAppTitle}`)
+              return null
+            }
+
+            // Find Wolf session connected to this app
             const matchingSession = sessions.find(s => {
-              const connectedAppId = connectionMap.get(s.session_id)
-              // Match by app_id in connection map
-              return connectedAppId && apps.some(app =>
-                app.id === connectedAppId && app.title && app.title.includes(helixSessionId)
-              )
+              const sessionAppId = connectionMap.get(s.session_id)
+              return sessionAppId === clientApp.id
             })
 
             const clientPos = clientPositions.get(client.session_id)
             const sessionPos = matchingSession ? sessionPositions.get(matchingSession.session_id) : null
-            if (!clientPos || !sessionPos) return null
+            if (!clientPos || !sessionPos) {
+              console.warn(`Missing position for client ${client.session_id} or session ${matchingSession?.session_id}`)
+              return null
+            }
 
             return (
               <g key={`client-connection-${client.session_id}`}>
