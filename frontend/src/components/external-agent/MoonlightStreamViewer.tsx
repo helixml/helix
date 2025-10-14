@@ -110,9 +110,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           // Use the authenticated API client to fetch apps
           const apps = await apiGetApps(api, { host_id: hostId });
 
-          // Find app matching our session by title (format: "External Agent {sessionId}")
+          // Find app matching our session by title (format: "Agent {last4}")
           if (apps && apps.length > 0) {
-            const expectedTitle = `External Agent ${sessionId}`;
+            const shortId = sessionId.slice(-4);
+            const expectedTitle = `Agent ${shortId}`;
             const matchingApp = apps.find((app: any) =>
               app.title === expectedTitle || app.app_id.toString() === wolfLobbyId
             );
