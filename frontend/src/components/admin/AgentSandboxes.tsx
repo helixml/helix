@@ -218,14 +218,25 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             const sessionUniqueKey = `${matchingSession.session_id}-${matchingSession.app_id}`
             const sessionPos = sessionPositions.get(sessionUniqueKey)
 
+            console.log(`[Dashboard] Checking positions for client ${client.session_id}:`, {
+              clientPos,
+              sessionUniqueKey,
+              sessionPos,
+              hasClient: !!clientPos,
+              hasSession: !!sessionPos
+            })
+
             if (!clientPos || !sessionPos) {
-              console.warn(`Missing position for client ${client.session_id} or session ${sessionUniqueKey}`, {
+              console.warn(`[Dashboard] Missing position for connection line`, {
+                client: client.session_id,
+                sessionKey: sessionUniqueKey,
                 hasClientPos: !!clientPos,
-                hasSessionPos: !!sessionPos,
-                sessionUniqueKey
+                hasSessionPos: !!sessionPos
               })
               return null
             }
+
+            console.log(`[Dashboard] Drawing connection line from client ${client.session_id} to session ${sessionUniqueKey}`)
 
             return (
               <g key={`client-connection-${client.session_id}`}>
@@ -691,9 +702,10 @@ const AgentSandboxes: FC = () => {
                       ? containers.find((c: any) => c.id === connectedContainerId)
                       : null
                     const containerName = connectedContainer ? (connectedContainer.title || connectedContainer.name) : null
+                    const uniqueKey = `${session.session_id}-${session.app_id}`
 
                     return (
-                      <Grid item xs={12} md={6} key={session.session_id}>
+                      <Grid item xs={12} md={6} key={uniqueKey}>
                         <Box
                           sx={{
                             p: 2,
