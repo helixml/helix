@@ -143,8 +143,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       }
 
       // Create Stream instance
-      // For external agents, join the existing keepalive session instead of creating new
-      // Keepalive session ID format: "agent-{sessionId}"
+      // For external agents, connect to persistent streamer via peer endpoint
+      // Streamer ID format: "agent-{sessionId}" (created by backend via POST /api/streamers)
+      const streamerID = `agent-${sessionId}`;
       const stream = new Stream(
         api,
         hostId, // Wolf host ID (always 0 for local)
@@ -152,8 +153,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         settings,
         supportedFormats,
         [width, height],
-        "join", // Join existing keepalive session
-        `agent-${sessionId}` // Keepalive session ID format
+        "peer", // Connect as WebRTC peer to existing streamer
+        undefined, // No session_id needed (streamer already initialized)
+        streamerID // Streamer ID
       );
 
       streamRef.current = stream;
