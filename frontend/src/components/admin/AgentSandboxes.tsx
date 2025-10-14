@@ -85,10 +85,12 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
   })
 
   // Position sessions horizontally
+  // Use session_id + app_id as unique key since same client can connect to multiple apps
   const sessionPositions = new Map<string, { x: number; y: number }>()
   const sessionSpacing = svgWidth / (sessions.length + 1)
   sessions.forEach((session, idx) => {
-    sessionPositions.set(session.session_id, {
+    const uniqueKey = `${session.session_id}-${session.app_id}`
+    sessionPositions.set(uniqueKey, {
       x: sessionSpacing * (idx + 1),
       y: sessionY,
     })
@@ -149,12 +151,13 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             const connectedContainerId = connectionMap.get(session.session_id)
             if (!connectedContainerId) return null
 
-            const sessionPos = sessionPositions.get(session.session_id)
+            const uniqueKey = `${session.session_id}-${session.app_id}`
+            const sessionPos = sessionPositions.get(uniqueKey)
             const containerPos = containerPositions.get(connectedContainerId)
             if (!sessionPos || !containerPos) return null
 
             return (
-              <g key={`connection-${session.session_id}`}>
+              <g key={`connection-${uniqueKey}`}>
                 <line
                   x1={sessionPos.x}
                   y1={sessionPos.y - sessionRadius}
@@ -198,7 +201,8 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             })
 
             const clientPos = clientPositions.get(client.session_id)
-            const sessionPos = matchingSession ? sessionPositions.get(matchingSession.session_id) : null
+            const sessionUniqueKey = matchingSession ? `${matchingSession.session_id}-${matchingSession.app_id}` : null
+            const sessionPos = sessionUniqueKey ? sessionPositions.get(sessionUniqueKey) : null
             if (!clientPos || !sessionPos) {
               console.warn(`Missing position for client ${client.session_id} or session ${matchingSession?.session_id}`)
               return null
@@ -297,14 +301,15 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
           {/* Draw sessions (consumer pipelines) */}
           {sessions.map((session) => {
-            const pos = sessionPositions.get(session.session_id)
+            const uniqueKey = `${session.session_id}-${session.app_id}`
+            const pos = sessionPositions.get(uniqueKey)
             if (!pos) return null
 
             const connectedLobby = connectionMap.get(session.session_id)
             const isOrphaned = !connectedLobby
 
             return (
-              <g key={`session-${session.session_id}`}>
+              <g key={`session-${uniqueKey}`}>
                 <Tooltip title={`Session: ${session.session_id} | IP: ${session.client_ip}`} arrow>
                   <circle
                     cx={pos.x}
