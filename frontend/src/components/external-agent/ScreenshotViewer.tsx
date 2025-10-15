@@ -23,8 +23,8 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   isPersonalDevEnvironment = false,
   wolfLobbyId,
   onError,
-  width = 1024,
-  height = 768,
+  width = 1920,
+  height = 1080,
   className = '',
   autoRefresh = true,
   refreshInterval = 2000, // Default 2 seconds
