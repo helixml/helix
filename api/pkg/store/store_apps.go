@@ -334,7 +334,8 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 	// Handle organization_id based on specific conditions
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
-	} else {
+	} else if q.Owner != "" {
+		// Listing for specific user
 		query = query.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
