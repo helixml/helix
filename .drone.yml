@@ -844,6 +844,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -887,6 +888,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -930,6 +932,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -974,6 +977,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -1021,6 +1025,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -1070,6 +1075,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1146,6 +1152,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1214,6 +1221,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -1255,6 +1263,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -1296,6 +1305,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 kind: pipeline
@@ -1337,6 +1347,7 @@ steps:
         - push
       branch:
         - main
+        - feature/external-agents-hyprland-working
 
 ---
 # See integration-test/smoke/README.md
