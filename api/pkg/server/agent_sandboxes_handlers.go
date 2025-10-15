@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
@@ -512,4 +513,154 @@ func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter,
 			}
 		}
 	}
+}
+
+// SessionWolfAppStateResponse represents the Wolf app state for a specific external agent session
+type SessionWolfAppStateResponse struct {
+	SessionID      string `json:"session_id"`
+	WolfAppID      string `json:"wolf_app_id"`
+	State          string `json:"state"`           // "absent", "running", "resumable"
+	HasWebsocket   bool   `json:"has_websocket"`   // Is a browser client currently connected?
+	ClientUniqueID string `json:"client_unique_id"` // Unique Moonlight client ID for this agent
+}
+
+// @Summary Get Wolf app state for a session
+// @Description Returns the current Wolf app state for an external agent session (absent/running/resumable)
+// @Tags Sessions
+// @Accept json
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} SessionWolfAppStateResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/wolf-app-state [get]
+func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get session ID from URL path using mux
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+
+	// Check session access
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("session not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Verify user has access to this session
+	if session.Owner != user.ID && !user.Admin {
+		http.Error(rw, "forbidden: you don't have access to this session", http.StatusForbidden)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		http.Error(rw, "not an external agent session", http.StatusBadRequest)
+		return
+	}
+
+	// Get Wolf client
+	type WolfClientProvider interface {
+		GetWolfClient() *wolf.Client
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+	if !ok {
+		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
+		return
+	}
+	wolfClient := provider.GetWolfClient()
+
+	// Determine the expected Wolf app ID and client_unique_id for this session
+	// These must match what the backend used in wolf_executor_apps.go
+	expectedMoonlightSessionID := fmt.Sprintf("agent-%s", sessionID)
+	expectedClientUniqueID := fmt.Sprintf("helix-agent-%s", sessionID)
+
+	// Query moonlight-web to check session state
+	moonlightClients, err := fetchMoonlightWebSessions(ctx)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to fetch moonlight-web sessions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Find this session's moonlight client
+	var moonlightSession *MoonlightClientInfo
+	for _, client := range moonlightClients {
+		if client.SessionID == expectedMoonlightSessionID {
+			moonlightSession = &client
+			break
+		}
+	}
+
+	// Query Wolf to check if app exists
+	apps, err := fetchWolfApps(ctx, wolfClient)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Find this session's Wolf app (the app ID is stored in the session config or we can derive it)
+	// For now, we'll look it up from the external agent executor
+	type SessionProvider interface {
+		GetSession(sessionID string) (*external_agent.ZedSession, error)
+	}
+	sessionProvider, ok := apiServer.externalAgentExecutor.(SessionProvider)
+	var wolfAppID string
+	if ok {
+		zedSession, err := sessionProvider.GetSession(sessionID)
+		if err == nil && zedSession != nil {
+			wolfAppID = zedSession.WolfAppID
+		}
+	}
+
+	// Determine state based on moonlight-web and Wolf data
+	var state string
+	hasWebsocket := false
+
+	if moonlightSession != nil {
+		hasWebsocket = moonlightSession.HasWebsocket
+		if moonlightSession.Mode == "keepalive" && !moonlightSession.HasWebsocket {
+			// Keepalive session with no websocket = resumable (kicked off but browser not connected)
+			state = "resumable"
+		} else if moonlightSession.HasWebsocket {
+			// Has websocket = currently running/streaming
+			state = "running"
+		} else {
+			// Session exists but no clear state
+			state = "resumable"
+		}
+	} else {
+		// No moonlight session found
+		// Check if Wolf app still exists (container might be running without moonlight session)
+		appExists := false
+		for _, app := range apps {
+			if app.ID == wolfAppID {
+				appExists = true
+				break
+			}
+		}
+		if appExists {
+			state = "resumable" // App exists but no moonlight session
+		} else {
+			state = "absent" // No app, no session
+		}
+	}
+
+	response := SessionWolfAppStateResponse{
+		SessionID:      sessionID,
+		WolfAppID:      wolfAppID,
+		State:          state,
+		HasWebsocket:   hasWebsocket,
+		ClientUniqueID: expectedClientUniqueID,
+	}
+
+	writeResponse(rw, response, http.StatusOK)
 }

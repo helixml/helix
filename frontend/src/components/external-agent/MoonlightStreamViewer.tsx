@@ -80,6 +80,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       console.log(`MoonlightStreamViewer: Using moonlight-web mode: ${moonlightWebMode}`);
 
+      // For external agents, fetch the actual Wolf app ID
+      let actualAppId = appId;
+      if (sessionId && !isPersonalDevEnvironment) {
+        try {
+          const wolfStateResponse = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
+          if (wolfStateResponse.data?.wolf_app_id) {
+            actualAppId = parseInt(wolfStateResponse.data.wolf_app_id, 10);
+            console.log(`MoonlightStreamViewer: Using Wolf app ID ${actualAppId} for session ${sessionId}`);
+          }
+        } catch (err) {
+          console.warn('Failed to fetch Wolf app ID, using default:', err);
+        }
+      }
+
       // CRITICAL: Set credentials in sessionStorage BEFORE calling getApi
       // This prevents the blocking credential prompt modal
       sessionStorage.setItem('mlCredentials', 'helix');
@@ -121,7 +135,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
-          appId, // App ID (backend already knows it)
+          actualAppId, // App ID (backend already knows it)
           settings,
           supportedFormats,
           [width, height],
@@ -130,16 +144,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           streamerID // Streamer ID - connects to /api/streamers/{id}/peer
         );
       } else {
-        // Single mode (session-persistence): Join existing keepalive session
+        // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
+        // - Kickoff used: session="agent-{sessionId}-kickoff", client_unique_id="helix-agent-{sessionId}"
+        // - Browser uses: session="agent-{sessionId}", client_unique_id="helix-agent-{sessionId}"
+        // Different session_id → Fresh streamer process (no peer reuse)
+        // Same client_unique_id → Moonlight protocol auto-RESUME!
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
-          appId, // Moonlight app ID
+          actualAppId, // Moonlight app ID from Wolf
           settings,
           supportedFormats,
           [width, height],
-          "join", // Join existing keepalive session
-          `agent-${sessionId}` // Keepalive session ID format
+          "create", // Create mode - fresh session/streamer (kickoff already terminated)
+          `agent-${sessionId}`, // Browser session ID (different from kickoff's "-kickoff" suffix)
+          undefined, // No streamer ID
+          `helix-agent-${sessionId}` // SAME client_unique_id as kickoff → enables RESUME
         );
       }
 

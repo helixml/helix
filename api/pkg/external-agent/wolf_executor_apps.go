@@ -809,17 +809,18 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 
 	// Send AuthenticateAndInit message with session persistence
 	// mode=keepalive: creates session without WebRTC peer (headless)
-	// CRITICAL: client_unique_id must be unique per agent to avoid Moonlight protocol violations
-	// Each agent appears as a separate Moonlight client, enabling concurrent multi-app streaming
+	// KICKOFF APPROACH: Use separate session_id for kickoff vs browser
+	// - Kickoff: "agent-{sessionID}-kickoff" → Will terminate after 10s
+	// - Browser: "agent-{sessionID}" → Fresh session/streamer, but same client_unique_id → auto-RESUME!
 	authMsg := map[string]interface{}{
 		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),                // Use MOONLIGHT_CREDENTIALS for auth
-			"session_id":              fmt.Sprintf("agent-%s", sessionID),                // Persistent session ID
-			"mode":                    "keepalive",                                       // Keepalive mode (no WebRTC)
-			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),          // UNIQUE client ID per agent
-			"host_id":                 0,                                                 // Local Wolf instance
-			"app_id":                  uint32(appIDUint),                                 // Connect to the Wolf app (u32)
-			"bitrate":                 20000,                                             // Match agent display settings
+			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),                      // Use MOONLIGHT_CREDENTIALS for auth
+			"session_id":              fmt.Sprintf("agent-%s-kickoff", sessionID),              // KICKOFF session ID (separate from browser)
+			"mode":                    "keepalive",                                             // Keepalive mode (no WebRTC)
+			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),                // SAME client ID as browser → enables RESUME
+			"host_id":                 0,                                                       // Local Wolf instance
+			"app_id":                  uint32(appIDUint),                                       // Connect to the Wolf app (u32)
+			"bitrate":                 20000,                                                   // Match agent display settings
 			"packet_size":             1024,
 			"fps":                     displayFPS,     // Use agent's configured FPS
 			"width":                   displayWidth,   // Use agent's configured width
@@ -847,85 +848,23 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 		Str("wolf_app_id", wolfAppID).
 		Msg("Sent keepalive auth message to moonlight-web with session persistence (single mode)")
 
-	// Wait for stream initialization or error messages
-	maxWaitTime := 10 * time.Second
-	startTime := time.Now()
-	connected := false
+	// KICKOFF APPROACH: Wait 10 seconds for Wolf to start the container, then disconnect
+	// This triggers Wolf to launch the app, making it "resumable" for this client
+	// When browser connects later, it will RESUME this app instead of creating new session
+	log.Info().
+		Str("session_id", sessionID).
+		Msg("Waiting 10 seconds for Wolf container to start (kickoff approach)...")
 
-	for time.Since(startTime) < maxWaitTime {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			// Timeout is expected - moonlight-web closes WebSocket in keepalive mode
-			if strings.Contains(err.Error(), "i/o timeout") {
-				// Check if enough time passed for session creation
-				if time.Since(startTime) > 3*time.Second {
-					log.Info().
-						Str("session_id", sessionID).
-						Msg("Keepalive WebSocket closed as expected - session running headless")
-					connected = true
-					break
-				}
-				continue
-			}
-			// WebSocket closed normally (including close code 1005 - no status)
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
-				strings.Contains(err.Error(), "close 1005") {
-				log.Info().
-					Str("session_id", sessionID).
-					Msg("Keepalive WebSocket closed normally - session persisting")
-				connected = true
-				break
-			}
-			return fmt.Errorf("WebSocket error: %w", err)
-		}
+	time.Sleep(10 * time.Second)
 
-		// Parse server message
-		var serverMsg map[string]interface{}
-		if err := json.Unmarshal(message, &serverMsg); err != nil {
-			// Check if message is a JSON string (wrapped in quotes)
-			var msgString string
-			if err := json.Unmarshal(message, &msgString); err == nil {
-				// It's a string error message
-				if msgString == "AppNotFound" || msgString == "HostNotFound" || msgString == "HostNotPaired" || msgString == "InternalServerError" {
-					return fmt.Errorf("moonlight-web error: %s", msgString)
-				}
-			}
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("raw_message", string(message)).
-				Msg("Received non-JSON message")
-			continue
-		}
-
-		log.Debug().
-			Str("session_id", sessionID).
-			Interface("message", serverMsg).
-			Msg("Received initialization message")
-
-		// Check for error messages
-		if msgType, ok := serverMsg["type"].(string); ok {
-			if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" || msgType == "AppNotFound" {
-				return fmt.Errorf("moonlight-web error: %s", msgType)
-			}
-			if msgType == "ConnectionComplete" {
-				log.Info().
-					Str("session_id", sessionID).
-					Msg("Keepalive stream connected successfully")
-				connected = true
-				// Keep reading until WebSocket closes
-			}
-		}
-	}
-
-	if !connected {
-		return fmt.Errorf("keepalive session failed to initialize within timeout")
-	}
+	// Disconnect cleanly - app is now resumable for this client
+	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "kickoff complete")
+	conn.WriteMessage(websocket.CloseMessage, closeMsg)
 
 	log.Info().
 		Str("session_id", sessionID).
 		Str("wolf_app_id", wolfAppID).
-		Msg("Keepalive session established - running headless in moonlight-web (single mode)")
+		Msg("Kickoff complete - app is now resumable for this client (Moonlight certificate reused)")
 
 	return nil
 }
