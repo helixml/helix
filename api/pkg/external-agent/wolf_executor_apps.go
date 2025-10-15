@@ -1059,10 +1059,18 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Development mode: bind-mount Zed build and startup scripts from host
+	// Production mode: these are baked into the ZED_IMAGE
+	helixHostHome := os.Getenv("HELIX_HOST_HOME")
+	if helixHostHome != "" {
+		mounts = append(mounts,
+			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+		)
 	}
 
 	// Add SSH keys if available
