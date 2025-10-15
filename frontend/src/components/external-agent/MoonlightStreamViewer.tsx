@@ -13,6 +13,7 @@ import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
+import useApi from '../../hooks/useApi';
 
 interface MoonlightStreamViewerProps {
   sessionId: string;
@@ -63,6 +64,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
 
+  const helixApi = useApi();
 
   // Connect to stream
   const connect = useCallback(async () => {
@@ -71,6 +73,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setStatus('Connecting to streaming server...');
 
     try {
+      // Fetch Helix config to determine moonlight-web mode
+      const apiClient = helixApi.getApiClient();
+      const configResponse = await apiClient.v1ConfigDetail();
+      const moonlightWebMode = configResponse.data.moonlight_web_mode || 'single';
+
+      console.log(`MoonlightStreamViewer: Using moonlight-web mode: ${moonlightWebMode}`);
+
       // CRITICAL: Set credentials in sessionStorage BEFORE calling getApi
       // This prevents the blocking credential prompt modal
       sessionStorage.setItem('mlCredentials', 'helix');
@@ -103,23 +112,36 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         AV1_HIGH10_444: false
       };
 
-      // In multi-WebRTC architecture, backend already created the streamer via POST /api/streamers
-      // We don't need to query /api/apps - just connect to the existing streamer
-      // The app_id is only used for backward compatibility, streamer is identified by streamer_id
-
-      // Create Stream instance
-      // Connect to persistent streamer via peer endpoint
-      // Streamer ID format: "agent-{sessionId}" (created by backend via POST /api/streamers)
-      const streamerID = `agent-${sessionId}`;
-      const stream = new Stream(
-        api,
-        hostId, // Wolf host ID (always 0 for local)
-        appId, // App ID (not queried, backend already knows it)
-        settings,
-        supportedFormats,
-        [width, height],
-        streamerID // Streamer ID - connects to /api/streamers/{id}/peer
-      );
+      // Create Stream instance with mode-aware parameters
+      let stream;
+      if (moonlightWebMode === 'multi') {
+        // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
+        // Connect to persistent streamer via peer endpoint
+        const streamerID = `agent-${sessionId}`;
+        stream = new Stream(
+          api,
+          hostId, // Wolf host ID (always 0 for local)
+          appId, // App ID (backend already knows it)
+          settings,
+          supportedFormats,
+          [width, height],
+          "peer", // Peer mode - connects to existing streamer
+          undefined, // No session ID needed
+          streamerID // Streamer ID - connects to /api/streamers/{id}/peer
+        );
+      } else {
+        // Single mode (session-persistence): Join existing keepalive session
+        stream = new Stream(
+          api,
+          hostId, // Wolf host ID (always 0 for local)
+          appId, // Moonlight app ID
+          settings,
+          supportedFormats,
+          [width, height],
+          "join", // Join existing keepalive session
+          `agent-${sessionId}` // Keepalive session ID format
+        );
+      }
 
       streamRef.current = stream;
 
@@ -162,7 +184,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setIsConnecting(false);
       onError?.(errorMsg);
     }
-  }, [hostId, appId, width, height, audioEnabled, onConnectionChange, onError]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi]);
 
   // Disconnect
   const disconnect = useCallback(() => {
