@@ -335,8 +335,21 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
 	}
 
-	// Build request URL - use /api/streamers (new multi-WebRTC endpoint)
-	url := fmt.Sprintf("%s/api/streamers", moonlightWebURL)
+	// Check mode to determine which endpoint to query
+	moonlightMode := os.Getenv("MOONLIGHT_WEB_MODE")
+	if moonlightMode == "" {
+		moonlightMode = "single" // Default to single mode (session-persistence)
+	}
+
+	// Build request URL based on mode
+	var url string
+	if moonlightMode == "multi" {
+		// Multi-WebRTC mode: query streamers API
+		url = fmt.Sprintf("%s/api/streamers", moonlightWebURL)
+	} else {
+		// Single mode: query sessions API
+		url = fmt.Sprintf("%s/api/sessions", moonlightWebURL)
+	}
 
 	// Create HTTP client with timeout
 	client := &http.Client{
@@ -358,36 +371,65 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 	// Execute request
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to request moonlight-web streamers endpoint: %w", err)
+		return nil, fmt.Errorf("failed to request moonlight-web endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("moonlight-web streamers endpoint returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("moonlight-web endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response - new multi-WebRTC format
-	var streamersResponse struct {
-		Streamers []struct {
-			StreamerID         string `json:"streamer_id"`
-			Status             string `json:"status"`
-			MoonlightConnected bool   `json:"moonlight_connected"`
-			ConnectedPeers     int    `json:"connected_peers"`
-		} `json:"streamers"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&streamersResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode moonlight-web streamers response: %w", err)
-	}
+	// Parse response based on mode
+	var clients []MoonlightClientInfo
 
-	// Transform streamers to client info format
-	clients := make([]MoonlightClientInfo, len(streamersResponse.Streamers))
-	for i, streamer := range streamersResponse.Streamers {
-		clients[i] = MoonlightClientInfo{
-			SessionID:      streamer.StreamerID,
-			ClientUniqueID: nil, // Streamers don't expose client_unique_id directly
-			Mode:           "streamer", // New architecture uses persistent streamers
-			HasWebsocket:   streamer.ConnectedPeers > 0,
+	if moonlightMode == "multi" {
+		// Multi-WebRTC format: streamers API
+		var streamersResponse struct {
+			Streamers []struct {
+				StreamerID         string `json:"streamer_id"`
+				Status             string `json:"status"`
+				MoonlightConnected bool   `json:"moonlight_connected"`
+				ConnectedPeers     int    `json:"connected_peers"`
+			} `json:"streamers"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&streamersResponse); err != nil {
+			return nil, fmt.Errorf("failed to decode moonlight-web streamers response: %w", err)
+		}
+
+		// Transform streamers to client info format
+		clients = make([]MoonlightClientInfo, len(streamersResponse.Streamers))
+		for i, streamer := range streamersResponse.Streamers {
+			clients[i] = MoonlightClientInfo{
+				SessionID:      streamer.StreamerID,
+				ClientUniqueID: nil, // Streamers don't expose client_unique_id directly
+				Mode:           "streamer",                  // New architecture uses persistent streamers
+				HasWebsocket:   streamer.ConnectedPeers > 0,
+			}
+		}
+	} else {
+		// Single mode format: sessions API
+		var sessionsResponse struct {
+			Sessions []struct {
+				SessionID       string  `json:"session_id"`
+				ClientUniqueID  *string `json:"client_unique_id"` // Unique Moonlight client ID
+				Mode            string  `json:"mode"`
+				HasWebsocket    bool    `json:"has_websocket"`
+			} `json:"sessions"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&sessionsResponse); err != nil {
+			return nil, fmt.Errorf("failed to decode moonlight-web sessions response: %w", err)
+		}
+
+		// Transform to our struct
+		clients = make([]MoonlightClientInfo, len(sessionsResponse.Sessions))
+		for i, session := range sessionsResponse.Sessions {
+			clients[i] = MoonlightClientInfo{
+				SessionID:      session.SessionID,
+				ClientUniqueID: session.ClientUniqueID,
+				Mode:           session.Mode,
+				HasWebsocket:   session.HasWebsocket,
+			}
 		}
 	}
 
