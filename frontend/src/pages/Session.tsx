@@ -52,6 +52,7 @@ import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
 import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
+import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 
 // Add new interfaces for virtualization
@@ -1289,6 +1290,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 rdpViewerHeight={rdpViewerHeight}
                 onRdpViewerHeightChange={setRdpViewerHeight}
               />
+              {/* Show Wolf app state for external agent sessions */}
+              {isExternalAgent && (
+                <Box sx={{ px: 2, pt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Wolf App State:
+                  </Typography>
+                  <WolfAppStateIndicator sessionId={sessionID} />
+                </Box>
+              )}
             </Box>
           )}
 

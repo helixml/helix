@@ -5011,6 +5011,67 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/wolf-app-state": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the current Wolf app state for an external agent session (absent/running/resumable)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get Wolf app state for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionWolfAppStateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/zed-config": {
             "get": {
                 "security": [
@@ -10169,6 +10230,29 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "work_session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionWolfAppStateResponse": {
+            "type": "object",
+            "properties": {
+                "client_unique_id": {
+                    "description": "Unique Moonlight client ID for this agent",
+                    "type": "string"
+                },
+                "has_websocket": {
+                    "description": "Is a browser client currently connected?",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "\"absent\", \"running\", \"resumable\"",
+                    "type": "string"
+                },
+                "wolf_app_id": {
                     "type": "string"
                 }
             }

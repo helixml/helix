@@ -69,7 +69,8 @@ export class Stream {
         viewerScreenSize: [number, number],
         mode: "create" | "join" | "keepalive" | "peer" = "create",
         sessionId?: string,
-        streamerId?: string
+        streamerId?: string,
+        clientUniqueId?: string | null
     ) {
         this.mode = mode
         this.streamerId = streamerId
@@ -106,11 +107,10 @@ export class Stream {
                     credentials: this.api.credentials,
                     session_id: finalSessionId,
                     mode: mode,
-                    // Browser clients use null for client_unique_id because:
-                    // - In "create" mode: Each browser creates a new session with new pairing
-                    // - In "join" mode: Browser joins existing keepalive session that already has unique client_unique_id
-                    //   (the keepalive was created by Helix API with unique ID, browser reuses that MoonlightHost)
-                    client_unique_id: null,
+                    // KICKOFF APPROACH: Use explicit client_unique_id to trigger Moonlight RESUME
+                    // - If provided: Use it (for external agents - same as kickoff session)
+                    // - If null/undefined: Let moonlight-web assign one (normal browser behavior)
+                    client_unique_id: clientUniqueId !== undefined ? clientUniqueId : null,
                     host_id: this.hostId,
                     app_id: this.appId,
                     bitrate: this.settings.bitrate,
