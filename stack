@@ -674,13 +674,16 @@ function rebuild-wolf() {
     echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
   fi
 
-  # Remove and recreate Wolf container to use updated image
-  echo "🔄 Removing old Wolf container and recreating with updated image..."
-  docker compose -f docker-compose.dev.yaml rm -f wolf
-  docker compose -f docker-compose.dev.yaml up -d wolf
+  # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
+  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔄 Removing old Wolf container and recreating with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f wolf
+    docker compose -f docker-compose.dev.yaml up -d wolf
 
-  echo "✅ Wolf container rebuilt and restarted successfully"
-  echo "🐺 Wolf is ready for testing with latest source code changes"
+    echo "✅ Wolf container rebuilt and restarted successfully"
+    echo "🐺 Wolf is ready for testing with latest source code changes"
+  fi
+
   echo "📦 Registry images pushed"
 }
 
@@ -830,6 +833,9 @@ function build-and-push-helix-code() {
   echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, and Moonlight Web"
   echo ""
 
+  # Skip dev service restarts during production builds
+  export SKIP_DEV_RESTART=1
+
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
   local BUILD_START=$(date +%s)
@@ -852,7 +858,7 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if rebuild-wolf; then
     echo "✅ Wolf built and pushed successfully"
-    ((COMPLETED_BUILDS++))
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
     echo "❌ Failed to build Wolf"
     FAILED_BUILDS+=("wolf")
@@ -865,7 +871,7 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if build-sway; then
     echo "✅ Sway+Zed agent built and pushed successfully"
-    ((COMPLETED_BUILDS++))
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
     echo "❌ Failed to build Sway+Zed agent"
     FAILED_BUILDS+=("zed-agent")
@@ -878,7 +884,7 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if build-moonlight-web; then
     echo "✅ Moonlight Web built and pushed successfully"
-    ((COMPLETED_BUILDS++))
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
     echo "❌ Failed to build Moonlight Web"
     FAILED_BUILDS+=("moonlight-web")
