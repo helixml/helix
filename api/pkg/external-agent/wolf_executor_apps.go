@@ -688,7 +688,12 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, w
 		Str("session_id", sessionID).
 		Str("streamer_id", streamerID).
 		Str("wolf_app_id", wolfAppID).
-		Msg("Creating persistent streamer via REST API")
+		Str("url", moonlightWebURL+"/api/streamers").
+		Msg("🚀 [Helix] Creating persistent streamer via REST API")
+
+	log.Info().
+		Str("request_body", string(createJSON)).
+		Msg("🚀 [Helix] POST /api/streamers request body")
 
 	// POST /api/streamers
 	httpClient := &http.Client{Timeout: 30 * time.Second}
@@ -700,20 +705,45 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, w
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("MOONLIGHT_CREDENTIALS"))
 
+	log.Info().
+		Str("authorization", "Bearer "+os.Getenv("MOONLIGHT_CREDENTIALS")).
+		Msg("🚀 [Helix] Sending POST request to moonlight-web...")
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("url", moonlightWebURL+"/api/streamers").
+			Msg("🚀 [Helix] POST /api/streamers request FAILED")
 		return fmt.Errorf("failed to POST /api/streamers: %w", err)
 	}
 	defer resp.Body.Close()
 
+	log.Info().
+		Int("status_code", resp.StatusCode).
+		Msg("🚀 [Helix] Got response from POST /api/streamers")
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Error().
+			Int("status", resp.StatusCode).
+			Str("body", string(body)).
+			Msg("🚀 [Helix] POST /api/streamers returned non-200 status")
 		return fmt.Errorf("POST /api/streamers failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
+	body, _ := io.ReadAll(resp.Body)
+	log.Info().
+		Str("response_body", string(body)).
+		Msg("🚀 [Helix] POST /api/streamers response body")
+
 	var streamerInfo map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&streamerInfo); err != nil {
+	if err := json.Unmarshal(body, &streamerInfo); err != nil {
+		log.Error().
+			Err(err).
+			Str("body", string(body)).
+			Msg("🚀 [Helix] Failed to parse streamer response")
 		return fmt.Errorf("failed to parse streamer response: %w", err)
 	}
 
@@ -721,7 +751,7 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, w
 		Str("session_id", sessionID).
 		Str("streamer_id", streamerID).
 		Interface("streamer_info", streamerInfo).
-		Msg("Persistent streamer created successfully")
+		Msg("✅ [Helix] Persistent streamer created successfully!")
 
 	return nil
 }
