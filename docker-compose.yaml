@@ -10,6 +10,7 @@ services:
     # connect to Helix
     ports:
       - ${API_PORT:-8080}:8080
+      - "3478:3478/udp"  # TURN server for WebRTC (Helix Code)
     restart: always
     env_file:
       - .env
@@ -48,9 +49,21 @@ services:
       # Only creates providers that don't already exist (won't overwrite existing ones)
       # Example: DYNAMIC_PROVIDERS=groq:gsk_xxxx:https://api.groq.com/openai/v1,cerebras:csk_xxxx:https://api.cerebras.ai/v1
       - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+      # Wolf integration for Helix Code (External Agents / PDEs)
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
+      # TURN server configuration for WebRTC (Helix Code)
+      - TURN_ENABLED=${TURN_ENABLED:-false}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      - TURN_PORT=${TURN_PORT:-3478}
+      - TURN_REALM=${TURN_REALM:-helix.ai}
+      - TURN_USERNAME=${TURN_USERNAME:-helix}
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
+      # Bind-mount from host (Wolf creates socket here) - only needed for code profile
+      - /var/run/wolf:/var/run/wolf:rw
     depends_on:
       - postgres
       - keycloak
@@ -182,7 +195,7 @@ services:
       - "host.docker.internal:host-gateway"
   kodit:
     profiles: [kodit]
-    image: registry.helix.ml/helix/kodit:latest
+    image: registry.helixml.tech/helix/kodit:latest
     # ports:
     #   - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
@@ -239,6 +252,86 @@ services:
       - "5432"
     restart: unless-stopped
 
+  # Helix Code services (Wolf streaming + Zed agents + Moonlight Web)
+  wolf:
+    profiles: [code]
+    image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+      # Wolf-UI required environment variables
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      # Production logging (errors only)
+      - WOLF_LOG_LEVEL=ERROR
+      - GST_DEBUG=1
+      # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      # SSL certificate paths
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      # Performance optimization
+      - WOLF_USE_ZERO_COPY=FALSE
+      # Internal moonlight-web pairing PIN (secure random, shared via env)
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+    volumes:
+      - ./wolf/:/etc/wolf/cfg/
+      - /tmp/sockets:/tmp/sockets:rw
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - /dev/:/dev/:rw
+      - /run/udev:/run/udev:rw
+      # Bind-mount to host so wolf-ui containers can bind-mount it
+      - /var/run/wolf:/var/run/wolf:rw
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+    devices:
+      - /dev/dri
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports
+      - "47984:47984"     # HTTPS
+      - "47989:47989"     # HTTP (pairing, serverinfo)
+      - "48010:48010"     # RTSP
+      - "47415:47415/udp" # Discovery
+      - "47999:47999/udp" # Control
+      - "48100:48100/udp" # Video RTP
+      - "48200:48200/udp" # Audio RTP
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  # Moonlight Web Stream - Browser-based Moonlight streaming
+  moonlight-web:
+    profiles: [code]
+    image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
+    ports:
+      - "8081:8080"  # Web interface
+      - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+    networks:
+      - default
+    environment:
+      # Production logging
+      - RUST_LOG=moonlight_common=info,moonlight_web=info
+      # Internal pairing PIN (shared with Wolf, secure random in production)
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+    volumes:
+      - ./moonlight-web-config:/app/server:rw
+    restart: unless-stopped
+    depends_on:
+      - wolf
+
 volumes:
   helix-postgres-db:
   helix-pgvector-db:
@@ -251,3 +344,6 @@ volumes:
 networks:
   default:
     name: helix_default
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16

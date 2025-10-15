@@ -168,8 +168,9 @@ function build-zed() {
 
   # Build Zed based on build type
   if [ "$BUILD_TYPE" = "release" ]; then
-    echo "🔨 Building in release mode (optimized, slower build)..."
-    if RUST_LOG=info cargo build --release --features external_websocket_sync; then
+    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
+    # Use RUSTFLAGS to enable stripping during build (better than post-build strip)
+    if RUSTFLAGS="-C link-arg=-s" RUST_LOG=info cargo build --release --features external_websocket_sync; then
       BINARY_PATH="target/release/zed"
     else
       echo "❌ Zed release build failed"
@@ -221,6 +222,11 @@ function build-zed() {
     echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
   fi
 
+  # Note: Release builds are already stripped via RUSTFLAGS during compilation
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "✅ Binary built with symbols stripped (via linker flags)"
+  fi
+
   # Create test configuration
   cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
 {
@@ -246,8 +252,8 @@ EOF
   echo ""
   echo "Next steps:"
   echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
-  echo "  2. Build zed-agent: ./stack build-zed-agent"
-  echo "  3. Start services: ./stack zed-agent-up"
+  echo "  2. Build Sway container with Zed: ./stack build-sway"
+  echo "  3. Start services: ./stack start"
 }
 
 function start() {
@@ -567,6 +573,52 @@ function rebuild() {
   docker compose -f docker-compose.dev.yaml up -d --build $@
 }
 
+# Helper function to build image tags string (commit hash + git tag if available)
+function get_image_tags() {
+  local OLD_IFS=$IFS
+  IFS=' '  # Temporarily use space as IFS for proper word splitting
+
+  local IMAGE_BASE=$1
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  local TAG_STRING="-t ${IMAGE_BASE}:${COMMIT_HASH}"
+
+  if [ -n "$GIT_TAG" ]; then
+    TAG_STRING="${TAG_STRING} -t ${IMAGE_BASE}:${GIT_TAG}"
+    echo "🏷️  Git tag detected: ${GIT_TAG}" >&2
+  fi
+
+  printf "%s" "${TAG_STRING}"  # Use printf to avoid trailing newline issues
+
+  IFS=$OLD_IFS
+}
+
+# Helper function to push all image tags
+function push_image_tags() {
+  local IMAGE_BASE=$1
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  # Always push commit hash tag
+  echo "📤 Pushing ${IMAGE_BASE}:${COMMIT_HASH}"
+  if ! docker push "${IMAGE_BASE}:${COMMIT_HASH}"; then
+    echo "⚠️  Failed to push ${IMAGE_BASE}:${COMMIT_HASH}"
+    return 1
+  fi
+
+  # Also push git tag if available
+  if [ -n "$GIT_TAG" ]; then
+    echo "📤 Pushing ${IMAGE_BASE}:${GIT_TAG}"
+    if ! docker push "${IMAGE_BASE}:${GIT_TAG}"; then
+      echo "⚠️  Failed to push ${IMAGE_BASE}:${GIT_TAG}"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
 function rebuild-wolf() {
   echo "🐺 Rebuilding Wolf container with latest source code..."
 
@@ -584,10 +636,28 @@ function rebuild-wolf() {
     exit 1
   fi
 
-  # Build Wolf container with fixed source code
+  # Build Wolf container with image tags
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
   echo "🔨 Building Wolf container from source..."
   cd ../wolf
-  if docker build -f docker/wolf.Dockerfile -t wolf:helix-fixed .; then
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f docker/wolf.Dockerfile \
+      -t wolf:helix-fixed \
+      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/wolf:${GIT_TAG}" \
+      .
+  else
+    docker build -f docker/wolf.Dockerfile \
+      -t wolf:helix-fixed \
+      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
     echo "✅ Wolf container built successfully"
   else
     echo "❌ Failed to build Wolf container"
@@ -596,6 +666,14 @@ function rebuild-wolf() {
   fi
   cd - > /dev/null
 
+  # Push to registry
+  local IMAGE_BASE="registry.helixml.tech/helix/wolf"
+  if push_image_tags "$IMAGE_BASE"; then
+    echo "✅ Wolf images pushed to registry successfully"
+  else
+    echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
+  fi
+
   # Remove and recreate Wolf container to use updated image
   echo "🔄 Removing old Wolf container and recreating with updated image..."
   docker compose -f docker-compose.dev.yaml rm -f wolf
@@ -603,6 +681,7 @@ function rebuild-wolf() {
 
   echo "✅ Wolf container rebuilt and restarted successfully"
   echo "🐺 Wolf is ready for testing with latest source code changes"
+  echo "📦 Registry images pushed"
 }
 
 function build-xfce() {
@@ -626,14 +705,44 @@ function build-xfce() {
 function build-sway() {
   echo "🪟  Building custom Sway container for Personal Dev Environments..."
 
-  # Build the custom Sway image
-  echo "🔨 Building helix-sway:latest container..."
-  if docker build -f Dockerfile.sway-helix -t helix-sway:latest .; then
+  # Check if Zed binary exists
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed"
+  fi
+
+  # Build the custom Sway image with image tags
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-sway:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.sway-helix \
+      -t helix-sway:latest \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.sway-helix \
+      -t helix-sway:latest \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
     echo "✅ Sway container built successfully"
     echo "🪟  Custom Sway image ready: helix-sway:latest"
     echo ""
     echo "Features added:"
     echo "  - Sway tiling window manager with waybar"
+    echo "  - Zed editor with External WebSocket Thread Sync"
     echo "  - Firefox, Ghostty terminal, OnlyOffice"
     echo "  - Screenshot server (grim-based) for Moonlight streaming"
     echo "  - Passwordless sudo for development"
@@ -641,6 +750,185 @@ function build-sway() {
   else
     echo "❌ Failed to build Sway container"
     exit 1
+  fi
+
+  # Push to registry
+  local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
+  if push_image_tags "$IMAGE_BASE"; then
+    echo "✅ Sway/Zed agent images pushed to registry successfully"
+  else
+    echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
+  fi
+
+  echo "✅ Sway container build and push completed"
+  echo "📦 Registry images pushed"
+}
+
+function build-moonlight-web() {
+  echo "🌙 Building Moonlight Web container..."
+
+  # Check if moonlight-web source directory exists
+  if [ ! -d "../moonlight-web-stream" ]; then
+    echo "❌ ERROR: Moonlight Web source code not found at ../moonlight-web-stream/"
+    echo ""
+    echo "The Moonlight Web integration requires the source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
+    echo "  cd helix"
+    echo "  ./stack build-moonlight-web"
+    exit 1
+  fi
+
+  # Build Moonlight Web container using docker compose
+  echo "🔨 Building Moonlight Web container from source..."
+  if docker compose -f docker-compose.dev.yaml build moonlight-web; then
+    echo "✅ Moonlight Web container built successfully"
+  else
+    echo "❌ Failed to build Moonlight Web container"
+    return 1
+  fi
+
+  # Tag the built image with registry tags
+  echo "🏷️  Tagging image for registry..."
+  local LOCAL_IMAGE=$(docker compose -f docker-compose.dev.yaml config | grep -A 5 "moonlight-web:" | grep "image:" | awk '{print $2}')
+  if [ -z "$LOCAL_IMAGE" ]; then
+    # If no explicit image tag in compose file, compose creates a default one
+    LOCAL_IMAGE="helix-moonlight-web:latest"
+  fi
+
+  local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  # Tag with commit hash
+  docker tag "${LOCAL_IMAGE}" "${IMAGE_BASE}:${COMMIT_HASH}"
+
+  # Tag with git tag if available
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker tag "${LOCAL_IMAGE}" "${IMAGE_BASE}:${GIT_TAG}"
+  fi
+
+  # Push to registry
+  if push_image_tags "$IMAGE_BASE"; then
+    echo "✅ Moonlight Web images pushed to registry successfully"
+  else
+    echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
+  fi
+
+  echo "✅ Moonlight Web build and push completed"
+  echo "🌙 Moonlight Web is ready for deployment"
+  echo "📦 Registry images pushed"
+}
+
+function build-and-push-helix-code() {
+  echo "🚀 Building and pushing Helix Code components for production deployment"
+  echo "========================================================================"
+  echo ""
+  echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, and Moonlight Web"
+  echo ""
+
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+  local BUILD_START=$(date +%s)
+  local FAILED_BUILDS=()
+
+  echo "📝 Commit hash: ${COMMIT_HASH}"
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag: ${GIT_TAG}"
+  fi
+  echo "📅 Build started: $(date)"
+  echo ""
+
+  # Track build status
+  local TOTAL_BUILDS=3
+  local COMPLETED_BUILDS=0
+
+  # 1. Build Wolf
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if rebuild-wolf; then
+    echo "✅ Wolf built and pushed successfully"
+    ((COMPLETED_BUILDS++))
+  else
+    echo "❌ Failed to build Wolf"
+    FAILED_BUILDS+=("wolf")
+  fi
+  echo ""
+
+  # 2. Build Sway+Zed agent (PDEs/External Agents)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [2/$TOTAL_BUILDS] Building Sway+Zed agent (PDEs/External Agents)..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if build-sway; then
+    echo "✅ Sway+Zed agent built and pushed successfully"
+    ((COMPLETED_BUILDS++))
+  else
+    echo "❌ Failed to build Sway+Zed agent"
+    FAILED_BUILDS+=("zed-agent")
+  fi
+  echo ""
+
+  # 3. Build Moonlight Web
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [3/$TOTAL_BUILDS] Building Moonlight Web..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if build-moonlight-web; then
+    echo "✅ Moonlight Web built and pushed successfully"
+    ((COMPLETED_BUILDS++))
+  else
+    echo "❌ Failed to build Moonlight Web"
+    FAILED_BUILDS+=("moonlight-web")
+  fi
+  echo ""
+
+  # Build summary
+  local BUILD_END=$(date +%s)
+  local BUILD_DURATION=$((BUILD_END - BUILD_START))
+  local BUILD_MINUTES=$((BUILD_DURATION / 60))
+  local BUILD_SECONDS=$((BUILD_DURATION % 60))
+
+  echo "=========================================================================="
+  echo "🎉 Build Summary"
+  echo "=========================================================================="
+  echo "📊 Completed: ${COMPLETED_BUILDS}/${TOTAL_BUILDS} builds"
+  echo "⏱️  Duration: ${BUILD_MINUTES}m ${BUILD_SECONDS}s"
+  echo "📝 Commit: ${COMMIT_HASH}"
+  echo "🏷️  Registry: registry.helixml.tech/helix/"
+  echo ""
+
+  if [ ${#FAILED_BUILDS[@]} -eq 0 ]; then
+    echo "✅ All images built and pushed successfully!"
+    echo ""
+    echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
+    echo "   • registry.helixml.tech/helix/wolf:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}"
+    if [ -n "$GIT_TAG" ]; then
+      echo ""
+      echo "📦 Also tagged with git tag (${GIT_TAG}):"
+      echo "   • registry.helixml.tech/helix/wolf:${GIT_TAG}"
+      echo "   • registry.helixml.tech/helix/zed-agent:${GIT_TAG}"
+      echo "   • registry.helixml.tech/helix/moonlight-web:${GIT_TAG}"
+    fi
+    echo ""
+    echo "🚀 Ready for production deployment!"
+    echo ""
+    echo "Note: API and Frontend images are built by CI and available at:"
+    echo "   • registry.helixml.tech/helix/api:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/frontend:${COMMIT_HASH}"
+    return 0
+  else
+    echo "⚠️  Some builds failed:"
+    for failed in "${FAILED_BUILDS[@]}"; do
+      echo "   ✗ ${failed}"
+    done
+    echo ""
+    echo "Please review the errors above and retry failed builds individually."
+    return 1
   fi
 }
 
@@ -984,11 +1272,16 @@ function help() {
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
-  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code"
+  echo ""
+  echo "Production build commands:"
+  echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
+  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
+  echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
+  echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
-  echo "  build-zed          - Build Zed in release mode (only mode that works)"
+  echo "  build-zed [dev|release] - Build Zed binary (stripped in release mode)"
   echo "  build-zed-agent    - Build Zed agent Docker image"
   echo "  zed-agent-up       - Start Zed agent services"
   echo "  zed-agent-down     - Stop Zed agent services"

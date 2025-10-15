@@ -28,6 +28,7 @@ EXTERNAL_ZED_AGENT=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
+CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
@@ -151,6 +152,7 @@ Options:
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
+  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
@@ -201,6 +203,9 @@ Examples:
 11. Install on Windows Git Bash (requires Docker Desktop):
    ./install.sh --cli --controlplane
 
+12. Install with Helix Code (External Agents, PDEs, streaming):
+   ./install.sh --cli --controlplane --code --api-host https://helix.mycompany.com
+
 EOF
 }
 
@@ -241,6 +246,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --kodit)
             KODIT=true
+            shift
+            ;;
+        --code)
+            CODE=true
             shift
             ;;
         --api-host=*)
@@ -807,6 +816,9 @@ EOF
     if [[ -n "$KODIT" ]]; then
         COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
     fi
+    if [[ -n "$CODE" ]]; then
+        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
+    fi
 
     # Set RAG provider
     RAG_DEFAULT_PROVIDER=""
@@ -940,6 +952,85 @@ INFERENCE_PROVIDER=helix
 EOF
     fi
 
+    # Add Helix Code configuration if --code flag is set
+    if [[ -n "$CODE" ]]; then
+        # Generate TURN password and moonlight pairing PIN
+        TURN_PASSWORD=$(generate_password)
+        MOONLIGHT_PIN=$(generate_password)
+
+        # Extract hostname from API_HOST for TURN server
+        TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+
+        cat << EOF >> "$ENV_FILE"
+
+## Helix Code Configuration (External Agents / PDEs)
+# Wolf streaming platform
+WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${HELIX_VERSION:-latest}
+
+# TURN server for WebRTC NAT traversal
+TURN_ENABLED=true
+TURN_PUBLIC_IP=${TURN_HOST}
+TURN_PORT=3478
+TURN_REALM=helix.ai
+TURN_USERNAME=helix
+TURN_PASSWORD=${TURN_PASSWORD}
+
+# Moonlight Web pairing (internal, secure random)
+MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
+EOF
+
+        # Generate moonlight-web config from template
+        echo "Generating Moonlight Web configuration..."
+        mkdir -p "$INSTALL_DIR/moonlight-web-config"
+
+        cat << EOF > "$INSTALL_DIR/moonlight-web-config/config.json"
+{
+  "bind_address": "0.0.0.0:8080",
+  "credentials": "helix",
+  "webrtc_ice_servers": [
+    {
+      "urls": [
+        "stun:l.google.com:19302",
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
+      ]
+    },
+    {
+      "urls": [
+        "turn:${TURN_HOST}:3478?transport=udp"
+      ],
+      "username": "helix",
+      "credential": "${TURN_PASSWORD}"
+    }
+  ],
+  "webrtc_port_range": {
+    "min": 40000,
+    "max": 40010
+  },
+  "webrtc_network_types": [
+    "udp4",
+    "udp6"
+  ]
+}
+EOF
+        echo "Moonlight Web config created at $INSTALL_DIR/moonlight-web-config/config.json"
+
+        # Create Wolf directory for SSL certificates
+        # Wolf uses default config from image, only needs SSL certs
+        mkdir -p "$INSTALL_DIR/wolf"
+
+        # Generate self-signed certificates for Wolf HTTPS
+        echo "Generating self-signed certificates for Wolf streaming..."
+        openssl req -x509 -newkey rsa:4096 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
+            -days 365 -nodes -subj "/CN=${TURN_HOST}" 2>/dev/null
+
+        echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
+    fi
+
     # Continue with the rest of the .env file
     cat << EOF >> "$ENV_FILE"
 
@@ -1032,6 +1123,19 @@ EOF"
         echo "│"
         echo "│ If you haven't already, set up DNS for your domain:"
         echo "│   - Create an A record for $(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||') pointing to your server's IP address"
+    fi
+    if [[ -n "$CODE" ]]; then
+        echo "│"
+        echo "│ ⚠️  Helix Code requires additional firewall ports to be open:"
+        echo "│   - TCP 8080: Main API (or your custom API_PORT)"
+        echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
+        echo "│   - UDP 40000-40010: WebRTC media ports (moonlight-web)"
+        echo "│   - TCP 47989: Moonlight HTTP (pairing)"
+        echo "│   - TCP 47984: Moonlight HTTPS"
+        echo "│   - UDP 47999: Moonlight control"
+        echo "│   - TCP/UDP 48010: Moonlight RTSP"
+        echo "│   - UDP 48100: Moonlight video RTP"
+        echo "│   - UDP 48200: Moonlight audio RTP"
     fi
     echo "│"
     echo "│ Start the Helix services by running:"
