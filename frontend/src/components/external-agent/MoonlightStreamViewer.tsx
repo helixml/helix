@@ -103,44 +103,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         AV1_HIGH10_444: false
       };
 
-      // If we have a wolfLobbyId, fetch apps to find the correct app ID
-      let actualAppId = appId;
-      if (wolfLobbyId) {
-        try {
-          // Use the authenticated API client to fetch apps
-          const apps = await apiGetApps(api, { host_id: hostId });
-
-          // Find app matching our session by title (format: "Agent {last4}")
-          if (apps && apps.length > 0) {
-            const shortId = sessionId.slice(-4);
-            const expectedTitle = `Agent ${shortId}`;
-            const matchingApp = apps.find((app: any) =>
-              app.title === expectedTitle || app.app_id.toString() === wolfLobbyId
-            );
-
-            if (matchingApp) {
-              actualAppId = matchingApp.app_id;
-              console.log(`Found matching Moonlight app: ${actualAppId}`, matchingApp);
-              setStatus(`Connecting to: ${matchingApp.title || actualAppId}`);
-            } else {
-              // Fallback to first app if no match (shouldn't happen)
-              actualAppId = apps[0].app_id;
-              console.warn('No matching app found, using first app:', apps[0]);
-              setStatus(`Connecting to app: ${apps[0].title || actualAppId}`);
-            }
-          } else {
-            console.warn('No Moonlight apps available');
-            setError('No streaming apps available');
-            setIsConnecting(false);
-            return;
-          }
-        } catch (err: any) {
-          console.warn('Failed to fetch Moonlight apps:', err.message);
-          setError('Failed to fetch streaming apps');
-          setIsConnecting(false);
-          return;
-        }
-      }
+      // In multi-WebRTC architecture, backend already created the streamer via POST /api/streamers
+      // We don't need to query /api/apps - just connect to the existing streamer
+      // The app_id is only used for backward compatibility, streamer is identified by streamer_id
 
       // Create Stream instance
       // Connect to persistent streamer via peer endpoint
@@ -149,7 +114,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       const stream = new Stream(
         api,
         hostId, // Wolf host ID (always 0 for local)
-        actualAppId, // Moonlight app ID
+        appId, // App ID (not queried, backend already knows it)
         settings,
         supportedFormats,
         [width, height],
