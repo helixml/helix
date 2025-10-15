@@ -58,6 +58,8 @@ func (c *Crisp) reconcile(ctx context.Context) error {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
 
+	log.Info().Msg("reconciling Crisp bots")
+
 	// Find apps with Crisp triggers
 	crispApps := make(map[string]*types.CrispTrigger)
 	for _, app := range apps {
@@ -68,6 +70,8 @@ func (c *Crisp) reconcile(ctx context.Context) error {
 			}
 		}
 	}
+
+	log.Info().Int("crisp_apps", len(crispApps)).Msg("crisp apps")
 
 	c.botMu.Lock()
 	defer c.botMu.Unlock()
@@ -140,7 +144,7 @@ func (c *Crisp) triggerConfigEqual(a, b *types.CrispTrigger) bool {
 	}
 
 	return a.Identifier == b.Identifier &&
-		a.Token == b.Token
+		a.Token == b.Token && b.Nickname == a.Nickname
 }
 
 // Stop stops all running Crisp bots
