@@ -784,56 +784,55 @@ function build-moonlight-web() {
     exit 1
   fi
 
-  # Build Moonlight Web container using docker compose
+  # Build Moonlight Web container with image tags (like Wolf)
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
   echo "🔨 Building Moonlight Web container from source..."
-  if docker compose -f docker-compose.dev.yaml build moonlight-web; then
+  cd ../moonlight-web-stream
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile \
+      -t helix-moonlight-web:helix-fixed \
+      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/moonlight-web:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile \
+      -t helix-moonlight-web:helix-fixed \
+      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
     echo "✅ Moonlight Web container built successfully"
   else
     echo "❌ Failed to build Moonlight Web container"
+    cd - > /dev/null
     return 1
   fi
+  cd - > /dev/null
 
-  # Push to registry only in production mode (when SKIP_DEV_RESTART is set)
-  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
-    # Tag the built image with registry tags
-    echo "🏷️  Tagging image for registry..."
-    local LOCAL_IMAGE=$(docker compose -f docker-compose.dev.yaml config | grep -A 5 "moonlight-web:" | grep "image:" | awk '{print $2}')
-    if [ -z "$LOCAL_IMAGE" ]; then
-      # If no explicit image tag in compose file, compose creates a default one
-      LOCAL_IMAGE="helix-moonlight-web:latest"
-    fi
-
-    local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
-    local COMMIT_HASH=$(git rev-parse --short HEAD)
-    local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-
-    # Tag with commit hash
-    docker tag "${LOCAL_IMAGE}" "${IMAGE_BASE}:${COMMIT_HASH}"
-
-    # Tag with git tag if available
-    if [ -n "$GIT_TAG" ]; then
-      echo "🏷️  Git tag detected: ${GIT_TAG}"
-      docker tag "${LOCAL_IMAGE}" "${IMAGE_BASE}:${GIT_TAG}"
-    fi
-
-    # Push to registry
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Moonlight Web images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
-    fi
-
-    echo "✅ Moonlight Web build and push completed"
-    echo "📦 Registry images pushed"
+  # Push to registry
+  local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
+  if push_image_tags "$IMAGE_BASE"; then
+    echo "✅ Moonlight Web images pushed to registry successfully"
   else
-    # Local development mode: recreate container with updated image
-    echo "🔄 Recreating Moonlight Web container with updated image..."
-    docker compose -f docker-compose.dev.yaml down moonlight-web
+    echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
+  fi
+
+  # Remove and recreate Moonlight Web container to use updated image (skip if SKIP_DEV_RESTART is set)
+  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔄 Removing old Moonlight Web container and recreating with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f moonlight-web
     docker compose -f docker-compose.dev.yaml up -d moonlight-web
 
     echo "✅ Moonlight Web container rebuilt and restarted successfully"
     echo "🌙 Moonlight Web is ready for testing with latest source code changes"
   fi
+
+  echo "📦 Registry images pushed"
 }
 
 function build-and-push-helix-code() {
