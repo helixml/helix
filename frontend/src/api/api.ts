@@ -778,6 +778,17 @@ export interface ServerSessionHistoryResponse {
   work_session_id?: string;
 }
 
+export interface ServerSessionWolfAppStateResponse {
+  /** Unique Moonlight client ID for this agent */
+  client_unique_id?: string;
+  /** Is a browser client currently connected? */
+  has_websocket?: boolean;
+  session_id?: string;
+  /** "absent", "running", "resumable" */
+  state?: string;
+  wolf_app_id?: string;
+}
+
 export interface ServerSimpleSampleProject {
   category?: string;
   default_branch?: string;
@@ -6709,6 +6720,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, SystemHTTPError>({
         path: `/api/v1/sessions/${id}/streaming-access/${grantId}`,
         method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Returns the current Wolf app state for an external agent session (absent/running/resumable)
+     *
+     * @tags Sessions
+     * @name V1SessionsWolfAppStateDetail
+     * @summary Get Wolf app state for a session
+     * @request GET:/api/v1/sessions/{id}/wolf-app-state
+     * @secure
+     */
+    v1SessionsWolfAppStateDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServerSessionWolfAppStateResponse, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/wolf-app-state`,
+        method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",
