@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -236,6 +237,12 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		}
 	}
 
+	// Get Moonlight Web mode from environment
+	moonlightWebMode := os.Getenv("MOONLIGHT_WEB_MODE")
+	if moonlightWebMode == "" {
+		moonlightWebMode = "single" // Default to single mode (session-persistence)
+	}
+
 	config := types.ServerConfigForFrontend{
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
@@ -253,6 +260,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		MoonlightWebMode:                       moonlightWebMode,
 	}
 
 	return config, nil
