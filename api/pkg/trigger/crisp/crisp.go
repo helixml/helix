@@ -35,6 +35,7 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 // and start the bot for each of them. Once running, they are added into the map.
 // If they get disabled, the bot will be stopped and removed from the map.
 func (c *Crisp) Start(ctx context.Context) error {
+	log.Info().Msg("starting Crisp bots reconciler and runner")
 	// Reconcile bots
 	for {
 		err := c.reconcile(ctx)
