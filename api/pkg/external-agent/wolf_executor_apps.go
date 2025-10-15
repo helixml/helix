@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -645,9 +646,25 @@ func (w *AppWolfExecutor) FindContainerBySessionID(ctx context.Context, helixSes
 	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
 }
 
-// connectKeepaliveWebSocketForApp creates persistent streamer via REST API (multi-WebRTC architecture)
-// This creates a Moonlight stream that persists independently of WebRTC peer connections
+// connectKeepaliveWebSocketForApp switches between single and multi modes based on MOONLIGHT_WEB_MODE env var
 func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, wolfAppID, sessionID string, displayWidth, displayHeight, displayFPS int) error {
+	moonlightMode := os.Getenv("MOONLIGHT_WEB_MODE")
+	if moonlightMode == "" {
+		moonlightMode = "single" // Default to single mode (session-persistence)
+	}
+
+	if moonlightMode == "multi" {
+		// Multi-WebRTC mode: Use streamers REST API
+		return w.connectKeepaliveWebSocketForAppMulti(ctx, wolfAppID, sessionID, displayWidth, displayHeight, displayFPS)
+	} else {
+		// Single mode: Use WebSocket with keepalive
+		return w.connectKeepaliveWebSocketForAppSingle(ctx, wolfAppID, sessionID, displayWidth, displayHeight, displayFPS)
+	}
+}
+
+// connectKeepaliveWebSocketForAppMulti creates persistent streamer via REST API (multi-WebRTC architecture)
+// This creates a Moonlight stream that persists independently of WebRTC peer connections
+func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppMulti(ctx context.Context, wolfAppID, sessionID string, displayWidth, displayHeight, displayFPS int) error {
 	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
 	if moonlightWebURL == "" {
 		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
@@ -752,6 +769,163 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForApp(ctx context.Context, w
 		Str("streamer_id", streamerID).
 		Interface("streamer_info", streamerInfo).
 		Msg("✅ [Helix] Persistent streamer created successfully!")
+
+	return nil
+}
+
+// connectKeepaliveWebSocketForAppSingle creates session via WebSocket (single/session-persistence architecture)
+// This establishes a persistent Moonlight session that supports browser join/leave cycles
+func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Context, wolfAppID, sessionID string, displayWidth, displayHeight, displayFPS int) error {
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
+	}
+
+	// Build WebSocket URL (moonlight-web expects /api/host/stream endpoint)
+	wsURL := strings.Replace(moonlightWebURL, "http://", "ws://", 1) + "/api/host/stream"
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Str("ws_url", wsURL).
+		Msg("Connecting keepalive WebSocket to moonlight-web for apps mode (single/session-persistence)")
+
+	// Connect WebSocket
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to connect WebSocket: %w", err)
+	}
+	defer conn.Close()
+
+	// Parse wolfAppID string to uint32 for moonlight-web API
+	appIDUint, err := strconv.ParseUint(wolfAppID, 10, 32)
+	if err != nil {
+		return fmt.Errorf("failed to parse wolf app ID %s: %w", wolfAppID, err)
+	}
+
+	// Send AuthenticateAndInit message with session persistence
+	// mode=keepalive: creates session without WebRTC peer (headless)
+	// CRITICAL: client_unique_id must be unique per agent to avoid Moonlight protocol violations
+	// Each agent appears as a separate Moonlight client, enabling concurrent multi-app streaming
+	authMsg := map[string]interface{}{
+		"AuthenticateAndInit": map[string]interface{}{
+			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),                // Use MOONLIGHT_CREDENTIALS for auth
+			"session_id":              fmt.Sprintf("agent-%s", sessionID),                // Persistent session ID
+			"mode":                    "keepalive",                                       // Keepalive mode (no WebRTC)
+			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),          // UNIQUE client ID per agent
+			"host_id":                 0,                                                 // Local Wolf instance
+			"app_id":                  uint32(appIDUint),                                 // Connect to the Wolf app (u32)
+			"bitrate":                 20000,                                             // Match agent display settings
+			"packet_size":             1024,
+			"fps":                     displayFPS,     // Use agent's configured FPS
+			"width":                   displayWidth,   // Use agent's configured width
+			"height":                  displayHeight,  // Use agent's configured height
+			"video_sample_queue_size": 10,
+			"play_audio_local":        false,
+			"audio_sample_queue_size": 10,
+			"video_supported_formats": 1,        // H264 only
+			"video_colorspace":        "Rec709", // String format for new API
+			"video_color_range_full":  false,
+		},
+	}
+
+	authJSON, err := json.Marshal(authMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth message: %w", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
+		return fmt.Errorf("failed to send auth message: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Sent keepalive auth message to moonlight-web with session persistence (single mode)")
+
+	// Wait for stream initialization or error messages
+	maxWaitTime := 10 * time.Second
+	startTime := time.Now()
+	connected := false
+
+	for time.Since(startTime) < maxWaitTime {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			// Timeout is expected - moonlight-web closes WebSocket in keepalive mode
+			if strings.Contains(err.Error(), "i/o timeout") {
+				// Check if enough time passed for session creation
+				if time.Since(startTime) > 3*time.Second {
+					log.Info().
+						Str("session_id", sessionID).
+						Msg("Keepalive WebSocket closed as expected - session running headless")
+					connected = true
+					break
+				}
+				continue
+			}
+			// WebSocket closed normally (including close code 1005 - no status)
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) ||
+				strings.Contains(err.Error(), "close 1005") {
+				log.Info().
+					Str("session_id", sessionID).
+					Msg("Keepalive WebSocket closed normally - session persisting")
+				connected = true
+				break
+			}
+			return fmt.Errorf("WebSocket error: %w", err)
+		}
+
+		// Parse server message
+		var serverMsg map[string]interface{}
+		if err := json.Unmarshal(message, &serverMsg); err != nil {
+			// Check if message is a JSON string (wrapped in quotes)
+			var msgString string
+			if err := json.Unmarshal(message, &msgString); err == nil {
+				// It's a string error message
+				if msgString == "AppNotFound" || msgString == "HostNotFound" || msgString == "HostNotPaired" || msgString == "InternalServerError" {
+					return fmt.Errorf("moonlight-web error: %s", msgString)
+				}
+			}
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("raw_message", string(message)).
+				Msg("Received non-JSON message")
+			continue
+		}
+
+		log.Debug().
+			Str("session_id", sessionID).
+			Interface("message", serverMsg).
+			Msg("Received initialization message")
+
+		// Check for error messages
+		if msgType, ok := serverMsg["type"].(string); ok {
+			if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" || msgType == "AppNotFound" {
+				return fmt.Errorf("moonlight-web error: %s", msgType)
+			}
+			if msgType == "ConnectionComplete" {
+				log.Info().
+					Str("session_id", sessionID).
+					Msg("Keepalive stream connected successfully")
+				connected = true
+				// Keep reading until WebSocket closes
+			}
+		}
+	}
+
+	if !connected {
+		return fmt.Errorf("keepalive session failed to initialize within timeout")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("wolf_app_id", wolfAppID).
+		Msg("Keepalive session established - running headless in moonlight-web (single mode)")
 
 	return nil
 }
