@@ -814,16 +814,18 @@ function build-moonlight-web() {
   fi
   cd - > /dev/null
 
-  # Push to registry
-  local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
-  if push_image_tags "$IMAGE_BASE"; then
-    echo "✅ Moonlight Web images pushed to registry successfully"
+  # Push to registry only in production mode (when SKIP_DEV_RESTART is set)
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    # Production mode: push to registry, skip container restart
+    local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Moonlight Web images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
   else
-    echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
-  fi
-
-  # Remove and recreate Moonlight Web container to use updated image (skip if SKIP_DEV_RESTART is set)
-  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+    # Development mode: restart container locally, skip registry push
     echo "🔄 Removing old Moonlight Web container and recreating with updated image..."
     docker compose -f docker-compose.dev.yaml rm -f moonlight-web
     docker compose -f docker-compose.dev.yaml up -d moonlight-web
@@ -831,8 +833,6 @@ function build-moonlight-web() {
     echo "✅ Moonlight Web container rebuilt and restarted successfully"
     echo "🌙 Moonlight Web is ready for testing with latest source code changes"
   fi
-
-  echo "📦 Registry images pushed"
 }
 
 function build-and-push-helix-code() {
