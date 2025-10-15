@@ -9835,6 +9835,10 @@ const docTemplate = `{
         "server.MoonlightClientInfo": {
             "type": "object",
             "properties": {
+                "client_unique_id": {
+                    "description": "Unique Moonlight client ID (null for browser clients)",
+                    "type": "string"
+                },
                 "has_websocket": {
                     "description": "Is a WebRTC client currently connected?",
                     "type": "boolean"
@@ -10377,7 +10381,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_id": {
-                    "type": "string"
+                    "description": "Wolf returns this as uint64 (can exceed int64 max)",
+                    "type": "integer"
                 }
             }
         },
@@ -15585,6 +15590,10 @@ const docTemplate = `{
                 "license": {
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
+                "moonlight_web_mode": {
+                    "description": "\"single\" or \"multi\" - determines streaming architecture",
+                    "type": "string"
+                },
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
@@ -17665,16 +17674,16 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

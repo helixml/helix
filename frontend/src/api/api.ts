@@ -646,6 +646,8 @@ export interface ServerModelSubstitution {
 }
 
 export interface ServerMoonlightClientInfo {
+  /** Unique Moonlight client ID (null for browser clients) */
+  client_unique_id?: string;
   /** Is a WebRTC client currently connected? */
   has_websocket?: boolean;
   /** "create", "keepalive", "join" */
@@ -855,7 +857,8 @@ export interface ServerWolfClientConnection {
   lobby_id?: string;
   memory_bytes?: number;
   resolution?: string;
-  session_id?: string;
+  /** Wolf returns this as uint64 (can exceed int64 max) */
+  session_id?: number;
 }
 
 export interface ServerWolfLobbyInfo {
@@ -2881,6 +2884,8 @@ export interface TypesServerConfigForFrontend {
   google_analytics_frontend?: string;
   latest_version?: string;
   license?: TypesFrontendLicenseInfo;
+  /** "single" or "multi" - determines streaming architecture */
+  moonlight_web_mode?: string;
   organizations_create_enabled_for_non_admins?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
@@ -3720,10 +3725,10 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
