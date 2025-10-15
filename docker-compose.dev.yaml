@@ -304,10 +304,7 @@ services:
 
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:
-      image: helix-moonlight-web:latest
-      build:
-        context: ../moonlight-web-stream
-        dockerfile: Dockerfile
+      image: helix-moonlight-web:helix-fixed
       ports:
         - "8081:8080"  # Web interface
         - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
