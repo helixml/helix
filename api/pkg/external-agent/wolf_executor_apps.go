@@ -115,11 +115,11 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	// Display settings with defaults
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 2560
+		displayWidth = 1920
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 1600
+		displayHeight = 1080
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
@@ -379,7 +379,7 @@ func (w *AppWolfExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadIn
 
 // Personal Dev Environment Management (apps mode)
 func (w *AppWolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
-	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 2360, 1640, 120)
+	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 1920, 1080, 60)
 }
 
 func (w *AppWolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
