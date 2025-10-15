@@ -46,20 +46,20 @@ steps:
       - yarn build
     depends_on: []
 
-#  - name: run-linter
-#    image: golangci/golangci-lint:v1.64-alpine
-#    volumes:
-#      - name: go-build-cache
-#        path: /root/.cache/go-build
-#      - name: go-mod-cache
-#        path: /go/pkg/mod
-#    commands:
-#      - golangci-lint cache clean
-#      - golangci-lint run
-#    when:
-#      event:
-#        - push
-#    depends_on: []
+  #  - name: run-linter
+  #    image: golangci/golangci-lint:v1.64-alpine
+  #    volumes:
+  #      - name: go-build-cache
+  #        path: /root/.cache/go-build
+  #      - name: go-mod-cache
+  #        path: /go/pkg/mod
+  #    commands:
+  #      - golangci-lint cache clean
+  #      - golangci-lint run
+  #    when:
+  #      event:
+  #        - push
+  #    depends_on: []
 
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
@@ -217,7 +217,6 @@ steps:
   #     SMALL_REASONING_MODEL_EFFORT: none
   #     SMALL_GENERATION_MODEL_PROVIDER: openai
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
-
   #   commands:
   #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
@@ -225,7 +224,6 @@ steps:
   #     event:
   #       - push
   #   # depends_on: [unit-test]
-
   # - name: upload-oauth-github-test-artifacts
   #   image: golang:1.24
   #   volumes:
@@ -245,7 +243,6 @@ steps:
   #       - success
   #       - failure
   #   depends_on: [oauth-github-integration-test]
-
   # - name: oauth-gmail-integration-test
   #   image: golang:1.24
   #   volumes:
@@ -326,7 +323,6 @@ steps:
   #     - success
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
-
   - name: oauth-outlook-integration-test
     image: golang:1.24
     volumes:
@@ -817,6 +813,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -859,6 +856,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -901,6 +899,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -943,6 +942,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -986,6 +986,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1032,6 +1033,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1107,6 +1109,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1182,6 +1185,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1222,6 +1226,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1262,6 +1267,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
@@ -1302,6 +1308,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/external-agents-hyprland-working
 
 volumes:
   - name: dockersocket
