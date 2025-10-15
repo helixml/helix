@@ -94,6 +94,8 @@ services:
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
+            - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
             # TURN server configuration for WebRTC
             - TURN_ENABLED=true
             - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api}  # Use 'api' hostname for local relay (auto-detects public IP)
