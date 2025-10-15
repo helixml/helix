@@ -75,7 +75,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     try {
       // Fetch Helix config to determine moonlight-web mode
       const apiClient = helixApi.getApiClient();
-      const configResponse = await apiClient.v1ConfigDetail();
+      const configResponse = await apiClient.v1ConfigList();
       const moonlightWebMode = configResponse.data.moonlight_web_mode || 'single';
 
       console.log(`MoonlightStreamViewer: Using moonlight-web mode: ${moonlightWebMode}`);
