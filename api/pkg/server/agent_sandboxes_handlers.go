@@ -69,7 +69,7 @@ type WolfLobbyMemory struct {
 
 // WolfClientConnection represents individual client connections for leak detection
 type WolfClientConnection struct {
-	SessionID   int64   `json:"session_id"` // Wolf returns this as a number
+	SessionID   uint64  `json:"session_id"` // Wolf returns this as uint64 (can exceed int64 max)
 	ClientIP    string  `json:"client_ip"`
 	Resolution  string  `json:"resolution"`
 	LobbyID     *string `json:"lobby_id,omitempty"` // lobbies mode: connected lobby
