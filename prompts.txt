@@ -1,7 +1,0 @@
-> so how is the init of the session and then the switching actually working at the moment? do we try to create a full webrtc peer
-even though no browser is connected, and then later massage it when a real browser connects? wouldn't it be better NOT to create
-any fake webrtc peer at all, and then create one from scratch ONLY when the browser connects? basically, just delaying when the
-webrtc part is configured until we have a real client, but letting the moonlight part proceed under the hood (and during the gap
-between moonlight connection and the first browser connection, we just drop moonlight packets on the floor, but keep consuming
-them so that wolf stays happy...)
-
