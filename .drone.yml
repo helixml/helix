@@ -814,7 +814,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -858,7 +858,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -902,7 +902,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -946,7 +946,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -991,7 +991,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1039,7 +1039,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1116,7 +1116,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1193,7 +1193,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1235,7 +1235,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1277,7 +1277,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1319,7 +1319,7 @@ trigger:
     - push
   branch:
     - main
-    - feature/external-agents-hyprland-working
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
