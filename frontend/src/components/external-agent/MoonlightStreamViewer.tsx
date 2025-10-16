@@ -531,7 +531,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             borderRadius: '4px',
           }}
         >
-          💡 Click video to unmute | F11 for fullscreen | Gamepad supported
+          💡 Click video to unmute | F11 for fullscreen
         </Typography>
       )}
     </Box>
