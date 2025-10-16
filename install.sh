@@ -473,10 +473,19 @@ install_docker() {
                     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
                     sudo apt-get update
                     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
+                    ;;
+                fedora)
+                    sudo dnf -y install dnf-plugins-core
+                    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+                    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
                     ;;
                 *)
                     echo "Unsupported distribution for automatic Docker installation."
-                    echo "Only Ubuntu/Debian are supported for automatic installation."
+                    echo "Only Ubuntu/Debian/Fedora are supported for automatic installation."
                     echo "Please install Docker manually from https://docs.docker.com/engine/install/"
                     exit 1
                     ;;
@@ -519,12 +528,12 @@ else
             echo "Visit https://docs.docker.com/engine/install/ for installation instructions."
             exit 1
         fi
-        # For Linux, check if it's Ubuntu/Debian before proceeding
+        # For Linux, check if it's Ubuntu/Debian/Fedora before proceeding
         if [ -f /etc/os-release ]; then
             . /etc/os-release
-            if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
+            if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "$ID" != "fedora" ]]; then
                 echo "Docker not found."
-                echo "Automatic Docker installation is only supported on Ubuntu/Debian."
+                echo "Automatic Docker installation is only supported on Ubuntu/Debian/Fedora."
                 echo "Please install Docker manually from https://docs.docker.com/engine/install/"
                 exit 1
             fi
@@ -536,9 +545,31 @@ else
         NEED_SUDO="false"
         DOCKER_CMD="docker"
     else
-        NEED_SUDO=$(check_docker_sudo)
-        if [ "$NEED_SUDO" = "true" ]; then
-            DOCKER_CMD="sudo docker"
+        # If Docker is not installed, check if we can auto-install it
+        if ! command -v docker &> /dev/null; then
+            # For Ubuntu/Debian/Fedora, we can auto-install Docker - skip sudo check for now
+            if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
+                . /etc/os-release
+                if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
+                    echo "Docker not installed. Will offer to install Docker during setup."
+                    # Will check sudo requirement after Docker is installed
+                    NEED_SUDO="false"
+                    DOCKER_CMD="docker"
+                else
+                    # Non-Ubuntu/Debian/Fedora Linux - already handled above
+                    NEED_SUDO="false"
+                    DOCKER_CMD="docker"
+                fi
+            else
+                NEED_SUDO="false"
+                DOCKER_CMD="docker"
+            fi
+        else
+            # Docker is installed - check if we need sudo
+            NEED_SUDO=$(check_docker_sudo)
+            if [ "$NEED_SUDO" = "true" ]; then
+                DOCKER_CMD="sudo docker"
+            fi
         fi
     fi
 fi
@@ -557,7 +588,7 @@ fi
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
@@ -653,11 +684,11 @@ gather_modifications() {
     # Check if Docker needs to be installed
     if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
         if check_docker_needed; then
-            # Only add Docker installation for Ubuntu/Debian on Linux
+            # Only add Docker installation for Ubuntu/Debian/Fedora on Linux
             if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
                 . /etc/os-release
-                if [[ "$ID" == "ubuntu" || "$ID" == "debian" ]]; then
-                    modifications+="  - Install Docker and Docker Compose plugin (Ubuntu/Debian only)\n"
+                if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
+                    modifications+="  - Install Docker and Docker Compose plugin (Ubuntu/Debian/Fedora)\n"
                 fi
             fi
         fi
@@ -715,6 +746,16 @@ ask_for_approval
 if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
     if check_docker_needed; then
         install_docker
+
+        # After installing Docker, check if we need sudo to run it
+        if [ "$ENVIRONMENT" != "gitbash" ]; then
+            NEED_SUDO=$(check_docker_sudo)
+            if [ "$NEED_SUDO" = "true" ]; then
+                DOCKER_CMD="sudo docker"
+            else
+                DOCKER_CMD="docker"
+            fi
+        fi
     fi
 fi
 
