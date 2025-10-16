@@ -1,5 +1,5 @@
 # Use Bitnami Keycloak as base instead of official Keycloak
-FROM bitnami/keycloak:23.0.7
+FROM bitnamilegacy/keycloak:23.0.7
 
 # Switch to root to install custom theme
 USER root
