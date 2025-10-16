@@ -117,20 +117,6 @@ services:
       timeout: 5s
       retries: 30
     command: ["start", "--proxy", "edge"]
-  gptscript_runner:
-    image: registry.helixml.tech/helix/gptscript-runner:latest
-    restart: always
-    env_file:
-      - .env
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - API_HOST=http://api:8080
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-      - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
-      - CONCURRENCY=20 # number of tasks to run concurrently
-      - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
-    depends_on:
-      - api
   tika:
     image: apache/tika:2.9.2.1
     restart: always
