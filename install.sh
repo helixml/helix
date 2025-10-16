@@ -152,7 +152,7 @@ Options:
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
-  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU and --api-host parameter.
+  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
@@ -595,6 +595,16 @@ check_nvidia_gpu() {
     fi
 }
 
+# Function to check for Intel/AMD GPU (for Helix Code)
+check_intel_amd_gpu() {
+    # Check for /dev/dri devices (Intel/AMD GPUs)
+    if [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
     # Check localhost with a short read timeout using curl
@@ -673,6 +683,42 @@ if [ "$EXTERNAL_ZED_AGENT" = true ] && [ -z "$API_HOST" ]; then
     exit 1
 fi
 
+# Validate GPU requirements for --code flag
+if [ "$CODE" = true ]; then
+    # Check for Intel/AMD GPU first (preferred for desktop streaming)
+    if check_intel_amd_gpu; then
+        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+    elif check_nvidia_gpu; then
+        # NVIDIA GPU found - verify nvidia-smi works
+        if ! command -v nvidia-smi &> /dev/null; then
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
+            echo "│"
+            echo "│ NVIDIA GPU detected, but nvidia-smi is not available."
+            echo "│ Please install NVIDIA drivers before running this installer."
+            echo "│"
+            echo "│ Install NVIDIA drivers from:"
+            echo "│   https://www.nvidia.com/Download/index.aspx"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            exit 1
+        fi
+        echo "NVIDIA GPU detected with nvidia-smi. Helix Code desktop streaming requirements satisfied."
+        echo "Note: NVIDIA Docker runtime will be installed automatically."
+    else
+        echo "┌───────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
+        echo "│"
+        echo "│ No compatible GPU detected. Helix Code requires one of:"
+        echo "│   - Intel GPU (integrated or discrete) with /dev/dri devices"
+        echo "│   - AMD GPU with /dev/dri devices"
+        echo "│   - NVIDIA GPU with nvidia-smi and nvidia-docker runtime"
+        echo "│"
+        echo "│ Please ensure GPU drivers are installed before using --code flag."
+        echo "└───────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+fi
+
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
@@ -701,6 +747,13 @@ gather_modifications() {
     if [ "$RUNNER" = true ]; then
         modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
+    fi
+
+    # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
+    if [ "$CODE" = true ] && check_nvidia_gpu && ! check_intel_amd_gpu; then
+        if [ "$RUNNER" = false ]; then
+            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
+        fi
     fi
 
     if [ "$EXTERNAL_ZED_AGENT" = true ]; then
@@ -756,6 +809,13 @@ if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT"
                 DOCKER_CMD="docker"
             fi
         fi
+    fi
+fi
+
+# Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
+if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
+    if check_nvidia_gpu && ! check_intel_amd_gpu; then
+        install_nvidia_docker
     fi
 fi
 
