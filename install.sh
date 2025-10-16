@@ -906,7 +906,15 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
+    # Check if NVIDIA runtime needs installation
+    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && echo "true" || echo "false")
+    NVIDIA_CTK_EXISTS=$(command -v nvidia-container-toolkit &> /dev/null && echo "true" || echo "false")
+
+    echo "Checking NVIDIA Docker runtime status..."
+    echo "  - NVIDIA in docker info: $NVIDIA_IN_DOCKER"
+    echo "  - nvidia-container-toolkit installed: $NVIDIA_CTK_EXISTS"
+
+    if [ "$NVIDIA_IN_DOCKER" = "false" ] || [ "$NVIDIA_CTK_EXISTS" = "false" ]; then
         # Skip NVIDIA Docker installation for WSL2 (should use Docker Desktop)
         if [ "$ENVIRONMENT" = "wsl2" ]; then
             echo "WSL2 detected. Please ensure NVIDIA Docker support is enabled in Docker Desktop."
@@ -915,7 +923,7 @@ install_nvidia_docker() {
         fi
 
         check_wsl2_docker
-        echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
+        echo "NVIDIA Docker runtime not found or incomplete. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             case $ID in
@@ -929,14 +937,42 @@ install_nvidia_docker() {
                     sudo apt-get update
                     sudo apt-get install -y nvidia-container-toolkit
                     sudo nvidia-ctk runtime configure --runtime=docker
+                    echo "Restarting Docker to load NVIDIA runtime..."
                     sudo systemctl restart docker
+                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
+                    echo "Waiting for Docker to restart..."
+                    sleep 5
+                    for i in {1..12}; do
+                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+                            echo "NVIDIA runtime successfully configured in Docker."
+                            break
+                        fi
+                        if [ $i -eq 12 ]; then
+                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
+                        fi
+                        sleep 5
+                    done
                     ;;
                 fedora)
                     distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
                     curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
                     sudo dnf install -y nvidia-container-toolkit
                     sudo nvidia-ctk runtime configure --runtime=docker
+                    echo "Restarting Docker to load NVIDIA runtime..."
                     sudo systemctl restart docker
+                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
+                    echo "Waiting for Docker to restart..."
+                    sleep 5
+                    for i in {1..12}; do
+                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+                            echo "NVIDIA runtime successfully configured in Docker."
+                            break
+                        fi
+                        if [ $i -eq 12 ]; then
+                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
+                        fi
+                        sleep 5
+                    done
                     ;;
                 *)
                     echo "Unsupported distribution for automatic NVIDIA Docker runtime installation. Please install NVIDIA Docker runtime manually."
