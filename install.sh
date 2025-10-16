@@ -1343,7 +1343,11 @@ EOF"
     if [[ -n "$CODE" ]]; then
         echo "│"
         echo "│ ⚠️  Helix Code requires additional firewall ports to be open:"
-        echo "│   - TCP 8080: Main API (or your custom API_PORT)"
+        if [[ "$API_HOST" == https* ]]; then
+            echo "│   - TCP 443: HTTPS (Caddy reverse proxy)"
+        else
+            echo "│   - TCP 8080: Main API"
+        fi
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
         echo "│   - UDP 40000-40010: WebRTC media ports"
     fi
