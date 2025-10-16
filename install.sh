@@ -745,14 +745,16 @@ gather_modifications() {
     fi
 
     if [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
+        if check_nvidia_gpu; then
+            modifications+="  - Install NVIDIA Docker runtime (if not already installed)\n"
+        fi
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
 
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
     if [ "$CODE" = true ] && check_nvidia_gpu && ! check_intel_amd_gpu; then
         if [ "$RUNNER" = false ]; then
-            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
+            modifications+="  - Install NVIDIA Docker runtime for desktop streaming (if not already installed)\n"
         fi
     fi
 
