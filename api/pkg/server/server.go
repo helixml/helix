@@ -20,6 +20,7 @@ import (
 	"gocloud.dev/blob"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -83,6 +84,7 @@ type HelixAPIServer struct {
 	Janitor                     *janitor.Janitor
 	authMiddleware              *authMiddleware
 	pubsub                      pubsub.PubSub
+	mcpClientGetter             mcp.ClientGetter
 	connman                     *connman.ConnectionManager
 	providerManager             manager.ProviderManager
 	modelInfoProvider           model.ModelInfoProvider
@@ -269,6 +271,9 @@ func NewServer(
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,
+		mcpClientGetter: &mcp.DefaultClientGetter{
+			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
+		},
 		knowledgeManager:  knowledgeManager,
 		skillManager:      skillManager,
 		scheduler:         scheduler,
