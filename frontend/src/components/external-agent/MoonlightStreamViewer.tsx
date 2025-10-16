@@ -63,6 +63,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
 
   const helixApi = useApi();
 
@@ -340,6 +341,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
+
+    // Update custom cursor position
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setCursorPosition({
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      });
+    }
+
     streamRef.current?.getInput().onMouseMove(event.nativeEvent, getStreamRect());
   }, [getStreamRect]);
 
@@ -473,6 +484,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           height: '100%',
           objectFit: 'contain',
           backgroundColor: '#000',
+          cursor: 'none', // Hide default cursor to prevent double cursor effect
         }}
         onClick={() => {
           // Unmute on first interaction (browser autoplay policy)
@@ -480,6 +492,26 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             videoRef.current.muted = false;
           }
         }}
+      />
+
+      {/* Custom cursor dot to show local mouse position */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: cursorPosition.x,
+          top: cursorPosition.y,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          border: '1px solid rgba(0, 0, 0, 0.5)',
+          pointerEvents: 'none',
+          zIndex: 1000,
+          transform: 'translate(-50%, -50%)',
+          display: isConnected ? 'block' : 'none',
+          transition: 'opacity 0.2s',
+        }}
+        id="custom-cursor"
       />
 
       {/* Input Hint */}
