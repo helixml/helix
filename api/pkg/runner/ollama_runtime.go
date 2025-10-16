@@ -42,6 +42,7 @@ type OllamaRuntime struct {
 	numParallel    int // Number of parallel requests
 	ollamaClient   *api.Client
 	cmd            *exec.Cmd
+	stderrBuf      *system.LimitedBuffer // Buffer for capturing stderr output
 	cancel         context.CancelFunc
 	gpuIndex       int                            // Primary GPU index for single-GPU models
 	gpuIndices     []int                          // All GPU indices for multi-GPU models
@@ -55,6 +56,9 @@ type OllamaRuntime struct {
 	monitoringCancel  context.CancelFunc // Cancel function for monitoring goroutine
 	originalCtx       context.Context    // Context passed to most recent Start() call
 	started           bool               // Track if runtime is currently started
+
+	// Crash callback - called when the Ollama process exits unexpectedly
+	onCrash func(exitCode int, stderr string)
 }
 
 type Model struct {
@@ -81,6 +85,7 @@ type OllamaRuntimeParams struct {
 	GPUIndex      *int                           // Optional: Primary GPU index for single-GPU models
 	GPUIndices    []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
 	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
+	OnCrash       func(exitCode int, stderr string) // Optional: Callback when Ollama process crashes
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -167,6 +172,7 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		gpuIndex:      gpuIndex,
 		gpuIndices:    gpuIndices,
 		logBuffer:     params.LogBuffer,
+		onCrash:       params.OnCrash,
 	}, nil
 }
 
@@ -211,11 +217,12 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.numParallel, i.gpuIndex, i.gpuIndices, i.logBuffer)
+	cmd, stderrBuf, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.numParallel, i.gpuIndex, i.gpuIndices, i.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
 	i.cmd = cmd
+	i.stderrBuf = stderrBuf
 
 	// Register the process with the tracker if available
 	if i.processTracker != nil && i.slotID != nil && i.cmd != nil && i.cmd.Process != nil {
@@ -226,6 +233,9 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 			Str("model", i.model).
 			Msg("PROCESS_TRACKER: Registered Ollama process")
 	}
+
+	// Start monitoring the process for crashes
+	go i.monitorProcess()
 
 	// Create ollama client
 	url, err := url.Parse(fmt.Sprintf("http://localhost:%d", i.port))
@@ -533,11 +543,11 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, numParallel int, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, numParallel int, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, *system.LimitedBuffer, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
-		return nil, fmt.Errorf("ollama not found in PATH")
+		return nil, nil, fmt.Errorf("ollama not found in PATH")
 	}
 	log.Debug().Str("ollama_path", ollamaPath).Msg("Found ollama")
 
@@ -617,7 +627,7 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	go func() {
 		_, err := io.Copy(io.MultiWriter(stderrWriters...), stderrPipe)
@@ -628,19 +638,47 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 
 	log.Debug().Msg("Starting ollama serve")
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("error starting Ollama model instance: %w", err)
+		return nil, nil, fmt.Errorf("error starting Ollama model instance: %w", err)
 	}
 
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			errMsg := string(stderrBuf.Bytes())
-			log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("Ollama exited with error")
+	return cmd, stderrBuf, nil
+}
 
-			return
+// monitorProcess monitors the Ollama process and triggers crash callback if it exits unexpectedly
+func (i *OllamaRuntime) monitorProcess() {
+	if err := i.cmd.Wait(); err != nil {
+		errMsg := string(i.stderrBuf.Bytes())
+		exitCode := -1
+		if i.cmd.ProcessState != nil {
+			exitCode = i.cmd.ProcessState.ExitCode()
 		}
-	}()
 
-	return cmd, nil
+		log.Error().
+			Err(err).
+			Str("stderr", errMsg).
+			Int("exit_code", exitCode).
+			Msg("Ollama process exited with error")
+
+		// If this is a crash (non-zero exit code), call the crash callback
+		// This allows the slot to clean itself up
+		if exitCode != 0 && i.onCrash != nil {
+			log.Warn().
+				Int("exit_code", exitCode).
+				Str("slot_id", func() string {
+					if i.slotID != nil {
+						return i.slotID.String()
+					}
+					return "unknown"
+				}()).
+				Msg("Ollama process crashed, triggering crash callback")
+			i.onCrash(exitCode, errMsg)
+		}
+
+		return
+	}
+
+	// Normal exit (exit code 0) - log but don't trigger crash callback
+	log.Info().Msg("Ollama process exited normally")
 }
 
 // startInternalGPUMonitoring starts a goroutine that periodically checks GPU allocation

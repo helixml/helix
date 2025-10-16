@@ -286,6 +286,47 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			}()).
 			Msg("🔍 TRACING: Final runtimeParams.NumParallel being passed to NewOllamaRuntime")
 
+		// Set up crash callback to handle unexpected Ollama crashes (e.g., CUDA errors)
+		runtimeParams.OnCrash = func(exitCode int, stderr string) {
+			log.Error().
+				Int("exit_code", exitCode).
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Str("stderr_preview", func() string {
+					// Limit stderr to last 500 characters for logging
+					if len(stderr) > 500 {
+						return "..." + stderr[len(stderr)-500:]
+					}
+					return stderr
+				}()).
+				Msg("Ollama process crashed, cleaning up slot")
+
+			// Clean up this slot since the runtime crashed
+			// This will be called from the cmd.Wait() goroutine, so we need to do this asynchronously
+			go func() {
+				if err := s.Delete(); err != nil {
+					log.Error().
+						Err(err).
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Msg("Failed to delete slot after Ollama crash")
+				} else {
+					log.Info().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Msg("Successfully cleaned up slot after Ollama crash")
+
+					// Remove the slot from the server's slot map
+					if s.apiServer != nil && s.apiServer.slots != nil {
+						s.apiServer.slots.Delete(s.ID)
+						log.Info().
+							Str("slot_id", s.ID.String()).
+							Msg("Removed crashed slot from server slot map")
+					}
+				}
+			}()
+		}
+
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
 			log.Error().
