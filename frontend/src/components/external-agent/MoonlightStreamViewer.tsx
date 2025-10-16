@@ -209,7 +209,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Disconnect
   const disconnect = useCallback(() => {
     if (streamRef.current) {
-      // Stream class handles cleanup internally
+      // Properly close the stream to prevent "AlreadyStreaming" errors
+      try {
+        // Close WebSocket connection if it exists
+        if (streamRef.current.ws) {
+          streamRef.current.ws.close();
+        }
+
+        // Close RTCPeerConnection if it exists
+        if (streamRef.current.peer) {
+          streamRef.current.peer.close();
+        }
+
+        // Stop all media stream tracks
+        const mediaStream = streamRef.current.getMediaStream();
+        if (mediaStream) {
+          mediaStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        }
+      } catch (err) {
+        console.warn('Error during stream cleanup:', err);
+      }
+
       streamRef.current = null;
     }
 
