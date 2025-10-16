@@ -209,6 +209,38 @@ Examples:
 EOF
 }
 
+# Function to check if hostname resolves to localhost
+check_hostname_localhost() {
+    local hostname=$1
+    local resolved_ip=""
+
+    # Try different resolution methods based on platform
+    if command -v getent &> /dev/null; then
+        # Linux/WSL2: Use getent (respects /etc/hosts)
+        resolved_ip=$(getent hosts "$hostname" 2>/dev/null | awk '{ print $1 }' | head -1)
+    elif command -v dscacheutil &> /dev/null; then
+        # macOS: Use dscacheutil (respects /etc/hosts)
+        resolved_ip=$(dscacheutil -q host -a name "$hostname" 2>/dev/null | grep "^ip_address:" | head -1 | awk '{ print $2 }')
+    elif command -v ping &> /dev/null; then
+        # Fallback: Use ping (works on most systems, respects /etc/hosts)
+        # Try to extract IP from ping output
+        if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+            # Windows (Git Bash): ping output format is different
+            resolved_ip=$(ping -n 1 "$hostname" 2>/dev/null | grep "Pinging" | sed -E 's/.*\[([0-9.]+)\].*/\1/')
+        else
+            # Unix-like systems
+            resolved_ip=$(ping -c 1 -W 1 "$hostname" 2>/dev/null | grep -oE '\(([0-9]{1,3}\.){3}[0-9]{1,3}\)' | head -1 | tr -d '()')
+        fi
+    fi
+
+    # Check if resolved IP starts with 127. (localhost range)
+    if [ -n "$resolved_ip" ] && [[ "$resolved_ip" == 127.* ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -360,6 +392,31 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate --api-host if provided (must not resolve to localhost)
+if [ -n "$API_HOST" ]; then
+    # Extract hostname from API_HOST (remove protocol and port)
+    API_HOSTNAME=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+
+    # Check if hostname resolves to localhost
+    if check_hostname_localhost "$API_HOSTNAME"; then
+        echo "┌───────────────────────────────────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --api-host hostname resolves to a localhost address (127.x.x.x)"
+        echo "│ "
+        echo "│ The hostname '$API_HOSTNAME' currently resolves to a localhost IP address."
+        echo "│ This breaks Docker networking, as containers cannot reach 127.0.0.1 addresses properly."
+        echo "│ "
+        echo "│ Please ensure the hostname resolves to the real external IP address of this server."
+        echo "│ You may need to check:"
+        echo "│   - /etc/hosts file for incorrect localhost mappings"
+        echo "│   - DNS configuration"
+        echo "│   - Use the actual external IP or correct DNS name"
+        echo "│ "
+        echo "│ Note: For local development, omit --api-host entirely (defaults to http://localhost:8080)"
+        echo "└───────────────────────────────────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+fi
+
 # Function to check if running on WSL2 (don't auto-install docker in that case)
 check_wsl2_docker() {
     if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
@@ -369,7 +426,21 @@ check_wsl2_docker() {
     fi
 }
 
-# Function to install Docker and Docker Compose plugin
+# Function to check if Docker needs to be installed
+check_docker_needed() {
+    if ! command -v docker &> /dev/null; then
+        return 0  # Docker not found, needs installation
+    fi
+
+    # Check for Docker Compose plugin (skip for Git Bash)
+    if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
+        return 0  # Compose plugin missing, needs installation
+    fi
+
+    return 1  # Docker already installed
+}
+
+# Function to install Docker and Docker Compose plugin (called after user approval)
 install_docker() {
     if ! command -v docker &> /dev/null; then
         # Git Bash: assume Docker Desktop should be installed manually
@@ -379,7 +450,7 @@ install_docker() {
             echo "Make sure to enable WSL 2 integration if you plan to use WSL 2 as well."
             exit 1
         fi
-        
+
         # Skip Docker installation for WSL2 (should use Docker Desktop)
         if [ "$ENVIRONMENT" = "wsl2" ]; then
             echo "Detected WSL2 environment. Please install Docker Desktop for Windows."
@@ -387,9 +458,9 @@ install_docker() {
             echo "Make sure to enable WSL 2 integration in Docker Desktop settings."
             exit 1
         fi
-        
+
         check_wsl2_docker
-        echo "Docker not found. Installing Docker..."
+        echo "Installing Docker..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             case $ID in
@@ -403,15 +474,10 @@ install_docker() {
                     sudo apt-get update
                     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                     ;;
-                fedora)
-                    sudo dnf -y install dnf-plugins-core
-                    sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-                    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-                    sudo systemctl start docker
-                    sudo systemctl enable docker
-                    ;;
                 *)
-                    echo "Unsupported distribution for automatic Docker installation. Please install Docker manually."
+                    echo "Unsupported distribution for automatic Docker installation."
+                    echo "Only Ubuntu/Debian are supported for automatic installation."
+                    echo "Please install Docker manually from https://docs.docker.com/engine/install/"
                     exit 1
                     ;;
             esac
@@ -423,7 +489,7 @@ install_docker() {
 
     # Skip Docker Compose plugin installation for Git Bash (assume Docker Desktop includes it)
     if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
-        echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
+        echo "Installing Docker Compose plugin..."
         sudo apt-get update
         sudo apt-get install -y docker-compose-plugin
     fi
@@ -433,11 +499,38 @@ install_docker() {
 DOCKER_CMD="docker"
 
 # Only check docker sudo if we need docker (i.e., not CLI-only installation)
-if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; then
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ]; then
     NEED_SUDO="false"
 else
-    # Install docker if not present, if we're going to
-    install_docker
+    # Docker is needed - check if it's installed
+    if ! command -v docker &> /dev/null; then
+        # For non-Linux platforms, exit with instructions
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            echo "Docker not found. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            exit 1
+        elif [ "$ENVIRONMENT" = "wsl2" ]; then
+            echo "Docker not found. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            echo "Make sure to enable WSL 2 integration in Docker Desktop settings."
+            exit 1
+        elif [ "$OS" != "linux" ]; then
+            echo "Docker not found. Please install Docker manually."
+            echo "Visit https://docs.docker.com/engine/install/ for installation instructions."
+            exit 1
+        fi
+        # For Linux, check if it's Ubuntu/Debian before proceeding
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
+                echo "Docker not found."
+                echo "Automatic Docker installation is only supported on Ubuntu/Debian."
+                echo "Please install Docker manually from https://docs.docker.com/engine/install/"
+                exit 1
+            fi
+        fi
+    fi
+
     # Determine if we need sudo for docker commands (Git Bash never needs sudo)
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         NEED_SUDO="false"
@@ -557,8 +650,17 @@ gather_modifications() {
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
 
-    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+    # Check if Docker needs to be installed
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+        if check_docker_needed; then
+            # Only add Docker installation for Ubuntu/Debian on Linux
+            if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
+                . /etc/os-release
+                if [[ "$ID" == "ubuntu" || "$ID" == "debian" ]]; then
+                    modifications+="  - Install Docker and Docker Compose plugin (Ubuntu/Debian only)\n"
+                fi
+            fi
+        fi
     fi
 
     if [ "$CONTROLPLANE" = true ]; then
@@ -608,6 +710,13 @@ ask_for_approval() {
 
 # Ask for user approval before proceeding
 ask_for_approval
+
+# Install Docker if needed and approved (only after user approval)
+if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    if check_docker_needed; then
+        install_docker
+    fi
+fi
 
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -714,7 +823,6 @@ install_nvidia_docker() {
 
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
-    install_docker
     echo -e "\nDownloading docker-compose.yaml..."
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
@@ -1157,7 +1265,6 @@ fi
 
 # Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
-    install_docker
     install_nvidia_docker
     # Check for NVIDIA GPU
     if ! check_nvidia_gpu; then
@@ -1244,8 +1351,6 @@ fi
 
 # Install external Zed agent if requested
 if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-    install_docker
-    
     # Set default runner ID if not provided
     if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
         EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
