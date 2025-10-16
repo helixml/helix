@@ -210,6 +210,7 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [memory, setMemory] = useState(app.memory || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
 
   // Agent type settings
@@ -313,7 +314,6 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Combine immediate state update with debounced API call
   const handleAdvancedChangeWithDebounce = (field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
-    console.log('handleAdvancedChangeWithDebounce', field, value)
     debouncedUpdate(field, value)
   }
 
@@ -350,7 +350,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Handle agent type changes
   const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
     setDefaultAgentType(agentType)
-    
+
     if (config !== undefined) {
       setExternalAgentConfig(config)
     }
@@ -376,8 +376,6 @@ const AppSettings: FC<AppSettingsProps> = ({
 
     onUpdate(updatedApp)
   }
-
-
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)

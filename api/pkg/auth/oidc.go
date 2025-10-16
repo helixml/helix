@@ -233,7 +233,7 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 
 	userInfo, err := c.GetUserInfo(ctx, accessToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid access token: %w", err)
+		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
 	}
 
 	account := account{userInfo: userInfo}

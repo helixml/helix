@@ -121,6 +121,8 @@ type Helix struct {
 type Tools struct {
 	Enabled bool `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 
+	TLSSkipVerify bool `envconfig:"TOOLS_TLS_SKIP_VERIFY" default:"false"`
+
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: openai/gpt-oss-20b
@@ -387,7 +389,9 @@ type WebServer struct {
 	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
 	// Path to UNIX socket for serving embeddings without auth
-	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	// TODO: naming
+	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 }
@@ -481,6 +485,7 @@ type Triggers struct {
 	Discord Discord
 	Cron    Cron
 	Slack   Slack
+	Crisp   Crisp
 }
 
 type Discord struct {
@@ -491,6 +496,10 @@ type Discord struct {
 type Slack struct {
 	// Optional way to disable slack triggers across all apps/agents
 	Enabled bool `envconfig:"SLACK_ENABLED" default:"true"`
+}
+
+type Crisp struct {
+	Enabled bool `envconfig:"CRISP_ENABLED" default:"true"`
 }
 
 type Cron struct {

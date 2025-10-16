@@ -139,6 +139,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.StepInfo{},
 		&types.RunnerSlot{},
 		&types.SlackThread{},
+		&types.CrispThread{},
 		&types.TriggerConfiguration{},
 		&types.TriggerExecution{},
 		&types.SystemSettings{},
@@ -160,6 +161,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.ZedSettingsOverride{},
 		&types.StreamingAccessGrant{},
 		&types.StreamingAccessAuditLog{},
+		&types.Memory{},
 	)
 	if err != nil {
 		return err
@@ -218,11 +220,19 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
+	if err := createFK(s.gdb, types.CrispThread{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
 	if err := createFK(s.gdb, types.TriggerConfiguration{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
 	if err := createFK(s.gdb, types.TriggerExecution{}, types.TriggerConfiguration{}, "trigger_configuration_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

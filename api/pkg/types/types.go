@@ -53,6 +53,8 @@ type Interaction struct {
 	Status         string           `json:"status"`
 	Error          string           `json:"error"`
 
+	Trigger string `json:"trigger"` // Session (default), slack, crisp, etc
+
 	RagResults []*SessionRAGResult `json:"rag_results" gorm:"type:jsonb;serializer:json"`
 
 	// Model function calling, not to be mistaken with Helix tools
@@ -687,6 +689,8 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+
+	Trigger string `json:"trigger"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -1310,11 +1314,13 @@ type ToolConfig struct {
 }
 
 type ToolMCPClientConfig struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
-	URL         string            `json:"url" yaml:"url"`
-	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	Enabled       bool              `json:"enabled" yaml:"enabled"`
+	URL           string            `json:"url" yaml:"url"`
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"` // Required OAuth scopes for this API
 
 	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
@@ -1421,10 +1427,13 @@ type AssistantZapier struct {
 }
 
 type AssistantMCP struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description" yaml:"description"`
-	URL         string            `json:"url" yaml:"url"`
-	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Name          string            `json:"name" yaml:"name"`
+	Description   string            `json:"description" yaml:"description"`
+	URL           string            `json:"url" yaml:"url"`
+	Headers       map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	OAuthProvider string            `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"` // The name of the OAuth provider to use for authentication
+	OAuthScopes   []string          `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
+	Tools         []mcp.Tool        `json:"tools" yaml:"tools"`
 }
 
 type AssistantAPI struct {
@@ -1499,6 +1508,8 @@ type AssistantConfig struct {
 
 	RAGSourceID string `json:"rag_source_id,omitempty" yaml:"rag_source_id,omitempty"`
 	LoraID      string `json:"lora_id,omitempty" yaml:"lora_id,omitempty"`
+
+	Memory bool `json:"memory,omitempty" yaml:"memory,omitempty"` // Enable/disable user based memory for the agent
 
 	// ContextLimit - the number of messages to include in the context for the AI assistant.
 	// When set to 1, the AI assistant will only see and remember the most recent message.
@@ -1664,6 +1675,15 @@ type SlackTrigger struct {
 	Channels []string `json:"channels" yaml:"channels"`
 }
 
+// Crisp trigger configuration, create yours
+// here https://marketplace.crisp.chat/plugins/
+type CrispTrigger struct {
+	Enabled    bool   `json:"enabled,omitempty"`
+	Nickname   string `json:"nickname" yaml:"nickname"`     // Optional
+	Identifier string `json:"identifier" yaml:"identifier"` // Token identifier
+	Token      string `json:"token" yaml:"token"`
+}
+
 type CronTrigger struct {
 	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
@@ -1682,6 +1702,7 @@ type Trigger struct {
 	Discord        *DiscordTrigger        `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Slack          *SlackTrigger          `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Cron           *CronTrigger           `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp          *CrispTrigger          `json:"crisp,omitempty" yaml:"crisp,omitempty"`
 	AzureDevOps    *AzureDevOpsTrigger    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 	AgentWorkQueue *AgentWorkQueueTrigger `json:"agent_work_queue,omitempty" yaml:"agent_work_queue,omitempty"`
 }
@@ -2060,11 +2081,12 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
-	LLMCallStepDefault           LLMCallStep = "default"
-	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
-	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
-	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
-	LLMCallStepGenerateTitle     LLMCallStep = "generate_title"
+	LLMCallStepDefault               LLMCallStep = "default"
+	LLMCallStepIsActionable          LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest     LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse     LLMCallStep = "interpret_response"
+	LLMCallStepGenerateTitle         LLMCallStep = "generate_title"
+	LLMCallStepSummarizeConversation LLMCallStep = "summarize_conversation"
 )
 
 // LLMCall used to store the request and response of LLM calls
@@ -2377,10 +2399,24 @@ type SlackThread struct {
 	SessionID string `json:"session_id"`
 }
 
+type CrispThread struct {
+	CrispSessionID string    `json:"crisp_session_id" gorm:"primaryKey"`
+	AppID          string    `json:"app_id" gorm:"primaryKey"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"` // Helix session ID
+}
+
 type TriggerType string
+
+func (t TriggerType) String() string {
+	return string(t)
+}
 
 const (
 	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeCrisp       TriggerType = "crisp"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	TriggerTypeCron        TriggerType = "cron"
 	// TODO: discord
@@ -2539,4 +2575,19 @@ type StreamingTokenResponse struct {
 	MoonlightAppID  int       `json:"moonlight_app_id"`
 	AccessLevel     string    `json:"access_level"`
 	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+// Memory provides agent user memories
+type Memory struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	UserID   string    `json:"user_id"`
+	AppID    string    `json:"app_id"`
+	Contents string    `json:"contents"`
+}
+
+type ListMemoryRequest struct {
+	UserID string
+	AppID  string
 }

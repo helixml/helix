@@ -305,7 +305,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Str("message_ts", messageTimestamp).
 			Msg("starting new Slack session")
 
-		newSession := shared.NewTriggerSession(ctx, "Slack", app)
+		newSession := shared.NewTriggerSession(ctx, types.TriggerTypeSlack.String(), app)
 		session = newSession.Session
 
 		threadKey := threadTimestamp

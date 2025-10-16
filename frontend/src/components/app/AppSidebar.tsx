@@ -12,6 +12,7 @@ import {
   ChartArea,
   CloudDownload,
   Users,
+  Brain,
 } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
@@ -107,6 +108,13 @@ const AppSidebar: FC = () => {
           icon: <ChartArea size={20} />,
           isActive: currentTab === 'usage',
           onClick: () => handleNavigationClick('usage')
+        },
+        {
+          id: 'memories',
+          label: 'Memories',
+          icon: <Brain size={20} />,
+          isActive: currentTab === 'memories',
+          onClick: () => handleNavigationClick('memories')
         },
         {
           id: 'developers',

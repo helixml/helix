@@ -823,11 +823,17 @@ func (apiServer *HelixRunnerAPIServer) slotActivationMiddleware(next http.Handle
 }
 
 func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
+	log.Debug().Str("slot_id", slotUUID.String()).Msg("marking slot as complete")
 	apiServer.slots.Compute(slotUUID, func(oldValue *Slot, loaded bool) (*Slot, bool) {
 		if !loaded {
+			log.Warn().Str("slot_id", slotUUID.String()).Msg("attempted to mark non-existent slot as complete")
 			return nil, true
 		}
 		oldValue.Active = false
+		log.Info().
+			Str("slot_id", slotUUID.String()).
+			Str("model", oldValue.Model).
+			Msg("slot marked as inactive")
 		return oldValue, false
 	})
 }

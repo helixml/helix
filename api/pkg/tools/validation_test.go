@@ -3,8 +3,12 @@ package tools
 import (
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/types"
+
+	go_mcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 var alphaVantageAPI = `
@@ -127,7 +131,7 @@ func TestValidateOperationIDs(t *testing.T) {
 		},
 	}
 
-	err := ValidateTool(&types.AssistantConfig{}, tool, c, false)
+	err := ValidateTool("test-user-id", &types.AssistantConfig{}, tool, nil, c, &mcp.DefaultClientGetter{}, false)
 	require.NoError(t, err)
 
 	// Check api actions
@@ -136,5 +140,53 @@ func TestValidateOperationIDs(t *testing.T) {
 	require.Equal(t, "GET", tool.Config.API.Actions[0].Method)
 	require.Equal(t, "/query", tool.Config.API.Actions[0].Path)
 	require.Equal(t, "Get market news and sentiment data", tool.Config.API.Actions[0].Description)
+
+}
+
+func TestValidateMCPTools(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	tool := &types.Tool{
+		ToolType: types.ToolTypeMCP,
+		Config: types.ToolConfig{
+			MCP: &types.ToolMCPClientConfig{
+				URL:           "https://www.test-mcp.com",
+				Name:          "test-mcp",
+				OAuthProvider: "test-oauth-provider",
+				OAuthScopes:   []string{"test-oauth-scope"},
+				Headers: map[string]string{
+					"test-header": "test-value",
+				},
+			},
+		},
+	}
+
+	mockGetter := mcp.NewMockClientGetter(ctrl)
+
+	mockClient := mcp.NewMockClient(ctrl)
+
+	mockGetter.EXPECT().NewClient(gomock.Any(), gomock.Any(), gomock.Any(), &types.AssistantMCP{
+		URL:  "https://www.test-mcp.com",
+		Name: "test-mcp",
+		Headers: map[string]string{
+			"test-header": "test-value",
+		},
+		OAuthProvider: "test-oauth-provider",
+		OAuthScopes:   []string{"test-oauth-scope"},
+	}).Return(mockClient, nil)
+
+	mockClient.EXPECT().ListTools(gomock.Any(), gomock.Any()).Return(&go_mcp.ListToolsResult{
+		Tools: []go_mcp.Tool{
+			{Name: "test-tool", Description: "Test tool"},
+		},
+	}, nil)
+
+	err := ValidateTool("test-user-id", &types.AssistantConfig{}, tool, nil, nil, mockGetter, false)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(tool.Config.MCP.Tools))
+	require.Equal(t, "test-tool", tool.Config.MCP.Tools[0].Name)
+	require.Equal(t, "Test tool", tool.Config.MCP.Tools[0].Description)
 
 }

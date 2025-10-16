@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesTriggerConfiguration, TypesUsersAggregatedUsageMetric } from '../api/api';
+import { TypesTriggerConfiguration, TypesUsersAggregatedUsageMetric, TypesMemory } from '../api/api';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
   "app-steps",
@@ -64,6 +64,11 @@ export const appListQueryKey = (orgId: string) => [
 
 export const appDetailQueryKey = (appId: string) => [
   "app",
+  appId
+];
+
+export const appMemoriesQueryKey = (appId: string) => [
+  "app-memories",
   appId
 ];  
 
@@ -263,6 +268,49 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
       const response = await apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to })
       return response.data as unknown as TypesUsersAggregatedUsageMetric[]
     },
+  })
+}
+
+// useDuplicateApp returns a mutation for duplicating an app
+export function useDuplicateApp(orgId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ appId, name }: { appId: string; name?: string }) => 
+      apiClient.v1AppsDuplicateCreate(appId, { name }),
+    onSuccess: () => {
+      // Invalidate the apps list to refresh the UI
+      queryClient.invalidateQueries({ queryKey: appListQueryKey(orgId) })
+    }
+  })
+}
+
+// useListAppMemories returns a query for listing app memories
+export function useListAppMemories(appId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appMemoriesQueryKey(appId),
+    queryFn: () => apiClient.v1AppsMemoriesDetail(appId),
+    enabled: options?.enabled ?? true
+  })
+}
+
+// useDeleteAppMemory returns a mutation for deleting an app memory
+export function useDeleteAppMemory(appId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (memoryId: string) => apiClient.v1AppsMemoriesDelete(appId, memoryId),
+    onSuccess: () => {
+      // Invalidate the memories list to refresh the UI
+      queryClient.invalidateQueries({ queryKey: appMemoriesQueryKey(appId) })
+    }
   })
 }
 

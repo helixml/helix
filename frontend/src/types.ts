@@ -642,6 +642,7 @@ export interface IAssistantConfig {
   conversation_starters?: string[];
   agent_mode?: boolean;
   agent_type?: IAgentType;
+  memory?: boolean;
   max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
@@ -856,6 +857,7 @@ export interface IAppFlatState {
   provider?: string
   model?: string
   agent_mode?: boolean
+  memory?: boolean
   max_iterations?: number
   reasoning_model?: string
   reasoning_model_provider?: string
@@ -1078,6 +1080,7 @@ export interface IProviderEndpoint {
   api_key_file?: string
   default: boolean
   billing_enabled?: boolean
+  headers?: Record<string, string>
 }
 
 // Resource type for access grants

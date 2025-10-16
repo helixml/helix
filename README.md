@@ -38,6 +38,10 @@ For setting up a deployment with a DNS name, see `./install.sh --help` or read [
 
 Attach your own GPU runners per [runners docs](https://docs.helixml.tech/helix/private-deployment/controlplane/#attach-a-runner-to-an-existing-control-plane) or use any [external OpenAI-compatible LLM](https://docs.helixml.tech/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api).
 
+## Server Configuration
+
+You can find all environment variables here: [config.go](https://github.com/helixml/helix/blob/main/api/pkg/config/config.go).
+
 ## Install on Kubernetes
 
 Use our helm charts:

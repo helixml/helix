@@ -18,6 +18,7 @@ func NewTriggerSession(_ context.Context, triggerName string, app *types.App) *T
 	// Prepare new session
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
+		Trigger:        triggerName,
 		Name:           triggerName,
 		Created:        time.Now(),
 		Updated:        time.Now(),

@@ -52,7 +52,50 @@ func NewManager(store store.Store) *Manager {
 	}
 }
 
-// LoadProviders loads all enabled OAuth providers from the database
+// TODO: sync provider configuration periodically
+// Start starts the OAuth manager. Which:
+// Reloads configuration every 10 seconds
+// Refetches tokens for all connections every 1 minute
+func (m *Manager) Start(ctx context.Context) error {
+
+	err := m.LoadProviders(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load OAuth providers")
+	}
+
+	err = m.RefreshExpiredTokens(ctx, 5*time.Minute)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to refresh expired tokens")
+	}
+
+	go func() {
+		// Creating two tickers for each of the tasks, we don't
+		// want to run them at the same time
+		providerTicker := time.NewTicker(10 * time.Second)
+		tokenTicker := time.NewTicker(1 * time.Minute)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-providerTicker.C:
+				err := m.LoadProviders(ctx)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to load OAuth providers")
+				}
+			case <-tokenTicker.C:
+				err := m.RefreshExpiredTokens(ctx, 5*time.Minute)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to refresh expired tokens")
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
+// LoadProviders loads all enabled OAuth providers from the database.
 func (m *Manager) LoadProviders(ctx context.Context) error {
 	log.Info().Msg("Loading OAuth providers")
 
@@ -65,22 +108,6 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		return fmt.Errorf("failed to list providers: %w", err)
 	}
 
-	log.Info().Int("total_providers", len(providers)).Msg("Found enabled providers in database")
-
-	// Log detailed provider information
-	for _, config := range providers {
-		log.Info().
-			Str("provider_id", config.ID).
-			Str("provider_name", config.Name).
-			Str("provider_type", string(config.Type)).
-			Bool("provider_enabled", config.Enabled).
-			Str("client_id", config.ClientID).
-			Str("client_secret_prefix", config.ClientSecret[:4]+"...").
-			Str("callback_url", config.CallbackURL).
-			Strs("scopes", config.Scopes).
-			Msg("Found enabled provider in database")
-	}
-
 	// Initialize providers
 	for _, config := range providers {
 		if err := m.InitProvider(ctx, config); err != nil {
@@ -90,21 +117,11 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 		}
 	}
 
-	// Get all provider IDs for logging
-	var providerIDs []string
-	for id := range m.providers {
-		providerIDs = append(providerIDs, id)
-	}
-	log.Info().Int("count", len(providers)).Strs("provider_ids", providerIDs).Msg("Loaded OAuth providers")
 	return nil
 }
 
 // InitProvider initializes an OAuth provider
 func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider) error {
-	log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
-		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
-		Msg("Initializing OAuth provider")
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -117,9 +134,6 @@ func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider)
 
 	// Store with exact case from database
 	m.providers[config.ID] = provider
-	log.Info().Str("provider_name", config.Name).Str("provider_id", config.ID).
-		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
-		Msg("Initialized OAuth provider")
 	return nil
 }
 
