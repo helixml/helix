@@ -123,7 +123,7 @@ check_docker_sudo() {
         fi
         return
     fi
-    
+
     # Original logic for other environments
     # Try without sudo first
     if docker ps >/dev/null 2>&1; then
@@ -789,7 +789,7 @@ install_nvidia_docker() {
             echo "See: https://docs.docker.com/desktop/gpu/"
             return
         fi
-        
+
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -797,16 +797,21 @@ install_nvidia_docker() {
             case $ID in
                 ubuntu|debian)
                     distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-                    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-                    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+                    # Use nvidia-container-toolkit (modern method) instead of deprecated nvidia-docker2
+                    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                    curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+                        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
                     sudo apt-get update
-                    sudo apt-get install -y nvidia-docker2
+                    sudo apt-get install -y nvidia-container-toolkit
+                    sudo nvidia-ctk runtime configure --runtime=docker
                     sudo systemctl restart docker
                     ;;
                 fedora)
                     distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-                    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.repo | sudo tee /etc/yum.repos.d/nvidia-docker.repo
-                    sudo dnf install -y nvidia-docker2
+                    curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+                    sudo dnf install -y nvidia-container-toolkit
+                    sudo nvidia-ctk runtime configure --runtime=docker
                     sudo systemctl restart docker
                     ;;
                 *)
@@ -1355,9 +1360,9 @@ if [ "$EXTERNAL_ZED_AGENT" = true ]; then
     if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
         EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
     fi
-    
+
     echo -e "\nInstalling External Zed Agent..."
-    
+
     # Download the external Zed agent scripts
     echo "Downloading external Zed agent scripts..."
     if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -1375,7 +1380,7 @@ if [ "$EXTERNAL_ZED_AGENT" = true ]; then
         sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/external-zed-agent.env.example"
         sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/Dockerfile.zed-agent"
     fi
-    
+
     # Create environment file with user settings
     ENV_FILE="$INSTALL_DIR/external-zed-agent.env"
     cat << EOF > "$ENV_FILE"
