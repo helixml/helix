@@ -1368,11 +1368,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 rdpViewerHeight={rdpViewerHeight}
                 onRdpViewerHeightChange={setRdpViewerHeight}
               />
-              {/* Show Wolf app state for external agent sessions */}
+              {/* Show desktop state for external agent sessions */}
               {isExternalAgent && (
                 <Box sx={{ px: 2, pt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    Wolf App State:
+                    Desktop State:
                   </Typography>
                   <WolfAppStateIndicator sessionId={sessionID} />
                 </Box>
