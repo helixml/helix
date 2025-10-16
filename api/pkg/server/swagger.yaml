@@ -10,6 +10,48 @@ definitions:
       model_id:
         type: string
     type: object
+  filestore.Config:
+    properties:
+      folders:
+        items:
+          $ref: '#/definitions/filestore.Folder'
+        type: array
+      user_prefix:
+        description: |-
+          this will be the virtual path from the storage instance
+          to the users root directory
+          we use this to strip the full paths in the frontend so we can deal with only relative paths
+        type: string
+    type: object
+  filestore.Folder:
+    properties:
+      name:
+        type: string
+      readonly:
+        type: boolean
+    type: object
+  filestore.Item:
+    properties:
+      created:
+        description: timestamp
+        type: integer
+      directory:
+        description: is this thing a folder or not?
+        type: boolean
+      name:
+        description: the filename
+        type: string
+      path:
+        description: the relative path to the file from the base path of the storage
+          instance
+        type: string
+      size:
+        description: bytes
+        type: integer
+      url:
+        description: the URL that can be used to load the object directly
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -2719,6 +2761,9 @@ definitions:
         items:
           $ref: '#/definitions/types.AssistantMCP'
         type: array
+      memory:
+        description: Enable/disable user based memory for the agent
+        type: boolean
       model:
         type: string
       name:
@@ -2846,6 +2891,18 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        description: The name of the OAuth provider to use for authentication
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
+      tools:
+        items:
+          $ref: '#/definitions/mcp.Tool'
+        type: array
       url:
         type: string
     type: object
@@ -2997,6 +3054,19 @@ definitions:
       name:
         type: string
       organization_id:
+        type: string
+    type: object
+  types.CrispTrigger:
+    properties:
+      enabled:
+        type: boolean
+      identifier:
+        description: Token identifier
+        type: string
+      nickname:
+        description: Optional
+        type: string
+      token:
         type: string
     type: object
   types.CronTrigger:
@@ -3586,6 +3656,9 @@ definitions:
         items:
           $ref: '#/definitions/openai.Tool'
         type: array
+      trigger:
+        description: Session (default), slack, crisp, etc
+        type: string
       updated:
         type: string
       usage:
@@ -3939,6 +4012,7 @@ definitions:
     - prepare_api_request
     - interpret_response
     - generate_title
+    - summarize_conversation
     type: string
     x-enum-varnames:
     - LLMCallStepDefault
@@ -3946,6 +4020,7 @@ definitions:
     - LLMCallStepPrepareAPIRequest
     - LLMCallStepInterpretResponse
     - LLMCallStepGenerateTitle
+    - LLMCallStepSummarizeConversation
   types.LoginRequest:
     properties:
       redirect_uri:
@@ -3959,6 +4034,21 @@ definitions:
         type: integer
       enabled:
         type: boolean
+    type: object
+  types.Memory:
+    properties:
+      app_id:
+        type: string
+      contents:
+        type: string
+      created:
+        type: string
+      id:
+        type: string
+      updated:
+        type: string
+      user_id:
+        type: string
     type: object
   types.Message:
     properties:
@@ -4224,6 +4314,7 @@ definitions:
     - github
     - slack
     - linkedin
+    - hubspot
     - custom
     type: string
     x-enum-varnames:
@@ -4234,6 +4325,7 @@ definitions:
     - OAuthProviderTypeGitHub
     - OAuthProviderTypeSlack
     - OAuthProviderTypeLinkedIn
+    - OAuthProviderTypeHubSpot
     - OAuthProviderTypeCustom
   types.OAuthUserInfo:
     properties:
@@ -4547,6 +4639,11 @@ definitions:
         description: 'global, user (TODO: orgs, teams)'
       error:
         type: string
+      headers:
+        additionalProperties:
+          type: string
+        description: If for example anthropic expects x-api-key and anthropic-version
+        type: object
       id:
         type: string
       models:
@@ -5105,6 +5202,8 @@ definitions:
         description: |-
           huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
           stabilityai/stable-diffusion-xl-base-1.0
+        type: string
+      trigger:
         type: string
       type:
         allOf:
@@ -6331,6 +6430,13 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       tools:
         items:
           $ref: '#/definitions/mcp.Tool'
@@ -6380,6 +6486,8 @@ definitions:
         $ref: '#/definitions/types.AgentWorkQueueTrigger'
       azure_devops:
         $ref: '#/definitions/types.AzureDevOpsTrigger'
+      crisp:
+        $ref: '#/definitions/types.CrispTrigger'
       cron:
         $ref: '#/definitions/types.CronTrigger'
       discord:
@@ -6484,12 +6592,14 @@ definitions:
   types.TriggerType:
     enum:
     - slack
+    - crisp
     - azure_devops
     - cron
     - agent_work_queue
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
+    - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
     - TriggerTypeAgentWorkQueue
@@ -6513,6 +6623,11 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ProviderEndpointType'
         description: 'global, user (TODO: orgs, teams)'
+      headers:
+        additionalProperties:
+          type: string
+        description: Custom headers for the endpoint
+        type: object
       models:
         items:
           type: string
@@ -7440,6 +7555,23 @@ paths:
       summary: Get app usage
       tags:
       - apps
+  /api/v1/apps/{id}/duplicate:
+    post:
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Optional new name for the app
+        in: query
+        name: name
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
   /api/v1/apps/{id}/interactions:
     get:
       description: List interactions with pagination and optional session filtering
@@ -7506,6 +7638,47 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/apps/{id}/memories:
+    get:
+      description: List memories for a specific app and user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Memory'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List app memories
+      tags:
+      - memories
+  /api/v1/apps/{id}/memories/{memory_id}:
+    delete:
+      description: Delete a specific memory for an app and user
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Memory ID
+        in: path
+        name: memory_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete app memory
+      tags:
+      - memories
   /api/v1/apps/{id}/step-info:
     get:
       description: List step info for a specific app and interaction ID, used to build
@@ -7786,6 +7959,218 @@ paths:
       summary: Get keepalive session status
       tags:
       - ExternalAgents
+  /api/v1/filestore/config:
+    get:
+      consumes:
+      - application/json
+      description: Get the filestore configuration including user prefix and available
+        folders
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Config'
+      security:
+      - BearerAuth: []
+      summary: Get filestore configuration
+      tags:
+      - filestore
+  /api/v1/filestore/delete:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a file or folder from the filestore
+      parameters:
+      - description: Path to the file or folder to delete
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Path of the deleted item
+          schema:
+            properties:
+              path:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/folder:
+    post:
+      consumes:
+      - application/json
+      description: Create a new folder in the filestore at the specified path
+      parameters:
+      - description: Request body with folder path
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            path:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Create filestore folder
+      tags:
+      - filestore
+  /api/v1/filestore/get:
+    get:
+      consumes:
+      - application/json
+      description: Get information about a specific file or folder in the filestore
+      parameters:
+      - description: Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Get filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/list:
+    get:
+      consumes:
+      - application/json
+      description: List files and folders in the specified path. Supports both user
+        and app-scoped paths
+      parameters:
+      - description: Path to list (e.g., 'documents', 'apps/app_id/folder')
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/filestore.Item'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List filestore items
+      tags:
+      - filestore
+  /api/v1/filestore/rename:
+    put:
+      consumes:
+      - application/json
+      description: Rename a file or folder in the filestore. Cannot rename between
+        different scopes (user/app)
+      parameters:
+      - description: Current path of the file or folder
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: New path for the file or folder
+        in: query
+        name: new_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/filestore.Item'
+      security:
+      - BearerAuth: []
+      summary: Rename filestore item
+      tags:
+      - filestore
+  /api/v1/filestore/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload one or more files to the specified path in the filestore.
+        Supports multipart form data with 'files' field
+      parameters:
+      - description: Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Files to upload (multipart form data)
+        in: formData
+        name: files
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Upload success status
+          schema:
+            properties:
+              success:
+                type: boolean
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Upload files to filestore
+      tags:
+      - filestore
+  /api/v1/filestore/viewer/{path}:
+    get:
+      consumes:
+      - application/json
+      description: Serve files from the filestore with access control. Supports both
+        user and app-scoped paths
+      parameters:
+      - description: File path to view (e.g., 'dev/users/user_id/file.pdf', 'dev/apps/app_id/file.pdf')
+        in: path
+        name: path
+        required: true
+        type: string
+      - description: Set to 'true' to redirect .url files to their target URLs
+        in: query
+        name: redirect_urls
+        type: string
+      - description: URL signature for public access
+        in: query
+        name: signature
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: File content
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: View filestore files
+      tags:
+      - filestore
   /api/v1/git/repositories:
     get:
       description: List all git repositories, optionally filtered by owner and type
