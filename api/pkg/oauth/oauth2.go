@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -119,6 +120,7 @@ func (p *OAuth2Provider) GetAuthorizationURL(ctx context.Context, userID, redire
 
 	// Generate the authorization URL
 	authURL := oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	// authURL := oauth2Config.AuthCodeURL(state)
 
 	return authURL, nil
 }
@@ -202,6 +204,8 @@ func (p *OAuth2Provider) RefreshTokenIfNeeded(ctx context.Context, connection *t
 	// Create the token source
 	tokenSource := p.oauthConfig.TokenSource(ctx, token)
 
+	log.Info().Str("provider_id", p.config.ID).Str("user_id", connection.UserID).Msg("Refreshing token")
+
 	// Refresh the token
 	newToken, err := tokenSource.Token()
 	if err != nil {
@@ -263,6 +267,9 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 		return nil, errors.New("user info URL not specified")
 	}
 
+	// If URL contains the token, replace it
+	userInfoURL = strings.Replace(userInfoURL, "{token}", token.AccessToken, 1)
+
 	resp, err := client.Get(userInfoURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user info: %w", err)
@@ -277,6 +284,12 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to read user info response: %w", err)
 	}
+
+	if strings.Contains(userInfoURL, "https://api.hubapi.com") {
+		return p.parseHubSpotUserInfo(body)
+	}
+
+	// Standard providers
 
 	// Try to parse as JSON
 	var data map[string]interface{}

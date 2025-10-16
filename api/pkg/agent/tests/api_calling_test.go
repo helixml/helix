@@ -171,7 +171,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 		},
 	}
 
-	petStoreSkill := skill.NewAPICallingSkillWithReasoning(planner, petStoreTool)
+	petStoreSkill := skill.NewAPICallingSkillWithReasoning(planner, nil, petStoreTool)
 
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 

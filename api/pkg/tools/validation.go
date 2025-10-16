@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -67,7 +69,7 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
-func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Planner, strict bool) error {
+func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, mcpClientGetter mcp.ClientGetter, strict bool) error {
 	switch tool.ToolType {
 	case types.ToolTypeAPI:
 		// Validate the API
@@ -145,15 +147,30 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 
 		// Get MCP config from assistant
 		mcpConfig := &types.AssistantMCP{
-			URL:     tool.Config.MCP.URL,
-			Headers: tool.Config.MCP.Headers,
+			Name:          tool.Config.MCP.Name,
+			URL:           tool.Config.MCP.URL,
+			Headers:       tool.Config.MCP.Headers,
+			OAuthProvider: tool.Config.MCP.OAuthProvider,
+			OAuthScopes:   tool.Config.MCP.OAuthScopes,
 		}
 
 		// Attempt to initialize the MCP client
-		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpConfig)
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpClientGetter, agent.Meta{UserID: userID}, oauthManager, mcpConfig)
 		if err != nil {
-			log.Warn().Err(err).Msg("failed to initialize MCP client, might not work during runtime")
+			log.Warn().
+				Err(err).
+				Str("url", mcpConfig.URL).
+				Str("name", mcpConfig.Name).
+				Str("user_id", userID).
+				Msg("failed to initialize MCP client, might not work during runtime")
 		} else {
+			// Find assistant mcp tool with the same name and update the tools
+			for idx, mcp := range assistant.MCPs {
+				if mcp.Name == mcpConfig.Name {
+					assistant.MCPs[idx].Tools = resp.Tools
+					break
+				}
+			}
 			tool.Config.MCP.Tools = resp.Tools
 		}
 

@@ -14,6 +14,7 @@ import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
+import ContextMenuModal from '../components/widgets/ContextMenuModal'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
@@ -273,6 +274,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [showRDPViewer, setShowRDPViewer] = useState(false)
   const [isExternalAgent, setIsExternalAgent] = useState(false)
   const [rdpViewerHeight, setRdpViewerHeight] = useState(300)
+  const [filterMap, setFilterMap] = useState<Record<string, string>>({})
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -339,6 +341,29 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }
     });
   }, []);
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target
+    setInputValue(textarea.value)
+    
+    // Reset height to auto to get the correct scrollHeight
+    textarea.style.height = 'auto'
+    
+    // Calculate new height based on content
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 24
+    const maxLines = 5
+    const maxHeight = lineHeight * maxLines
+    
+    // Set height to scrollHeight, but cap at maxHeight
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+    textarea.style.height = `${newHeight}px`
+  }
+
+  useEffect(() => {
+    if (!inputValue && textFieldRef.current) {
+      textFieldRef.current.style.height = 'auto'
+    }
+  }, [inputValue])
 
   // Add effect to handle auto-scrolling when session changes
   useEffect(() => {
@@ -520,7 +545,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       performance.mark('input-end');
       performance.measure('input-latency', 'input-start', 'input-end');
       const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
+      
+      (`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
       performance.clearMarks();
       performance.clearMeasures();
     });
@@ -636,6 +662,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       inferencePrompt: prompt,
     })) return
 
+    let actualPrompt = prompt
+    Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
+      actualPrompt = actualPrompt.replace(displayText, fullCommand);
+    });
+
     let newSession: TypesSession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
@@ -643,11 +674,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       const appID = session.data.parent_app || ''
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
 
       newSession = await NewInference({
-        message: prompt,
+        message: actualPrompt,
         messages: [],
         image: selectedImage || undefined, // Optional field
         image_filename: selectedImageName || undefined, // Optional field
@@ -658,13 +690,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         sessionId: session?.data?.id,
         type: session?.data?.type || 'text',
       })
-      console.log("XXX new session done!!")
     } else {
       const formData = new FormData()
-      formData.set('input', prompt)
+      formData.set('input', actualPrompt)
       formData.set('model_name', session?.data?.model_name || '')
 
       setInputValue("")
+      setFilterMap({})
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
 
@@ -686,15 +718,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     NewInference,
     scrollToBottom,
     safeReloadSession,
+    filterMap,
   ])
 
   const onRegenerate = useCallback(async (interactionID: string, message: string) => {
     if (!session?.data) return
     if (!checkOwnership({
       inferencePrompt: '',
-    })) return
-
-    console.log("onRegenerate", { interactionID, message })
+    })) return    
 
     let newSession: TypesSession | null = null
 
@@ -877,16 +908,63 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       return
     }
     const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
-    if (!filterAction) {
+    if (!filterAction || !filterAction.value) {
       snackbar.error('Unable to filter document, no action found')
       return
     }
-    setInputValue(current => current + filterAction.value);
+    
+    const filterValue = filterAction.value;
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = filterValue.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: filterValue
+      }));
+      
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
+    } else {
+      setInputValue(current => current + filterValue);
+    }
   }, [appID, api, setInputValue, snackbar]);
 
   const handleInsertText = useCallback((text: string) => {
-    // Simply update the parent's state with the new value from the child
-    setInputValue(text);
+    const filterRegex = /@filter\(\[DOC_NAME:([^\]]+)\]\[DOC_ID:([^\]]+)\]\)/;
+    const match = text.match(filterRegex);
+    
+    if (match) {
+      const fullPath = match[1];
+      const filename = fullPath.split('/').pop() || fullPath;
+      const displayText = `@${filename}`;
+      
+      setFilterMap(current => ({
+        ...current,
+        [displayText]: text
+      }));
+
+      setInputValue(current => {
+        const lastAtIndex = current.lastIndexOf('@');
+        if (lastAtIndex !== -1) {
+          return current.substring(0, lastAtIndex) + displayText;
+        } else {
+          return current + displayText;
+        }
+      });
+    } else {
+      setInputValue(current => current + text);
+    }
   }, []);
 
   // Memoize the session data comparison
@@ -1385,50 +1463,57 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    {/* --- Start of new input area --- */}
-                    <Box
-                      sx={{
-                        width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
-                        margin: '0 auto',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '12px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        p: 2,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 1,
-                        bgcolor: theme.palette.background.default,
-                      }}
+                    <ContextMenuModal
+                      appId={appID || ''}
+                      textAreaRef={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                      onInsertText={handleInsertText}
                     >
-                      {/* Top row: textarea */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <textarea
-                          ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
-                          value={inputValue}
-                          onChange={e => setInputValue(e.target.value)}
-                          onKeyDown={handleKeyDown as any}
-                          rows={1}
-                          style={{
-                            width: '100%',
-                            backgroundColor: 'transparent',
-                            border: 'none',
-                            color: '#fff',
-                            opacity: 0.7,
-                            resize: 'none',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            fontSize: 'inherit',
-                          }}
-                          placeholder={
-                            session.data?.type == SESSION_TYPE_TEXT
-                              ? session.data.parent_app
-                                ? `Chat with ${apps.app?.config.helix.name}...`
-                                : 'Ask anything...'
-                              : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                          }
-                          disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                        />
-                      </Box>
+                      {/* --- Start of new input area --- */}
+                      <Box
+                        sx={{
+                          width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                          margin: '0 auto',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          borderRadius: '12px',
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          p: 2,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 1,
+                          bgcolor: theme.palette.background.default,
+                        }}
+                      >
+                        {/* Top row: textarea */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <textarea
+                            ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                            value={inputValue}
+                            onChange={handleTextareaChange}
+                            onKeyDown={handleKeyDown as any}
+                            rows={1}
+                            style={{
+                              width: '100%',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              color: '#fff',
+                              opacity: 0.7,
+                              resize: 'none',
+                              outline: 'none',
+                              fontFamily: 'inherit',
+                              fontSize: 'inherit',
+                              lineHeight: '1.5',
+                              overflowY: 'auto',
+                            }}
+                            placeholder={
+                              session.data?.type == SESSION_TYPE_TEXT
+                                ? session.data.parent_app
+                                  ? `Chat with ${apps.app?.config.helix.name}...`
+                                  : 'Ask anything...'
+                                : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                            }
+                            disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                          />
+                        </Box>
                       {/* Bottom row: attachment icon, image name, send button */}
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1519,8 +1604,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                           </Tooltip>
                         </Box>
                       </Box>
-                    </Box>
-                    {/* --- End of new input area --- */}
+                      </Box>
+                      {/* --- End of new input area --- */}
+                    </ContextMenuModal>
                   </Cell>
                   {/* Temporary disabled feedback buttons, will be moved to interaction list */}
                   {/* {isBigScreen && (

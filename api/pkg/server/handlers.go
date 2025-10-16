@@ -310,10 +310,29 @@ func (apiServer *HelixAPIServer) status(_ http.ResponseWriter, req *http.Request
 	return apiServer.Controller.GetStatus(ctx, user)
 }
 
+// filestoreConfig godoc
+// @Summary Get filestore configuration
+// @Description Get the filestore configuration including user prefix and available folders
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Success 200 {object} filestore.Config
+// @Router /api/v1/filestore/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreConfig(_ http.ResponseWriter, req *http.Request) (filestore.Config, error) {
 	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
+// filestoreList godoc
+// @Summary List filestore items
+// @Description List files and folders in the specified path. Supports both user and app-scoped paths
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string false "Path to list (e.g., 'documents', 'apps/app_id/folder')"
+// @Success 200 {array} filestore.Item
+// @Router /api/v1/filestore/list [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.Request) ([]filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -353,6 +372,16 @@ func (apiServer *HelixAPIServer) filestoreList(_ http.ResponseWriter, req *http.
 	return apiServer.Controller.FilestoreList(getOwnerContext(req), path)
 }
 
+// filestoreGet godoc
+// @Summary Get filestore item
+// @Description Get information about a specific file or folder in the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/get [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 
@@ -384,6 +413,16 @@ func (apiServer *HelixAPIServer) filestoreGet(_ http.ResponseWriter, req *http.R
 	return apiServer.Controller.FilestoreGet(getOwnerContext(req), path)
 }
 
+// filestoreCreateFolder godoc
+// @Summary Create filestore folder
+// @Description Create a new folder in the filestore at the specified path
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   request body object{path=string} true "Request body with folder path"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/folder [post]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	var request struct {
 		Path string `json:"path"`
@@ -420,6 +459,17 @@ func (apiServer *HelixAPIServer) filestoreCreateFolder(_ http.ResponseWriter, re
 	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), request.Path)
 }
 
+// filestoreRename godoc
+// @Summary Rename filestore item
+// @Description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Current path of the file or folder"
+// @Param   new_path query string true "New path for the file or folder"
+// @Success 200 {object} filestore.Item
+// @Router /api/v1/filestore/rename [put]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *http.Request) (filestore.Item, error) {
 	path := req.URL.Query().Get("path")
 	newPath := req.URL.Query().Get("new_path")
@@ -466,6 +516,16 @@ func (apiServer *HelixAPIServer) filestoreRename(_ http.ResponseWriter, req *htt
 	return apiServer.Controller.FilestoreRename(getOwnerContext(req), path, newPath)
 }
 
+// filestoreDelete godoc
+// @Summary Delete filestore item
+// @Description Delete a file or folder from the filestore
+// @Tags    filestore
+// @Accept  json
+// @Produce json
+// @Param   path query string true "Path to the file or folder to delete"
+// @Success 200 {object} object{path=string} "Path of the deleted item"
+// @Router /api/v1/filestore/delete [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 
@@ -499,6 +559,17 @@ func (apiServer *HelixAPIServer) filestoreDelete(_ http.ResponseWriter, req *htt
 	return path, err
 }
 
+// filestoreUpload godoc
+// @Summary Upload files to filestore
+// @Description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+// @Tags    filestore
+// @Accept  multipart/form-data
+// @Produce json
+// @Param   path query string true "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')"
+// @Param   files formData file true "Files to upload (multipart form data)"
+// @Success 200 {object} object{success=bool} "Upload success status"
+// @Router /api/v1/filestore/upload [post]
+// @Security BearerAuth
 // TODO version of this which is session specific
 func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
@@ -507,15 +578,18 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 	if controller.IsAppPath(path) {
 		appID, err := controller.ExtractAppID(path)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("invalid app path format")
 			return false, fmt.Errorf("invalid app path format: %s", err)
 		}
 
 		// Check app filestore access for app-scoped paths
 		hasAccess, _, err := apiServer.checkAppFilestoreAccess(req.Context(), path, req, types.ActionCreate)
 		if err != nil {
+			log.Error().Err(err).Str("path", path).Msg("error checking app filestore access")
 			return false, err
 		}
 		if !hasAccess {
+			log.Error().Str("path", path).Msg("access denied to app filestore path")
 			return false, fmt.Errorf("access denied to app filestore path: %s", path)
 		}
 
@@ -523,6 +597,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		err = req.ParseMultipartForm(10 << 20)
 		if err != nil {
 			return false, err
+		}
+
+		if len(req.MultipartForm.File["files"]) == 0 {
+			return false, fmt.Errorf("no files to upload")
 		}
 
 		files := req.MultipartForm.File["files"]
@@ -536,6 +614,12 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			// Extract the relative path within the app
 			relativePath := path[len("apps/")+len(appID):]
 			relativePath = strings.TrimPrefix(relativePath, "/")
+
+			// Strip filename from path if it contains the filename to prevent duplication
+			if strings.HasSuffix(relativePath, fileHeader.Filename) {
+				relativePath = strings.TrimSuffix(relativePath, fileHeader.Filename)
+				relativePath = strings.TrimSuffix(relativePath, "/")
+			}
 
 			// Use the app-specific upload method
 			_, err = apiServer.Controller.FilestoreAppUploadFile(appID, filepath.Join(relativePath, fileHeader.Filename), file)
@@ -553,6 +637,10 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 		return false, err
 	}
 
+	if len(req.MultipartForm.File["files"]) == 0 {
+		return false, fmt.Errorf("no files to upload")
+	}
+
 	files := req.MultipartForm.File["files"]
 	for _, fileHeader := range files {
 		file, err := fileHeader.Open()
@@ -560,7 +648,15 @@ func (apiServer *HelixAPIServer) filestoreUpload(_ http.ResponseWriter, req *htt
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
+
+		// Strip filename from path if it contains the filename to prevent duplication
+		uploadPath := path
+		if strings.HasSuffix(uploadPath, fileHeader.Filename) {
+			uploadPath = strings.TrimSuffix(uploadPath, fileHeader.Filename)
+			uploadPath = strings.TrimSuffix(uploadPath, "/")
+		}
+
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(uploadPath, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}

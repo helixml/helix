@@ -125,6 +125,7 @@ const Apps: FC = () => {
           data={ apps.apps }
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
+          orgId={ account.organizationTools.organization?.id || '' }
         />
         
         {/* Find Agents CTA */}

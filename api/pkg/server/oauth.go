@@ -543,7 +543,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
@@ -576,7 +575,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 		<div class="icon">&#10004;</div>
 		<h1>Connection Successful</h1>
 		<p>You have successfully connected to %s.</p>
-		<p>This window will close automatically in a few seconds.</p>
+		<p>You can now close this window.</p>
 		<script>
 			// Send a message to the opener window
 			window.opener && window.opener.postMessage({
@@ -584,9 +583,6 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 				connectionId: '%s',
 				providerId: '%s'
 			}, '*');
-			
-			// Close this window automatically after a short delay
-			setTimeout(() => window.close(), 2000);
 		</script>
 	</body></html>`, providerName, connection.ID, requestToken.ProviderID)
 

@@ -15,7 +15,7 @@ import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
 import HubIcon from '@mui/icons-material/Hub'
 import * as Icons from '@mui/icons-material'
-import { Cog } from 'lucide-react'
+import { Cog, Brain } from 'lucide-react'
 
 // Add spinning animation
 const spin = keyframes`
@@ -132,6 +132,9 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     }
     if (step.name && step.name.startsWith('mcp_')) {
       return <HubIcon sx={{ fontSize: 20 }} />    
+    }
+    if (step.name && step.name === 'Memory') {
+      return <Brain size={20} />    
     }
     // If it's one of the few support MaterialUI icons, use them
     switch (step.icon) {

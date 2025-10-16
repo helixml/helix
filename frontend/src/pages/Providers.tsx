@@ -13,11 +13,6 @@ import { PROVIDERS, Provider } from '../components/providers/types';
 import useRouter from '../hooks/useRouter';
 import useAccount from '../hooks/useAccount';
 
-
-interface ProviderConfig {
-  apiKey: string;
-}
-
 const Providers: React.FC = () => {
   const router = useRouter()
   const account = useAccount()

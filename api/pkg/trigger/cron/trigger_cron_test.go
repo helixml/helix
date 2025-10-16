@@ -157,6 +157,8 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		Owner:    "test-user",
 	}).Return(suite.openAiClient, nil).Times(1)
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
+
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
@@ -282,6 +284,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		Provider: "togetherai",
 		Owner:    "test-org",
 	}).Return(suite.openAiClient, nil).Times(1)
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true).AnyTimes()
 
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(

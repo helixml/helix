@@ -273,23 +273,19 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 
 		// Convert MCP to Tools
 		for _, mcp := range assistant.MCPs {
-			// If already initialized, add it to the tools
-			t, ok := initializedTools[mcp.Name]
-			if ok {
-				tools = append(tools, t)
-				continue
-			}
-			// Otherwise, create a new tool, fallback mechanism
 			tools = append(tools, &types.Tool{
 				Name:        mcp.Name,
 				Description: mcp.Description,
 				ToolType:    types.ToolTypeMCP,
 				Config: types.ToolConfig{
 					MCP: &types.ToolMCPClientConfig{
-						Name:        mcp.Name,
-						Description: mcp.Description,
-						URL:         mcp.URL,
-						Headers:     mcp.Headers,
+						Name:          mcp.Name,
+						Description:   mcp.Description,
+						URL:           mcp.URL,
+						Headers:       mcp.Headers,
+						OAuthProvider: mcp.OAuthProvider,
+						OAuthScopes:   mcp.OAuthScopes,
+						Tools:         mcp.Tools,
 					},
 				},
 			})
@@ -324,7 +320,8 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 	// Handle organization_id based on specific conditions
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
-	} else {
+	} else if q.Owner != "" {
+		// Listing for specific user
 		query = query.Where("organization_id IS NULL OR organization_id = ''")
 	}
 
@@ -415,6 +412,11 @@ func filterOutEmptyTriggers(triggers []types.Trigger) []types.Trigger {
 		}
 
 		if trigger.Discord != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Crisp != nil {
 			filtered = append(filtered, trigger)
 			continue
 		}

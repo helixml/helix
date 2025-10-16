@@ -296,7 +296,7 @@ type Store interface {
 	UpdateOAuthConnection(ctx context.Context, connection *types.OAuthConnection) (*types.OAuthConnection, error)
 	DeleteOAuthConnection(ctx context.Context, id string) error
 	ListOAuthConnections(ctx context.Context, query *ListOAuthConnectionsQuery) ([]*types.OAuthConnection, error)
-	GetOAuthConnectionsNearExpiry(ctx context.Context, threshold time.Time) ([]*types.OAuthConnection, error)
+	GetOAuthConnectionsNearExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.OAuthConnection, error)
 
 	// OAuth Request Token methods
 	CreateOAuthRequestToken(ctx context.Context, token *types.OAuthRequestToken) (*types.OAuthRequestToken, error)
@@ -321,6 +321,10 @@ type Store interface {
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
+
+	CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error)
+	GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error)
+	DeleteCrispThread(ctx context.Context, olderThan time.Time) error
 
 	// wallet methods
 	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
@@ -489,6 +493,12 @@ type Store interface {
 	LogStreamingAccess(ctx context.Context, log *types.StreamingAccessAuditLog) error
 	UpdateStreamingAccessDisconnect(ctx context.Context, logID string) error
 	ListStreamingAccessAuditLogs(ctx context.Context, userID, sessionID string, limit int) ([]*types.StreamingAccessAuditLog, error)
+
+	// Memory methods
+	CreateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
+	DeleteMemory(ctx context.Context, memory *types.Memory) error
+	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
 }
 
 type EmbeddingsStore interface {

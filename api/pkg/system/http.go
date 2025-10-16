@@ -1,14 +1,13 @@
 package system
 
 import (
-	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	stdlog "log"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -212,146 +211,15 @@ func AddAutheaders(
 	return nil
 }
 
-func GetRequest[ResultType any](
-	options ClientOptions,
-	path string,
-	queryParams map[string]string,
-) (ResultType, error) {
-	var result ResultType
-	buf, err := GetRequestBuffer(
-		options,
-		path,
-		queryParams,
-	)
-	if err != nil {
-		return result, err
-	}
-	err = json.Unmarshal(buf.Bytes(), &result)
-	if err != nil {
-		return result, err
-	}
-
-	return result, nil
-}
-
-func GetRequestBuffer(
-	options ClientOptions,
-	path string,
-	queryParams map[string]string,
-) (*bytes.Buffer, error) {
-	urlValues := url.Values{}
-	for key, value := range queryParams {
-		urlValues.Add(key, value)
-	}
-	return GetRequestBufferWithQuery(options, path, urlValues)
-}
-
-func GetRequestBufferWithQuery(
-	options ClientOptions,
-	path string,
-	queryParams url.Values,
-) (*bytes.Buffer, error) {
-	client := NewRetryClient(3)
-	parsedURL, err := url.Parse(URL(options, path))
-	if err != nil {
-		return nil, err
-	}
-	parsedURL.RawQuery = queryParams.Encode()
-	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	log.Trace().
-		Str(req.Method, req.URL.String()).
-		Msgf("")
-	err = AddAuthHeadersRetryable(req, options.Token)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("error response from server: %s %s", resp.Status, parsedURL.String())
-	}
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return &buf, nil
-}
-
-func PostRequest[RequestType any, ResultType any](
-	options ClientOptions,
-	path string,
-	data RequestType,
-) (ResultType, error) {
-	var result ResultType
-	dataBytes, err := json.Marshal(data)
-	if err != nil {
-		return result, fmt.Errorf("error parsing JSON: %s", err.Error())
-	}
-	return PostRequestBuffer[ResultType](
-		options,
-		path,
-		bytes.NewBuffer(dataBytes),
-		"application/json",
-	)
-}
-
-func PostRequestBuffer[ResultType any](
-	options ClientOptions,
-	path string,
-	data *bytes.Buffer,
-	contentType string,
-) (ResultType, error) {
-	var result ResultType
-	client := NewRetryClient(3)
-	req, err := retryablehttp.NewRequest(http.MethodPost, URL(options, path), data)
-	if err != nil {
-		return result, err
-	}
-	log.Trace().
-		Str(req.Method, req.URL.String()).
-		Msgf("")
-	req.Header.Add("Content-type", contentType)
-	err = AddAuthHeadersRetryable(req, options.Token)
-	if err != nil {
-		return result, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return result, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return result, err
-	}
-
-	if resp.StatusCode >= 400 {
-		return result, fmt.Errorf("error response from server: %s %s %s", resp.Status, URL(options, path), string(body))
-	}
-
-	// parse body as json into result
-	err = json.Unmarshal(body, &result)
-	if err != nil {
-		return result, err
-	}
-
-	return result, nil
-}
-
-func NewRetryClient(retryMax int) *retryablehttp.Client {
+func NewRetryClient(retryMax int, tlsSkipVerify bool) *retryablehttp.Client {
 	retryClient := retryablehttp.NewClient()
 	retryClient.RetryMax = retryMax
+
+	if tlsSkipVerify {
+		retryClient.HTTPClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
 	retryClient.Logger = stdlog.New(io.Discard, "", stdlog.LstdFlags)
 	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
 		switch {

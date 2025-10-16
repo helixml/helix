@@ -13,6 +13,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// filestoreViewerHandler godoc
+// @Summary View filestore files
+// @Description Serve files from the filestore with access control. Supports both user and app-scoped paths
+// @Tags    filestore
+// @Accept  json
+// @Produce application/octet-stream
+// @Param   path path string true "File path to view (e.g., 'dev/users/user_id/file.pdf', 'dev/apps/app_id/file.pdf')"
+// @Param   redirect_urls query string false "Set to 'true' to redirect .url files to their target URLs"
+// @Param   signature query string false "URL signature for public access"
+// @Success 200 {file} file "File content"
+// @Router /api/v1/filestore/viewer/{path} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.Request) {
 	// if the session is "shared" then anyone can see the files inside the session
 	// if the user is admin then can see anything
@@ -43,6 +55,11 @@ func (s *HelixAPIServer) filestoreViewerHandler(w http.ResponseWriter, r *http.R
 			http.Redirect(w, r, url, http.StatusFound)
 		}
 	} else {
+		// Set cache control headers to prevent caching
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+
 		s.fileServerHandler.ServeHTTP(w, r)
 	}
 }
@@ -205,8 +222,6 @@ func (s *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path strin
 		return false, "", fmt.Errorf("invalid app filestore path format: %s", path)
 	}
 
-	logger.Debug().Str("app_id", appID).Msg("Extracted app ID from path")
-
 	// Get the app to check permissions
 	app, err := s.Store.GetApp(ctx, appID)
 	if err != nil {
@@ -225,6 +240,5 @@ func (s *HelixAPIServer) checkAppFilestoreAccess(ctx context.Context, path strin
 		return false, appID, nil
 	}
 
-	logger.Debug().Msg("User authorized to access app")
 	return true, appID, nil
 }

@@ -204,6 +204,21 @@ func (mr *MockStoreMockRecorder) CreateApp(ctx, tool any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
 }
 
+// CreateCrispThread mocks base method.
+func (m *MockStore) CreateCrispThread(ctx context.Context, thread *types.CrispThread) (*types.CrispThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateCrispThread", ctx, thread)
+	ret0, _ := ret[0].(*types.CrispThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateCrispThread indicates an expected call of CreateCrispThread.
+func (mr *MockStoreMockRecorder) CreateCrispThread(ctx, thread any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCrispThread", reflect.TypeOf((*MockStore)(nil).CreateCrispThread), ctx, thread)
+}
+
 // CreateDataEntity mocks base method.
 func (m *MockStore) CreateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error) {
 	m.ctrl.T.Helper()
@@ -354,6 +369,21 @@ func (m *MockStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*ty
 func (mr *MockStoreMockRecorder) CreateLLMCall(ctx, call any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLLMCall", reflect.TypeOf((*MockStore)(nil).CreateLLMCall), ctx, call)
+}
+
+// CreateMemory mocks base method.
+func (m *MockStore) CreateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateMemory", ctx, memory)
+	ret0, _ := ret[0].(*types.Memory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateMemory indicates an expected call of CreateMemory.
+func (mr *MockStoreMockRecorder) CreateMemory(ctx, memory any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMemory", reflect.TypeOf((*MockStore)(nil).CreateMemory), ctx, memory)
 }
 
 // CreateModel mocks base method.
@@ -857,6 +887,20 @@ func (mr *MockStoreMockRecorder) DeleteApp(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
 }
 
+// DeleteCrispThread mocks base method.
+func (m *MockStore) DeleteCrispThread(ctx context.Context, olderThan time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteCrispThread", ctx, olderThan)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteCrispThread indicates an expected call of DeleteCrispThread.
+func (mr *MockStoreMockRecorder) DeleteCrispThread(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteCrispThread", reflect.TypeOf((*MockStore)(nil).DeleteCrispThread), ctx, olderThan)
+}
+
 // DeleteDataEntity mocks base method.
 func (m *MockStore) DeleteDataEntity(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -925,6 +969,20 @@ func (m *MockStore) DeleteKnowledgeVersion(ctx context.Context, id string) error
 func (mr *MockStoreMockRecorder) DeleteKnowledgeVersion(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteKnowledgeVersion", reflect.TypeOf((*MockStore)(nil).DeleteKnowledgeVersion), ctx, id)
+}
+
+// DeleteMemory mocks base method.
+func (m *MockStore) DeleteMemory(ctx context.Context, memory *types.Memory) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteMemory", ctx, memory)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteMemory indicates an expected call of DeleteMemory.
+func (mr *MockStoreMockRecorder) DeleteMemory(ctx, memory any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteMemory", reflect.TypeOf((*MockStore)(nil).DeleteMemory), ctx, memory)
 }
 
 // DeleteModel mocks base method.
@@ -1503,6 +1561,21 @@ func (mr *MockStoreMockRecorder) GetAppWithTools(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAppWithTools", reflect.TypeOf((*MockStore)(nil).GetAppWithTools), ctx, id)
 }
 
+// GetCrispThread mocks base method.
+func (m *MockStore) GetCrispThread(ctx context.Context, appID, crispSessionID string) (*types.CrispThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCrispThread", ctx, appID, crispSessionID)
+	ret0, _ := ret[0].(*types.CrispThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCrispThread indicates an expected call of GetCrispThread.
+func (mr *MockStoreMockRecorder) GetCrispThread(ctx, appID, crispSessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCrispThread", reflect.TypeOf((*MockStore)(nil).GetCrispThread), ctx, appID, crispSessionID)
+}
+
 // GetDataEntity mocks base method.
 func (m *MockStore) GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error) {
 	m.ctrl.T.Helper()
@@ -1684,18 +1757,18 @@ func (mr *MockStoreMockRecorder) GetOAuthConnectionByUserAndProvider(ctx, userID
 }
 
 // GetOAuthConnectionsNearExpiry mocks base method.
-func (m *MockStore) GetOAuthConnectionsNearExpiry(ctx context.Context, threshold time.Time) ([]*types.OAuthConnection, error) {
+func (m *MockStore) GetOAuthConnectionsNearExpiry(ctx context.Context, expiresBefore time.Time) ([]*types.OAuthConnection, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOAuthConnectionsNearExpiry", ctx, threshold)
+	ret := m.ctrl.Call(m, "GetOAuthConnectionsNearExpiry", ctx, expiresBefore)
 	ret0, _ := ret[0].([]*types.OAuthConnection)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetOAuthConnectionsNearExpiry indicates an expected call of GetOAuthConnectionsNearExpiry.
-func (mr *MockStoreMockRecorder) GetOAuthConnectionsNearExpiry(ctx, threshold any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetOAuthConnectionsNearExpiry(ctx, expiresBefore any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthConnectionsNearExpiry", reflect.TypeOf((*MockStore)(nil).GetOAuthConnectionsNearExpiry), ctx, threshold)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOAuthConnectionsNearExpiry", reflect.TypeOf((*MockStore)(nil).GetOAuthConnectionsNearExpiry), ctx, expiresBefore)
 }
 
 // GetOAuthProvider mocks base method.
@@ -2601,6 +2674,21 @@ func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, q)
 }
 
+// ListMemories mocks base method.
+func (m *MockStore) ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMemories", ctx, q)
+	ret0, _ := ret[0].([]*types.Memory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMemories indicates an expected call of ListMemories.
+func (mr *MockStoreMockRecorder) ListMemories(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMemories", reflect.TypeOf((*MockStore)(nil).ListMemories), ctx, q)
+}
+
 // ListModels mocks base method.
 func (m *MockStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error) {
 	m.ctrl.T.Helper()
@@ -3365,6 +3453,21 @@ func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state t
 func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, message any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, message)
+}
+
+// UpdateMemory mocks base method.
+func (m *MockStore) UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMemory", ctx, memory)
+	ret0, _ := ret[0].(*types.Memory)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateMemory indicates an expected call of UpdateMemory.
+func (mr *MockStoreMockRecorder) UpdateMemory(ctx, memory any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMemory", reflect.TypeOf((*MockStore)(nil).UpdateMemory), ctx, memory)
 }
 
 // UpdateModel mocks base method.

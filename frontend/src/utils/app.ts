@@ -52,9 +52,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
+    
     if (assistant) {
-      console.log('assistant', assistant.mcps);
-
       flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
       flatState.model = assistant.model
@@ -68,6 +67,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.top_p = assistant.top_p
 
       flatState.agent_mode = assistant.agent_mode
+      flatState.memory = assistant.memory
       flatState.max_iterations = assistant.max_iterations
       flatState.reasoning_model = assistant.reasoning_model
       flatState.reasoning_model_provider = assistant.reasoning_model_provider

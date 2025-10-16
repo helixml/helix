@@ -3,7 +3,48 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
+
+func TestDefaultMemory_Retrieve(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	meta := &Meta{
+		UserID: "user_id",
+		AppID:  "app_id",
+	}
+
+	store := store.NewMockStore(ctrl)
+	store.EXPECT().ListMemories(gomock.Any(), &types.ListMemoryRequest{
+		UserID: meta.UserID,
+		AppID:  meta.AppID,
+	}).Return([]*types.Memory{
+		{
+			ID:       "1",
+			Contents: "contents1",
+		},
+		{
+			ID:       "2",
+			Contents: "contents2",
+		},
+	}, nil)
+
+	memory := NewDefaultMemory(true, store)
+	parsed, err := memory.Retrieve(meta)
+	require.NoError(t, err)
+
+	memStr := parsed.Parse()
+
+	// Check that memory contains contents from both
+	require.Contains(t, memStr, "contents1")
+	require.Contains(t, memStr, "contents2")
+
+}
 
 func TestMemoryBlock_AddString(t *testing.T) {
 	mb := NewMemoryBlock()
