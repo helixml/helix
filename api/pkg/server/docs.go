@@ -1079,6 +1079,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/duplicate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Optional new name for the app",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/interactions": {
             "get": {
                 "security": [
@@ -1177,6 +1206,72 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.PaginatedLLMCalls"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/memories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List memories for a specific app and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "List app memories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Memory"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/memories/{memory_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a specific memory for an app and user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "memories"
+                ],
+                "summary": "Delete app memory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Memory ID",
+                        "name": "memory_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     }
                 }
             }
@@ -1617,6 +1712,338 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the filestore configuration including user prefix and available folders",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Get filestore configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Config"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/delete": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a file or folder from the filestore",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Delete filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to the file or folder to delete",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Path of the deleted item",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/folder": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new folder in the filestore at the specified path",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Create filestore folder",
+                "parameters": [
+                    {
+                        "description": "Request body with folder path",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/get": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get information about a specific file or folder in the filestore",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Get filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/list": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List files and folders in the specified path. Supports both user and app-scoped paths",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "List filestore items",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path to list (e.g., 'documents', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/filestore.Item"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/rename": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Rename filestore item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Current path of the file or folder",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "New path for the file or folder",
+                        "name": "new_path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/filestore.Item"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/upload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "Upload files to filestore",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder')",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Files to upload (multipart form data)",
+                        "name": "files",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Upload success status",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "success": {
+                                    "type": "boolean"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/filestore/viewer/{path}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Serve files from the filestore with access control. Supports both user and app-scoped paths",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "filestore"
+                ],
+                "summary": "View filestore files",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "File path to view (e.g., 'dev/users/user_id/file.pdf', 'dev/apps/app_id/file.pdf')",
+                        "name": "path",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to 'true' to redirect .url files to their target URLs",
+                        "name": "redirect_urls",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "URL signature for public access",
+                        "name": "signature",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "File content",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -8481,6 +8908,61 @@ const docTemplate = `{
                 }
             }
         },
+        "filestore.Config": {
+            "type": "object",
+            "properties": {
+                "folders": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/filestore.Folder"
+                    }
+                },
+                "user_prefix": {
+                    "description": "this will be the virtual path from the storage instance\nto the users root directory\nwe use this to strip the full paths in the frontend so we can deal with only relative paths",
+                    "type": "string"
+                }
+            }
+        },
+        "filestore.Folder": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "readonly": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "filestore.Item": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "description": "timestamp",
+                    "type": "integer"
+                },
+                "directory": {
+                    "description": "is this thing a folder or not?",
+                    "type": "boolean"
+                },
+                "name": {
+                    "description": "the filename",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "the relative path to the file from the base path of the storage instance",
+                    "type": "string"
+                },
+                "size": {
+                    "description": "bytes",
+                    "type": "integer"
+                },
+                "url": {
+                    "description": "the URL that can be used to load the object directly",
+                    "type": "string"
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
             "properties": {
@@ -12388,6 +12870,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.AssistantMCP"
                     }
                 },
+                "memory": {
+                    "description": "Enable/disable user based memory for the agent",
+                    "type": "boolean"
+                },
                 "model": {
                     "type": "string"
                 },
@@ -12539,6 +13025,23 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "oauth_provider": {
+                    "description": "The name of the OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Tool"
+                    }
                 },
                 "url": {
                     "type": "string"
@@ -12765,6 +13268,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "organization_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CrispTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "identifier": {
+                    "description": "Token identifier",
+                    "type": "string"
+                },
+                "nickname": {
+                    "description": "Optional",
+                    "type": "string"
+                },
+                "token": {
                     "type": "string"
                 }
             }
@@ -13619,6 +14141,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/openai.Tool"
                     }
                 },
+                "trigger": {
+                    "description": "Session (default), slack, crisp, etc",
+                    "type": "string"
+                },
                 "updated": {
                     "type": "string"
                 },
@@ -14126,14 +14652,16 @@ const docTemplate = `{
                 "is_actionable",
                 "prepare_api_request",
                 "interpret_response",
-                "generate_title"
+                "generate_title",
+                "summarize_conversation"
             ],
             "x-enum-varnames": [
                 "LLMCallStepDefault",
                 "LLMCallStepIsActionable",
                 "LLMCallStepPrepareAPIRequest",
                 "LLMCallStepInterpretResponse",
-                "LLMCallStepGenerateTitle"
+                "LLMCallStepGenerateTitle",
+                "LLMCallStepSummarizeConversation"
             ]
         },
         "types.LoginRequest": {
@@ -14155,6 +14683,29 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.Memory": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "contents": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },
@@ -14531,6 +15082,7 @@ const docTemplate = `{
                 "github",
                 "slack",
                 "linkedin",
+                "hubspot",
                 "custom"
             ],
             "x-enum-varnames": [
@@ -14541,6 +15093,7 @@ const docTemplate = `{
                 "OAuthProviderTypeGitHub",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeHubSpot",
                 "OAuthProviderTypeCustom"
             ]
         },
@@ -15001,6 +15554,13 @@ const docTemplate = `{
                 },
                 "error": {
                     "type": "string"
+                },
+                "headers": {
+                    "description": "If for example anthropic expects x-api-key and anthropic-version",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "id": {
                     "type": "string"
@@ -15774,6 +16334,9 @@ const docTemplate = `{
                 },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
+                    "type": "string"
+                },
+                "trigger": {
                     "type": "string"
                 },
                 "type": {
@@ -17540,6 +18103,16 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "oauth_provider": {
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "tools": {
                     "type": "array",
                     "items": {
@@ -17607,6 +18180,9 @@ const docTemplate = `{
                 },
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOpsTrigger"
+                },
+                "crisp": {
+                    "$ref": "#/definitions/types.CrispTrigger"
                 },
                 "cron": {
                     "$ref": "#/definitions/types.CronTrigger"
@@ -17759,12 +18335,14 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "slack",
+                "crisp",
                 "azure_devops",
                 "cron",
                 "agent_work_queue"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
+                "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron",
                 "TriggerTypeAgentWorkQueue"
@@ -17801,6 +18379,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.ProviderEndpointType"
                         }
                     ]
+                },
+                "headers": {
+                    "description": "Custom headers for the endpoint",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "models": {
                     "type": "array",

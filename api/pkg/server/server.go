@@ -20,6 +20,7 @@ import (
 	"gocloud.dev/blob"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
+	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/connman"
@@ -114,6 +115,7 @@ type HelixAPIServer struct {
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
 	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
+	anthropicProxy              *anthropic.Proxy
 }
 
 func NewServer(
@@ -134,6 +136,7 @@ func NewServer(
 	oauthManager *oauth.Manager,
 	avatarsBucket *blob.Bucket,
 	trigger *trigger.Manager,
+	anthropicProxy *anthropic.Proxy,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -276,6 +279,7 @@ func NewServer(
 		cache:             cache,
 		avatarsBucket:     avatarsBucket,
 		trigger:           trigger,
+		anthropicProxy:    anthropicProxy,
 		specDrivenTaskService: services.NewSpecDrivenTaskService(
 			store,
 			controller,
@@ -541,6 +545,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
+	// Anthropic API compatible routes
+	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 

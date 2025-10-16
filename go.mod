@@ -10,9 +10,11 @@ require (
 	cloud.google.com/go/storage v1.51.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/Nerzal/gocloak/v13 v13.9.0
+	github.com/anthropics/anthropic-sdk-go v1.12.0
 	github.com/avast/retry-go/v4 v4.5.1
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/coreos/go-oidc/v3 v3.13.0
+	github.com/crisp-im/go-crisp-api/crisp/v3 v3.0.0-20251002125107-1bc4bdbcc749
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/dgraph-io/ristretto/v2 v2.2.0
 	github.com/dop251/goja v0.0.0-20250531102226-cb187b08699c
@@ -53,6 +55,7 @@ require (
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/ollama/ollama v0.11.4
 	github.com/pgvector/pgvector-go v0.2.3
+	github.com/pion/turn/v4 v4.1.1
 	github.com/puzpuzpuz/xsync/v3 v3.4.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
@@ -105,6 +108,7 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/google/go-github/v62 v62.0.0 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
+	github.com/graarh/golang-socketio v0.0.0-20170510162725-2c44953b9b5f // indirect
 	github.com/grokify/mogo v0.64.12 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jfrog/gofrog v1.7.6 // indirect
@@ -116,10 +120,13 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/stun/v3 v3.0.0 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
-	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
 	github.com/xanzy/go-gitlab v0.110.0 // indirect

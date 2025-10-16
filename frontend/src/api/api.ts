@@ -16,6 +16,36 @@ export interface ControllerMemoryEstimationResponse {
   model_id?: string;
 }
 
+export interface FilestoreConfig {
+  folders?: FilestoreFolder[];
+  /**
+   * this will be the virtual path from the storage instance
+   * to the users root directory
+   * we use this to strip the full paths in the frontend so we can deal with only relative paths
+   */
+  user_prefix?: string;
+}
+
+export interface FilestoreFolder {
+  name?: string;
+  readonly?: boolean;
+}
+
+export interface FilestoreItem {
+  /** timestamp */
+  created?: number;
+  /** is this thing a folder or not? */
+  directory?: boolean;
+  /** the filename */
+  name?: string;
+  /** the relative path to the file from the base path of the storage instance */
+  path?: string;
+  /** bytes */
+  size?: number;
+  /** the URL that can be used to load the object directly */
+  url?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -1551,6 +1581,8 @@ export interface TypesAssistantConfig {
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
   mcps?: TypesAssistantMCP[];
+  /** Enable/disable user based memory for the agent */
+  memory?: boolean;
   model?: string;
   name?: string;
   /**
@@ -1639,6 +1671,11 @@ export interface TypesAssistantMCP {
   description?: string;
   headers?: Record<string, string>;
   name?: string;
+  /** The name of the OAuth provider to use for authentication */
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
+  tools?: McpTool[];
   url?: string;
 }
 
@@ -1735,6 +1772,15 @@ export interface TypesCreateAccessGrantRequest {
 export interface TypesCreateTeamRequest {
   name?: string;
   organization_id?: string;
+}
+
+export interface TypesCrispTrigger {
+  enabled?: boolean;
+  /** Token identifier */
+  identifier?: string;
+  /** Optional */
+  nickname?: string;
+  token?: string;
 }
 
 export interface TypesCronTrigger {
@@ -2071,6 +2117,8 @@ export interface TypesInteraction {
   tool_calls?: OpenaiToolCall[];
   /** Model function calling, not to be mistaken with Helix tools */
   tools?: OpenaiTool[];
+  /** Session (default), slack, crisp, etc */
+  trigger?: string;
   updated?: string;
   usage?: TypesUsage;
   user_id?: string;
@@ -2284,6 +2332,7 @@ export enum TypesLLMCallStep {
   LLMCallStepPrepareAPIRequest = "prepare_api_request",
   LLMCallStepInterpretResponse = "interpret_response",
   LLMCallStepGenerateTitle = "generate_title",
+  LLMCallStepSummarizeConversation = "summarize_conversation",
 }
 
 export interface TypesLoginRequest {
@@ -2294,6 +2343,15 @@ export interface TypesManualWorkConfig {
   allow_anonymous?: boolean;
   default_priority?: number;
   enabled?: boolean;
+}
+
+export interface TypesMemory {
+  app_id?: string;
+  contents?: string;
+  created?: string;
+  id?: string;
+  updated?: string;
+  user_id?: string;
 }
 
 export interface TypesMessage {
@@ -2457,6 +2515,7 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeGitHub = "github",
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeHubSpot = "hubspot",
   OAuthProviderTypeCustom = "custom",
 }
 
@@ -2630,6 +2689,8 @@ export interface TypesProviderEndpoint {
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
   error?: string;
+  /** If for example anthropic expects x-api-key and anthropic-version */
+  headers?: Record<string, string>;
   id?: string;
   /** Optional */
   models?: string[];
@@ -2950,6 +3011,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  trigger?: string;
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;
@@ -3645,6 +3707,9 @@ export interface TypesToolMCPClientConfig {
   enabled?: boolean;
   headers?: Record<string, string>;
   name?: string;
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   tools?: McpTool[];
   url?: string;
 }
@@ -3674,6 +3739,7 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   agent_work_queue?: TypesAgentWorkQueueTrigger;
   azure_devops?: TypesAzureDevOpsTrigger;
+  crisp?: TypesCrispTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
@@ -3737,6 +3803,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
   TriggerTypeAgentWorkQueue = "agent_work_queue",
@@ -3754,6 +3821,8 @@ export interface TypesUpdateProviderEndpoint {
   description?: string;
   /** global, user (TODO: orgs, teams) */
   endpoint_type?: TypesProviderEndpointType;
+  /** Custom headers for the endpoint */
+  headers?: Record<string, string>;
   models?: string[];
 }
 
@@ -4637,6 +4706,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @name V1AppsDuplicateCreate
+     * @request POST:/api/v1/apps/{id}/duplicate
+     * @secure
+     */
+    v1AppsDuplicateCreate: (
+      id: string,
+      query?: {
+        /** Optional new name for the app */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}/duplicate`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List interactions with pagination and optional session filtering for a specific app
      *
      * @tags interactions
@@ -4697,6 +4789,41 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List memories for a specific app and user
+     *
+     * @tags memories
+     * @name V1AppsMemoriesDetail
+     * @summary List app memories
+     * @request GET:/api/v1/apps/{id}/memories
+     * @secure
+     */
+    v1AppsMemoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesMemory[], any>({
+        path: `/api/v1/apps/${id}/memories`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a specific memory for an app and user
+     *
+     * @tags memories
+     * @name V1AppsMemoriesDelete
+     * @summary Delete app memory
+     * @request DELETE:/api/v1/apps/{id}/memories/{memory_id}
+     * @secure
+     */
+    v1AppsMemoriesDelete: (id: string, memoryId: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}/memories/${memoryId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -4987,6 +5114,225 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the filestore configuration including user prefix and available folders
+     *
+     * @tags filestore
+     * @name V1FilestoreConfigList
+     * @summary Get filestore configuration
+     * @request GET:/api/v1/filestore/config
+     * @secure
+     */
+    v1FilestoreConfigList: (params: RequestParams = {}) =>
+      this.request<FilestoreConfig, any>({
+        path: `/api/v1/filestore/config`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a file or folder from the filestore
+     *
+     * @tags filestore
+     * @name V1FilestoreDeleteDelete
+     * @summary Delete filestore item
+     * @request DELETE:/api/v1/filestore/delete
+     * @secure
+     */
+    v1FilestoreDeleteDelete: (
+      query: {
+        /** Path to the file or folder to delete */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          path?: string;
+        },
+        any
+      >({
+        path: `/api/v1/filestore/delete`,
+        method: "DELETE",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new folder in the filestore at the specified path
+     *
+     * @tags filestore
+     * @name V1FilestoreFolderCreate
+     * @summary Create filestore folder
+     * @request POST:/api/v1/filestore/folder
+     * @secure
+     */
+    v1FilestoreFolderCreate: (
+      request: {
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/folder`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get information about a specific file or folder in the filestore
+     *
+     * @tags filestore
+     * @name V1FilestoreGetList
+     * @summary Get filestore item
+     * @request GET:/api/v1/filestore/get
+     * @secure
+     */
+    v1FilestoreGetList: (
+      query: {
+        /** Path to the file or folder (e.g., 'documents/file.pdf', 'apps/app_id/folder') */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/get`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List files and folders in the specified path. Supports both user and app-scoped paths
+     *
+     * @tags filestore
+     * @name V1FilestoreListList
+     * @summary List filestore items
+     * @request GET:/api/v1/filestore/list
+     * @secure
+     */
+    v1FilestoreListList: (
+      query?: {
+        /** Path to list (e.g., 'documents', 'apps/app_id/folder') */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem[], any>({
+        path: `/api/v1/filestore/list`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Rename a file or folder in the filestore. Cannot rename between different scopes (user/app)
+     *
+     * @tags filestore
+     * @name V1FilestoreRenameUpdate
+     * @summary Rename filestore item
+     * @request PUT:/api/v1/filestore/rename
+     * @secure
+     */
+    v1FilestoreRenameUpdate: (
+      query: {
+        /** Current path of the file or folder */
+        path: string;
+        /** New path for the file or folder */
+        new_path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<FilestoreItem, any>({
+        path: `/api/v1/filestore/rename`,
+        method: "PUT",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Upload one or more files to the specified path in the filestore. Supports multipart form data with 'files' field
+     *
+     * @tags filestore
+     * @name V1FilestoreUploadCreate
+     * @summary Upload files to filestore
+     * @request POST:/api/v1/filestore/upload
+     * @secure
+     */
+    v1FilestoreUploadCreate: (
+      query: {
+        /** Path where files should be uploaded (e.g., 'documents', 'apps/app_id/folder') */
+        path: string;
+      },
+      data: {
+        /** Files to upload (multipart form data) */
+        files: File;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<
+        {
+          success?: boolean;
+        },
+        any
+      >({
+        path: `/api/v1/filestore/upload`,
+        method: "POST",
+        query: query,
+        body: data,
+        secure: true,
+        type: ContentType.FormData,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Serve files from the filestore with access control. Supports both user and app-scoped paths
+     *
+     * @tags filestore
+     * @name V1FilestoreViewerDetail
+     * @summary View filestore files
+     * @request GET:/api/v1/filestore/viewer/{path}
+     * @secure
+     */
+    v1FilestoreViewerDetail: (
+      path: string,
+      query?: {
+        /** Set to 'true' to redirect .url files to their target URLs */
+        redirect_urls?: string;
+        /** URL signature for public access */
+        signature?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<File, any>({
+        path: `/api/v1/filestore/viewer/${path}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
