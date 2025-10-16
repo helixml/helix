@@ -845,7 +845,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -889,7 +889,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -933,7 +933,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -978,7 +978,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1026,7 +1026,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1076,7 +1076,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1153,7 +1153,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1222,7 +1222,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1264,7 +1264,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1306,7 +1306,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1348,7 +1348,7 @@ steps:
         - push
       branch:
         - main
-        - feature/external-agents-hyprland-working
+        - feature/helix-code
 
 ---
 # See integration-test/smoke/README.md
