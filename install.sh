@@ -685,11 +685,31 @@ fi
 
 # Validate GPU requirements for --code flag
 if [ "$CODE" = true ]; then
-    # Check for Intel/AMD GPU first (preferred for desktop streaming)
-    if check_intel_amd_gpu; then
+    HAS_INTEL_AMD=$(check_intel_amd_gpu && echo "true" || echo "false")
+    HAS_NVIDIA=$(check_nvidia_gpu && echo "true" || echo "false")
+
+    if [ "$HAS_INTEL_AMD" = "true" ] && [ "$HAS_NVIDIA" = "true" ]; then
+        # Both GPU types detected
+        if ! command -v nvidia-smi &> /dev/null; then
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
+            echo "│"
+            echo "│ NVIDIA GPU detected, but nvidia-smi is not available."
+            echo "│ Please install NVIDIA drivers before running this installer."
+            echo "│"
+            echo "│ Install NVIDIA drivers from:"
+            echo "│   https://www.nvidia.com/Download/index.aspx"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            exit 1
+        fi
+        echo "Intel/AMD GPU (/dev/dri) and NVIDIA GPU (nvidia-smi) detected."
+        echo "Helix Code desktop streaming requirements satisfied."
+        echo "Note: NVIDIA Docker runtime will be installed automatically."
+    elif [ "$HAS_INTEL_AMD" = "true" ]; then
+        # Only Intel/AMD GPU
         echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
-    elif check_nvidia_gpu; then
-        # NVIDIA GPU found - verify nvidia-smi works
+    elif [ "$HAS_NVIDIA" = "true" ]; then
+        # Only NVIDIA GPU - verify nvidia-smi works
         if ! command -v nvidia-smi &> /dev/null; then
             echo "┌───────────────────────────────────────────────────────────────────────────"
             echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
@@ -705,6 +725,7 @@ if [ "$CODE" = true ]; then
         echo "NVIDIA GPU detected with nvidia-smi. Helix Code desktop streaming requirements satisfied."
         echo "Note: NVIDIA Docker runtime will be installed automatically."
     else
+        # No GPU detected
         echo "┌───────────────────────────────────────────────────────────────────────────"
         echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
         echo "│"
