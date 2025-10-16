@@ -64,6 +64,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
   const helixApi = useApi();
 
@@ -349,10 +350,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       });
+
+      // Mark that mouse has moved at least once
+      if (!hasMouseMoved) {
+        setHasMouseMoved(true);
+      }
     }
 
     streamRef.current?.getInput().onMouseMove(event.nativeEvent, getStreamRect());
-  }, [getStreamRect]);
+  }, [getStreamRect, hasMouseMoved]);
 
   const handleWheel = useCallback((event: React.WheelEvent) => {
     event.preventDefault();
@@ -508,7 +514,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           pointerEvents: 'none',
           zIndex: 1000,
           transform: 'translate(-50%, -50%)',
-          display: isConnected ? 'block' : 'none',
+          display: isConnected && hasMouseMoved ? 'block' : 'none',
           transition: 'opacity 0.2s',
         }}
         id="custom-cursor"
