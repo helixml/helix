@@ -1089,6 +1089,17 @@ generate_password() {
     fi
 }
 
+# Function to generate random 4-digit PIN for Moonlight pairing
+generate_moonlight_pin() {
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        # Generate random 4-digit number on Git Bash
+        echo $((RANDOM % 9000 + 1000))
+    else
+        # Use /dev/urandom for better randomness on Linux/macOS
+        echo $(($(od -An -N2 -i /dev/urandom) % 9000 + 1000))
+    fi
+}
+
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     echo -e "\nDownloading docker-compose.yaml..."
@@ -1332,7 +1343,7 @@ EOF
     if [[ -n "$CODE" ]]; then
         # Generate TURN password and moonlight pairing PIN
         TURN_PASSWORD=$(generate_password)
-        MOONLIGHT_PIN=$(generate_password)
+        MOONLIGHT_PIN=$(generate_moonlight_pin)
 
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
