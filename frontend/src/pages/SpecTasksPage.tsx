@@ -1,6 +1,5 @@
 import React, { FC, useState, useEffect } from 'react';
 import {
-  Container,
   Box,
   Button,
   Typography,
@@ -69,9 +68,10 @@ function TabPanel(props: TabPanelProps) {
       hidden={value !== index}
       id={`spec-tasks-tabpanel-${index}`}
       aria-labelledby={`spec-tasks-tab-${index}`}
+      style={{ display: value === index ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, overflowX: 'hidden' }}
       {...other}
     >
-      {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
+      {value === index && children}
     </div>
   );
 }
@@ -225,7 +225,7 @@ const SpecTasksPage: FC = () => {
       breadcrumbTitle="SpecTasks"
       orgBreadcrumbs={true}
       topbarContent={
-        <Stack direction="row" spacing={2}>
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0 }}>
           <Button
             variant="outlined"
             startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
@@ -234,6 +234,7 @@ const SpecTasksPage: FC = () => {
               setTimeout(() => setRefreshing(false), 2000);
             }}
             disabled={refreshing}
+            sx={{ flexShrink: 0 }}
           >
             Refresh
           </Button>
@@ -247,15 +248,16 @@ const SpecTasksPage: FC = () => {
                 setCreateDialogOpen(true);
               }
             }}
+            sx={{ flexShrink: 0 }}
           >
             New SpecTask
           </Button>
         </Stack>
       }
     >
-      <Container maxWidth="xl" sx={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ width: '100%', maxWidth: '100%', height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'hidden', px: 3, boxSizing: 'border-box' }}>
         {/* Introduction */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ flexShrink: 0, mb: 2, minWidth: 0 }}>
           <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
             Spec Work for Agents
           </Typography>
@@ -265,8 +267,8 @@ const SpecTasksPage: FC = () => {
         </Box>
 
         {/* Tabs for different views */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs value={currentTab} onChange={handleTabChange} aria-label="spec-tasks-tabs">
+        <Box sx={{ flexShrink: 0, borderBottom: 1, borderColor: 'divider', mb: 2, minWidth: 0 }}>
+          <Tabs value={currentTab} onChange={handleTabChange} aria-label="spec-tasks-tabs" variant="scrollable" scrollButtons="auto">
             <Tab
               icon={<KanbanIcon />}
               label="Kanban Board"
@@ -290,7 +292,7 @@ const SpecTasksPage: FC = () => {
         </Box>
 
         {/* Tab content */}
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
           <TabPanel value={currentTab} index={0}>
             <SpecTaskKanbanBoard
               userId={account.user?.id}
@@ -327,7 +329,7 @@ const SpecTasksPage: FC = () => {
             )}
           </TabPanel>
         </Box>
-      </Container>
+      </Box>
 
       {/* Create SpecTask Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>

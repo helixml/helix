@@ -208,7 +208,7 @@ const DroppableColumn: React.FC<{
   };
 
     return (
-      <Box key={column.id} sx={{ width: 320, mx: 1 }}>
+      <Box key={column.id} sx={{ width: 320, flexShrink: 0, height: '100%' }}>
         <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <CardHeader
             title={
@@ -216,10 +216,10 @@ const DroppableColumn: React.FC<{
                 <Typography variant="h6" sx={{ color: column.color }}>
                   {column.title}
                 </Typography>
-                <Chip 
-                  size="small" 
+                <Chip
+                  size="small"
                   label={column.tasks.length}
-                  sx={{ 
+                  sx={{
                     backgroundColor: column.backgroundColor,
                     color: column.color,
                     minWidth: '24px'
@@ -230,16 +230,19 @@ const DroppableColumn: React.FC<{
                 )}
               </Box>
             }
-            sx={{ 
+            sx={{
               pb: 1,
+              flexShrink: 0,
               '& .MuiCardHeader-title': { fontSize: '1rem' }
             }}
           />
-          <CardContent 
+          <CardContent
             ref={setNodeRef}
-            sx={{ 
-              flexGrow: 1, 
-              overflow: 'auto', 
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
               backgroundColor: 'transparent',
               p: 1,
               '&:last-child': { pb: 1 }
@@ -247,9 +250,9 @@ const DroppableColumn: React.FC<{
           >
             {column.tasks.map((task, index) => renderTaskCard(task, index))}
             {column.tasks.length === 0 && (
-              <Typography 
-                variant="body2" 
-                color="text.secondary" 
+              <Typography
+                variant="body2"
+                color="text.secondary"
                 sx={{ textAlign: 'center', py: 2 }}
               >
                 No tasks
@@ -906,13 +909,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: 600 }}>
           SpecTask Board
         </Typography>
-        
+
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
             variant="outlined"
@@ -948,24 +951,24 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
                     activeSessionsCount: 0,
                     completedSessionsCount: 0,
                   }));
-                  
+
                   setTasks(enhancedTasks);
                 } catch (err: any) {
                   console.error('Failed to refresh tasks:', err);
-                  const errorMessage = err?.response?.status === 404 
-                    ? 'Spec tasks feature is not available yet.' 
+                  const errorMessage = err?.response?.status === 404
+                    ? 'Spec tasks feature is not available yet.'
                     : 'Failed to load tasks. Please try again.';
                   setError(errorMessage);
                 }
               };
-              
+
               refresh().finally(() => setRefreshing(false));
             }}
             disabled={refreshing}
           >
             Refresh
           </Button>
-          
+
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -976,10 +979,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         </Box>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ flexShrink: 0, mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
       {/* Kanban Board - drag and drop disabled to prevent infinite loops */}
-      <Box sx={{ display: 'flex', gap: 1, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+      <Box sx={{ flex: 1, display: 'flex', gap: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 0 }}>
         {columns.map((column) => (
           <DroppableColumn
             key={column.id}
