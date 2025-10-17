@@ -4,6 +4,7 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/freeport"
-	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -58,7 +58,7 @@ type OllamaRuntime struct {
 	started           bool               // Track if runtime is currently started
 
 	// Crash callback - called when the Ollama process exits unexpectedly
-	onCrash func(exitCode int, stderr string)
+	onCrash func(stderr string)
 }
 
 type Model struct {
@@ -85,7 +85,7 @@ type OllamaRuntimeParams struct {
 	GPUIndex      *int                           // Optional: Primary GPU index for single-GPU models
 	GPUIndices    []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
 	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
-	OnCrash       func(exitCode int, stderr string) // Optional: Callback when Ollama process crashes
+	OnCrash       func(stderr string)            // Optional: Callback when Ollama process crashes
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -217,7 +217,7 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, stderrBuf, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.numParallel, i.gpuIndex, i.gpuIndices, i.logBuffer)
+	cmd, stderrBuf, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.numParallel, i.gpuIndex, i.gpuIndices, i.logBuffer, i.onCrash)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
@@ -234,8 +234,8 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 			Msg("PROCESS_TRACKER: Registered Ollama process")
 	}
 
-	// Start monitoring the process for crashes
-	go i.monitorProcess()
+	// NOTE: We monitor for crashes via stderr parsing in startOllamaCmd(), not via cmd.Wait()
+	// This is because Ollama's subprocess (llama runner) can crash while the main process stays alive
 
 	// Create ollama client
 	url, err := url.Parse(fmt.Sprintf("http://localhost:%d", i.port))
@@ -543,7 +543,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, numParallel int, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, *system.LimitedBuffer, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, numParallel int, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer, crashCallback func(stderr string)) (*exec.Cmd, *system.LimitedBuffer, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
@@ -562,6 +562,7 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		Str("env_var_value", fmt.Sprintf("OLLAMA_NUM_PARALLEL=%d", numParallel)).
 		Msg("🔍 TRACING: Setting OLLAMA_NUM_PARALLEL environment variable in startOllamaCmd")
 
+	// "OLLAMA_KV_CACHE_TYPE=" + memory.DefaultKVCacheType, # Disable as per https://github.com/ollama/ollama/issues/11671#issuecomment-3156327782
 	env := []string{
 		"HOME=" + os.Getenv("HOME"),
 		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
@@ -570,7 +571,6 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		"OLLAMA_MAX_LOADED_MODELS=1",
 		fmt.Sprintf("OLLAMA_NUM_PARALLEL=%d", numParallel),
 		"OLLAMA_FLASH_ATTENTION=1",
-		"OLLAMA_KV_CACHE_TYPE=" + memory.DefaultKVCacheType,
 		"OLLAMA_HOST=" + ollamaHost, // Bind on localhost with random port
 		"OLLAMA_MODELS=" + cacheDir, // Where to store the models
 	}
@@ -619,7 +619,8 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	// this buffer is so we can keep the last 10kb of stderr so if
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
-	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+	// Only write to buffer and logBuffer, not to os.Stderr to reduce log pollution
+	stderrWriters := []io.Writer{stderrBuf, os.Stderr}
 
 	// If we have a log buffer for this instance, add it to the writers
 	if logBuffer != nil {
@@ -629,10 +630,45 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Create a tee reader to both write to buffers AND scan for crashes
+	stderrReader := io.TeeReader(stderrPipe, io.MultiWriter(stderrWriters...))
+
 	go func() {
-		_, err := io.Copy(io.MultiWriter(stderrWriters...), stderrPipe)
-		if err != nil {
-			log.Error().Msgf("Error copying stderr: %v", err)
+		scanner := bufio.NewScanner(stderrReader)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Check for llama runner crash indicator
+			// Example: "llama runner terminated" error="exit status 2"
+			if strings.Contains(line, "llama runner terminated") &&
+				strings.Contains(line, "exit status") {
+				log.Error().
+					Str("stderr_line", line).
+					Msg("Detected llama runner subprocess crash in Ollama stderr")
+
+				// Get accumulated stderr for context
+				errMsg := string(stderrBuf.Bytes())
+
+				log.Warn().
+					Str("stderr_preview", func() string {
+						if len(errMsg) > 500 {
+							return "..." + errMsg[len(errMsg)-500:]
+						}
+						return errMsg
+					}()).
+					Msg("Ollama subprocess crashed, triggering cleanup")
+
+				// Call the crash callback if configured
+				if crashCallback != nil {
+					crashCallback(errMsg)
+				}
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			log.Error().Err(err).Msg("Error scanning Ollama stderr")
 		}
 	}()
 
@@ -642,43 +678,6 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	}
 
 	return cmd, stderrBuf, nil
-}
-
-// monitorProcess monitors the Ollama process and triggers crash callback if it exits unexpectedly
-func (i *OllamaRuntime) monitorProcess() {
-	if err := i.cmd.Wait(); err != nil {
-		errMsg := string(i.stderrBuf.Bytes())
-		exitCode := -1
-		if i.cmd.ProcessState != nil {
-			exitCode = i.cmd.ProcessState.ExitCode()
-		}
-
-		log.Error().
-			Err(err).
-			Str("stderr", errMsg).
-			Int("exit_code", exitCode).
-			Msg("Ollama process exited with error")
-
-		// If this is a crash (non-zero exit code), call the crash callback
-		// This allows the slot to clean itself up
-		if exitCode != 0 && i.onCrash != nil {
-			log.Warn().
-				Int("exit_code", exitCode).
-				Str("slot_id", func() string {
-					if i.slotID != nil {
-						return i.slotID.String()
-					}
-					return "unknown"
-				}()).
-				Msg("Ollama process crashed, triggering crash callback")
-			i.onCrash(exitCode, errMsg)
-		}
-
-		return
-	}
-
-	// Normal exit (exit code 0) - log but don't trigger crash callback
-	log.Info().Msg("Ollama process exited normally")
 }
 
 // startInternalGPUMonitoring starts a goroutine that periodically checks GPU allocation
