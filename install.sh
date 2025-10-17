@@ -597,12 +597,13 @@ check_nvidia_gpu() {
 
 # Function to check for Intel/AMD GPU (for Helix Code)
 check_intel_amd_gpu() {
-    # Check for /dev/dri devices (Intel/AMD GPUs)
-    if [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
-        return 0
-    else
-        return 1
+    # Check for Intel or AMD GPU using lspci (more accurate than /dev/dri which NVIDIA also creates)
+    if command -v lspci &> /dev/null; then
+        if lspci 2>/dev/null | grep -iE 'VGA|3D|Display' | grep -iE 'Intel|AMD|ATI' &> /dev/null; then
+            return 0
+        fi
     fi
+    return 1
 }
 
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
