@@ -311,8 +311,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     {
       id: 'backlog',
       title: 'Backlog',
-      color: theme.palette.text.secondary,
-      backgroundColor: theme.palette.grey[100],
+      color: theme.palette.mode === 'dark' ? theme.palette.grey[400] : theme.palette.text.secondary,
+      backgroundColor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[200],
       description: 'Tasks without specifications',
       tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
     },

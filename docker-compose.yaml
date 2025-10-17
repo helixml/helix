@@ -252,9 +252,13 @@ services:
       - XDG_RUNTIME_DIR=/tmp/sockets
       - HOST_APPS_STATE_FOLDER=/etc/wolf
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      # Production logging (errors only)
-      - WOLF_LOG_LEVEL=ERROR
+      # Debug logging for HTTPS connection issues and UDP/RTP activity
+      - WOLF_LOG_LEVEL=DEBUG
+      # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
+      # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
       - GST_DEBUG=1
+      # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
+      # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
       # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
       - WOLF_INTERNAL_MAC=00:11:22:33:44:55
       - WOLF_INTERNAL_IP=172.19.0.50
