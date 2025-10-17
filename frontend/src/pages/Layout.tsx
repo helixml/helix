@@ -320,9 +320,12 @@ const Layout: FC<{
               return lightTheme.backgroundColor
             },
             flexGrow: 1,
+            minWidth: 0,
+            maxWidth: '100%',
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
           <Box
@@ -332,6 +335,8 @@ const Layout: FC<{
               backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
               height: '100%',
               minHeight: '100%',
+              minWidth: 0,
+              overflow: 'hidden',
             }}
           >
             { account.loggingOut ? (
