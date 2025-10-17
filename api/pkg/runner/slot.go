@@ -287,9 +287,8 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Msg("🔍 TRACING: Final runtimeParams.NumParallel being passed to NewOllamaRuntime")
 
 		// Set up crash callback to handle unexpected Ollama crashes (e.g., CUDA errors)
-		runtimeParams.OnCrash = func(exitCode int, stderr string) {
+		runtimeParams.OnCrash = func(stderr string) {
 			log.Error().
-				Int("exit_code", exitCode).
 				Str("slot_id", s.ID.String()).
 				Str("model", s.Model).
 				Str("stderr_preview", func() string {
