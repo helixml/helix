@@ -597,13 +597,33 @@ check_nvidia_gpu() {
 
 # Function to check for Intel/AMD GPU (for Helix Code)
 check_intel_amd_gpu() {
-    # Check for Intel or AMD GPU using lspci (more accurate than /dev/dri which NVIDIA also creates)
-    if command -v lspci &> /dev/null; then
-        if lspci 2>/dev/null | grep -iE 'VGA|3D|Display' | grep -iE 'Intel|AMD|ATI' &> /dev/null; then
-            return 0
-        fi
+    # Check for /dev/dri devices, but only if NVIDIA is NOT present
+    # (NVIDIA also creates /dev/dri, so we check NVIDIA first in the calling code)
+    if [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+        return 0
+    else
+        return 1
     fi
-    return 1
+}
+
+# Function to check if NVIDIA Docker runtime needs installation
+check_nvidia_runtime_needed() {
+    # Only relevant if we have an NVIDIA GPU
+    if ! check_nvidia_gpu; then
+        return 1  # No NVIDIA GPU, so no NVIDIA runtime needed
+    fi
+
+    # Check if NVIDIA runtime is already configured in Docker
+    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+        return 1  # Already configured
+    fi
+
+    # Check if nvidia-container-toolkit command exists
+    if command -v nvidia-container-toolkit &> /dev/null; then
+        return 1  # Already installed
+    fi
+
+    return 0  # NVIDIA GPU present but runtime not installed
 }
 
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
@@ -686,31 +706,9 @@ fi
 
 # Validate GPU requirements for --code flag
 if [ "$CODE" = true ]; then
-    HAS_INTEL_AMD=$(check_intel_amd_gpu && echo "true" || echo "false")
-    HAS_NVIDIA=$(check_nvidia_gpu && echo "true" || echo "false")
-
-    if [ "$HAS_INTEL_AMD" = "true" ] && [ "$HAS_NVIDIA" = "true" ]; then
-        # Both GPU types detected
-        if ! command -v nvidia-smi &> /dev/null; then
-            echo "┌───────────────────────────────────────────────────────────────────────────"
-            echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
-            echo "│"
-            echo "│ NVIDIA GPU detected, but nvidia-smi is not available."
-            echo "│ Please install NVIDIA drivers before running this installer."
-            echo "│"
-            echo "│ Install NVIDIA drivers from:"
-            echo "│   https://www.nvidia.com/Download/index.aspx"
-            echo "└───────────────────────────────────────────────────────────────────────────"
-            exit 1
-        fi
-        echo "Intel/AMD GPU (/dev/dri) and NVIDIA GPU (nvidia-smi) detected."
-        echo "Helix Code desktop streaming requirements satisfied."
-        echo "Note: NVIDIA Docker runtime will be installed automatically."
-    elif [ "$HAS_INTEL_AMD" = "true" ]; then
-        # Only Intel/AMD GPU
-        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
-    elif [ "$HAS_NVIDIA" = "true" ]; then
-        # Only NVIDIA GPU - verify nvidia-smi works
+    # Check NVIDIA first (most specific detection via nvidia-smi)
+    if check_nvidia_gpu; then
+        # NVIDIA GPU found - verify nvidia-smi works
         if ! command -v nvidia-smi &> /dev/null; then
             echo "┌───────────────────────────────────────────────────────────────────────────"
             echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
@@ -725,6 +723,9 @@ if [ "$CODE" = true ]; then
         fi
         echo "NVIDIA GPU detected with nvidia-smi. Helix Code desktop streaming requirements satisfied."
         echo "Note: NVIDIA Docker runtime will be installed automatically."
+    elif check_intel_amd_gpu; then
+        # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
+        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
     else
         # No GPU detected
         echo "┌───────────────────────────────────────────────────────────────────────────"
@@ -767,16 +768,16 @@ gather_modifications() {
     fi
 
     if [ "$RUNNER" = true ]; then
-        if check_nvidia_gpu; then
-            modifications+="  - Install NVIDIA Docker runtime (if not already installed)\n"
+        if check_nvidia_runtime_needed; then
+            modifications+="  - Install NVIDIA Docker runtime\n"
         fi
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
 
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
-    if [ "$CODE" = true ] && check_nvidia_gpu && ! check_intel_amd_gpu; then
-        if [ "$RUNNER" = false ]; then
-            modifications+="  - Install NVIDIA Docker runtime for desktop streaming (if not already installed)\n"
+    if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
+        if check_nvidia_runtime_needed; then
+            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
         fi
     fi
 
@@ -838,7 +839,7 @@ fi
 
 # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
 if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
-    if check_nvidia_gpu && ! check_intel_amd_gpu; then
+    if check_nvidia_runtime_needed; then
         install_nvidia_docker
     fi
 fi
