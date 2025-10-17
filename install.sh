@@ -3,6 +3,80 @@
 # Install:
 # curl -LO https://get.helixml.tech/install.sh && chmod +x install.sh
 
+# ================================================================================
+# PLATFORM AND GPU CONFIGURATION TEST MATRIX
+# ================================================================================
+# IMPORTANT: When modifying this script, ask a state-of-the-art LLM to verify
+# that all combinations below still work correctly. The script must handle every
+# combination of platform, Docker state, GPU configuration, and flags properly.
+#
+# PLATFORMS:
+#   - Git Bash (Windows with Docker Desktop)
+#   - WSL2 (Windows Subsystem for Linux with Docker Desktop)
+#   - Ubuntu/Debian (auto-install Docker supported)
+#   - Fedora (auto-install Docker supported)
+#   - macOS (Docker Desktop required, no auto-install)
+#   - Other Linux (manual Docker install required)
+#
+# DOCKER STATES:
+#   - Not installed (offer auto-install on Ubuntu/Debian/Fedora only)
+#   - Installed, user not in docker group (needs sudo)
+#   - Installed, user in docker group (no sudo needed)
+#
+# GPU CONFIGURATIONS:
+#   - No GPU
+#   - Intel/AMD GPU (/dev/dri exists, no nvidia-smi)
+#   - NVIDIA GPU with drivers (nvidia-smi works)
+#   - NVIDIA GPU without drivers (hardware present but no nvidia-smi)
+#   - NVIDIA GPU with drivers but no Docker runtime (/etc/docker/daemon.json missing nvidia)
+#
+# INSTALLATION FLAGS:
+#   - --cli (no Docker/GPU needed)
+#   - --controlplane (Docker needed, no GPU needed)
+#   - --runner (Docker + NVIDIA GPU + NVIDIA runtime required)
+#   - --code (Docker + any GPU required, NVIDIA runtime if NVIDIA GPU)
+#   - Combinations: --controlplane --runner, --controlplane --code, etc.
+#
+# KEY TEST CASES (Critical Paths):
+#
+# 1. Ubuntu + No Docker + No GPU + --cli
+#    Result: Install CLI only, no Docker installation offered
+#
+# 2. Ubuntu + No Docker + NVIDIA GPU with drivers + --controlplane --runner
+#    Result: Offer to install Docker + NVIDIA runtime → Install both → Create runner
+#
+# 3. Ubuntu + Docker installed + NVIDIA GPU with drivers + No NVIDIA runtime + --code
+#    Result: Detect missing NVIDIA runtime → Offer to install → Install it → Enable code profile
+#
+# 4. Ubuntu + No Docker + NVIDIA GPU without drivers + --runner
+#    Result: Exit with error, instructions to install drivers and reboot
+#
+# 5. Ubuntu + No Docker + Intel/AMD GPU + --code
+#    Result: Detect Intel/AMD GPU → Offer to install Docker → Install Docker → Enable code profile
+#
+# 6. Git Bash + Docker Desktop + --controlplane
+#    Result: Use existing Docker Desktop, no sudo, install controlplane
+#
+# 7. WSL2 + No Docker + --controlplane
+#    Result: Exit with error, tell user to install Docker Desktop for Windows
+#
+# 8. macOS + No Docker + --controlplane
+#    Result: Exit with error, tell user to install Docker Desktop manually
+#
+# 9. Fedora + No Docker + NVIDIA GPU + --runner
+#    Result: Offer to install Docker + NVIDIA runtime → Install both using dnf
+#
+# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner
+#     Result: Skip Docker/runtime installation → Create runner script
+#
+# 11. Arch Linux + No Docker + --controlplane
+#     Result: Exit with error, auto-install only supports Ubuntu/Debian/Fedora
+#
+# 12. Ubuntu + No Docker + No GPU + --code
+#     Result: Exit with error, instructions to install NVIDIA/Intel/AMD drivers
+#
+# ================================================================================
+
 set -euo pipefail
 
 echo -e "\033[1;91m"
