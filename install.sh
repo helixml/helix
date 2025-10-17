@@ -1355,6 +1355,9 @@ EOF
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${HELIX_VERSION:-latest}
 
+# Moonlight Web credentials (internal communication)
+MOONLIGHT_CREDENTIALS=helix
+
 # TURN server for WebRTC NAT traversal
 TURN_ENABLED=true
 TURN_PUBLIC_IP=${TURN_HOST}
