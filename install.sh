@@ -1341,8 +1341,9 @@ EOF
 
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
-        # Generate TURN password and moonlight pairing PIN
+        # Generate TURN password, moonlight credentials, and pairing PIN
         TURN_PASSWORD=$(generate_password)
+        MOONLIGHT_CREDENTIALS=$(generate_password)
         MOONLIGHT_PIN=$(generate_moonlight_pin)
 
         # Extract hostname from API_HOST for TURN server
@@ -1355,8 +1356,8 @@ EOF
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${HELIX_VERSION:-latest}
 
-# Moonlight Web credentials (internal communication)
-MOONLIGHT_CREDENTIALS=helix
+# Moonlight Web credentials (secure random, shared between API and moonlight-web)
+MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
 
 # TURN server for WebRTC NAT traversal
 TURN_ENABLED=true
@@ -1377,7 +1378,7 @@ EOF
         cat << EOF > "$INSTALL_DIR/moonlight-web-config/config.json"
 {
   "bind_address": "0.0.0.0:8080",
-  "credentials": "helix",
+  "credentials": "${MOONLIGHT_CREDENTIALS}",
   "webrtc_ice_servers": [
     {
       "urls": [

@@ -53,7 +53,7 @@ services:
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
       # Moonlight Web credentials (must match moonlight-web config.json)
-      - MOONLIGHT_CREDENTIALS=helix
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
       # TURN server configuration for WebRTC (Helix Code)
       - TURN_ENABLED=${TURN_ENABLED:-false}
       - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}

@@ -96,7 +96,7 @@ services:
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
             - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
-            - MOONLIGHT_CREDENTIALS=helix
+            - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
             # TURN server configuration for WebRTC
             - TURN_ENABLED=true
             - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api}  # Use 'api' hostname for local relay (auto-detects public IP)
