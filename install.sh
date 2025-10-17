@@ -708,21 +708,10 @@ fi
 if [ "$CODE" = true ]; then
     # Check NVIDIA first (most specific detection via nvidia-smi)
     if check_nvidia_gpu; then
-        # NVIDIA GPU found - verify nvidia-smi works
-        if ! command -v nvidia-smi &> /dev/null; then
-            echo "┌───────────────────────────────────────────────────────────────────────────"
-            echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
-            echo "│"
-            echo "│ NVIDIA GPU detected, but nvidia-smi is not available."
-            echo "│ Please install NVIDIA drivers before running this installer."
-            echo "│"
-            echo "│ Install NVIDIA drivers from:"
-            echo "│   https://www.nvidia.com/Download/index.aspx"
-            echo "└───────────────────────────────────────────────────────────────────────────"
-            exit 1
+        echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
+        if check_nvidia_runtime_needed; then
+            echo "Note: NVIDIA Docker runtime will be installed automatically."
         fi
-        echo "NVIDIA GPU detected with nvidia-smi. Helix Code desktop streaming requirements satisfied."
-        echo "Note: NVIDIA Docker runtime will be installed automatically."
     elif check_intel_amd_gpu; then
         # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
         echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
@@ -731,12 +720,24 @@ if [ "$CODE" = true ]; then
         echo "┌───────────────────────────────────────────────────────────────────────────"
         echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
         echo "│"
-        echo "│ No compatible GPU detected. Helix Code requires one of:"
-        echo "│   - Intel GPU (integrated or discrete) with /dev/dri devices"
-        echo "│   - AMD GPU with /dev/dri devices"
-        echo "│   - NVIDIA GPU with nvidia-smi and nvidia-docker runtime"
+        echo "│ No compatible GPU detected. Helix Code requires a GPU with drivers installed."
         echo "│"
-        echo "│ Please ensure GPU drivers are installed before using --code flag."
+        echo "│ If you have an NVIDIA GPU:"
+        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
+        echo "│      sudo ubuntu-drivers install"
+        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│"
+        echo "│   2. Reboot your system:"
+        echo "│      sudo reboot"
+        echo "│"
+        echo "│   3. Verify drivers are loaded:"
+        echo "│      nvidia-smi"
+        echo "│"
+        echo "│   4. Re-run this installer - it will automatically install Docker and"
+        echo "│      the NVIDIA Docker runtime for you."
+        echo "│"
+        echo "│ For Intel/AMD GPUs, ensure /dev/dri devices exist (drivers usually included"
+        echo "│ in the kernel)."
         echo "└───────────────────────────────────────────────────────────────────────────"
         exit 1
     fi
