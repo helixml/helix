@@ -1354,7 +1354,7 @@ EOF
 ## Helix Code Configuration (External Agents / PDEs)
 # Wolf streaming platform
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${HELIX_VERSION:-latest}
+ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 
 # Moonlight Web credentials (secure random, shared between API and moonlight-web)
 MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
