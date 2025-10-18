@@ -23,7 +23,8 @@ import {
   Share, 
   Save, 
   MoreVertical, 
-  Folder 
+  Folder,
+  Plus
 } from 'lucide-react'
 
 import { useTheme } from '@mui/material/styles'
@@ -80,6 +81,16 @@ export const SessionToolbar: FC<{
       sharing: 'yes',
     })
   }, [setParams])
+
+  const onCreateNewSession = useCallback(() => {
+    if (app) {
+      // If we're in an app, navigate to new session with app_id
+      navigate('new', { app_id: app.id })
+    } else {
+      // If not in an app, navigate to new session without app_id
+      navigate('new')
+    }
+  }, [navigate, app])
 
   const [deletingSession, setDeletingSession] = useState<TypesSession>()
 
@@ -247,6 +258,22 @@ export const SessionToolbar: FC<{
           <Box sx={{ alignItems: 'center' }}>
             <Row>
               <Cell>
+                <Tooltip title="New Session">
+                  <IconButton
+                    onClick={onCreateNewSession}
+                    size="small"
+                    sx={{
+                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      '&:hover': {
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                      },
+                    }}
+                  >
+                    <Plus size={18} />
+                  </IconButton>
+                </Tooltip>
+              </Cell>
+              <Cell>
                 <JsonWindowLink data={session}>
                   <Tooltip title="Show Info">                    
                     <IconButton
@@ -316,6 +343,16 @@ export const SessionToolbar: FC<{
               open={Boolean(anchorEl)}
               onClose={() => setAnchorEl(null)}
             >
+              <MenuItem onClick={(e) => {
+                e.preventDefault()
+                onCreateNewSession()
+                setAnchorEl(null)
+              }}>
+                <ListItemIcon>
+                  <Plus size={18} />
+                </ListItemIcon>
+                <ListItemText primary="New Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+              </MenuItem>
               <MenuItem onClick={(e) => {
                 e.preventDefault()
                 navigate('files', {
