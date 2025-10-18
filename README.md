@@ -23,6 +23,40 @@ Including support for RAG, API-calling and vision support. Build and deploy [LLM
 
 Our GPU scheduler packs models efficiently into available GPU memory and dynamically loads and unloads models depending on demand.
 
+## AI agents
+
+Easy to use web UI to use your agents
+
+<img width="1768" height="1053" alt="image" src="https://github.com/user-attachments/assets/0e945ace-4f54-46a2-8d20-49485169486f" />
+
+## Skills and tools
+
+Helix can integrate with any Rest API and MCP server:
+
+<img width="1767" height="1057" alt="image" src="https://github.com/user-attachments/assets/575330f7-cfda-4e68-acd2-31617690ae69" />
+
+## Knowledge
+
+Helix somes with an built-in website scraper and document parser. Upload PDFs, add URLs or enter plain-text knowledge that agents will utilize:
+
+<img width="1772" height="1055" alt="image" src="https://github.com/user-attachments/assets/c9112362-5f0e-4318-a648-4c478cd8d3fa" />
+
+Main use cases:
+- Upload and analyze corporate documents
+- Add your website documentation URL to instantly create a customer support agent
+
+## Tracing
+
+Context is everything. Agents can process tens of thousands of tokens per step, Helix provides a way to look under the hood:
+
+<img width="1767" height="1053" alt="image" src="https://github.com/user-attachments/assets/81539015-18ae-4818-b396-3d872e55907f" />
+
+Tracing features:
+- View all steps
+- Inspect requests and responses into LLM providers, third-party APIs, MCP servers
+- View token usage
+- View pricing
+
 ## Install on Docker
 
 Use our quickstart installer:
