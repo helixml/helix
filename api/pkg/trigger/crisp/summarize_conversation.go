@@ -81,7 +81,8 @@ func (c *CrispBot) summarizeConversation(user *types.User, session *types.Sessio
 
 	// Do not set app ID, we are running plain inference
 	options := &controller.ChatCompletionOptions{
-		Provider: provider,
+		OrganizationID: c.app.OrganizationID,
+		Provider:       provider,
 	}
 
 	resp, _, err := c.controller.ChatCompletion(ctx, user, req, options)
