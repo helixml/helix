@@ -20,7 +20,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -207,7 +206,6 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	extractorMock := extract.NewMockExtractor(ctrl)
 	ragMock := rag.NewMockRAG(ctrl)
 	notifierMock := notification.NewMockNotifier(ctrl)
-	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
 
 	// Create PubSub
 	ps, err := pubsub.New(&config.ServerConfig{
@@ -296,7 +294,6 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		&cfg,
 		suite.store,
 		ps,
-		gptScriptExecutor,
 		providerManager,
 		modelInfoProvider,
 		nil,

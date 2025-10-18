@@ -14,6 +14,7 @@ import {
 import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
 import LogViewerModal from './LogViewerModal'
+import ScreenshotViewer from '../external-agent/ScreenshotViewer'
 
 interface FloatingModalProps {
   onClose?: () => void
@@ -186,10 +187,16 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
             <DragIcon sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 20 }} />
             <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1rem' }}>
               {modalConfig.type === 'logs' && 'Model Instance Logs'}
+              {modalConfig.type === 'rdp' && 'Remote Desktop'}
             </Typography>
-            {modalConfig.type === 'logs' && (
+            {modalConfig.type === 'logs' && modalConfig.runner && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                 Runner: {modalConfig.runner.id?.substring(0, 8)} • {modalConfig.runner.slots?.length || 0} slots
+              </Typography>
+            )}
+            {modalConfig.type === 'rdp' && (
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+                Session: {modalConfig.sessionId?.slice(-8)}
               </Typography>
             )}
           </Box>
@@ -221,13 +228,25 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {/* Content */}
         {!isMinimized && (
           <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {modalConfig.type === 'logs' && (
+            {modalConfig.type === 'logs' && modalConfig.runner && (
               <LogViewerModal 
                 open={true}
                 onClose={onClose || floatingModal.hideFloatingModal}
                 runner={modalConfig.runner}
                 runnerUrl={modalConfig.runnerUrl}
                 isFloating={true}
+              />
+            )}
+            {modalConfig.type === 'rdp' && modalConfig.sessionId && (
+              <ScreenshotViewer
+                sessionId={modalConfig.sessionId}
+                isRunner={true}
+                onConnectionChange={(connected) => {
+                  console.log('RDP connection status:', connected);
+                }}
+                onError={(error) => {
+                  console.error('RDP error:', error);
+                }}
               />
             )}
           </Box>

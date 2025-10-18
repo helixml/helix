@@ -61,6 +61,7 @@ func CreateMockSchedulerParams(t *testing.T, runnerController *RunnerController)
 	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSpecTask(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	return &Params{
 		RunnerController: runnerController,

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
@@ -22,6 +22,8 @@ interface NewInferenceParams {
   sessionId?: string;
   orgId?: string;
   attachedImages?: File[];
+  agentType?: IAgentType;
+  externalAgentConfig?: any;
 }
 
 interface StreamingContextType {
@@ -170,11 +172,35 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
+      console.log('[STREAMING] WebSocket session.interactions:', {
+        count: parsedData.session.interactions?.length,
+        lastInteraction: lastInteraction ? {
+          id: lastInteraction.id,
+          state: lastInteraction.state,
+          prompt_message: lastInteraction.prompt_message?.substring(0, 50),
+          response_message: lastInteraction.response_message?.substring(0, 100),
+          response_full_length: lastInteraction.response_message?.length,
+          ALL_FIELDS: Object.keys(lastInteraction)
+        } : null
+      });
+
+      // Also log the FULL lastInteraction to see all fields
+      console.log('[STREAMING] FULL lastInteraction object:', lastInteraction);
+
       if (!lastInteraction) return;
       
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state
+      // CRITICAL: Include response_message for external agent streaming (WebSocket-based, not SSE)
       if (lastInteraction.id) {
+        console.log('[STREAMING] session_update received:', {
+          sessionId: currentSessionId,
+          interactionId: lastInteraction.id,
+          state: lastInteraction.state,
+          response_length: lastInteraction.response_message?.length || 0,
+          response_preview: lastInteraction.response_message?.substring(0, 50)
+        });
+
         requestAnimationFrame(() => {
           setCurrentResponses(prev => {
             const current = prev.get(currentSessionId) || {};
@@ -182,10 +208,16 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
               ...current,
               id: lastInteraction.id,
               state: lastInteraction.state,
-              // Copy any other important fields from the interaction
-              prompt_message: lastInteraction.prompt_message || current.prompt_message
+              // Copy all important fields from the interaction
+              prompt_message: lastInteraction.prompt_message || current.prompt_message,
+              response_message: lastInteraction.response_message || current.response_message,
             };
-            
+
+            console.log('[STREAMING] Updated currentResponses for session:', currentSessionId, {
+              hasResponse: !!updatedInteraction.response_message,
+              responseLength: updatedInteraction.response_message?.length || 0
+            });
+
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
             return newMap;
           });
@@ -244,6 +276,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     image = undefined,
     image_filename = undefined,
     attachedImages = [],
+    agentType = 'helix_basic',
+    externalAgentConfig = undefined,
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -305,6 +339,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       parts: currentContentParts,
     };
 
+    // Serialize external agent config to ensure no React elements are included
+    const sanitizedExternalAgentConfig = externalAgentConfig ? {
+      workspace_dir: externalAgentConfig.workspace_dir,
+      project_path: externalAgentConfig.project_path,
+      env_vars: externalAgentConfig.env_vars,
+      auto_connect_rdp: externalAgentConfig.auto_connect_rdp,
+    } : undefined;
+
     // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
       regenerate: regenerate,
@@ -315,8 +357,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       assistant_id: assistantId,
       interaction_id: interactionId,
       provider: provider,
-      model: modelName,      
+      model: modelName,
       session_id: sessionId,
+      agent_type: agentType,
+      external_agent_config: sanitizedExternalAgentConfig,
       messages: [
         {
           role: 'user',
@@ -329,6 +373,14 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     if (messages && messages.length > 0) {
       sessionChatRequest.messages = messages;
     }
+
+    console.log('📡 Sending session chat request:', {
+      url: '/api/v1/sessions/chat',
+      payload: sessionChatRequest,
+      modelName: sessionChatRequest.model,
+      agentType: sessionChatRequest.agent_type,
+      externalAgentConfig: sessionChatRequest.external_agent_config
+    });
 
     try {
       const response = await fetch('/api/v1/sessions/chat', {

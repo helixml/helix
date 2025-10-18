@@ -5,6 +5,7 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
   ISessionType,
+  AGENT_TYPE_HELIX_BASIC,
 } from './types'
 
 export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
@@ -17,6 +18,8 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   ragChunkSize: 2048,
   ragChunkOverflow: 20,
   ragDisableChunking: true,
+  agentType: AGENT_TYPE_HELIX_BASIC,
+  externalAgentConfig: undefined,
 }
 
 export const EXAMPLE_PROMPTS = {

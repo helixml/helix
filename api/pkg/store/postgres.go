@@ -124,7 +124,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Knowledge{},
 		&types.KnowledgeVersion{},
 		&types.DataEntity{},
-		&types.ScriptRun{},
+
 		&types.LLMCall{},
 		&MigrationScript{},
 		&types.Secret{},
@@ -146,6 +146,21 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.SpecTask{},
+		&types.SpecTaskWorkSession{},
+		&types.SpecTaskZedThread{},
+		&types.AgentWorkItem{},
+		&types.AgentSession{},
+		&types.AgentSessionStatus{},
+		&types.HelpRequest{},
+		&types.JobCompletion{},
+		&types.SpecTaskImplementationTask{},
+		&types.AgentRunner{},
+		&types.PersonalDevEnvironment{},
+		&types.SSHKey{},
+		&types.ZedSettingsOverride{},
+		&types.StreamingAccessGrant{},
+		&types.StreamingAccessAuditLog{},
 		&types.Memory{},
 	)
 	if err != nil {
@@ -186,10 +201,6 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.ApiKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
-		log.Err(err).Msg("failed to add DB FK")
-	}
-
-	if err := createFK(s.gdb, types.ScriptRun{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -484,4 +495,13 @@ func (s *PostgresStore) GetAppCount() (int, error) {
 		return 0, fmt.Errorf("error getting app count: %w", err)
 	}
 	return count, nil
+}
+
+// CreateProject creates a new project
+func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
+	err := s.gdb.WithContext(ctx).Create(project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating project: %w", err)
+	}
+	return project, nil
 }

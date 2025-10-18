@@ -127,16 +127,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// Convert GPTScripts
-		for _, script := range assistant.GPTScripts {
-			helixAssistant.GPTScripts = append(helixAssistant.GPTScripts, types.AssistantGPTScript{
-				Name:        script.Name,
-				Description: script.Description,
-				File:        script.File,
-				Content:     script.Content,
-			})
-		}
-
-		// Convert Zapier configs
 		for _, zapier := range assistant.Zapier {
 			helixAssistant.Zapier = append(helixAssistant.Zapier, types.AssistantZapier{
 				Name:          zapier.Name,

@@ -5,6 +5,7 @@ import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import { TOOLBAR_HEIGHT } from '../../config'
+import TokenExpiryCounter from '../auth/TokenExpiryCounter'
 
 const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
@@ -39,27 +40,29 @@ const SidebarContextHeader: React.FC = () => {
         boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
       }}
     >
-      <Typography
-        variant="subtitle1"
-        onClick={handleNameClick}
-        sx={{
-          color: '#fff',
-          fontWeight: 'bold',
-          flexGrow: 1,
-          letterSpacing: 0.2,
-          textShadow: '0 1px 4px rgba(0,0,0,0.12)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          cursor: 'pointer',
-          '&:hover': {
-            opacity: 0.8,
-          },
-        }}
-        title={displayName}
-      >
-        {displayName}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
+        <Typography
+          variant="subtitle1"
+          onClick={handleNameClick}
+          sx={{
+            color: '#fff',
+            fontWeight: 'bold',
+            letterSpacing: 0.2,
+            textShadow: '0 1px 4px rgba(0,0,0,0.12)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            cursor: 'pointer',
+            '&:hover': {
+              opacity: 0.8,
+            },
+          }}
+          title={displayName}
+        >
+          {displayName}
+        </Typography>
+        <TokenExpiryCounter />
+      </Box>
     </Box>
   )
 }

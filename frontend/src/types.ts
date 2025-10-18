@@ -87,6 +87,54 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
+// Agent Types
+export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
+export const AGENT_TYPE_HELIX_BASIC: IAgentType = 'helix_basic'
+export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
+export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
+
+export interface IExternalAgentConfig {
+  workspace_dir?: string
+  project_path?: string
+  env_vars?: string[]
+  auto_connect_rdp?: boolean
+  // Video settings (Phase 3.5) - matches PDE display settings
+  display_width?: number        // Streaming resolution width (default: 2560)
+  display_height?: number       // Streaming resolution height (default: 1600)
+  display_refresh_rate?: number // Streaming refresh rate (default: 60)
+}
+
+export interface IAgentTypeOption {
+  value: IAgentType
+  label: string
+  description: string
+  icon?: string
+  disabled?: boolean
+}
+
+export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
+  {
+    value: AGENT_TYPE_HELIX_BASIC,
+    label: 'Basic Helix Agent',
+    description: 'Simple conversational AI (no multi-turn, useful for RAG)',
+    icon: 'chat',
+  },
+  {
+    value: AGENT_TYPE_HELIX_AGENT,
+    label: 'Multi-Turn Helix Agent',
+    description: 'Advanced conversational AI with multi-turn tool use and reasoning',
+    icon: 'auto_awesome',
+  },
+  {
+    value: AGENT_TYPE_ZED_EXTERNAL,
+    label: 'Zed External Agent', 
+    description: 'Full development environment with code editing via RDP',
+    icon: 'code',
+  }
+]
+
+
+
 export interface IKeycloakUser {
   id: string,
   email: string,
@@ -593,6 +641,7 @@ export interface IAssistantConfig {
   model?: string;
   conversation_starters?: string[];
   agent_mode?: boolean;
+  agent_type?: IAgentType;
   memory?: boolean;
   max_iterations?: number;
   reasoning_model?: string;
@@ -761,6 +810,8 @@ export interface IAppHelixConfig {
   assistants?: IAssistantConfig[];
   triggers?: TypesTrigger[];
   external_url: string;
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
   // Add any other properties that might be part of the helix config
 }
 
@@ -841,6 +892,8 @@ export interface IAppFlatState {
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];
+  default_agent_type?: IAgentType;
+  external_agent_config?: IExternalAgentConfig;
 
   tools?: ITool[]
 }
@@ -866,6 +919,8 @@ export interface ICreateSessionConfig {
   ragChunkSize: number,
   ragChunkOverflow: number,
   ragDisableChunking: boolean,
+  agentType: IAgentType,
+  externalAgentConfig?: IExternalAgentConfig,
 }
 
 export interface IHelixModel {
@@ -968,6 +1023,8 @@ export interface ISessionChatRequest {
   lora_dir?: string,
   system?: string,
   messages?: TypesMessage[],
+  agent_type?: IAgentType,
+  external_agent_config?: IExternalAgentConfig,
   tools?: string[],
   provider?: string,
   model?: string,

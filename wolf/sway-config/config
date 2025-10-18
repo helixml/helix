@@ -1,0 +1,15 @@
+# Helix Personal Dev Environment custom Sway configuration
+# This gets included by the base GOW Sway config
+
+# Set Helix wallpaper
+output * bg /usr/share/backgrounds/helix-logo.png fill
+
+# Configure HiDPI scaling for display WL-1
+output WL-1 scale 2
+
+# Additional key bindings for our tools
+bindsym $mod+Shift+Return exec ghostty
+bindsym $mod+Shift+c exec google-chrome-stable
+bindsym $mod+Shift+o exec onlyoffice-desktopeditors
+
+# Zed will be launched by GOW launcher

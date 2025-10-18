@@ -92,6 +92,10 @@ func ProcessModelName(
 			return ModelOllamaNoushermes2thetallama3, nil
 		case "helix-small":
 			return ModelOllamaPhi3, nil
+		case "external_agent":
+			// External agent requests should use this identifier
+			// The actual model is configured within the external agent (Zed, etc.)
+			return "external_agent", nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference

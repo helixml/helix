@@ -18,9 +18,9 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
@@ -38,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
+	"github.com/helixml/helix/api/pkg/turn"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
@@ -245,6 +246,26 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create pubsub provider: %w", err)
 	}
 
+	// Start TURN server for WebRTC NAT traversal if enabled
+	var turnServer *turn.Server
+	if cfg.TURN.Enabled {
+		turnServer, err = turn.New(turn.Config{
+			PublicIP: cfg.TURN.PublicIP,
+			Port:     cfg.TURN.Port,
+			Realm:    cfg.TURN.Realm,
+			Username: cfg.TURN.Username,
+			Password: cfg.TURN.Password,
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to start TURN server, WebRTC may not work properly")
+		} else {
+			cm.RegisterCallbackWithContext(func(ctx context.Context) error {
+				return turnServer.Close()
+			})
+			log.Info().Msgf("TURN server enabled for WebRTC at %s:%d", cfg.TURN.PublicIP, cfg.TURN.Port)
+		}
+	}
+
 	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
@@ -269,11 +290,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	if cfg.GPTScript.TestFaster.URL != "" {
-		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
-	}
-	log.Info().Msg("using runner based GPTScript executor")
-	gse := gptscript.NewExecutor(cfg, ps)
+	// External agent executor not used - following GPTScript pattern with WebSocket + PubSub
+	log.Info().Msg("Using GPTScript-style external agent pattern (WebSocket + PubSub)")
+	var gse external_agent.Executor // nil executor - communication via WebSocket + PubSub
 
 	var extractor extract.Extractor
 
@@ -422,20 +441,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	})
 
 	controllerOptions := controller.Options{
-		Config:            cfg,
-		Store:             postgresStore,
-		PubSub:            ps,
-		RAG:               ragClient,
-		Extractor:         extractor,
-		GPTScriptExecutor: gse,
-		Filestore:         fs,
-		Janitor:           janitor,
-		Notifier:          notifier,
-		ProviderManager:   providerManager,
-		Scheduler:         scheduler,
-		RunnerController:  runnerController,
-		Browser:           browserPool,
-		SearchProvider:    searchProvider,
+		Config:                cfg,
+		Store:                 postgresStore,
+		PubSub:                ps,
+		RAG:                   ragClient,
+		Extractor:             extractor,
+		ExternalAgentExecutor: gse, // Using external agent executor
+		Filestore:             fs,
+		Janitor:               janitor,
+		Notifier:              notifier,
+		ProviderManager:       providerManager,
+		Scheduler:             scheduler,
+		RunnerController:      runnerController,
+		Browser:               browserPool,
+		SearchProvider:        searchProvider,
 	}
 
 	// Create the OAuth manager
@@ -476,6 +495,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Start integrations
 	go trigger.Start(ctx)
 
+	// Start agent work queue processor
+	workQueueProcessor := controller.NewAgentWorkQueueProcessor(postgresStore, appController)
+	go workQueueProcessor.Start(ctx)
+
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
 		postgresStore,
@@ -508,7 +531,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		cfg,
 		postgresStore,
 		ps,
-		gse,
 		providerManager,
 		dynamicInfoProvider,
 		helixInference,

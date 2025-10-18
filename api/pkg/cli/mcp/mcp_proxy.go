@@ -181,7 +181,7 @@ type helixMCPTool struct {
 	toolHandler func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
 }
 
-// TODO: load gptscript, zapier tools as well
+// TODO: load zapier tools as well
 func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.AssistantConfig) ([]*helixMCPTool, error) {
 	var mcpTools []*helixMCPTool
 
@@ -238,17 +238,6 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 		}
 	}
 
-	for _, gptScript := range app.GPTScripts {
-		mcpTool := mcp.NewTool(gptScript.Name,
-			mcp.WithDescription(gptScript.Description),
-		)
-
-		mcpTools = append(mcpTools, &helixMCPTool{
-			tool:        mcpTool,
-			toolHandler: mcps.gptScriptToolHandler,
-		})
-	}
-
 	for _, zapier := range app.Zapier {
 		mcpTool := mcp.NewTool(zapier.Name,
 			mcp.WithDescription(zapier.Description),
@@ -272,7 +261,7 @@ func (mcps *ModelContextProtocolServer) getModelContextProtocolTools(app *types.
 
 	for _, knowledge := range knowledges {
 		knowledgeDescription :=
-			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.	
+			`Performs a search using the Helix knowledge base, ideal for finding information on a specific topic.
 		`
 		if knowledge.Description != "" {
 			knowledgeDescription += fmt.Sprintf("This tool contains information on: %s", knowledge.Description)
@@ -315,11 +304,6 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 
 		return mcp.NewToolResultText(resp.Response), nil
 	}
-}
-
-func (mcps *ModelContextProtocolServer) gptScriptToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam
-	// TODO: implement gpt script tool handler
-	return mcp.NewToolResultText("Hello, World!"), nil
 }
 
 func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) { //nolint:unparam

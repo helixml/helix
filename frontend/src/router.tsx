@@ -18,11 +18,14 @@ import Create from './pages/Create'
 import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
+import SSHKeys from './pages/SSHKeys'
 import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
+import SpecTasksPage from './pages/SpecTasksPage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import Fleet from './pages/Fleet'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 
 // extend the base router5 route to add metadata and self rendering
@@ -74,6 +77,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <Apps />
     ),
+  }, {
+    name: namePrefix + 'fleet',
+    path: routePrefix + '/fleet',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Fleet',
+    },
+    render: () => (
+      <Fleet />
+    ),
   }, 
   {
     name: namePrefix + 'providers',
@@ -93,6 +107,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Tasks />
+    ),
+  }, {
+    name: namePrefix + 'spec-tasks',
+    path: routePrefix + '/spec-tasks',
+    meta: {
+      drawer: true,
+      orgRouteAware: true,
+      title: 'SpecTasks',
+    },
+    render: () => (
+      <SpecTasksPage />
     ),
   }, {
     name: namePrefix + 'app',
@@ -217,6 +242,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Secrets />
+  ),
+}, {
+  name: 'ssh-keys',
+  path: '/ssh-keys',
+  meta: {
+    drawer: true,
+    title: 'SSH Keys',
+  },
+  render: () => (
+    <SSHKeys />
   ),
 }, {
   name: 'oauth-connections',

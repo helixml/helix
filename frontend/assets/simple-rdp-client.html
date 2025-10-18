@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple RDP Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #display {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #canvas {
+            border: 1px solid #333;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            background: #222;
+        }
+
+        #status {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        #status.hidden {
+            display: none;
+        }
+
+        .loading {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #ff6b6b;
+        }
+
+        .success {
+            color: #51cf66;
+        }
+
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+            padding: 5px;
+            display: none;
+        }
+
+        #toolbar.visible {
+            display: block;
+        }
+
+        .toolbar-btn {
+            background: none;
+            border: none;
+            color: white;
+            padding: 8px;
+            margin: 2px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="display">
+        <canvas id="canvas" width="1024" height="768"></canvas>
+    </div>
+    
+    <div id="status">
+        <div class="loading"></div>
+        <div id="status-text">Initializing...</div>
+    </div>
+
+    <div id="toolbar">
+        <button class="toolbar-btn" onclick="sendCtrlAltDel()" title="Ctrl+Alt+Del">Ctrl+Alt+Del</button>
+        <button class="toolbar-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+        <button class="toolbar-btn" onclick="reconnect()" title="Reconnect">↻</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        let connectionConfig = null;
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
+
+        // DOM elements
+        const display = document.getElementById('display');
+        const status = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+        const toolbar = document.getElementById('toolbar');
+
+        // Message parent window
+        function postMessage(type, data) {
+            window.parent.postMessage({ type, data }, '*');
+        }
+
+        // Update status display
+        function updateStatus(message, type = 'info') {
+            statusText.textContent = message;
+            status.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            
+            if (type === 'connected') {
+                status.classList.add('hidden');
+                toolbar.classList.add('visible');
+            } else {
+                status.classList.remove('hidden');
+                toolbar.classList.remove('visible');
+            }
+
+            // Notify parent
+            postMessage('status', { message, type });
+        }
+
+        // Initialize WebSocket connection directly to our backend RDP proxy
+        function initializeConnection(config) {
+            connectionConfig = config;
+            updateStatus('Connecting to RDP server...');
+
+            try {
+                // Connect directly to our backend RDP proxy WebSocket
+                const wsUrl = config.wsUrl || `/api/v1/external-agents/${config.sessionId}/rdp/proxy`;
+                ws = new WebSocket(wsUrl.replace('http', 'ws'));
+
+                ws.onopen = function() {
+                    console.log('WebSocket connected to RDP proxy');
+                    
+                    // Send connection parameters to backend
+                    ws.send(JSON.stringify({
+                        type: 'connect',
+                        sessionId: config.sessionId,
+                        hostname: config.hostname,
+                        port: config.port,
+                        username: config.username,
+                        password: config.password,
+                        width: config.width,
+                        height: config.height
+                    }));
+                };
+
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleMessage(data);
+                    } catch (e) {
+                        // Handle binary data (screen updates)
+                        handleBinaryData(event.data);
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    updateStatus('Connection error', 'error');
+                    postMessage('error', 'WebSocket connection failed');
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    isConnected = false;
+                    updateStatus('Disconnected');
+                    postMessage('connected', false);
+                };
+
+                // Setup input handling
+                setupInputHandling();
+
+            } catch (error) {
+                updateStatus(`Failed to initialize: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle JSON messages from backend
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'connected':
+                    updateStatus('Connected', 'connected');
+                    isConnected = true;
+                    postMessage('connected', true);
+                    break;
+                    
+                case 'error':
+                    const errorMsg = data.message || 'Connection error';
+                    updateStatus(errorMsg, 'error');
+                    postMessage('error', errorMsg);
+                    break;
+                    
+                case 'screen_update':
+                    if (data.imageData) {
+                        drawImageData(data.imageData, data.x || 0, data.y || 0);
+                    }
+                    break;
+                    
+                case 'resize':
+                    if (data.width && data.height) {
+                        canvas.width = data.width;
+                        canvas.height = data.height;
+                    }
+                    break;
+                    
+                case 'cursor':
+                    // Handle cursor updates
+                    break;
+                    
+                default:
+                    console.log('Unknown message type:', data.type);
+            }
+        }
+
+        // Handle binary screen data
+        function handleBinaryData(data) {
+            // This would decode the binary screen data from the RDP stream
+            // For now, we'll just log it
+            console.log('Received binary data:', data.length, 'bytes');
+        }
+
+        // Draw image data to canvas
+        function drawImageData(base64Data, x, y) {
+            const img = new Image();
+            img.onload = function() {
+                ctx.drawImage(img, x, y);
+            };
+            img.src = 'data:image/png;base64,' + base64Data;
+        }
+
+        // Setup input handling
+        function setupInputHandling() {
+            // Mouse events
+            canvas.addEventListener('mousedown', function(e) {
+                if (!isConnected) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                sendMouseEvent('down', x, y, e.button);
+            });
+
+            canvas.addEventListener('mouseup', function(e) {
+                if (!isConnected) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                sendMouseEvent('up', x, y, e.button);
+            });
+
+            canvas.addEventListener('mousemove', function(e) {
+                if (!isConnected) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                sendMouseEvent('move', x, y, -1);
+            });
+
+            // Keyboard events
+            document.addEventListener('keydown', function(e) {
+                if (!isConnected) return;
+                sendKeyEvent('down', e.code, e.key, e.keyCode);
+                e.preventDefault();
+            });
+
+            document.addEventListener('keyup', function(e) {
+                if (!isConnected) return;
+                sendKeyEvent('up', e.code, e.key, e.keyCode);
+                e.preventDefault();
+            });
+
+            // Prevent context menu
+            canvas.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            });
+
+            // Focus handling
+            canvas.setAttribute('tabindex', '0');
+            canvas.focus();
+        }
+
+        // Send mouse event to backend
+        function sendMouseEvent(type, x, y, button) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'mouse',
+                    action: type,
+                    x: Math.floor(x),
+                    y: Math.floor(y),
+                    button: button
+                }));
+            }
+        }
+
+        // Send keyboard event to backend
+        function sendKeyEvent(type, code, key, keyCode) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'keyboard',
+                    action: type,
+                    code: code,
+                    key: key,
+                    keyCode: keyCode
+                }));
+            }
+        }
+
+        // Toolbar functions
+        function sendCtrlAltDel() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'special_key',
+                    action: 'ctrl_alt_del'
+                }));
+            }
+        }
+
+        function toggleFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                document.documentElement.requestFullscreen();
+            }
+        }
+
+        function reconnect() {
+            disconnect();
+            setTimeout(() => {
+                if (connectionConfig) {
+                    initializeConnection(connectionConfig);
+                }
+            }, 1000);
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            isConnected = false;
+            updateStatus('Disconnected');
+        }
+
+        // Handle messages from parent window
+        window.addEventListener('message', function(event) {
+            // Filter out noise messages from extensions/other sources
+            if (!event.data || typeof event.data !== 'object') return;
+            if (!event.data.type) return;
+            if (event.data.msgId || event.data.source) return; // Extension messages
+            
+            const { type, data } = event.data;
+
+            switch (type) {
+                case 'connect':
+                    initializeConnection(data);
+                    break;
+                case 'disconnect':
+                    disconnect();
+                    break;
+                case 'sendClipboard':
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'clipboard',
+                            text: data
+                        }));
+                    }
+                    break;
+                default:
+                    // Ignore unknown message types silently
+                    break;
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            // Adjust canvas scaling if needed
+            const rect = display.getBoundingClientRect();
+            const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+            canvas.style.transform = `scale(${scale})`;
+        });
+
+        // Handle fullscreen changes
+        document.addEventListener('fullscreenchange', function() {
+            setTimeout(() => {
+                window.dispatchEvent(new Event('resize'));
+            }, 100);
+        });
+
+        // Ready message
+        window.addEventListener('load', function() {
+            postMessage('ready', true);
+            updateStatus('Ready to connect');
+        });
+
+        // Handle unload
+        window.addEventListener('beforeunload', function() {
+            disconnect();
+        });
+    </script>
+</body>
+</html>

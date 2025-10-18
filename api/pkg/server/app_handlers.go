@@ -99,7 +99,8 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			Str("assistant_name", assistant.Name).
 			Str("original_provider", assistant.Provider).
 			Str("original_model", assistant.Model).
-			Bool("agent_mode", assistant.AgentMode).
+			Str("agent_type", string(assistant.GetAgentType())).
+			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Processing assistant for model substitution")
 
 		// Helper function to apply substitution for a provider/model pair
@@ -170,7 +171,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 			func(m string) { assistant.Model = m })
 
 		// Agent mode model fields
-		if assistant.AgentMode {
+		if assistant.IsAgentMode() {
 			// Reasoning model
 			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
 				func(p string) { assistant.ReasoningModelProvider = p },
@@ -654,17 +655,18 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 			Str("assistant_name", assistant.Name).
 			Str("provider", assistant.Provider).
 			Str("model", assistant.Model).
-			Bool("agent_mode", assistant.AgentMode).
+			Str("agent_type", string(assistant.GetAgentType())).
+			Bool("agent_mode", assistant.IsAgentMode()).
 			Msg("Validating individual assistant")
 
 		// Validate main provider/model
-		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.AgentMode)
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.IsAgentMode())
 		if err != nil {
 			return err
 		}
 
 		// If in agent mode, validate all agent mode model fields
-		if assistant.AgentMode {
+		if assistant.IsAgentMode() {
 			// Validate reasoning model
 			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
 			if err != nil {

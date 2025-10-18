@@ -44,6 +44,8 @@ export interface IAccountContext {
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
+  // Token expiry info for debugging
+  tokenExpiryMinutes: number | null,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -77,6 +79,7 @@ export const AccountContext = createContext<IAccountContext>({
   models: [],
   hasImageModels: false,
   orgNavigate: () => {},
+  tokenExpiryMinutes: null,
 })
 
 export const useAccount = () => {
@@ -94,6 +97,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
+  const [ tokenExpiryMinutes, setTokenExpiryMinutes ] = useState<number | null>(null)
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
@@ -281,6 +285,14 @@ export const useAccountContext = (): IAccountContext => {
 
   const initialize = useCallback(async () => {
     loading.setLoading(true)
+
+    // Check for logout reason and show snackbar
+    const logoutReason = localStorage.getItem('logout_reason')
+    if (logoutReason) {
+      snackbar.error(logoutReason)
+      localStorage.removeItem('logout_reason')
+    }
+
     try {
       const client = api.getApiClient()
       const authenticated = await client.v1AuthAuthenticatedList()
@@ -288,6 +300,42 @@ export const useAccountContext = (): IAccountContext => {
         const userResponse = await client.v1AuthUserList()
         const user = userResponse.data as IKeycloakUser
         api.setToken(user.token)
+
+        // Log token expiry for debugging
+        try {
+          if (user.token) {
+            const tokenParts = user.token.split('.')
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(atob(tokenParts[1]))
+              const expiry = new Date(payload.exp * 1000)
+              const now = new Date()
+              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
+              console.log('[AUTH] Access token expiry:', {
+                expiresAt: expiry.toISOString(),
+                minutesUntilExpiry: Math.round(minutesUntilExpiry),
+                exp: payload.exp,
+                tokenType: 'access_token'
+              })
+            }
+          }
+          if (user.refresh_token) {
+            const tokenParts = user.refresh_token.split('.')
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(atob(tokenParts[1]))
+              const expiry = new Date(payload.exp * 1000)
+              const now = new Date()
+              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
+              console.log('[AUTH] Refresh token expiry:', {
+                expiresAt: expiry.toISOString(),
+                minutesUntilExpiry: Math.round(minutesUntilExpiry),
+                exp: payload.exp,
+                tokenType: 'refresh_token'
+              })
+            }
+          }
+        } catch (e) {
+          console.warn('[AUTH] Failed to decode token expiry:', e)
+        }
         const win = (window as any)
         if (win.setUser) {
           win.setUser(user)
@@ -300,31 +348,104 @@ export const useAccountContext = (): IAccountContext => {
 
         setUser(user)
 
-        // Set up token refresh interval - using 4 minutes instead of 30 seconds
-        // to reduce server load and prevent potential race conditions
+        // Check if token expires soon and refresh immediately if needed
+        const checkAndRefreshToken = async () => {
+          try {
+            if (user.token) {
+              const payload = JSON.parse(atob(user.token.split('.')[1]))
+              const expiry = new Date(payload.exp * 1000)
+              const now = new Date()
+              const minutesUntilExpiry = (expiry.getTime() - now.getTime()) / 1000 / 60
+
+              // If token expires in less than 4 minutes, refresh immediately!
+              if (minutesUntilExpiry < 4) {
+                console.log(`[AUTH] Token expires in ${Math.round(minutesUntilExpiry)} minutes - refreshing immediately!`)
+                const innerClient = api.getApiClient()
+                await innerClient.v1AuthRefreshCreate()
+                const userResponse = await innerClient.v1AuthUserList()
+                const refreshedUser = userResponse.data as IKeycloakUser
+
+                setUser(Object.assign({}, refreshedUser, {
+                  token: refreshedUser.token,
+                  is_admin: admin,
+                }))
+                if (refreshedUser.token) {
+                  api.setToken(refreshedUser.token)
+                  console.log('[AUTH] Emergency refresh completed')
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[AUTH] Emergency refresh failed:', e)
+          }
+        }
+
+        // Do immediate check/refresh if needed
+        await checkAndRefreshToken()
+
+        // Set up token refresh interval - using 4 minutes to stay well within
+        // 15 minute implicit flow token expiry (accessTokenLifespanForImplicitFlow)
         const refreshInterval = setInterval(async () => {
           try {
+            console.log('[AUTH] Token refresh starting...')
             const innerClient = api.getApiClient()
             await innerClient.v1AuthRefreshCreate()
             const userResponse = await innerClient.v1AuthUserList()
             const user = userResponse.data as IKeycloakUser
+
+            // Log new token expiry after refresh
+            try {
+              if (user.token) {
+                const payload = JSON.parse(atob(user.token.split('.')[1]))
+                const expiry = new Date(payload.exp * 1000)
+                console.log('[AUTH] Token refreshed! New access token expires:', expiry.toISOString())
+              }
+              if (user.refresh_token) {
+                const payload = JSON.parse(atob(user.refresh_token.split('.')[1]))
+                const expiry = new Date(payload.exp * 1000)
+                console.log('[AUTH] Token refreshed! New refresh token expires:', expiry.toISOString())
+              }
+            } catch (e) {
+              console.warn('[AUTH] Could not decode refreshed token expiry:', e)
+            }
+
             setUser(Object.assign({}, user, {
               token: user.token,
               is_admin: admin,
             }))
             if (user.token) {
               api.setToken(user.token)
+              console.log('[AUTH] Updated axios headers with new token')
             }
+
+            // Check if cookie was actually updated
+            const cookieValue = document.cookie.split('; ').find(row => row.startsWith('access_token='))
+            console.log('[AUTH] Cookie after refresh:', cookieValue ? 'present' : 'MISSING!')
           } catch (e) {
             console.error('Error refreshing token:', e)
+
+            // Try to get token expiry info for better error message
+            let expiryInfo = ''
+            try {
+              const currentToken = api.getApiClient().securityData?.token
+              if (currentToken) {
+                const payload = JSON.parse(atob(currentToken.split('.')[1]))
+                const expiry = new Date(payload.exp * 1000)
+                expiryInfo = ` (token expired at ${expiry.toISOString()})`
+              }
+            } catch {}
+
             // Instead of immediately calling onLogin, clear interval and try one more time
             clearInterval(refreshInterval)
             // Only call onLogin if we're really unauthorized, not for network issues
             if ((e as any).response && (e as any).response.status === 401) {
+              const reason = `Token refresh failed${expiryInfo} - session expired or server restarted`
+              localStorage.setItem('logout_reason', reason)
+              console.log('[AUTH] Logging out:', reason, e)
               onLogin()
             }
           }
-        }, 240 * 1000) // 4 minutes
+        }, 120 * 1000) // 2 minutes (tokens expire in 5min, so refresh every 2min to be safe)
         
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)
