@@ -1059,6 +1059,16 @@ export enum TypesEffect {
   EffectDeny = "deny",
 }
 
+export enum TypesFeedback {
+  FeedbackLike = "like",
+  FeedbackDislike = "dislike",
+}
+
+export interface TypesFeedbackRequest {
+  feedback?: TypesFeedback;
+  feedback_message?: string;
+}
+
 export interface TypesFirecrawl {
   api_key?: string;
   api_url?: string;
@@ -1227,6 +1237,8 @@ export interface TypesInteraction {
   /** How long the interaction took to complete in milliseconds */
   duration_ms?: number;
   error?: string;
+  feedback?: TypesFeedback;
+  feedback_message?: string;
   /**
    * GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
    * it is used to keep a timeline when querying the database for messages or viewing previous generations
@@ -1447,6 +1459,7 @@ export enum TypesLLMCallStep {
   LLMCallStepPrepareAPIRequest = "prepare_api_request",
   LLMCallStepInterpretResponse = "interpret_response",
   LLMCallStepGenerateTitle = "generate_title",
+  LLMCallStepSummarizeConversation = "summarize_conversation",
 }
 
 export interface TypesLoginRequest {
@@ -4950,6 +4963,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/interactions/${interactionId}`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Provide feedback for an interaction
+     *
+     * @tags interactions
+     * @name V1SessionsInteractionsFeedbackCreate
+     * @summary Provide feedback for an interaction
+     * @request POST:/api/v1/sessions/{id}/interactions/{interaction_id}/feedback
+     * @secure
+     */
+    v1SessionsInteractionsFeedbackCreate: (
+      id: string,
+      interactionId: string,
+      feedback: TypesFeedbackRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesInteraction, any>({
+        path: `/api/v1/sessions/${id}/interactions/${interactionId}/feedback`,
+        method: "POST",
+        body: feedback,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
