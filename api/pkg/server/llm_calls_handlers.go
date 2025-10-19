@@ -151,6 +151,7 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 // @Param   pageSize      query    int     false  "Page size"
 // @Param   session       query    string  false  "Filter by session ID"
 // @Param   interaction   query    string  false  "Filter by interaction ID"
+// @Param   feedback      query    string  false  "Query by like/dislike"
 // @Success 200 {object} types.PaginatedInteractions
 // @Router /api/v1/apps/{id}/interactions [get]
 // @Security BearerAuth
@@ -188,19 +189,37 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 		pageSize = 10 // Default page size
 	}
 
+	feedback := r.URL.Query().Get("feedback")
 	sessionID := r.URL.Query().Get("session")
 	interactionID := r.URL.Query().Get("interaction")
 
-	// Call the ListLLMCalls function from the store with the session filter
-	interactions, totalCount, err := s.Store.ListInteractions(r.Context(), &types.ListInteractionsQuery{
+	switch feedback {
+	case "like", "dislike":
+		// OK
+	case "":
+		// OK as well
+	default:
+		// Invalid feedback
+		return nil, system.NewHTTPError400("invalid feedback")
+	}
+
+	query := &types.ListInteractionsQuery{
 		AppID:         appID,
 		Page:          page,
 		PerPage:       pageSize,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 		UserID:        user.ID,
+		Feedback:      feedback,
 		Order:         "id DESC",
-	})
+	}
+
+	if query.Feedback != "" {
+		query.UserID = "" // When Feedback, we will ignore user IDs (it will load for anyone who used the app, not just the caller)
+	}
+
+	// Call the ListLLMCalls function from the store with the session filter
+	interactions, totalCount, err := s.Store.ListInteractions(r.Context(), query)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

@@ -686,6 +686,12 @@ const docTemplate = `{
                         "description": "Filter by interaction ID",
                         "name": "interaction",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Query by like/dislike",
+                        "name": "feedback",
+                        "in": "query"
                     }
                 ],
                 "responses": {
