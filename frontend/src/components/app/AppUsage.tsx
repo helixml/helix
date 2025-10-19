@@ -21,6 +21,10 @@ import {
   TextField,
   InputAdornment,
   Grid,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -90,9 +94,10 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [interactionDialogOpen, setInteractionDialogOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('7d');
   const [searchQuery, setSearchQuery] = useState('');
+  const [feedback, setFeedback] = useState<string>('');
 
   // Load interactions at the top level
-  const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', page + 1, rowsPerPage);
+  const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', feedback, page + 1, rowsPerPage);
 
   // Auto-reload logic for waiting interactions
   useEffect(() => {
@@ -355,35 +360,67 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       <Divider sx={{ my: 2 }} />
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2,  mr: 2 }}>
-        <Typography variant="h6">Agent Interactions</Typography>        
-        <TextField
-          variant="outlined"
-          size="small"
-          placeholder="Session or interaction ID"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search size={16} />
-              </InputAdornment>
-            ),
-          }}
-          sx={{
-            width: 300,
-            '& .MuiOutlinedInput-root': {
-              bgcolor: 'rgba(0, 0, 0, 0.2)',
-              borderRadius: 1,
-              '& fieldset': { border: 'none' },
-              '&:hover fieldset': { border: 'none' },
-              '&.Mui-focused fieldset': { border: 'none' },
-            },
-            '& .MuiInputBase-input': {
-              color: 'white',
-              fontSize: '0.875rem',
-            },
-          }}
-        />
+        <Typography variant="h6">Agent Interactions</Typography>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>By feedback</InputLabel>
+            <Select
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              label="By feedback"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  bgcolor: 'rgba(0, 0, 0, 0.2)',
+                  borderRadius: 1,
+                  '& fieldset': { border: 'none' },
+                  '&:hover fieldset': { border: 'none' },
+                  '&.Mui-focused fieldset': { border: 'none' },
+                },
+                '& .MuiInputBase-input': {
+                  color: 'white',
+                  fontSize: '0.875rem',
+                },
+                '& .MuiSelect-icon': {
+                  color: 'white',
+                },
+              }}
+            >
+              <MenuItem value="">All</MenuItem>
+              <MenuItem value="like">Love it</MenuItem>
+              <MenuItem value="dislike">Needs improvement</MenuItem>
+            </Select>
+          </FormControl>
+
+          <TextField
+            variant="outlined"
+            size="small"
+            placeholder="Session or interaction ID"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search size={16} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{
+              width: 300,
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: 1,
+                '& fieldset': { border: 'none' },
+                '&:hover fieldset': { border: 'none' },
+                '&.Mui-focused fieldset': { border: 'none' },
+              },
+              '& .MuiInputBase-input': {
+                color: 'white',
+                fontSize: '0.875rem',
+              },
+            }}
+          />
+        </Box>
       </Box>
       {searchQuery.trim() && (
         <Box sx={{ px: 2, mb: 1 }}>
