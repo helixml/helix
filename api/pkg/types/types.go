@@ -69,7 +69,22 @@ type Interaction struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
+
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
 }
+
+type FeedbackRequest struct {
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
+}
+
+type Feedback string
+
+const (
+	FeedbackLike    Feedback = "like"
+	FeedbackDislike Feedback = "dislike"
+)
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
