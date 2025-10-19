@@ -4842,6 +4842,10 @@ paths:
         in: query
         name: interaction
         type: string
+      - description: Query by like/dislike
+        in: query
+        name: feedback
+        type: string
       produces:
       - application/json
       responses:
