@@ -156,6 +156,7 @@ type ListInteractionsQuery struct {
 	GenerationID  int // Use -1 to get all generations for a session
 	Page          int
 	PerPage       int
+	Feedback      string
 	Order         string // Defaults to ID ASC
 }
 
