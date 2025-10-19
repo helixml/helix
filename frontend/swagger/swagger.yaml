@@ -1680,6 +1680,21 @@ definitions:
     x-enum-varnames:
     - EffectAllow
     - EffectDeny
+  types.Feedback:
+    enum:
+    - like
+    - dislike
+    type: string
+    x-enum-varnames:
+    - FeedbackLike
+    - FeedbackDislike
+  types.FeedbackRequest:
+    properties:
+      feedback:
+        $ref: '#/definitions/types.Feedback'
+      feedback_message:
+        type: string
+    type: object
   types.Firecrawl:
     properties:
       api_key:
@@ -1972,6 +1987,10 @@ definitions:
         description: How long the interaction took to complete in milliseconds
         type: integer
       error:
+        type: string
+      feedback:
+        $ref: '#/definitions/types.Feedback'
+      feedback_message:
         type: string
       generation_id:
         description: |-
@@ -2336,6 +2355,7 @@ definitions:
     - prepare_api_request
     - interpret_response
     - generate_title
+    - summarize_conversation
     type: string
     x-enum-varnames:
     - LLMCallStepDefault
@@ -2343,6 +2363,7 @@ definitions:
     - LLMCallStepPrepareAPIRequest
     - LLMCallStepInterpretResponse
     - LLMCallStepGenerateTitle
+    - LLMCallStepSummarizeConversation
   types.LoginRequest:
     properties:
       redirect_uri:
@@ -4821,6 +4842,10 @@ paths:
         in: query
         name: interaction
         type: string
+      - description: Query by like/dislike
+        in: query
+        name: feedback
+        type: string
       produces:
       - application/json
       responses:
@@ -6717,6 +6742,38 @@ paths:
       security:
       - BearerAuth: []
       summary: Get an interaction by ID
+      tags:
+      - interactions
+  /api/v1/sessions/{id}/interactions/{interaction_id}/feedback:
+    post:
+      description: Provide feedback for an interaction
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      - description: Feedback
+        in: body
+        name: feedback
+        required: true
+        schema:
+          $ref: '#/definitions/types.FeedbackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Interaction'
+      security:
+      - BearerAuth: []
+      summary: Provide feedback for an interaction
       tags:
       - interactions
   /api/v1/sessions/{id}/step-info:
