@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
+import { TypesFeedbackRequest } from '../api/api';
 
 export const appInteractionsQueryKey = (appId: string, sessionId: string, interactionId: string, page: number, pageSize: number) => [
   "app-interactions",
@@ -22,5 +23,17 @@ export function useListAppInteractions(appId: string, session: string, interacti
     },
     enabled: options?.enabled ?? true,
   })
+}
+
+export function useUpdateInteractionFeedback(sessionId: string, interactionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return {
+    updateFeedback: async (feedback: TypesFeedbackRequest) => {
+      const response = await apiClient.v1SessionsInteractionsFeedbackCreate(sessionId, interactionId, feedback)
+      return response.data
+    }
+  }
 }
 
