@@ -3154,6 +3154,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         session?: string;
         /** Filter by interaction ID */
         interaction?: string;
+        /** Query by like/dislike */
+        feedback?: string;
       },
       params: RequestParams = {},
     ) =>
