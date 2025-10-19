@@ -3739,6 +3739,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/interactions/{interaction_id}/feedback": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provide feedback for an interaction",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Provide feedback for an interaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Feedback",
+                        "name": "feedback",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.FeedbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Interaction"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/step-info": {
             "get": {
                 "security": [
@@ -6936,6 +6986,28 @@ const docTemplate = `{
                 "EffectDeny"
             ]
         },
+        "types.Feedback": {
+            "type": "string",
+            "enum": [
+                "like",
+                "dislike"
+            ],
+            "x-enum-varnames": [
+                "FeedbackLike",
+                "FeedbackDislike"
+            ]
+        },
+        "types.FeedbackRequest": {
+            "type": "object",
+            "properties": {
+                "feedback": {
+                    "$ref": "#/definitions/types.Feedback"
+                },
+                "feedback_message": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Firecrawl": {
             "type": "object",
             "properties": {
@@ -7363,6 +7435,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "error": {
+                    "type": "string"
+                },
+                "feedback": {
+                    "$ref": "#/definitions/types.Feedback"
+                },
+                "feedback_message": {
                     "type": "string"
                 },
                 "generation_id": {
@@ -7877,14 +7955,16 @@ const docTemplate = `{
                 "is_actionable",
                 "prepare_api_request",
                 "interpret_response",
-                "generate_title"
+                "generate_title",
+                "summarize_conversation"
             ],
             "x-enum-varnames": [
                 "LLMCallStepDefault",
                 "LLMCallStepIsActionable",
                 "LLMCallStepPrepareAPIRequest",
                 "LLMCallStepInterpretResponse",
-                "LLMCallStepGenerateTitle"
+                "LLMCallStepGenerateTitle",
+                "LLMCallStepSummarizeConversation"
             ]
         },
         "types.LoginRequest": {
