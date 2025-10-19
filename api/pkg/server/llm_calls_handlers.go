@@ -120,7 +120,6 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 		SessionID:     sessionFilter,
 		InteractionID: interactionFilter,
 		AppID:         appID,
-		UserID:        user.ID,
 		Order:         "id ASC",
 	})
 	if err != nil {
