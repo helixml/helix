@@ -1410,9 +1410,25 @@ EOF
 EOF
         echo "Moonlight Web config created at $INSTALL_DIR/moonlight-web-config/config.json"
 
-        # Create Wolf directory for SSL certificates
-        # Wolf uses default config from image, only needs SSL certs
+        # Create Wolf directory and configuration
         mkdir -p "$INSTALL_DIR/wolf"
+
+        # Create Wolf config.toml (version 6 with dynamic apps support)
+        # Only create if it doesn't exist to preserve user modifications
+        if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
+            echo "Creating Wolf configuration..."
+            WOLF_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "00000000-0000-0000-0000-$(date +%s)")
+            cat << 'WOLFCONFIG' > "$INSTALL_DIR/wolf/config.toml"
+apps = []
+config_version = 6
+hostname = 'Wolf'
+paired_clients = []
+WOLFCONFIG
+            echo "uuid = '$WOLF_UUID'" >> "$INSTALL_DIR/wolf/config.toml"
+            echo "Wolf config created at $INSTALL_DIR/wolf/config.toml"
+        else
+            echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
+        fi
 
         # Generate self-signed certificates for Wolf HTTPS
         echo "Generating self-signed certificates for Wolf streaming..."
