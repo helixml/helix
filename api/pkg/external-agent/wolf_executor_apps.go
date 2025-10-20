@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -164,6 +165,29 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		if !found {
 			time.Sleep(2 * time.Second) // Brief wait if not immediately available
 		}
+	}
+
+	// Auto-pair Wolf with moonlight-web before creating session
+	// This ensures moonlight-web can connect to Wolf without manual pairing
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080"
+	}
+	wolfURL := os.Getenv("WOLF_URL")
+	if wolfURL == "" {
+		wolfURL = "http://wolf:47989"
+	}
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+	if credentials == "" {
+		credentials = "helix" // Default for dev
+	}
+
+	autoPair := services.NewMoonlightAutoPairService(moonlightWebURL, wolfURL, credentials)
+	if err := autoPair.InitializeAndPair(ctx); err != nil {
+		log.Warn().
+			Err(err).
+			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
+		// Don't fail here - pairing might already be done
 	}
 
 	log.Info().
