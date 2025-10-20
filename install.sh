@@ -1431,8 +1431,10 @@ WOLFCONFIG
         fi
 
         # Generate self-signed certificates for Wolf HTTPS
+        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
+        # 4096-bit produces 512-byte signatures but protocol expects 256 bytes
         echo "Generating self-signed certificates for Wolf streaming..."
-        openssl req -x509 -newkey rsa:4096 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
+        openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
             -days 365 -nodes -subj "/CN=${TURN_HOST}" 2>/dev/null
 
         echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
