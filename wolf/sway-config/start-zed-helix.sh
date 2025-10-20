@@ -16,6 +16,35 @@ cd /home/retro
 sudo chown retro:retro work
 cd /home/retro/work
 
+# Initialize workspace with README if empty
+# This ensures Zed creates a workspace and triggers WebSocket connection
+if [ ! -f "README.md" ] && [ -z "$(ls -A)" ]; then
+    cat > README.md << 'HEREDOC'
+# Welcome to Your Helix External Agent
+
+This is your autonomous development workspace. The AI agent running in this environment
+can read and write files, run commands, and collaborate with you through the Helix interface.
+
+## Getting Started
+
+- This workspace is persistent across sessions
+- Files you create here are saved automatically
+- The AI agent has full access to this directory
+- Use the Helix chat interface to direct the agent
+
+## Directories
+
+Create your project structure here. For example:
+```
+mkdir src
+mkdir tests
+```
+
+Start coding and the agent will assist you!
+HEREDOC
+    echo "Created README.md to initialize workspace"
+fi
+
 # Configure SSH agent and load keys for git access
 if [ -d "/home/retro/.ssh" ] && [ "$(ls -A /home/retro/.ssh/*.key 2>/dev/null)" ]; then
     echo "Setting up SSH agent for git access..."
