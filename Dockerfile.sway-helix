@@ -101,3 +101,9 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # Copy screenshot-server and settings-sync-daemon binaries from Go build stage
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+
+# Copy Zed binary (built with ./stack build-zed before Docker build)
+# CRITICAL: Must be built with --features external_websocket_sync
+RUN mkdir -p /zed-build
+COPY zed-build/zed /zed-build/zed
+RUN chmod +x /zed-build/zed
