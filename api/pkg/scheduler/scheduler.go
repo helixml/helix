@@ -2019,6 +2019,9 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 
 	// Can do the rest in a goroutine, no need to wait for it to submit
 	go func() {
+		// Always release the slot when the goroutine completes, regardless of success or failure
+		defer slot.Release()
+
 		// Submit the work to the slot
 		switch req.WorkloadType {
 		case WorkloadTypeLLMInferenceRequest:
