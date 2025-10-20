@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -142,20 +143,21 @@ func (s *MoonlightAutoPairService) checkHostPaired(hostID int) (bool, error) {
 }
 
 // getPairingPIN gets the pairing PIN for Wolf
-// NOTE: This is the challenge - Wolf generates a random PIN during pairing
-// For auto-pairing, we have two options:
-// 1. Configure Wolf with a known PIN (less secure)
-// 2. Fetch PIN from Wolf's internal state (requires Wolf API enhancement)
+// Wolf auto-accepts pairing when MOONLIGHT_INTERNAL_PAIRING_PIN is set
+// We use the same PIN that Wolf expects for automatic pairing
 func (s *MoonlightAutoPairService) getPairingPIN() (string, error) {
-	// TEMPORARY SOLUTION: Use a well-known PIN for auto-pairing
-	// Wolf should be configured to accept this PIN in development
-	//
-	// PRODUCTION SOLUTION: Wolf needs an API endpoint to get pairing PIN
-	// or accept a pre-shared key for automatic client registration
+	// Get the auto-pairing PIN from environment
+	// This must match the MOONLIGHT_INTERNAL_PAIRING_PIN set in Wolf's environment
+	pin := os.Getenv("MOONLIGHT_INTERNAL_PAIRING_PIN")
+	if pin == "" {
+		return "", fmt.Errorf("MOONLIGHT_INTERNAL_PAIRING_PIN not set - cannot auto-pair")
+	}
 
-	// For now, return empty string and let moonlight-web generate PIN
-	// User must complete pairing manually first time
-	return "", fmt.Errorf("auto-pairing PIN not available - manual pairing required")
+	log.Info().
+		Str("pin", pin).
+		Msg("Using auto-pairing PIN from environment")
+
+	return pin, nil
 }
 
 // pairHost initiates pairing with a host
