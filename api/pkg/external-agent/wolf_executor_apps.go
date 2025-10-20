@@ -1,6 +1,7 @@
 package external_agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -169,21 +169,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 
 	// Auto-pair Wolf with moonlight-web before creating session
 	// This ensures moonlight-web can connect to Wolf without manual pairing
-	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
-	if moonlightWebURL == "" {
-		moonlightWebURL = "http://moonlight-web:8080"
-	}
-	wolfURL := os.Getenv("WOLF_URL")
-	if wolfURL == "" {
-		wolfURL = "http://wolf:47989"
-	}
-	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
-	if credentials == "" {
-		credentials = "helix" // Default for dev
-	}
-
-	autoPair := services.NewMoonlightAutoPairService(moonlightWebURL, wolfURL, credentials)
-	if err := autoPair.InitializeAndPair(ctx); err != nil {
+	if err := pairWolfWithMoonlightWeb(ctx); err != nil {
 		log.Warn().
 			Err(err).
 			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
@@ -1127,4 +1113,89 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 		config.DisplayHeight,
 		config.DisplayFPS,
 	)
+}
+
+// pairWolfWithMoonlightWeb auto-pairs Wolf with moonlight-web using MOONLIGHT_INTERNAL_PAIRING_PIN
+// This allows moonlight-web to connect to Wolf without manual pairing
+func pairWolfWithMoonlightWeb(ctx context.Context) error {
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080"
+	}
+
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+	if credentials == "" {
+		credentials = "helix" // Default for dev
+	}
+
+	// Get auto-pairing PIN from environment (must match Wolf's MOONLIGHT_INTERNAL_PAIRING_PIN)
+	pin := os.Getenv("MOONLIGHT_INTERNAL_PAIRING_PIN")
+	if pin == "" {
+		return fmt.Errorf("MOONLIGHT_INTERNAL_PAIRING_PIN not set - cannot auto-pair")
+	}
+
+	log.Info().
+		Str("moonlight_web", moonlightWebURL).
+		Str("pin", pin).
+		Msg("Starting automatic Wolf pairing with moonlight-web")
+
+	// Check if Wolf (host_id=0) is already paired
+	req, err := http.NewRequestWithContext(ctx, "GET", moonlightWebURL+"/api/host?host_id=0", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.SetBasicAuth(credentials, credentials)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to check pairing status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		var hostStatus struct {
+			HostID  int  `json:"host_id"`
+			Address string `json:"address"`
+			Paired  bool   `json:"paired"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&hostStatus); err == nil && hostStatus.Paired {
+			log.Info().Msg("✅ Wolf is already paired with moonlight-web")
+			return nil
+		}
+	}
+
+	// Not paired - initiate pairing with PIN
+	pairReq := map[string]interface{}{
+		"host_id": 0,
+		"pin":     pin,
+	}
+	pairJSON, err := json.Marshal(pairReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal pair request: %w", err)
+	}
+
+	req, err = http.NewRequestWithContext(ctx, "POST", moonlightWebURL+"/api/pair", bytes.NewBuffer(pairJSON))
+	if err != nil {
+		return fmt.Errorf("failed to create pair request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(credentials, credentials)
+
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send pair request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("pairing failed: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	log.Info().
+		Int("host_id", 0).
+		Str("response", string(body)).
+		Msg("✅ Successfully paired Wolf with moonlight-web")
+
+	return nil
 }
