@@ -1,5 +1,9 @@
 # Helix Personal Dev Environment custom Sway configuration
-# This gets included by the base GOW Sway config
+# This gets included EARLY by GOW base config (before $mod is defined)
+# Therefore: NO bindsym commands here! Add those to startup-app.sh instead.
+
+# Disable Xwayland - force native Wayland for all apps (fixes Zed input issues with NVIDIA)
+xwayland disable
 
 # Set Helix wallpaper
 output * bg /usr/share/backgrounds/helix-logo.png fill
@@ -7,9 +11,4 @@ output * bg /usr/share/backgrounds/helix-logo.png fill
 # Configure HiDPI scaling for display WL-1
 output WL-1 scale 2
 
-# Additional key bindings for our tools
-bindsym $mod+Shift+Return exec ghostty
-bindsym $mod+Shift+c exec google-chrome-stable
-bindsym $mod+Shift+o exec onlyoffice-desktopeditors
-
-# Zed will be launched by GOW launcher
+# Note: Key bindings are added in startup-app.sh (after $mod is defined)
