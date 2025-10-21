@@ -39,6 +39,7 @@ import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
+import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -619,6 +620,17 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <SystemSettingsTable />
+                    </Box>
+                )}
+
+                {tab === "users" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <UsersTable />
                     </Box>
                 )}
 
