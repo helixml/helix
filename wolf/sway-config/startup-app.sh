@@ -140,6 +140,9 @@ EOF
     mkdir -p $HOME/.config/sway/
     cp /cfg/sway/config $HOME/.config/sway/config
 
+    # Copy our custom Helix configuration (included by GOW base config on line 2)
+    cp /cfg/sway/custom-cfg $HOME/.config/sway/custom-cfg
+
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
     echo "# Helix Personal Dev Environment custom configuration" >> $HOME/.config/sway/config
