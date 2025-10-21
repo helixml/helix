@@ -665,6 +665,57 @@ check_nvidia_gpu() {
     fi
 }
 
+# Function to check NVIDIA driver version and warn if > 570 (known issues with Zed/Sway/Wayland)
+check_nvidia_driver_version() {
+    if ! command -v nvidia-smi &> /dev/null; then
+        return 0  # No nvidia-smi, can't check version
+    fi
+
+    # Extract driver version (e.g., "570.195.03" or "580.65.06")
+    local driver_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+
+    if [ -z "$driver_version" ]; then
+        return 0  # Couldn't get version, don't block
+    fi
+
+    # Extract major version (e.g., "570" from "570.195.03")
+    local major_version=$(echo "$driver_version" | cut -d. -f1)
+
+    if [ "$major_version" -gt 570 ] 2>/dev/null; then
+        echo ""
+        echo "┌───────────────────────────────────────────────────────────────────────────"
+        echo "│ ⚠️  WARNING: NVIDIA driver version $driver_version detected"
+        echo "│"
+        echo "│ NVIDIA drivers version 580 and above have known compatibility issues with"
+        echo "│ Zed editor in Wayland/Sway environments (desktop freezes/hangs)."
+        echo "│"
+        echo "│ We strongly recommend downgrading to NVIDIA driver 570:"
+        echo "│"
+        echo "│   1. Install NVIDIA driver 570:"
+        echo "│      sudo apt install nvidia-driver-570"
+        echo "│      (Note: Do NOT install nvidia-driver-580-open)"
+        echo "│"
+        echo "│   2. Reboot your system:"
+        echo "│      sudo reboot"
+        echo "│"
+        echo "│   3. Verify the driver version:"
+        echo "│      nvidia-smi"
+        echo "│"
+        echo "│ You can continue installation with your current driver, but Helix Code"
+        echo "│ (Zed desktop streaming) may experience freezes and unresponsiveness."
+        echo "└───────────────────────────────────────────────────────────────────────────"
+        echo ""
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Installation cancelled. Please downgrade NVIDIA driver and try again."
+            exit 1
+        fi
+    fi
+
+    return 0
+}
+
 # Function to check for Intel/AMD GPU (for Helix Code)
 check_intel_amd_gpu() {
     # Check for /dev/dri devices, but only if NVIDIA is NOT present
@@ -911,6 +962,10 @@ if [ "$CODE" = true ]; then
     # Check NVIDIA first (most specific detection via nvidia-smi)
     if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
+
+        # Check NVIDIA driver version for known issues with Zed/Sway
+        check_nvidia_driver_version
+
         if check_nvidia_runtime_needed; then
             echo "Note: NVIDIA Docker runtime will be installed automatically."
         fi
@@ -925,9 +980,9 @@ if [ "$CODE" = true ]; then
         echo "│ No compatible GPU detected. Helix Code requires a GPU with drivers installed."
         echo "│"
         echo "│ If you have an NVIDIA GPU:"
-        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
-        echo "│      sudo ubuntu-drivers install"
-        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│   1. Install NVIDIA driver 570 (recommended for Helix Code/Zed):"
+        echo "│      sudo apt install nvidia-driver-570"
+        echo "│      (Note: Do NOT install nvidia-driver-580-open)"
         echo "│"
         echo "│   2. Reboot your system:"
         echo "│      sudo reboot"
