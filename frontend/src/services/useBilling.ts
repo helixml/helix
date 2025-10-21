@@ -7,7 +7,7 @@ export const userWalletQueryKey = (orgId?: string) => [
   orgId
 ];
 
-export function useGetWallet(orgId?: string) {
+export function useGetWallet(orgId?: string, enabled?: boolean) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -20,5 +20,6 @@ export function useGetWallet(orgId?: string) {
       return response.data
     },
     refetchInterval: 30000, // 30 seconds
+    enabled: enabled ?? true,
   })
 }
