@@ -2914,6 +2914,21 @@ definitions:
       totalPages:
         type: integer
     type: object
+  types.PaginatedUsersList:
+    properties:
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/types.User'
+        type: array
+    type: object
   types.Pricing:
     properties:
       audio:
@@ -7192,6 +7207,54 @@ paths:
       summary: Get daily usage
       tags:
       - usage
+  /api/v1/users:
+    get:
+      consumes:
+      - application/json
+      description: List users with pagination support and optional filtering by email
+        domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com"
+        will find all users with @hotmail.com emails) and partial username matching.
+      parameters:
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Number of users per page (max: 200, default: 50)'
+        in: query
+        name: per_page
+        type: integer
+      - description: Filter by email domain (e.g., 'hotmail.com') or exact email
+        in: query
+        name: email
+        type: string
+      - description: Filter by username (partial match)
+        in: query
+        name: username
+        type: string
+      - description: Filter by admin status
+        in: query
+        name: admin
+        type: boolean
+      - description: Filter by user type
+        in: query
+        name: type
+        type: string
+      - description: Filter by token type
+        in: query
+        name: token_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedUsersList'
+      security:
+      - BearerAuth: []
+      summary: List users with pagination and filtering
+      tags:
+      - users
   /api/v1/users/{id}:
     get:
       description: Get user by ID
