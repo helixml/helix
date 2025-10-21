@@ -872,6 +872,93 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	return data, nil
 }
 
+// usersList godoc
+// @Summary List users with pagination and filtering
+// @Description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param page query int false "Page number (default: 1)"
+// @Param per_page query int false "Number of users per page (max: 200, default: 50)"
+// @Param email query string false "Filter by email domain (e.g., 'hotmail.com') or exact email"
+// @Param username query string false "Filter by username (partial match)"
+// @Param admin query bool false "Filter by admin status"
+// @Param type query string false "Filter by user type"
+// @Param token_type query string false "Filter by token type"
+// @Success 200 {object} types.PaginatedUsersList
+// @Router /api/v1/users [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Request) (*types.PaginatedUsersList, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	// Only admins can list users
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can list users")
+	}
+
+	// Parse query parameters
+	page := 1
+	if p := req.URL.Query().Get("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+
+	perPage := 50
+	if pp := req.URL.Query().Get("per_page"); pp != "" {
+		if parsedPerPage, err := strconv.Atoi(pp); err == nil && parsedPerPage > 0 {
+			perPage = parsedPerPage
+		}
+	}
+
+	// Build query
+	query := &store.ListUsersQuery{
+		Page:    page,
+		PerPage: perPage,
+		Order:   "created_at DESC",
+	}
+
+	// Add filters
+	if email := req.URL.Query().Get("email"); email != "" {
+		query.Email = email
+	}
+	if username := req.URL.Query().Get("username"); username != "" {
+		query.Username = username
+	}
+	if admin := req.URL.Query().Get("admin"); admin != "" {
+		if adminBool, err := strconv.ParseBool(admin); err == nil {
+			query.Admin = adminBool
+		}
+	}
+	if userType := req.URL.Query().Get("type"); userType != "" {
+		query.Type = types.OwnerType(userType)
+	}
+	if tokenType := req.URL.Query().Get("token_type"); tokenType != "" {
+		query.TokenType = types.TokenType(tokenType)
+	}
+
+	// Get users from store
+	users, totalCount, err := apiServer.Store.ListUsers(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate total pages
+	totalPages := int((totalCount + int64(perPage) - 1) / int64(perPage))
+
+	// Create response
+	response := &types.PaginatedUsersList{
+		Users:      users,
+		Page:       page,
+		PageSize:   perPage,
+		TotalCount: totalCount,
+		TotalPages: totalPages,
+	}
+
+	return response, nil
+}
+
 // getSchedulerHeartbeats godoc
 // @Summary Get scheduler goroutine heartbeat status
 // @Description Get the health status of all scheduler goroutines
