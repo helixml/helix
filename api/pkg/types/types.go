@@ -1175,6 +1175,14 @@ type PaginatedInteractions struct {
 	TotalPages   int            `json:"totalPages"`
 }
 
+type PaginatedUsersList struct {
+	Users      []*User `json:"users"`
+	Page       int     `json:"page"`
+	PageSize   int     `json:"pageSize"`
+	TotalCount int64   `json:"totalCount"`
+	TotalPages int     `json:"totalPages"`
+}
+
 type ToolType string
 
 const (
