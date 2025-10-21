@@ -101,6 +101,9 @@ type ListUsersQuery struct {
 	Type      types.OwnerType `json:"type"`
 	Email     string          `json:"email"`
 	Username  string          `json:"username"`
+	Page      int
+	PerPage   int
+	Order     string // Defaults to Created Desc
 }
 
 // SearchUsersQuery defines parameters for searching users with partial matching
@@ -201,7 +204,7 @@ type Store interface {
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) (*types.User, error)
 	DeleteUser(ctx context.Context, id string) error
-	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error)
+	ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error)
 	SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 

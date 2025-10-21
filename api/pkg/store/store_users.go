@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -144,9 +145,10 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error) {
+func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error) {
 	var users []*types.User
-	db := s.gdb.WithContext(ctx)
+	var total int64
+	db := s.gdb.WithContext(ctx).Model(&types.User{})
 
 	if query != nil {
 		if query.TokenType != "" {
@@ -159,18 +161,51 @@ func (s *PostgresStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([
 			db = db.Where("type = ?", query.Type)
 		}
 		if query.Email != "" {
-			db = db.Where("email = ?", query.Email)
+			// Support ILIKE matching for email domain filtering
+			if strings.Contains(query.Email, "@") {
+				// If it contains @, treat as domain filter
+				db = db.Where("email ILIKE ?", "%@"+query.Email)
+			} else {
+				// Otherwise, exact match
+				db = db.Where("email = ?", query.Email)
+			}
 		}
 		if query.Username != "" {
-			db = db.Where("username = ?", query.Username)
+			// Support ILIKE matching for username
+			db = db.Where("username ILIKE ?", "%"+query.Username+"%")
 		}
 	}
 
-	err := db.Find(&users).Error
+	// Count total matching records before applying pagination
+	err := db.Count(&total).Error
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return users, nil
+
+	// Apply pagination
+	if query != nil && query.PerPage > 0 {
+		// Enforce maximum page size of 200
+		if query.PerPage > 200 {
+			query.PerPage = 200
+		}
+		db = db.Limit(query.PerPage)
+		if query.Page > 0 {
+			db = db.Offset((query.Page - 1) * query.PerPage)
+		}
+	}
+
+	// Apply ordering
+	orderBy := "created_at DESC"
+	if query != nil && query.Order != "" {
+		orderBy = query.Order
+	}
+	db = db.Order(orderBy)
+
+	err = db.Find(&users).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
 }
 
 // SearchUsers searches for users with partial matching on email, name, and username
