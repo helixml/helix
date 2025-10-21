@@ -1778,6 +1778,14 @@ export interface TypesPaginatedSessionsList {
   totalPages?: number;
 }
 
+export interface TypesPaginatedUsersList {
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  totalPages?: number;
+  users?: TypesUser[];
+}
+
 export interface TypesPricing {
   audio?: string;
   completion?: string;
@@ -5370,6 +5378,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
         path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List users with pagination support and optional filtering by email domain or username. Supports ILIKE matching for email domains (e.g., "hotmail.com" will find all users with @hotmail.com emails) and partial username matching.
+     *
+     * @tags users
+     * @name V1UsersList
+     * @summary List users with pagination and filtering
+     * @request GET:/api/v1/users
+     * @secure
+     */
+    v1UsersList: (
+      query?: {
+        /** Page number (default: 1) */
+        page?: number;
+        /** Number of users per page (max: 200, default: 50) */
+        per_page?: number;
+        /** Filter by email domain (e.g., 'hotmail.com') or exact email */
+        email?: string;
+        /** Filter by username (partial match) */
+        username?: string;
+        /** Filter by admin status */
+        admin?: boolean;
+        /** Filter by user type */
+        type?: string;
+        /** Filter by token type */
+        token_type?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedUsersList, any>({
+        path: `/api/v1/users`,
         method: "GET",
         query: query,
         secure: true,
