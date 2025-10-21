@@ -2166,12 +2166,13 @@ func (mr *MockStoreMockRecorder) ListTriggerExecutions(ctx, q any) *gomock.Call 
 }
 
 // ListUsers mocks base method.
-func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error) {
+func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListUsers", ctx, query)
 	ret0, _ := ret[0].([]*types.User)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // ListUsers indicates an expected call of ListUsers.

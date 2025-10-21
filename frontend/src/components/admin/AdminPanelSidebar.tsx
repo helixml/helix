@@ -10,6 +10,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
+import { UsersIcon } from 'lucide-react'
 
 const AdminPanelSidebar: FC = () => {
   const router = useRouter()
@@ -75,6 +76,18 @@ const AdminPanelSidebar: FC = () => {
           icon: <SettingsIcon />,
           isActive: currentTab === 'system_settings',
           onClick: () => handleNavigationClick('system_settings')
+        }
+      ]
+    },
+    {
+      title: 'User Management',
+      items: [        
+        {
+          id: 'users',
+          label: 'Users',
+          icon: <UsersIcon />,
+          isActive: currentTab === 'users',
+          onClick: () => handleNavigationClick('users')
         }
       ]
     }
