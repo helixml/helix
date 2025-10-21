@@ -253,7 +253,7 @@ type RAG struct {
 	}
 
 	PGVector struct {
-		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"openai" description:"One of openai, togetherai, vllm, helix"`
+		Provider              string           `envconfig:"RAG_PGVECTOR_PROVIDER" default:"helix" description:"One of openai, togetherai, vllm, helix"`
 		EmbeddingsModel       string           `envconfig:"RAG_PGVECTOR_EMBEDDINGS_MODEL" default:"text-embedding-3-small" description:"The model to use for embeddings."`
 		EmbeddingsConcurrency int              `envconfig:"RAG_PGVECTOR_EMBEDDINGS_CONCURRENCY" default:"10" description:"The number of concurrent embeddings to create."`
 		Dimensions            types.Dimensions `envconfig:"RAG_PGVECTOR_DIMENSIONS" description:"The dimensions to use for embeddings, only set for custom models. Available options are 384, 512, 1024, 3584."` // Set this if you are using custom model
@@ -468,7 +468,7 @@ type GitHub struct {
 
 type FineTuning struct {
 	Enabled  bool           `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
-	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
+	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"helix" description:"Which LLM provider to use for QA pairs."`
 	// Suggestions based on provider:
 	// - Together AI: openai/gpt-oss-20b
 	// - Helix: llama3:instruct
@@ -477,7 +477,7 @@ type FineTuning struct {
 
 type Apps struct {
 	Enabled  bool           `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
-	Provider types.Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
+	Provider types.Provider `envconfig:"APPS_PROVIDER" default:"helix" description:"Which LLM provider to use for apps."`
 	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
 
