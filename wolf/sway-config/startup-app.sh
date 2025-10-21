@@ -143,6 +143,9 @@ EOF
     # Add our custom Helix configuration
     echo "" >> $HOME/.config/sway/config
     echo "# Helix Personal Dev Environment custom configuration" >> $HOME/.config/sway/config
+    echo "# Disable Xwayland - force native Wayland (fixes Zed input issues)" >> $HOME/.config/sway/config
+    echo "xwayland disable" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Set Helix wallpaper" >> $HOME/.config/sway/config
     echo "output * bg /usr/share/backgrounds/helix-logo.png fill" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
