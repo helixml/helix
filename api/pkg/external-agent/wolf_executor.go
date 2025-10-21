@@ -129,7 +129,14 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "Ulimits": [
+      {
+        "Name": "nofile",
+        "Soft": 65536,
+        "Hard": 65536
+      }
+    ]
   }
 }`, config.ContainerHostname)
 
@@ -1560,7 +1567,14 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "Ulimits": [
+      {
+        "Name": "nofile",
+        "Soft": 65536,
+        "Hard": 65536
+      }
+    ]
   }
 }`, containerHostname)
 
