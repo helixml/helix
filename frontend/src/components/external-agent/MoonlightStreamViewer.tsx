@@ -133,8 +133,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
 
-      // Use browser's actual codec support (getSupportedVideoFormats checks what browser can decode)
-      const supportedFormats = getSupportedVideoFormats();
+      // Detect browser's actual codec support (async operation)
+      const supportedFormats = await getSupportedVideoFormats();
+      console.log('[MoonlightStreamViewer] Browser supported codecs:', supportedFormats);
 
       // Create Stream instance with mode-aware parameters
       console.log('[MoonlightStreamViewer] Creating Stream instance', {
