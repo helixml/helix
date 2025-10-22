@@ -133,12 +133,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
 
-      // Force H264 only for compatibility with Wolf-UI
-      // getSupportedVideoFormats() might return AV1 which Wolf-UI doesn't handle well
+      // Enable H265 for better compression (2x better than H264 at same quality)
+      // 10 Mbps H265 = ~20 Mbps H264 quality
       const supportedFormats = {
         H264: true,
         H264_HIGH8_444: false,
-        H265: false,
+        H265: true,  // Enable HEVC - much better compression
         H265_MAIN10: false,
         H265_REXT8_444: false,
         H265_REXT10_444: false,
