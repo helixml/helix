@@ -406,8 +406,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             if (!trimmedLine) continue;
 
             if (trimmedLine.startsWith('data: ')) {
-              const data = trimmedLine.slice(6); // 'data: ' = 6 chars              
-              
+              // Strip "data: " prefix - handle malformed SSE with double prefixes from backend
+              let data = trimmedLine.slice(6); // 'data: ' = 6 chars
+              while (data.startsWith('data: ')) {
+                data = data.slice(6); // Strip additional malformed "data: " prefixes
+              }
+
               // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
               if (data.trim() === '[DONE]' || data === '[DONE]') {
                 console.log('[SSE] Received [DONE] marker - completing stream');
