@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef, startTransition } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
@@ -55,6 +55,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const messageBufferRef = useRef<Map<string, string[]>>(new Map());
   const pendingUpdateRef = useRef<boolean>(false);
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
+  const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced query invalidation - only fires once per 500ms max
+  const debouncedInvalidateQueries = useCallback((sessionId: string) => {
+    // Clear any pending timer
+    if (invalidateTimerRef.current) {
+      clearTimeout(invalidateTimerRef.current);
+    }
+
+    // Set new timer
+    invalidateTimerRef.current = setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+      queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(sessionId) });
+      invalidateSessionsQuery(queryClient);
+      invalidateTimerRef.current = null;
+    }, 500); // 500ms debounce - allows 2 screenshot updates to happen between session refetches
+  }, [queryClient]);
 
   // Clear stepInfos when setting a new session
   const clearSessionData = useCallback((sessionId: string | null) => {
@@ -245,16 +262,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         return
       }
 
-      // Wrap query invalidations in startTransition to deprioritize session updates
-      // This allows screenshot refreshes and other high-priority updates to interrupt
-      startTransition(() => {
-        // Invalidate the session query
-        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
-        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
-
-        // Reload all sessions to refresh the name in the sidebar
-        invalidateSessionsQuery(queryClient)
-      });
+      // Use debounced invalidation to prevent excessive re-renders
+      // This allows screenshot updates to run smoothly without being blocked
+      debouncedInvalidateQueries(currentSessionId);
     };
 
     rws.addEventListener('message', messageHandler);
@@ -262,8 +272,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     return () => {
       rws.removeEventListener('message', messageHandler);
       rws.close();
+      // Clear any pending invalidation timer
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+      }
     };
-  }, [account.token, currentSessionId, handleWebsocketEvent]);
+  }, [account.token, currentSessionId, handleWebsocketEvent, debouncedInvalidateQueries]);
 
   const NewInference = async ({
     regenerate = false,
