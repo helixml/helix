@@ -128,7 +128,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       // Get default stream settings and customize
       const settings = defaultStreamSettings();
-      settings.bitrate = 40000;  // 40 Mbps for 4K streaming
+      settings.bitrate = 10000;  // 10 Mbps for 4K streaming
       settings.packetSize = 1024;
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
