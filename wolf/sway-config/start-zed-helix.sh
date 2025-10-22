@@ -94,10 +94,20 @@ fi
 # Using signal numbers for compatibility: 15=TERM, 2=INT, 1=HUP
 trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
+# Verify WAYLAND_DISPLAY is set by Sway (Zed needs this for native Wayland backend)
+# Zed checks WAYLAND_DISPLAY - if empty, it falls back to Xwayland (which causes input issues with NVIDIA)
+# Reference: https://github.com/zed-industries/zed/blob/main/docs/src/linux.md
+if [ -z "$WAYLAND_DISPLAY" ]; then
+    echo "ERROR: WAYLAND_DISPLAY not set! Sway should set this automatically."
+    echo "Cannot start Zed without Wayland - would fall back to broken Xwayland."
+    exit 1
+fi
+
 # Launch Zed in a restart loop for development
 # When you close Zed (click X), it auto-restarts with the latest binary
 # Perfect for testing rebuilds without recreating the entire container
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
+echo "Using Wayland backend (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
 while true; do
     echo "Launching Zed..."
     /zed-build/zed . || true

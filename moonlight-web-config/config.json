@@ -14,8 +14,8 @@
     },
     {
       "urls": [
-        "turn:node01.lukemarsden.net:3478?transport=udp",
-        "turn:212.82.90.199:3478?transport=udp"
+        "turn:code.helix.ml:3478?transport=udp",
+        "turn:code.helix.ml:3478?transport=tcp"
       ],
       "username": "helix",
       "credential": "helix-turn-secret"

@@ -159,8 +159,6 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.PersonalDevEnvironment{},
 		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
-		&types.StreamingAccessGrant{},
-		&types.StreamingAccessAuditLog{},
 		&types.Memory{},
 	)
 	if err != nil {

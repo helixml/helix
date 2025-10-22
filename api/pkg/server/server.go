@@ -475,8 +475,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
 	// any route that lives under /api/v1
+	// Extract auth for /api/v1 routes only (not frontend static assets)
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
-
 	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
 
 	// auth router requires a valid token from keycloak or api key
@@ -594,14 +594,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
 
-	// Streaming access control endpoints
-	authRouter.HandleFunc("/sessions/{id}/stream-token", system.Wrapper(apiServer.getSessionStreamingToken)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/streaming-access", system.Wrapper(apiServer.createSessionStreamingAccess)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/sessions/{id}/streaming-access", system.Wrapper(apiServer.listSessionStreamingAccess)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sessions/{id}/streaming-access/{grant_id}", system.Wrapper(apiServer.revokeSessionStreamingAccess)).Methods(http.MethodDelete)
-
-	authRouter.HandleFunc("/personal-dev-environments/{id}/stream-token", system.Wrapper(apiServer.getPDEStreamingToken)).Methods(http.MethodGet)
-
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)
@@ -698,7 +690,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
 
 	// Moonlight streaming server routes - no auth required for Moonlight protocol compatibility
-	apiServer.moonlightServer.RegisterRoutes(router)
+	// Moonlight server routes disabled - using proxy approach instead (see line ~868)
+	// The proxy validates Helix auth and injects moonlight-web credentials
+	// apiServer.moonlightServer.RegisterRoutes(router)
 
 	// Agent dashboard and management routes
 	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
@@ -864,8 +858,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
-	// Moonlight Web Stream reverse proxy (no auth required - handles its own)
-	router.PathPrefix("/moonlight/").HandlerFunc(apiServer.proxyToMoonlightWeb)
+	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
+	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
+	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
+	moonlightRouter.PathPrefix("/").HandlerFunc(apiServer.proxyToMoonlightWeb)
 
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)

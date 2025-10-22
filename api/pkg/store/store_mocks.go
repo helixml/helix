@@ -682,21 +682,6 @@ func (mr *MockStoreMockRecorder) CreateStepInfo(ctx, stepInfo any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateStepInfo", reflect.TypeOf((*MockStore)(nil).CreateStepInfo), ctx, stepInfo)
 }
 
-// CreateStreamingAccessGrant mocks base method.
-func (m *MockStore) CreateStreamingAccessGrant(ctx context.Context, grant *types.StreamingAccessGrant) (*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateStreamingAccessGrant", ctx, grant)
-	ret0, _ := ret[0].(*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateStreamingAccessGrant indicates an expected call of CreateStreamingAccessGrant.
-func (mr *MockStoreMockRecorder) CreateStreamingAccessGrant(ctx, grant any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateStreamingAccessGrant", reflect.TypeOf((*MockStore)(nil).CreateStreamingAccessGrant), ctx, grant)
-}
-
 // CreateTeam mocks base method.
 func (m *MockStore) CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
 	m.ctrl.T.Helper()
@@ -2176,66 +2161,6 @@ func (mr *MockStoreMockRecorder) GetSpecTaskZedThreadByWorkSession(ctx, workSess
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskZedThreadByWorkSession", reflect.TypeOf((*MockStore)(nil).GetSpecTaskZedThreadByWorkSession), ctx, workSessionID)
 }
 
-// GetStreamingAccessGrant mocks base method.
-func (m *MockStore) GetStreamingAccessGrant(ctx context.Context, id string) (*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStreamingAccessGrant", ctx, id)
-	ret0, _ := ret[0].(*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetStreamingAccessGrant indicates an expected call of GetStreamingAccessGrant.
-func (mr *MockStoreMockRecorder) GetStreamingAccessGrant(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStreamingAccessGrant", reflect.TypeOf((*MockStore)(nil).GetStreamingAccessGrant), ctx, id)
-}
-
-// GetStreamingAccessGrantByRole mocks base method.
-func (m *MockStore) GetStreamingAccessGrantByRole(ctx context.Context, sessionID, role string) (*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStreamingAccessGrantByRole", ctx, sessionID, role)
-	ret0, _ := ret[0].(*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetStreamingAccessGrantByRole indicates an expected call of GetStreamingAccessGrantByRole.
-func (mr *MockStoreMockRecorder) GetStreamingAccessGrantByRole(ctx, sessionID, role any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStreamingAccessGrantByRole", reflect.TypeOf((*MockStore)(nil).GetStreamingAccessGrantByRole), ctx, sessionID, role)
-}
-
-// GetStreamingAccessGrantByTeam mocks base method.
-func (m *MockStore) GetStreamingAccessGrantByTeam(ctx context.Context, sessionID, teamID string) (*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStreamingAccessGrantByTeam", ctx, sessionID, teamID)
-	ret0, _ := ret[0].(*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetStreamingAccessGrantByTeam indicates an expected call of GetStreamingAccessGrantByTeam.
-func (mr *MockStoreMockRecorder) GetStreamingAccessGrantByTeam(ctx, sessionID, teamID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStreamingAccessGrantByTeam", reflect.TypeOf((*MockStore)(nil).GetStreamingAccessGrantByTeam), ctx, sessionID, teamID)
-}
-
-// GetStreamingAccessGrantByUser mocks base method.
-func (m *MockStore) GetStreamingAccessGrantByUser(ctx context.Context, sessionID, userID string) (*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStreamingAccessGrantByUser", ctx, sessionID, userID)
-	ret0, _ := ret[0].(*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetStreamingAccessGrantByUser indicates an expected call of GetStreamingAccessGrantByUser.
-func (mr *MockStoreMockRecorder) GetStreamingAccessGrantByUser(ctx, sessionID, userID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStreamingAccessGrantByUser", reflect.TypeOf((*MockStore)(nil).GetStreamingAccessGrantByUser), ctx, sessionID, userID)
-}
-
 // GetSystemSettings mocks base method.
 func (m *MockStore) GetSystemSettings(ctx context.Context) (*types.SystemSettings, error) {
 	m.ctrl.T.Helper()
@@ -2945,36 +2870,6 @@ func (mr *MockStoreMockRecorder) ListStepInfos(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStepInfos", reflect.TypeOf((*MockStore)(nil).ListStepInfos), ctx, query)
 }
 
-// ListStreamingAccessAuditLogs mocks base method.
-func (m *MockStore) ListStreamingAccessAuditLogs(ctx context.Context, userID, sessionID string, limit int) ([]*types.StreamingAccessAuditLog, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStreamingAccessAuditLogs", ctx, userID, sessionID, limit)
-	ret0, _ := ret[0].([]*types.StreamingAccessAuditLog)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListStreamingAccessAuditLogs indicates an expected call of ListStreamingAccessAuditLogs.
-func (mr *MockStoreMockRecorder) ListStreamingAccessAuditLogs(ctx, userID, sessionID, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStreamingAccessAuditLogs", reflect.TypeOf((*MockStore)(nil).ListStreamingAccessAuditLogs), ctx, userID, sessionID, limit)
-}
-
-// ListStreamingAccessGrants mocks base method.
-func (m *MockStore) ListStreamingAccessGrants(ctx context.Context, sessionID string) ([]*types.StreamingAccessGrant, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStreamingAccessGrants", ctx, sessionID)
-	ret0, _ := ret[0].([]*types.StreamingAccessGrant)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListStreamingAccessGrants indicates an expected call of ListStreamingAccessGrants.
-func (mr *MockStoreMockRecorder) ListStreamingAccessGrants(ctx, sessionID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStreamingAccessGrants", reflect.TypeOf((*MockStore)(nil).ListStreamingAccessGrants), ctx, sessionID)
-}
-
 // ListTeamMemberships mocks base method.
 func (m *MockStore) ListTeamMemberships(ctx context.Context, query *ListTeamMembershipsQuery) ([]*types.TeamMembership, error) {
 	m.ctrl.T.Helper()
@@ -3095,20 +2990,6 @@ func (mr *MockStoreMockRecorder) ListWorkSessionsBySpecTask(ctx, specTaskID, pha
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkSessionsBySpecTask", reflect.TypeOf((*MockStore)(nil).ListWorkSessionsBySpecTask), ctx, specTaskID, phase)
 }
 
-// LogStreamingAccess mocks base method.
-func (m *MockStore) LogStreamingAccess(ctx context.Context, log *types.StreamingAccessAuditLog) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LogStreamingAccess", ctx, log)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// LogStreamingAccess indicates an expected call of LogStreamingAccess.
-func (mr *MockStoreMockRecorder) LogStreamingAccess(ctx, log any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LogStreamingAccess", reflect.TypeOf((*MockStore)(nil).LogStreamingAccess), ctx, log)
-}
-
 // LookupKnowledge mocks base method.
 func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -3193,20 +3074,6 @@ func (m *MockStore) ResetRunningExecutions(ctx context.Context) error {
 func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
-}
-
-// RevokeStreamingAccessGrant mocks base method.
-func (m *MockStore) RevokeStreamingAccessGrant(ctx context.Context, grantID, revokedBy string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RevokeStreamingAccessGrant", ctx, grantID, revokedBy)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RevokeStreamingAccessGrant indicates an expected call of RevokeStreamingAccessGrant.
-func (mr *MockStoreMockRecorder) RevokeStreamingAccessGrant(ctx, grantID, revokedBy any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeStreamingAccessGrant", reflect.TypeOf((*MockStore)(nil).RevokeStreamingAccessGrant), ctx, grantID, revokedBy)
 }
 
 // SearchUsers mocks base method.
@@ -3746,20 +3613,6 @@ func (m *MockStore) UpdateSpecTaskZedThread(ctx context.Context, zedThread *type
 func (mr *MockStoreMockRecorder) UpdateSpecTaskZedThread(ctx, zedThread any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskZedThread", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskZedThread), ctx, zedThread)
-}
-
-// UpdateStreamingAccessDisconnect mocks base method.
-func (m *MockStore) UpdateStreamingAccessDisconnect(ctx context.Context, logID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateStreamingAccessDisconnect", ctx, logID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateStreamingAccessDisconnect indicates an expected call of UpdateStreamingAccessDisconnect.
-func (mr *MockStoreMockRecorder) UpdateStreamingAccessDisconnect(ctx, logID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStreamingAccessDisconnect", reflect.TypeOf((*MockStore)(nil).UpdateStreamingAccessDisconnect), ctx, logID)
 }
 
 // UpdateSystemSettings mocks base method.

@@ -562,3 +562,51 @@ docker compose -f docker-compose.dev.yaml restart wolf
 **When to use each:**
 - **`restart`**: Only when you've changed a file that's bind-mounted (e.g., wolf/config.toml)
 - **`down` + `up -d`**: When you've changed docker-compose.yaml (env vars, volumes, networks, etc.) OR rebuilt an image
+
+## CRITICAL: Database Migrations - GORM AutoMigrate Only
+
+**MANDATORY: ALWAYS use GORM AutoMigrate for schema changes - NEVER create SQL migration files**
+
+```go
+// ✅ CORRECT: Add new fields/tables by updating GORM structs
+type StreamingAccessGrant struct {
+    ID        string    `gorm:"type:varchar(255);primaryKey"`
+    SessionID string    `gorm:"type:varchar(255);index;not null"`
+    UserID    string    `gorm:"type:varchar(255);index;not null"`
+    CreatedAt time.Time `gorm:"autoCreateTime"`
+}
+
+// GORM AutoMigrate handles this automatically on startup
+db.AutoMigrate(&StreamingAccessGrant{})
+
+// ❌ WRONG: Creating SQL migration files for schema changes
+// DO NOT create files like: api/pkg/store/migrations/0003_add_streaming_rbac.up.sql
+```
+
+**Why this is CRITICAL:**
+- GORM AutoMigrate handles ALL schema changes automatically (tables, columns, indexes)
+- SQL migrations are ONLY for complex data migrations that require special handling
+- Creating SQL migrations for schema changes causes conflicts with AutoMigrate
+- AutoMigrate is safe, idempotent, and works across dev/staging/prod
+
+**The ONLY valid use of SQL migrations:**
+- Complex data transformations that can't be expressed in GORM
+- One-time data cleanup operations
+- Backfilling data based on complex business logic
+- Renaming tables/columns (requires explicit SQL to preserve data)
+
+**Examples of what AutoMigrate handles (no SQL migration needed):**
+- ✅ Adding new tables
+- ✅ Adding new columns
+- ✅ Adding indexes
+- ✅ Changing column types (with data compatibility)
+- ✅ Adding NOT NULL constraints
+- ✅ Adding foreign keys
+
+**The workflow:**
+1. Update your GORM struct definitions in Go
+2. GORM AutoMigrate runs on API startup
+3. Schema changes apply automatically
+4. No manual migration files needed
+
+**If you catch yourself writing a SQL migration for schema changes, STOP and use GORM structs instead.**
