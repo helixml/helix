@@ -1089,6 +1089,7 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 	if helixHostHome != "" {
 		mounts = append(mounts,
 			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
 			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
 			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 		)
