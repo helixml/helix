@@ -239,7 +239,16 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
 
-      handleWebsocketEvent(parsedData);
+      // Use requestIdleCallback to defer non-critical processing
+      // This prevents blocking the screenshot timer during heavy streaming
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          handleWebsocketEvent(parsedData);
+        }, { timeout: 100 }); // Process within 100ms if idle time not available
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        handleWebsocketEvent(parsedData);
+      }
 
       if (parsedData.step_info && parsedData.step_info.type === "thinking") {
       // Don't reload on thinking info events as we will get a lot of them
