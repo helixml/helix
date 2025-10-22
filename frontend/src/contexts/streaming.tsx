@@ -428,11 +428,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             if (line.startsWith('data: ')) {
               const data = line.slice(5);              
               
-              if (data.trim() === '[DONE]') {
+              // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
+              if (data.trim() === '[DONE]' || data === '[DONE]') {
+                console.log('[SSE] Received [DONE] marker - completing stream');
 
                 // Invalidate the session query
                 queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
-                
+
                 if (sessionData?.id) {
                   // Final flush of any remaining content
                   flushMessageBuffer(sessionData.id);
@@ -441,16 +443,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                     newMap.delete(sessionData?.id || '');
                     return newMap;
                   });
-                }
-                resolveStream();
-                return;
-              }
-
-              // Check for SSE [DONE] marker before parsing
-              if (data.trim() === '[DONE]') {
-                // SSE stream complete signal - flush and resolve
-                if (sessionData?.id) {
-                  flushMessageBuffer(sessionData.id);
                 }
                 resolveStream();
                 return;
