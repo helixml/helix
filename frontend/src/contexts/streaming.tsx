@@ -177,51 +177,22 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
-      console.log('[STREAMING] WebSocket session.interactions:', {
-        count: parsedData.session.interactions?.length,
-        lastInteraction: lastInteraction ? {
-          id: lastInteraction.id,
-          state: lastInteraction.state,
-          prompt_message: lastInteraction.prompt_message?.substring(0, 50),
-          response_message: lastInteraction.response_message?.substring(0, 100),
-          response_full_length: lastInteraction.response_message?.length,
-          ALL_FIELDS: Object.keys(lastInteraction)
-        } : null
-      });
-
-      // Also log the FULL lastInteraction to see all fields
-      console.log('[STREAMING] FULL lastInteraction object:', lastInteraction);
-
       if (!lastInteraction) return;
-      
+
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state
       // CRITICAL: Include response_message for external agent streaming (WebSocket-based, not SSE)
       if (lastInteraction.id) {
-        console.log('[STREAMING] session_update received:', {
-          sessionId: currentSessionId,
-          interactionId: lastInteraction.id,
-          state: lastInteraction.state,
-          response_length: lastInteraction.response_message?.length || 0,
-          response_preview: lastInteraction.response_message?.substring(0, 50)
-        });
-
-        requestAnimationFrame(() => {
-          setCurrentResponses(prev => {
-            const current = prev.get(currentSessionId) || {};
-            const updatedInteraction: Partial<TypesInteraction> = {
-              ...current,
-              id: lastInteraction.id,
-              state: lastInteraction.state,
-              // Copy all important fields from the interaction
-              prompt_message: lastInteraction.prompt_message || current.prompt_message,
-              response_message: lastInteraction.response_message || current.response_message,
-            };
-
-            console.log('[STREAMING] Updated currentResponses for session:', currentSessionId, {
-              hasResponse: !!updatedInteraction.response_message,
-              responseLength: updatedInteraction.response_message?.length || 0
-            });
+        setCurrentResponses(prev => {
+          const current = prev.get(currentSessionId) || {};
+          const updatedInteraction: Partial<TypesInteraction> = {
+            ...current,
+            id: lastInteraction.id,
+            state: lastInteraction.state,
+            // Copy all important fields from the interaction
+            prompt_message: lastInteraction.prompt_message || current.prompt_message,
+            response_message: lastInteraction.response_message || current.response_message,
+          };
 
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
             return newMap;
