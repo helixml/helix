@@ -237,29 +237,40 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Disconnect
   const disconnect = useCallback(() => {
+    console.log('[MoonlightStreamViewer] disconnect() called, cleaning up stream resources');
+
     if (streamRef.current) {
       // Properly close the stream to prevent "AlreadyStreaming" errors
       try {
+        console.log('[MoonlightStreamViewer] Closing WebSocket and RTCPeerConnection...');
+
         // Close WebSocket connection if it exists
         if (streamRef.current.ws) {
+          console.log('[MoonlightStreamViewer] Closing WebSocket, readyState:', streamRef.current.ws.readyState);
           streamRef.current.ws.close();
         }
 
         // Close RTCPeerConnection if it exists
         if (streamRef.current.peer) {
+          console.log('[MoonlightStreamViewer] Closing RTCPeerConnection');
           streamRef.current.peer.close();
         }
 
         // Stop all media stream tracks
         const mediaStream = streamRef.current.getMediaStream();
         if (mediaStream) {
-          mediaStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+          const tracks = mediaStream.getTracks();
+          console.log('[MoonlightStreamViewer] Stopping', tracks.length, 'media tracks');
+          tracks.forEach((track: MediaStreamTrack) => track.stop());
         }
       } catch (err) {
-        console.warn('Error during stream cleanup:', err);
+        console.warn('[MoonlightStreamViewer] Error during stream cleanup:', err);
       }
 
       streamRef.current = null;
+      console.log('[MoonlightStreamViewer] Stream reference cleared');
+    } else {
+      console.log('[MoonlightStreamViewer] No active stream to disconnect');
     }
 
     if (videoRef.current) {
@@ -269,6 +280,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     setIsConnected(false);
     setIsConnecting(false);
     setStatus('Disconnected');
+    console.log('[MoonlightStreamViewer] disconnect() completed');
   }, []);
 
   // Reconnect
@@ -305,7 +317,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   // Cleanup on unmount
   useEffect(() => {
+    console.log('[MoonlightStreamViewer] Component mounted, setting up cleanup handler');
     return () => {
+      console.log('[MoonlightStreamViewer] Component unmounting, calling disconnect()');
       disconnect();
     };
   }, [disconnect]);
