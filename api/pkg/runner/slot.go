@@ -26,9 +26,7 @@ type Slot struct {
 	IntendedRuntime        types.Runtime
 	RuntimeArgs            map[string]any // Runtime-specific arguments
 	MemoryEstimationMeta   map[string]any // Metadata about memory estimation for tooltips
-	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
-	activeRequests         int64          // Number of concurrent active requests (atomic)
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
@@ -91,7 +89,6 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		IntendedRuntime:        params.Runtime,
 		RuntimeArgs:            params.RuntimeArgs,
 		MemoryEstimationMeta:   params.MemoryEstimationMeta,
-		Active:                 false,
 		Ready:                  false,
 		GPUIndex:               params.GPUIndex,
 		GPUIndices:             params.GPUIndices,
@@ -583,7 +580,6 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Str("model", s.Model).
 			Str("slot_id", s.ID.String()).
 			Msg("skipping model verification for VLLM runtime")
-		s.Active = true
 		// Warm up the model
 		log.Debug().
 			Str("model", s.Model).
@@ -598,7 +594,6 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Msg("Failed to warm up vLLM model")
 			return
 		}
-		s.Active = false
 		s.Ready = true
 		log.Info().
 			Str("model", s.Model).
@@ -628,13 +623,11 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		return
 	}
 
-	s.Active = true
 	// Warm up the model
 	err = s.runningRuntime.Warm(ctx, s.Model)
 	if err != nil {
 		return
 	}
-	s.Active = false
 	s.Ready = true
 	return
 }

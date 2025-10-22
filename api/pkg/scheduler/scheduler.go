@@ -99,6 +99,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"slices"
@@ -559,45 +560,75 @@ func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
 }
 
 func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
-	// Get base slots from runner
-	baseSlots, err := s.controller.GetSlots(runnerID)
+	// Get minimal state from runner (ID, Ready, Status, CommandLine, Version, Created, Updated)
+	runnerSlots, err := s.controller.GetSlots(runnerID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Enrich with concurrency information from scheduler state
-	enrichedSlots := make([]*types.RunnerSlot, len(baseSlots))
-	for i, baseSlot := range baseSlots {
+	// Enrich minimal runner state with scheduler's configuration and concurrency tracking
+	enrichedSlots := make([]*types.RunnerSlot, len(runnerSlots))
+	for i, runnerSlot := range runnerSlots {
+		// Start with minimal state from runner
 		enrichedSlots[i] = &types.RunnerSlot{
-			ID:                     baseSlot.ID,
-			Created:                baseSlot.Created,
-			Updated:                baseSlot.Updated,
-			RunnerID:               baseSlot.RunnerID,
-			Runtime:                baseSlot.Runtime,
-			Model:                  baseSlot.Model,
-			ModelMemoryRequirement: baseSlot.ModelMemoryRequirement,
-			ContextLength:          baseSlot.ContextLength,
-			RuntimeArgs:            baseSlot.RuntimeArgs,
-			Version:                baseSlot.Version,
-			Active:                 baseSlot.Active,
-			Ready:                  baseSlot.Ready,
-			Status:                 baseSlot.Status,
-			GPUIndex:               baseSlot.GPUIndex,
-			GPUIndices:             baseSlot.GPUIndices,
-			TensorParallelSize:     baseSlot.TensorParallelSize,
-			CommandLine:            baseSlot.CommandLine,
-			WorkloadData:           baseSlot.WorkloadData,
-			GPUAllocationData:      baseSlot.GPUAllocationData,
+			ID:          runnerSlot.ID,
+			RunnerID:    runnerSlot.RunnerID,
+			Ready:       runnerSlot.Ready,
+			Status:      runnerSlot.Status,
+			CommandLine: runnerSlot.CommandLine,
+			Version:     runnerSlot.Version,
+			Created:     runnerSlot.Created,
+			Updated:     runnerSlot.Updated,
 		}
 
-		// Find matching scheduler slot to get concurrency info
-		if schedulerSlot, exists := s.slots.Load(baseSlot.ID); exists {
+		// Enrich with scheduler's configuration and state
+		if schedulerSlot, exists := s.slots.Load(runnerSlot.ID); exists {
+			// Populate configuration from scheduler's workload
+			if schedulerSlot.initialWork != nil {
+				enrichedSlots[i].Model = schedulerSlot.initialWork.ModelName().String()
+				enrichedSlots[i].Runtime = schedulerSlot.initialWork.Runtime()
+				if schedulerSlot.initialWork.model != nil {
+					enrichedSlots[i].ModelMemoryRequirement = schedulerSlot.initialWork.model.Memory
+					enrichedSlots[i].ContextLength = schedulerSlot.initialWork.model.ContextLength
+					enrichedSlots[i].RuntimeArgs = schedulerSlot.initialWork.model.RuntimeArgs
+				}
+
+				// Serialize workload to JSONB for UI/debugging
+				if workloadBytes, err := json.Marshal(schedulerSlot.initialWork); err == nil {
+					var workloadData map[string]any
+					if err := json.Unmarshal(workloadBytes, &workloadData); err == nil {
+						enrichedSlots[i].WorkloadData = workloadData
+					}
+				}
+			}
+
+			// Populate GPU allocation from scheduler
+			if schedulerSlot.GPUAllocation != nil {
+				enrichedSlots[i].GPUIndex = schedulerSlot.GPUAllocation.SingleGPU
+				enrichedSlots[i].GPUIndices = schedulerSlot.GPUAllocation.MultiGPUs
+				enrichedSlots[i].TensorParallelSize = schedulerSlot.GPUAllocation.TensorParallelSize
+
+				// Serialize GPU allocation to JSONB for UI/debugging
+				if gpuBytes, err := json.Marshal(schedulerSlot.GPUAllocation); err == nil {
+					var gpuData map[string]any
+					if err := json.Unmarshal(gpuBytes, &gpuData); err == nil {
+						enrichedSlots[i].GPUAllocationData = gpuData
+					}
+				}
+			}
+
+			// Populate concurrency tracking from scheduler
 			enrichedSlots[i].ActiveRequests = schedulerSlot.GetActiveRequests()
 			enrichedSlots[i].MaxConcurrency = atomic.LoadInt64(&schedulerSlot.maxConcurrency)
+
+			// Populate Active field for backward compatibility (deprecated in Phase 1)
+			enrichedSlots[i].Active = schedulerSlot.IsActive()
 		} else {
-			// Fallback values if scheduler slot not found
+			// Slot exists on runner but not in scheduler - orphaned slot
+			// Keep minimal fields only, set defaults for the rest
 			enrichedSlots[i].ActiveRequests = 0
 			enrichedSlots[i].MaxConcurrency = 1
+			enrichedSlots[i].Active = false
 		}
 	}
 
@@ -690,7 +721,6 @@ func (s *Scheduler) reconcileActivityOnce() {
 					Msg("failed to get slot during activity reconciliation")
 			} else {
 				withSlotContext(&log.Logger, slot).Trace().
-					Bool("remote_active", remoteSlot.Active).
 					Bool("remote_ready", remoteSlot.Ready).
 					Msg("checked slot status from remote")
 			}
@@ -864,39 +894,17 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	for slotID, runnerID := range allActualSlots {
 		if _, exists := s.slots.Load(slotID); !exists {
 			unusedSlotCount++
-			// Look up the actual slot to get details for logging
+			// Look up the actual slot to get minimal details for logging
+			// Note: Runner only returns minimal state (ID, Ready, Status, etc.), not Model/Runtime
 			slotDetails, err := s.controller.fetchSlot(runnerID, slotID)
 			if err == nil {
 				log.Warn().
 					Str("runner_id", runnerID).
 					Str("slot_id", slotID.String()).
-					Str("model", slotDetails.Model).
-					Str("runtime", string(slotDetails.Runtime)).
-					Bool("is_active", slotDetails.Active).
 					Bool("is_ready", slotDetails.Ready).
+					Str("status", slotDetails.Status).
 					Str("reason", "orphaned_slot").
-					Msg("deleting orphaned slot - exists on runner but not in scheduler")
-
-				// Log as scheduling decision for visibility
-				if slotDetails.Model != "" {
-					// Create a dummy workload for logging purposes with minimal model info
-					dummyWork := &Workload{
-						WorkloadType: WorkloadTypeLLMInferenceRequest,
-						llmInferenceRequest: &types.RunnerLLMInferenceRequest{
-							RequestID: "orphaned-cleanup",
-							Request:   &openai.ChatCompletionRequest{Model: slotDetails.Model},
-						},
-						model: &types.Model{
-							ID:     slotDetails.Model,
-							Name:   slotDetails.Model,
-							Memory: 0, // Unknown memory for orphaned slots
-						},
-					}
-					s.logSchedulingDecision(dummyWork, types.SchedulingDecisionTypeEvictStaleSlot, true,
-						fmt.Sprintf("Deleted orphaned slot %s (model: %s) - existed on runner but not in scheduler",
-							slotID.String(), slotDetails.Model), runnerID, slotID.String(),
-						time.Now(), 0, 0, 0)
-				}
+					Msg("deleting orphaned slot - exists on runner but not in scheduler (model unknown)")
 			} else {
 				log.Warn().
 					Err(err).
@@ -2190,7 +2198,6 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 					withSlotContext(&log.Logger, slot).Debug().
 						Str("SLOT_WAIT_CHECK", "slot_status_received").
 						Bool("slot_ready", s.Ready).
-						Bool("slot_active", s.Active).
 						Dur("elapsed", elapsed).
 						Msg("SLOT_WAIT_CHECK: Received slot status from runner")
 
