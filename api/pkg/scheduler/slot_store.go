@@ -251,7 +251,15 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 	}
 
 	// Serialize workload to JSONB if available
+	// Also extract fields needed for database validation
 	if slot.initialWork != nil {
+		// Populate required database fields from workload
+		dbSlot.Model = slot.initialWork.ModelName().String()
+		dbSlot.Runtime = slot.initialWork.Runtime()
+		if slot.initialWork.model != nil {
+			dbSlot.ModelMemoryRequirement = slot.initialWork.model.Memory
+		}
+
 		workloadBytes, err := json.Marshal(slot.initialWork)
 		if err == nil {
 			var workloadData map[string]any
@@ -259,11 +267,22 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 				dbSlot.WorkloadData = workloadData
 			}
 		}
-
 	}
 
 	// Serialize GPU allocation to JSONB
+	// Also extract GPU fields for database columns
 	if slot.GPUAllocation != nil {
+		// Populate GPU allocation fields
+		if slot.GPUAllocation.SingleGPU != nil {
+			dbSlot.GPUIndex = slot.GPUAllocation.SingleGPU
+		}
+		if len(slot.GPUAllocation.MultiGPUs) > 0 {
+			dbSlot.GPUIndices = slot.GPUAllocation.MultiGPUs
+		}
+		if slot.GPUAllocation.TensorParallelSize > 0 {
+			dbSlot.TensorParallelSize = slot.GPUAllocation.TensorParallelSize
+		}
+
 		gpuBytes, err := json.Marshal(slot.GPUAllocation)
 		if err == nil {
 			var gpuData map[string]any
@@ -271,7 +290,6 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 				dbSlot.GPUAllocationData = gpuData
 			}
 		}
-
 	}
 
 	_, err := ss.store.CreateSlot(ctx, dbSlot)
