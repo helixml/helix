@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef, startTransition } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
@@ -243,14 +243,18 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       if (parsedData.step_info && parsedData.step_info.type === "thinking") {
       // Don't reload on thinking info events as we will get a lot of them
         return
-      }      
+      }
 
-      // Invalidate the session query
-      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
-      queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
-      
-      // Reload all sessions to refresh the name in the sidebar
-      invalidateSessionsQuery(queryClient)
+      // Wrap query invalidations in startTransition to deprioritize session updates
+      // This allows screenshot refreshes and other high-priority updates to interrupt
+      startTransition(() => {
+        // Invalidate the session query
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
+
+        // Reload all sessions to refresh the name in the sidebar
+        invalidateSessionsQuery(queryClient)
+      });
     };
 
     rws.addEventListener('message', messageHandler);

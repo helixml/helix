@@ -49,8 +49,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   isPersonalDevEnvironment = false,
   onConnectionChange,
   onError,
-  width = 1920,
-  height = 1080,
+  width = 3840,
+  height = 2160,
   className = '',
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -128,7 +128,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       // Get default stream settings and customize
       const settings = defaultStreamSettings();
-      settings.bitrate = 20000;
+      settings.bitrate = 40000;  // 40 Mbps for 4K streaming
       settings.packetSize = 1024;
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
@@ -578,7 +578,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             borderRadius: '4px',
           }}
         >
-          💡 Click video to unmute | F11 for fullscreen
+          💡 Fullscreen for keyboard input
         </Typography>
       )}
     </Box>

@@ -23,11 +23,11 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   isPersonalDevEnvironment = false,
   wolfLobbyId,
   onError,
-  width = 1920,
-  height = 1080,
+  width = 3840,
+  height = 2160,
   className = '',
   autoRefresh = true,
-  refreshInterval = 2000, // Default 2 seconds
+  refreshInterval = 1000, // Default 1 second
   enableStreaming = true, // Enable streaming by default
 }) => {
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
