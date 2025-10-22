@@ -795,18 +795,27 @@ function build-moonlight-web() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  echo "🔨 Building Moonlight Web container from source..."
+  # Determine build mode: production mode always uses release, dev mode uses debug
+  local BUILD_MODE="debug"
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    BUILD_MODE="release"
+    echo "🔨 Building Moonlight Web container from source (RELEASE MODE)..."
+  else
+    echo "🔨 Building Moonlight Web container from source (debug mode)..."
+  fi
   cd ../moonlight-web-stream
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile \
+      --build-arg BUILD_MODE=$BUILD_MODE \
       -t helix-moonlight-web:helix-fixed \
       -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
       -t "registry.helixml.tech/helix/moonlight-web:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile \
+      --build-arg BUILD_MODE=$BUILD_MODE \
       -t helix-moonlight-web:helix-fixed \
       -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
       .
