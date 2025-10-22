@@ -179,19 +179,21 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       // This ensures useLiveInteraction will receive the updated state
       // CRITICAL: Include response_message for external agent streaming (WebSocket-based, not SSE)
       if (lastInteraction.id) {
-        setCurrentResponses(prev => {
-          const current = prev.get(currentSessionId) || {};
-          const updatedInteraction: Partial<TypesInteraction> = {
-            ...current,
-            id: lastInteraction.id,
-            state: lastInteraction.state,
-            // Copy all important fields from the interaction
-            prompt_message: lastInteraction.prompt_message || current.prompt_message,
-            response_message: lastInteraction.response_message || current.response_message,
-          };
+        requestAnimationFrame(() => {
+          setCurrentResponses(prev => {
+            const current = prev.get(currentSessionId) || {};
+            const updatedInteraction: Partial<TypesInteraction> = {
+              ...current,
+              id: lastInteraction.id,
+              state: lastInteraction.state,
+              // Copy all important fields from the interaction
+              prompt_message: lastInteraction.prompt_message || current.prompt_message,
+              response_message: lastInteraction.response_message || current.response_message,
+            };
 
-          const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
-          return newMap;
+            const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+            return newMap;
+          });
         });
       }
     }
