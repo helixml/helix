@@ -194,9 +194,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             response_message: lastInteraction.response_message || current.response_message,
           };
 
-            const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
-            return newMap;
-          });
+          const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
+          return newMap;
         });
       }
     }
