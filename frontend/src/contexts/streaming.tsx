@@ -246,23 +246,15 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         return
       }
 
-      // If the WebSocket event contains session data, update the cache directly
-      // instead of invalidating (which would trigger an unnecessary HTTP refetch)
-      if (parsedData.session) {
-        queryClient.setQueryData(
-          GET_SESSION_QUERY_KEY(currentSessionId),
-          parsedData.session
-        );
-      }
-
-      // Only invalidate step info (which we don't get in WebSocket updates)
       // Use debounced invalidation to prevent excessive re-renders
+      // This allows screenshot updates to run smoothly without being blocked
       if (invalidateTimerRef.current) {
         clearTimeout(invalidateTimerRef.current);
       }
       invalidateTimerRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
         queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
-        invalidateSessionsQuery(queryClient); // For sidebar list
+        invalidateSessionsQuery(queryClient);
         invalidateTimerRef.current = null;
       }, 500);
     };
