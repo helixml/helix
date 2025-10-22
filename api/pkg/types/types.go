@@ -2507,65 +2507,6 @@ type PersonalDevEnvironment struct {
 	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
 }
 
-// StreamingAccessGrant represents access permission for streaming a session/PDE
-type StreamingAccessGrant struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-
-	// What is being shared
-	SessionID string `json:"session_id,omitempty" gorm:"index"`
-	PDEID     string `json:"pde_id,omitempty" gorm:"index"`
-
-	// Who owns it
-	OwnerUserID string `json:"owner_user_id" gorm:"index"`
-
-	// Who can access it
-	GrantedUserID string `json:"granted_user_id,omitempty" gorm:"index"`
-	GrantedTeamID string `json:"granted_team_id,omitempty" gorm:"index"`
-	GrantedRole   string `json:"granted_role,omitempty" gorm:"index"`
-
-	// What they can do
-	AccessLevel string `json:"access_level"` // 'view', 'control', 'admin'
-
-	// When
-	GrantedAt *time.Time `json:"granted_at"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-
-	// Audit
-	GrantedBy string     `json:"granted_by"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
-	RevokedBy string     `json:"revoked_by,omitempty"`
-}
-
-// StreamingAccessAuditLog records all streaming access for compliance
-type StreamingAccessAuditLog struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	Created   time.Time `json:"created"`
-
-	// What was accessed
-	SessionID    string `json:"session_id,omitempty" gorm:"index"`
-	PDEID        string `json:"pde_id,omitempty" gorm:"index"`
-	WolfLobbyID  string `json:"wolf_lobby_id,omitempty"`
-
-	// Who accessed it
-	UserID      string `json:"user_id" gorm:"index"`
-	AccessLevel string `json:"access_level"`
-
-	// How
-	AccessMethod string  `json:"access_method"` // 'owner', 'user_grant', 'team_grant', 'role_grant'
-	GrantID      *string `json:"grant_id,omitempty"`
-
-	// When
-	AccessedAt              time.Time  `json:"accessed_at" gorm:"index"`
-	DisconnectedAt          *time.Time `json:"disconnected_at,omitempty"`
-	SessionDurationSeconds  *int       `json:"session_duration_seconds,omitempty"`
-
-	// Where from
-	IPAddress string `json:"ip_address,omitempty"`
-	UserAgent string `json:"user_agent,omitempty"`
-}
-
 // StreamingTokenResponse contains token for accessing streaming session
 type StreamingTokenResponse struct {
 	StreamToken     string    `json:"stream_token"`

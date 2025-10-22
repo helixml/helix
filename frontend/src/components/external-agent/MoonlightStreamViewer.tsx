@@ -14,6 +14,7 @@ import { Stream } from '../../lib/moonlight-web-ts/stream/index';
 import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/settings_menu';
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
+import { useAccount } from '../../contexts/account';
 
 interface MoonlightStreamViewerProps {
   sessionId: string;
@@ -67,6 +68,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
 
   const helixApi = useApi();
+  const account = useAccount();
 
   // Connect to stream
   const connect = useCallback(async () => {
@@ -96,15 +98,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         }
       }
 
-      // CRITICAL: Set credentials in sessionStorage BEFORE calling getApi
-      // This prevents the blocking credential prompt modal
-      sessionStorage.setItem('mlCredentials', 'helix');
+      // Get Helix JWT from account context (HttpOnly cookie not readable by JS)
+      const helixToken = account.user?.token || '';
 
-      // Create API instance pointing to our moonlight-web backend
-      const api = await getApi('/moonlight/api');
+      console.log('[MoonlightStreamViewer] Auth check:', {
+        hasAccount: !!account,
+        hasUser: !!account.user,
+        hasToken: !!helixToken,
+        tokenLength: helixToken.length,
+      });
 
-      // Credentials already set above
-      api.credentials = 'helix';
+      if (!helixToken) {
+        console.error('[MoonlightStreamViewer] No token available:', { account, user: account.user });
+        throw new Error('Not authenticated - please log in');
+      }
+
+      console.log('[MoonlightStreamViewer] Using Helix token for streaming auth');
+
+      // Create API instance directly (don't use getApi() - it caches globally)
+      // Pointing to moonlight-web via Helix proxy at /moonlight
+      // Proxy validates Helix auth via HttpOnly cookie (sent automatically by browser)
+      // and injects moonlight-web credentials
+      console.log('[MoonlightStreamViewer] Creating fresh moonlight API instance');
+      const api = {
+        host_url: `/moonlight`,
+        credentials: helixToken,  // For HTTP fetch requests (Authorization header)
+      };
+      console.log('[MoonlightStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
       // Get default stream settings and customize
       const settings = defaultStreamSettings();
@@ -129,6 +149,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       };
 
       // Create Stream instance with mode-aware parameters
+      console.log('[MoonlightStreamViewer] Creating Stream instance', {
+        mode: moonlightWebMode,
+        hostId,
+        actualAppId,
+        sessionId,
+      });
+
       let stream;
       if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
@@ -206,7 +233,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       setIsConnecting(false);
       onError?.(errorMsg);
     }
-  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi]);
+  }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment]);
 
   // Disconnect
   const disconnect = useCallback(() => {

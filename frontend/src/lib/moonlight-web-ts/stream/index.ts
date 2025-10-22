@@ -88,10 +88,31 @@ export class Stream {
         const wsEndpoint = (mode === "peer" && streamerId)
             ? `/api/streamers/${streamerId}/peer`
             : `/host/stream`;
-        this.ws = new WebSocket(`${api.host_url}${wsEndpoint}`)
-        this.ws.addEventListener("error", this.onError.bind(this))
-        this.ws.addEventListener("open", this.onWsOpen.bind(this))
-        this.ws.addEventListener("close", this.onWsClose.bind(this))
+
+        // Build WebSocket URL (browser sends HttpOnly auth cookie automatically)
+        const wsUrl = `${api.host_url}${wsEndpoint}`;
+        console.log('[Stream] Creating WebSocket connection to:', wsUrl);
+        this.ws = new WebSocket(wsUrl)
+        console.log('[Stream] WebSocket object created, readyState:', this.ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+
+        this.ws.addEventListener("error", (event) => {
+            console.error('[Stream] WebSocket ERROR event:', event);
+            this.onError(event);
+        })
+        this.ws.addEventListener("open", (event) => {
+            console.log('[Stream] WebSocket OPEN event - connection established!');
+            try {
+                console.log('[Stream] About to call onWsOpen()...');
+                this.onWsOpen();
+                console.log('[Stream] onWsOpen() completed successfully');
+            } catch (err) {
+                console.error('[Stream] ERROR in onWsOpen():', err);
+            }
+        })
+        this.ws.addEventListener("close", (event) => {
+            console.log('[Stream] WebSocket CLOSE event:', event.code, event.reason);
+            this.onWsClose();
+        })
         this.ws.addEventListener("message", this.onRawWsMessage.bind(this))
 
         const fps = this.settings.fps
@@ -465,11 +486,14 @@ export class Stream {
     private wsSendBuffer: Array<string> = []
 
     private onWsOpen() {
+        console.log('[Stream] onWsOpen called - flushing', this.wsSendBuffer.length, 'buffered messages');
         this.debugLog(`Web Socket Open`)
 
         for (const raw of this.wsSendBuffer.splice(0)) {
+            console.log('[Stream] Sending buffered message:', raw.substring(0, 200));
             this.ws.send(raw)
         }
+        console.log('[Stream] Buffer flushed, sent', this.wsSendBuffer.length, 'messages');
     }
     private onWsClose() {
         this.debugLog(`Web Socket Closed`)

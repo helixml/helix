@@ -11,6 +11,7 @@ services:
     ports:
       - ${API_PORT:-8080}:8080
       - "3478:3478/udp"  # TURN server for WebRTC (Helix Code)
+      - "3478:3478/tcp"  # TURN server TCP transport (firewall fallback)
     restart: always
     env_file:
       - .env
