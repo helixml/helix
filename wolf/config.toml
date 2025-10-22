@@ -5521,3 +5521,67 @@ PL80rz7/MaTZ2fg=\r
     run_gid = 1000
     run_uid = 1000
     v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '8530680781378845171'
+client_cert = """-----BEGIN CERTIFICATE-----\r
+MIIDNzCCAh+gAwIBAgIBADANBgkqhkiG9w0BAQsFADBfMQswCQYDVQQGEwJVUzEL\r
+MAkGA1UECAwCQ0ExFjAUBgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4\r
+YW1wbGUgQ29ycDEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjUxMDIyMTY0MDQ4\r
+WhcNMjYxMDIyMTY0MDQ4WjBfMQswCQYDVQQGEwJVUzELMAkGA1UECAwCQ0ExFjAU\r
+BgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4YW1wbGUgQ29ycDEUMBIG\r
+A1UEAwwLZXhhbXBsZS5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB\r
+AQCwOax59sQ992IVTyFnnlhk5y8z1vTh+yeydoNxXFJNFylkOSLmX7N5JDw7iyLG\r
+qKwW7KSLf9d0rXYk1MWV4G4CfiP4sWikz6kq2Kqzn+UD5nLw3bqzFyp00e/dyg35\r
+d9G+hqLN/nPEbp2g1/+yM/tkYGJ4IxeUlgRcopcZWEERYQEy/JAT7zivlhVlGktf\r
+vA44/H8Qf92lid/jLkRxmF3XqFi/Z/R1HcUnpACD7F76VBEIuCHq3A4iKgbUqmLP\r
+L6aDUbkiNWJ1eHtGuRcBaqGSPWcCx0fVZUip48o28XN2nylQLKgVTffvCBnA/mXA\r
+nvgaKcSuSwEn15oWlA7MHosrAgMBAAEwDQYJKoZIhvcNAQELBQADggEBACRap+EP\r
+HiO7w7a+JlRK6M7QBW50gLDoUThV7YXsuHy5Mefm8Un796pWtECjVIjJftY9DKN9\r
+ScQb+AkNATmm9Ar21A4u5dAxOKCRmt6w7yITPqyZOLk6Nvylx+GImvvqiJJxXSt5\r
+RLK3rMHJV9cUdAe3HiUd0x7lorNBXBMhfksq3lV331nTPUefY4fuadPDRkDwoui0\r
+Estva3ZRXKSfsOLK5rT6gxmozDNl0IJ9dRwzUNgv5p6nXY/+UNZtqII7xchst0rl\r
+I+dQLIt5ZbR60rHP4Qe8eRfByvyQnUcNQ8IgF0DtAEtvR0VFTpuF34aeEsFNBgHE\r
+wAaGrgCEbtaILXk=\r
+-----END CERTIFICATE-----\r
+"""
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
+
+[[paired_clients]]
+app_state_folder = '8530680781378845171'
+client_cert = """-----BEGIN CERTIFICATE-----\r
+MIIDNzCCAh+gAwIBAgIBADANBgkqhkiG9w0BAQsFADBfMQswCQYDVQQGEwJVUzEL\r
+MAkGA1UECAwCQ0ExFjAUBgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4\r
+YW1wbGUgQ29ycDEUMBIGA1UEAwwLZXhhbXBsZS5jb20wHhcNMjUxMDIyMTY0MDQ4\r
+WhcNMjYxMDIyMTY0MDQ4WjBfMQswCQYDVQQGEwJVUzELMAkGA1UECAwCQ0ExFjAU\r
+BgNVBAcMDVNhbiBGcmFuY2lzY28xFTATBgNVBAoMDEV4YW1wbGUgQ29ycDEUMBIG\r
+A1UEAwwLZXhhbXBsZS5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB\r
+AQCwOax59sQ992IVTyFnnlhk5y8z1vTh+yeydoNxXFJNFylkOSLmX7N5JDw7iyLG\r
+qKwW7KSLf9d0rXYk1MWV4G4CfiP4sWikz6kq2Kqzn+UD5nLw3bqzFyp00e/dyg35\r
+d9G+hqLN/nPEbp2g1/+yM/tkYGJ4IxeUlgRcopcZWEERYQEy/JAT7zivlhVlGktf\r
+vA44/H8Qf92lid/jLkRxmF3XqFi/Z/R1HcUnpACD7F76VBEIuCHq3A4iKgbUqmLP\r
+L6aDUbkiNWJ1eHtGuRcBaqGSPWcCx0fVZUip48o28XN2nylQLKgVTffvCBnA/mXA\r
+nvgaKcSuSwEn15oWlA7MHosrAgMBAAEwDQYJKoZIhvcNAQELBQADggEBACRap+EP\r
+HiO7w7a+JlRK6M7QBW50gLDoUThV7YXsuHy5Mefm8Un796pWtECjVIjJftY9DKN9\r
+ScQb+AkNATmm9Ar21A4u5dAxOKCRmt6w7yITPqyZOLk6Nvylx+GImvvqiJJxXSt5\r
+RLK3rMHJV9cUdAe3HiUd0x7lorNBXBMhfksq3lV331nTPUefY4fuadPDRkDwoui0\r
+Estva3ZRXKSfsOLK5rT6gxmozDNl0IJ9dRwzUNgv5p6nXY/+UNZtqII7xchst0rl\r
+I+dQLIt5ZbR60rHP4Qe8eRfByvyQnUcNQ8IgF0DtAEtvR0VFTpuF34aeEsFNBgHE\r
+wAaGrgCEbtaILXk=\r
+-----END CERTIFICATE-----\r
+"""
+
+    [paired_clients.settings]
+    controllers_override = []
+    h_scroll_acceleration = 1.0
+    mouse_acceleration = 1.0
+    run_gid = 1000
+    run_uid = 1000
+    v_scroll_acceleration = 1.0
