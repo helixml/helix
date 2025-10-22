@@ -32,32 +32,24 @@ const useLiveInteraction = (
         return window.location.hostname === "app.helix.ml";
     }, []);
 
-    // Throttle updates from currentResponses to max 10fps (every 100ms)
-    // This prevents 100+ re-renders/sec from blocking screenshot updates
     useEffect(() => {
-        if (!sessionId) return;
-
-        let throttleTimer: NodeJS.Timeout | null = null;
-        let lastProcessedResponse: any = null;
-
-        const checkAndUpdate = () => {
+        if (sessionId) {
             const currentResponse = currentResponses.get(sessionId);
-
-            // Only update if response actually changed
-            if (currentResponse && currentResponse !== lastProcessedResponse) {
-                lastProcessedResponse = currentResponse;
-
+            if (currentResponse) {
                 // SSE streaming active - use currentResponses
-                setInteraction((prevInteraction: TypesInteraction | null): TypesInteraction => {
-                    if (prevInteraction === null) {
-                        return currentResponse as TypesInteraction;
-                    }
-                    return {
-                        ...prevInteraction,
-                        ...currentResponse,
-                    };
-                });
-
+                setInteraction(
+                    (
+                        prevInteraction: TypesInteraction | null,
+                    ): TypesInteraction => {
+                        if (prevInteraction === null) {
+                            return currentResponse as TypesInteraction;
+                        }
+                        return {
+                            ...prevInteraction,
+                            ...currentResponse,
+                        };
+                    },
+                );
                 // Preserve message when we get updates
                 if (currentResponse.response_message) {
                     setLastKnownMessage(currentResponse.response_message);
@@ -67,28 +59,19 @@ const useLiveInteraction = (
                 if (isStale) {
                     setIsStale(false);
                 }
-            } else if (!currentResponse && initialInteraction) {
+            } else {
                 // No SSE streaming - use initialInteraction (updated via React Query refetch)
                 // CRITICAL: This enables external agent streaming via WebSocket session updates
-                setInteraction(initialInteraction);
-                // Also preserve message from query updates
-                if (initialInteraction.response_message) {
-                    setLastKnownMessage(initialInteraction.response_message);
-                    setRecentTimestamp(Date.now());
+                if (initialInteraction) {
+                    setInteraction(initialInteraction);
+                    // Also preserve message from query updates
+                    if (initialInteraction.response_message) {
+                        setLastKnownMessage(initialInteraction.response_message);
+                        setRecentTimestamp(Date.now());
+                    }
                 }
             }
-        };
-
-        // Check immediately
-        checkAndUpdate();
-
-        // Then throttle to 10fps max
-        const interval = setInterval(checkAndUpdate, 100);
-
-        return () => {
-            clearInterval(interval);
-            if (throttleTimer) clearTimeout(throttleTimer);
-        };
+        }
     }, [sessionId, currentResponses, isStale, initialInteraction]);
 
     // Update lastKnownMessage when interaction.response_message changes

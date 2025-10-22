@@ -57,10 +57,6 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const messageHistoryRef = useRef<Map<string, string>>(new Map());
   const invalidateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // For throttling WebSocket processing: keep only LATEST event, discard intermediate
-  const latestWebSocketEventRef = useRef<IWebsocketEvent | null>(null);
-  const processingScheduledRef = useRef<boolean>(false);
-
   // Clear stepInfos when setting a new session
   const clearSessionData = useCallback((sessionId: string | null) => {
     // Don't clear anything if setting to the same session ID
@@ -213,42 +209,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
 
-      // CLOBBER strategy: Store latest event, discard intermediate updates
-      // This prevents queueing 100+ events and blocking the UI
-      latestWebSocketEventRef.current = parsedData;
+      handleWebsocketEvent(parsedData);
 
-      // Schedule processing if not already scheduled
-      if (!processingScheduledRef.current) {
-        processingScheduledRef.current = true;
-
-        // Use requestAnimationFrame for smooth batching (60fps = ~16ms intervals)
-        requestAnimationFrame(() => {
-          // Process the LATEST event only, all intermediate events are discarded
-          const eventToProcess = latestWebSocketEventRef.current;
-          if (eventToProcess) {
-            handleWebsocketEvent(eventToProcess);
-
-            // Handle query invalidation for non-thinking events
-            if (!(eventToProcess.step_info && eventToProcess.step_info.type === "thinking")) {
-              // Use debounced invalidation to prevent excessive re-renders
-              if (invalidateTimerRef.current) {
-                clearTimeout(invalidateTimerRef.current);
-              }
-              invalidateTimerRef.current = setTimeout(() => {
-                queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
-                queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
-                invalidateSessionsQuery(queryClient);
-                invalidateTimerRef.current = null;
-              }, 500);
-            }
-          }
-
-          latestWebSocketEventRef.current = null;
-          processingScheduledRef.current = false;
-        });
+      if (parsedData.step_info && parsedData.step_info.type === "thinking") {
+        // Don't reload on thinking info events as we will get a lot of them
+        return
       }
-      // If processing is already scheduled, this event just overwrites the ref
-      // The scheduled frame will process the latest event
+
+      // Use debounced invalidation to prevent excessive re-renders
+      if (invalidateTimerRef.current) {
+        clearTimeout(invalidateTimerRef.current);
+      }
+      invalidateTimerRef.current = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+        queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
+        invalidateSessionsQuery(queryClient);
+        invalidateTimerRef.current = null;
+      }, 500);
     };
 
     rws.addEventListener('message', messageHandler);
@@ -423,10 +400,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
           }
 
           for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            if (line.startsWith('data: ')) {
-              const data = line.slice(5);              
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              const data = trimmedLine.slice(6); // 'data: ' = 6 chars              
               
               // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
               if (data.trim() === '[DONE]' || data === '[DONE]') {

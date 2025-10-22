@@ -106,19 +106,13 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Auto-refresh screenshot with RAF for higher priority
   useEffect(() => {
-    console.log('[ScreenshotViewer] Setting up auto-refresh, streamingMode:', streamingMode, 'autoRefresh:', autoRefresh, 'interval:', refreshInterval);
-
     if (!autoRefresh || streamingMode !== 'screenshot') return;
 
     let timeoutId: NodeJS.Timeout;
     let rafId: number;
 
-    let refreshCount = 0;
-
     const refresh = () => {
       rafId = requestAnimationFrame(() => {
-        refreshCount++;
-        console.log(`[ScreenshotViewer] Refresh #${refreshCount} firing at`, new Date().toISOString());
         fetchScreenshotRef.current?.();
         timeoutId = setTimeout(refresh, refreshInterval);
       });
@@ -128,7 +122,6 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     timeoutId = setTimeout(refresh, refreshInterval);
 
     return () => {
-      console.log(`[ScreenshotViewer] Cleanup - cancelling timer after ${refreshCount} refreshes`);
       clearTimeout(timeoutId);
       if (rafId) cancelAnimationFrame(rafId);
     };
