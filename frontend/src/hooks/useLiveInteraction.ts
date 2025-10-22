@@ -32,24 +32,32 @@ const useLiveInteraction = (
         return window.location.hostname === "app.helix.ml";
     }, []);
 
+    // Throttle updates from currentResponses to max 10fps (every 100ms)
+    // This prevents 100+ re-renders/sec from blocking screenshot updates
     useEffect(() => {
-        if (sessionId) {
+        if (!sessionId) return;
+
+        let throttleTimer: NodeJS.Timeout | null = null;
+        let lastProcessedResponse: any = null;
+
+        const checkAndUpdate = () => {
             const currentResponse = currentResponses.get(sessionId);
-            if (currentResponse) {
+
+            // Only update if response actually changed
+            if (currentResponse && currentResponse !== lastProcessedResponse) {
+                lastProcessedResponse = currentResponse;
+
                 // SSE streaming active - use currentResponses
-                setInteraction(
-                    (
-                        prevInteraction: TypesInteraction | null,
-                    ): TypesInteraction => {
-                        if (prevInteraction === null) {
-                            return currentResponse as TypesInteraction;
-                        }
-                        return {
-                            ...prevInteraction,
-                            ...currentResponse,
-                        };
-                    },
-                );
+                setInteraction((prevInteraction: TypesInteraction | null): TypesInteraction => {
+                    if (prevInteraction === null) {
+                        return currentResponse as TypesInteraction;
+                    }
+                    return {
+                        ...prevInteraction,
+                        ...currentResponse,
+                    };
+                });
+
                 // Preserve message when we get updates
                 if (currentResponse.response_message) {
                     setLastKnownMessage(currentResponse.response_message);
@@ -59,19 +67,28 @@ const useLiveInteraction = (
                 if (isStale) {
                     setIsStale(false);
                 }
-            } else {
+            } else if (!currentResponse && initialInteraction) {
                 // No SSE streaming - use initialInteraction (updated via React Query refetch)
                 // CRITICAL: This enables external agent streaming via WebSocket session updates
-                if (initialInteraction) {
-                    setInteraction(initialInteraction);
-                    // Also preserve message from query updates
-                    if (initialInteraction.response_message) {
-                        setLastKnownMessage(initialInteraction.response_message);
-                        setRecentTimestamp(Date.now());
-                    }
+                setInteraction(initialInteraction);
+                // Also preserve message from query updates
+                if (initialInteraction.response_message) {
+                    setLastKnownMessage(initialInteraction.response_message);
+                    setRecentTimestamp(Date.now());
                 }
             }
-        }
+        };
+
+        // Check immediately
+        checkAndUpdate();
+
+        // Then throttle to 10fps max
+        const interval = setInterval(checkAndUpdate, 100);
+
+        return () => {
+            clearInterval(interval);
+            if (throttleTimer) clearTimeout(throttleTimer);
+        };
     }, [sessionId, currentResponses, isStale, initialInteraction]);
 
     // Update lastKnownMessage when interaction.response_message changes
@@ -101,18 +118,9 @@ const useLiveInteraction = (
         return () => clearInterval(intervalID);
     }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
 
-    // DEBUG: Log what we're working with
-    if (interaction?.state === 'waiting' && interaction?.response_message) {
-        console.log('[useLiveInteraction] Partial response for waiting interaction:', {
-            sessionId,
-            interactionId: interaction.id,
-            state: interaction.state,
-            responseLength: interaction.response_message?.length,
-            responsePreview: interaction.response_message?.substring(0, 50),
-            currentResponsesHas: currentResponses.has(sessionId),
-            currentResponsesMessage: currentResponses.get(sessionId)?.response_message?.substring(0, 50)
-        });
-    }
+    // DEBUG: Removed render-time console.log that was causing excessive logging
+    // This was running on EVERY render during streaming (100+ times/sec)
+    // causing performance issues and blocking screenshot updates
 
     const result = {
         // Use interaction message if available, otherwise fall back to preserved message
