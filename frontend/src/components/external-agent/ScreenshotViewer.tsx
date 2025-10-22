@@ -51,8 +51,10 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     }
   }, [sessionId, isRunner, isPersonalDevEnvironment]);
 
-  // Fetch screenshot
-  const fetchScreenshot = useCallback(async () => {
+  // Fetch screenshot (useRef to prevent recreation on every render)
+  const fetchScreenshotRef = useRef<() => Promise<void>>();
+
+  fetchScreenshotRef.current = async () => {
     const endpoint = getScreenshotEndpoint();
 
     try {
@@ -95,18 +97,29 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         setIsLoading(false);
       }
     }
-  }, [getScreenshotEndpoint, screenshotUrl, onError, isInitialLoading]);
+  };
+
+  // Stable wrapper for calling the ref
+  const fetchScreenshot = useCallback(() => {
+    fetchScreenshotRef.current?.();
+  }, []);
 
   // Auto-refresh screenshot with RAF for higher priority
   useEffect(() => {
+    console.log('[ScreenshotViewer] Setting up auto-refresh, streamingMode:', streamingMode, 'autoRefresh:', autoRefresh, 'interval:', refreshInterval);
+
     if (!autoRefresh || streamingMode !== 'screenshot') return;
 
     let timeoutId: NodeJS.Timeout;
     let rafId: number;
 
+    let refreshCount = 0;
+
     const refresh = () => {
       rafId = requestAnimationFrame(() => {
-        fetchScreenshot();
+        refreshCount++;
+        console.log(`[ScreenshotViewer] Refresh #${refreshCount} firing at`, new Date().toISOString());
+        fetchScreenshotRef.current?.();
         timeoutId = setTimeout(refresh, refreshInterval);
       });
     };
@@ -115,10 +128,11 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     timeoutId = setTimeout(refresh, refreshInterval);
 
     return () => {
+      console.log(`[ScreenshotViewer] Cleanup - cancelling timer after ${refreshCount} refreshes`);
       clearTimeout(timeoutId);
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [autoRefresh, refreshInterval, fetchScreenshot, streamingMode]);
+  }, [autoRefresh, refreshInterval, streamingMode]);
 
   // Initial fetch
   useEffect(() => {
