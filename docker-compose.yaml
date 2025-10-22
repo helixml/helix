@@ -311,7 +311,7 @@ services:
     image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
     ports:
       - "8081:8080"  # Web interface
-      - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      - "40000-40200:40000-40200/udp"  # WebRTC UDP ports
     networks:
       - default
     environment:
