@@ -708,15 +708,22 @@ function build-xfce() {
 function build-sway() {
   echo "🪟  Building custom Sway container for Personal Dev Environments..."
 
-  # Check if Zed binary exists
-  if [ ! -f "./zed-build/zed" ]; then
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
     echo "❌ Zed binary not found. Building in release mode first..."
     if ! build-zed release; then
       echo "❌ Failed to build Zed binary"
       exit 1
     fi
   else
-    echo "✅ Using existing Zed binary at ./zed-build/zed"
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
   fi
 
   # Build the custom Sway image with image tags
