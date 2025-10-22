@@ -133,20 +133,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
 
-      // Enable H265 for better compression (2x better than H264 at same quality)
-      // 10 Mbps H265 = ~20 Mbps H264 quality
-      const supportedFormats = {
-        H264: true,
-        H264_HIGH8_444: false,
-        H265: true,  // Enable HEVC - much better compression
-        H265_MAIN10: false,
-        H265_REXT8_444: false,
-        H265_REXT10_444: false,
-        AV1_MAIN8: false,
-        AV1_MAIN10: false,
-        AV1_HIGH8_444: false,
-        AV1_HIGH10_444: false
-      };
+      // Use browser's actual codec support (getSupportedVideoFormats checks what browser can decode)
+      const supportedFormats = getSupportedVideoFormats();
 
       // Create Stream instance with mode-aware parameters
       console.log('[MoonlightStreamViewer] Creating Stream instance', {
