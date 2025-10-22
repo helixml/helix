@@ -486,14 +486,16 @@ export class Stream {
     private wsSendBuffer: Array<string> = []
 
     private onWsOpen() {
-        console.log('[Stream] onWsOpen called - flushing', this.wsSendBuffer.length, 'buffered messages');
+        const bufferedCount = this.wsSendBuffer.length;
+        console.log('[Stream] onWsOpen called - flushing', bufferedCount, 'buffered messages');
         this.debugLog(`Web Socket Open`)
 
-        for (const raw of this.wsSendBuffer.splice(0)) {
-            console.log('[Stream] Sending buffered message:', raw.substring(0, 200));
+        const messages = this.wsSendBuffer.splice(0);
+        for (const raw of messages) {
+            console.log('[Stream] Sending buffered message (first 200 chars):', raw.substring(0, 200));
             this.ws.send(raw)
         }
-        console.log('[Stream] Buffer flushed, sent', this.wsSendBuffer.length, 'messages');
+        console.log('[Stream] Buffer flushed, sent', messages.length, 'messages');
     }
     private onWsClose() {
         this.debugLog(`Web Socket Closed`)

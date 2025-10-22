@@ -243,21 +243,42 @@ func (apiServer *HelixAPIServer) proxyWebSocket(w http.ResponseWriter, r *http.R
 			if messageType == websocket.TextMessage {
 				var msg map[string]interface{}
 				if err := json.Unmarshal(message, &msg); err == nil {
-					if authInit, ok := msg["AuthenticateAndInit"].(map[string]interface{}); ok {
-						// Replace Helix JWT with moonlight credentials
-						log.Debug().
-							Str("user_id", user.ID).
-							Str("original_creds_type", "helix_jwt").
-							Msg("🔄 Replacing client credentials with moonlight credentials in AuthenticateAndInit")
-						authInit["credentials"] = moonlightCreds
-						msg["AuthenticateAndInit"] = authInit
+					// Check if this is AuthenticateAndInit message
+					if authInitRaw, exists := msg["AuthenticateAndInit"]; exists {
+						if authInit, ok := authInitRaw.(map[string]interface{}); ok {
+							// Replace Helix JWT with moonlight credentials
+							log.Info().
+								Str("user_id", user.ID).
+								Str("old_creds_prefix", func() string {
+									if creds, ok := authInit["credentials"].(string); ok && len(creds) > 20 {
+										return creds[:20] + "..."
+									}
+									return "unknown"
+								}()).
+								Str("new_creds", moonlightCreds).
+								Msg("🔄 Replacing client credentials with moonlight credentials")
+							authInit["credentials"] = moonlightCreds
+							msg["AuthenticateAndInit"] = authInit
 
-						transformedMessage, err = json.Marshal(msg)
-						if err != nil {
-							log.Error().Err(err).Msg("Failed to marshal transformed message")
-							transformedMessage = message // Fallback to original
+							var marshalErr error
+							transformedMessage, marshalErr = json.Marshal(msg)
+							if marshalErr != nil {
+								log.Error().Err(marshalErr).Msg("Failed to marshal transformed message")
+								transformedMessage = message // Fallback to original
+							} else {
+								log.Debug().
+									Int("original_len", len(message)).
+									Int("transformed_len", len(transformedMessage)).
+									Msg("✅ Credentials replaced successfully")
+							}
+						} else {
+							log.Warn().
+								Str("type", fmt.Sprintf("%T", authInitRaw)).
+								Msg("⚠️ AuthenticateAndInit is not a map")
 						}
 					}
+				} else {
+					log.Debug().Err(err).Msg("Message is not JSON, forwarding as-is")
 				}
 			}
 
