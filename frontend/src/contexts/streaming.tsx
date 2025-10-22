@@ -447,6 +447,16 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                 return;
               }
 
+              // Check for SSE [DONE] marker before parsing
+              if (data.trim() === '[DONE]') {
+                // SSE stream complete signal - flush and resolve
+                if (sessionData?.id) {
+                  flushMessageBuffer(sessionData.id);
+                }
+                resolveStream();
+                return;
+              }
+
               try {
                 const parsedData = JSON.parse(data);
                 if (!sessionData) {

@@ -13,7 +13,7 @@ import {
   IKeycloakUser,
   IServerConfig,
   IUserConfig,
-  IProviderEndpoint,  
+  IProviderEndpoint,
 } from '../types'
 
 export interface IAccountContext {
@@ -28,7 +28,7 @@ export interface IAccountContext {
   tokenUrlEscaped?: string,
   loggingOut?: boolean,
   serverConfig: IServerConfig,
-  userConfig: IUserConfig,  
+  userConfig: IUserConfig,
   appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
@@ -138,7 +138,7 @@ export const useAccountContext = (): IAccountContext => {
     organizationTools.organization,
     user,
   ])
-  
+
   const isOrgMember = useMemo(() => {
     if(admin) return true
     if(isOrgAdmin) return true
@@ -207,9 +207,9 @@ export const useAccountContext = (): IAccountContext => {
       }, {}, {
         snackbar: true,
       })
-      
+
       if (!res) return
-      
+
       snackbar.success('API Key added')
 
       await loadAppApiKeys(appId)
@@ -228,7 +228,7 @@ export const useAccountContext = (): IAccountContext => {
     try {
       await bluebird.all([
         loadStatus(),
-        loadServerConfig(),        
+        loadServerConfig(),
       ])
     } catch (error) {
       console.error('Error loading data:', error)
@@ -417,10 +417,6 @@ export const useAccountContext = (): IAccountContext => {
               api.setToken(user.token)
               console.log('[AUTH] Updated axios headers with new token')
             }
-
-            // Check if cookie was actually updated
-            const cookieValue = document.cookie.split('; ').find(row => row.startsWith('access_token='))
-            console.log('[AUTH] Cookie after refresh:', cookieValue ? 'present' : 'MISSING!')
           } catch (e) {
             console.error('Error refreshing token:', e)
 
@@ -446,14 +442,14 @@ export const useAccountContext = (): IAccountContext => {
             }
           }
         }, 120 * 1000) // 2 minutes (tokens expire in 5min, so refresh every 2min to be safe)
-        
+
         // Clean up interval on component unmount
         return () => clearInterval(refreshInterval)
       }
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
-      
+
       // Don't show snackbars for auth errors (401/403) to avoid scary red error messages
       // when tokens expire naturally. The auth error detection logic matches useApi.ts
       const isAuthError = (error: any): boolean => {
@@ -461,7 +457,7 @@ export const useAccountContext = (): IAccountContext => {
         if (error.response?.status === 401 || error.response?.status === 403) {
           return true
         }
-        
+
         // Check error message for common auth failure patterns
         const errorMsg = errorMessage.toLowerCase()
         const authErrorPatterns = [
@@ -475,10 +471,10 @@ export const useAccountContext = (): IAccountContext => {
           'invalid token',
           'expired token'
         ]
-        
+
         return authErrorPatterns.some(pattern => errorMsg.includes(pattern))
       }
-      
+
       if (!isAuthError(e)) {
         snackbar.error(errorMessage)
       }
@@ -493,15 +489,15 @@ export const useAccountContext = (): IAccountContext => {
     const currentResourceType = router.params.resource_type || 'chat'
     const isOrgRoute = routeName.startsWith('org_')
     const targetIsOrgRoute = isOrgRoute || params.org_id
-    
+
     // Determine if we're transitioning between org and non-org routes or vice versa
-    const isOrgTransition = (router.meta.menu === 'orgs' && !targetIsOrgRoute) || 
+    const isOrgTransition = (router.meta.menu === 'orgs' && !targetIsOrgRoute) ||
                            (router.meta.menu !== 'orgs' && targetIsOrgRoute)
-    
+
     // Get the target route name and params
     let targetRouteName = routeName
     let targetParams = {...params}
-    
+
     if(organizationTools.organization || params.org_id) {
       const useOrgID = params.org_id || organizationTools.organization?.name
       // Only prepend org_ if not already present
@@ -513,14 +509,14 @@ export const useAccountContext = (): IAccountContext => {
         org_id: useOrgID,
       }
     }
-    
+
     // Add query params if provided
     const finalParams = queryParams ? { ...targetParams, ...queryParams } : targetParams
-    
+
     // Navigate first, then trigger animations after a very small delay
     // This ensures components are mounted before animations run
     router.navigate(targetRouteName, finalParams)
-    
+
 
   }
 
