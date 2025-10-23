@@ -128,6 +128,45 @@
   - Fixed externalAgentExecutor references
   - Regenerated store mocks
 
+**Commit 7: Final Checkpoint** (57343375c)
+- ✅ Design document finalized with complete progress tracking
+
+**Commit 8: Comprehensive Unit Tests** (a206260fa)
+- ✅ **Store Method Tests** - store_spec_task_external_agent_test.go
+  - TestSpecTaskExternalAgent_CreateAndGet - CRUD operations
+  - TestSpecTaskExternalAgent_Update - Session list updates
+  - TestSpecTaskExternalAgent_List - User filtering
+  - TestExternalAgentActivity_UpsertAndGet - Activity tracking
+  - TestExternalAgentActivity_GetIdleAgents - Idle detection query
+  - TestExternalAgentActivity_Delete - Cleanup
+
+- ✅ **Orchestrator Tests** - spec_task_orchestrator_test.go
+  - TestGetOrCreateExternalAgent_CreateNew - Wolf container creation
+  - TestGetOrCreateExternalAgent_ReuseExisting - Agent reuse validation
+  - TestHandleBacklog_PlanningPhase - Planning session creation
+  - TestHandleImplementationQueued_ResurrectAgent - Idle resurrection
+  - TestHandleImplementationQueued_ReuseRunningAgent - Multi-session reuse
+  - TestBuildPlanningPrompt_MultiRepo - Multi-repo clone validation
+  - TestBuildImplementationPrompt_IncludesSpecs - Spec context validation
+  - TestSanitizeForBranchName - Branch name sanitization
+
+- ✅ **Idle Cleanup Tests** - wolf_executor_idle_test.go
+  - TestCleanupIdleExternalAgents_NoIdleAgents - Empty case
+  - TestCleanupIdleExternalAgents_TerminatesIdleAgent - Full cleanup flow
+  - TestCleanupIdleExternalAgents_WolfRemovalFails - Error handling
+  - TestCleanupIdleExternalAgents_MultipleAgents - Batch termination
+
+- ✅ **Test Infrastructure**
+  - Interface-based mocking (MockWolfExecutor, MockStore, MockWolfClient)
+  - testify/mock for behavior verification
+  - testify/assert for assertions
+  - Validates all core architecture decisions
+  - Removed duplicate sanitizeForBranchName
+  - Fixed prompt building with strings.Builder (avoid nested backticks)
+  - Replaced system.SendHTTPSuccess with json.NewEncoder
+  - Fixed externalAgentExecutor references
+  - Regenerated store mocks
+
 ### Implementation Complete! ✅
 
 **Backend** (100% complete and compiling):
