@@ -1494,12 +1494,17 @@ WOLFCONFIG
             echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
         fi
 
-        # Generate self-signed certificates for Wolf HTTPS
+        # Generate self-signed certificates for Wolf HTTPS only if they don't exist
         # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
         # CRITICAL: Use CN=localhost for Docker network compatibility
-        echo "Generating Wolf SSL certificates..."
-        openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
-            -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
+        if [ ! -f "$INSTALL_DIR/wolf/cert.pem" ] || [ ! -f "$INSTALL_DIR/wolf/key.pem" ]; then
+            echo "Generating Wolf SSL certificates..."
+            openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
+                -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
+            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
+        else
+            echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
+        fi
 
         # Extract certificate in JSON-escaped format for moonlight-web data.json
         WOLF_CERT_ESCAPED=$(awk 'NF {sub(/\r/, ""); printf "%s\\r\\n", $0}' "$INSTALL_DIR/wolf/cert.pem")
@@ -1519,8 +1524,6 @@ WOLFCONFIG
                 echo "You may need to manually update moonlight-web-config/data.json"
             fi
         fi
-
-        echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
     fi
 
     # Continue with the rest of the .env file
