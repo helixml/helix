@@ -1482,10 +1482,10 @@ EOF
         if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
             echo "Creating Wolf configuration..."
             WOLF_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "00000000-0000-0000-0000-$(date +%s)")
-            cat << 'WOLFCONFIG' > "$INSTALL_DIR/wolf/config.toml"
+            cat << WOLFCONFIG > "$INSTALL_DIR/wolf/config.toml"
 apps = []
 config_version = 6
-hostname = 'Helix'
+hostname = 'Helix (\$(hostname))'
 paired_clients = []
 
 [gstreamer.audio]
