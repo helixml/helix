@@ -48,8 +48,40 @@ type MoonlightWebData struct {
 
 // ensureWolfHostExists adds Wolf to moonlight-web's host list if not already present
 func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
-	// Call moonlight-web PUT /api/host to add Wolf
-	url := fmt.Sprintf("%s/api/host", s.moonlightWebURL)
+	// Step 1: Check if Wolf is already in the hosts list
+	listURL := fmt.Sprintf("%s/api/hosts", s.moonlightWebURL)
+
+	req, err := http.NewRequest("GET", listURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.credentials)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list hosts, will try adding anyway")
+	} else {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var hostsResp struct {
+				Hosts []struct {
+					Address string `json:"address"`
+				} `json:"hosts"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&hostsResp); err == nil {
+				// Check if Wolf is already in the list
+				for _, host := range hostsResp.Hosts {
+					if host.Address == "wolf" {
+						log.Info().Msg("Wolf host already exists in moonlight-web")
+						return nil
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: Add Wolf via PUT /api/host
+	addURL := fmt.Sprintf("%s/api/host", s.moonlightWebURL)
 
 	hostData := map[string]interface{}{
 		"address":   "wolf",
@@ -62,12 +94,12 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 	}
 
 	log.Info().
-		Str("url", url).
+		Str("url", addURL).
 		Str("address", "wolf").
 		Int("http_port", 47989).
 		Msg("Adding Wolf host to moonlight-web via PUT /api/host")
 
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	req, err = http.NewRequest("PUT", addURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
@@ -75,7 +107,7 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.credentials)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to add Wolf host: %w", err)
 	}
