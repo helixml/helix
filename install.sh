@@ -1436,16 +1436,12 @@ WOLFCONFIG
             echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
         fi
 
-        # Generate self-signed certificates for Wolf HTTPS
-        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
-        # 4096-bit produces 512-byte signatures but protocol expects 256 bytes
-        # CRITICAL: Use CN=localhost to match moonlight-web expectations
-        # (moonlight-web connects via Docker network hostname 'wolf' but needs matching cert)
-        echo "Generating self-signed certificates for Wolf streaming..."
-        openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
-            -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
-
-        echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
+        # CRITICAL: Do NOT generate new Wolf certificates - use the ones checked into git
+        # The certificates in wolf/cert.pem and wolf/key.pem are specifically configured
+        # to work with moonlight-web (CN=localhost, matches data.json server_certificate)
+        # Generating new certificates will break moonlight-web HTTPS connections to Wolf
+        echo "Using Wolf SSL certificates from repository (wolf/cert.pem, wolf/key.pem)"
+        echo "These certificates are pre-configured to work with moonlight-web"
     fi
 
     # Continue with the rest of the .env file
