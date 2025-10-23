@@ -107,8 +107,38 @@ After the fix:
 3. **Follow the data flow**: Streamer waiting for frames → no video source → no container
 4. **Test after every change**: This regression could have been caught with basic testing
 
+## Additional Fix: Wolf endpoint_RunnerStart Missing Response
+
+**Second bug found** (Wolf endpoints.cpp:321-345):
+The `endpoint_RunnerStart` function fired the StartRunner event but **never sent an HTTP response**.
+
+**Result**: Client got EOF error trying to start the runner.
+
+**Fix** (Wolf commit e935f81):
+```cpp
+// After firing event, send success response
+auto res = GenericSuccessResponse{.success = true};
+send_http(socket, 200, rfl::json::write(res));
+```
+
+## External Agent Resume Workflow
+
+**Question**: If we start the runner before a Moonlight client connects, can we resume later?
+
+**Answer**: YES - that's the entire point!
+
+**The workflow**:
+1. Container starts immediately (no Moonlight client)
+2. Zed connects to Helix WebSocket and works autonomously
+3. User connects later via browser → Moonlight RESUME
+4. Certificate persistence makes this work:
+   - kickoff + browser use SAME `client_unique_id`
+   - moonlight-web persists certs per `client_unique_id`
+   - Wolf sees same cert → RESUME to existing session
+
 ## Status
 
-✅ **FIXED** - API now calls StartRunner() for apps mode
-✅ **DEPLOYED** - API hot-reloaded with fix
-⬜ **NEEDS TESTING** - User should test live streaming with new external agent session
+✅ **FIXED** - API calls StartRunner() for apps mode
+✅ **FIXED** - Wolf endpoint_RunnerStart sends HTTP response
+✅ **DEPLOYED** - Both API and Wolf rebuilt and restarted
+⬜ **NEEDS TESTING** - Create new external agent session and test live streaming
