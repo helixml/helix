@@ -1439,9 +1439,11 @@ WOLFCONFIG
         # Generate self-signed certificates for Wolf HTTPS
         # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
         # 4096-bit produces 512-byte signatures but protocol expects 256 bytes
+        # CRITICAL: Use CN=localhost to match moonlight-web expectations
+        # (moonlight-web connects via Docker network hostname 'wolf' but needs matching cert)
         echo "Generating self-signed certificates for Wolf streaming..."
         openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
-            -days 365 -nodes -subj "/CN=${TURN_HOST}" 2>/dev/null
+            -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
 
         echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
     fi
