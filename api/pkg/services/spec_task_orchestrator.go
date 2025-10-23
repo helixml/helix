@@ -16,19 +16,26 @@ import (
 // Pushes agents through design → approval → implementation
 // Manages agent lifecycle and reuses sessions across Helix interactions
 type SpecTaskOrchestrator struct {
-	store                store.Store
-	controller           *controller.Controller
-	gitService           *GitRepositoryService
-	specTaskService      *SpecDrivenTaskService
-	agentPool            *ExternalAgentPool
-	worktreeManager      *DesignDocsWorktreeManager
-	runningTasks         map[string]*OrchestratedTask
-	mutex                sync.RWMutex
-	stopChan             chan struct{}
-	wg                   sync.WaitGroup
+	store                 store.Store
+	controller            *controller.Controller
+	gitService            *GitRepositoryService
+	specTaskService       *SpecDrivenTaskService
+	agentPool             *ExternalAgentPool
+	worktreeManager       *DesignDocsWorktreeManager
+	wolfExecutor          WolfExecutorInterface // NEW: Wolf executor for external agents
+	runningTasks          map[string]*OrchestratedTask
+	mutex                 sync.RWMutex
+	stopChan              chan struct{}
+	wg                    sync.WaitGroup
 	orchestrationInterval time.Duration
-	liveProgressHandlers []LiveProgressHandler
-	testMode             bool
+	liveProgressHandlers  []LiveProgressHandler
+	testMode              bool
+}
+
+// WolfExecutorInterface defines the interface for Wolf executor
+type WolfExecutorInterface interface {
+	StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error)
+	StopZedAgent(ctx context.Context, sessionID string) error
 }
 
 // OrchestratedTask represents a task being orchestrated
@@ -67,19 +74,21 @@ func NewSpecTaskOrchestrator(
 	specTaskService *SpecDrivenTaskService,
 	agentPool *ExternalAgentPool,
 	worktreeManager *DesignDocsWorktreeManager,
+	wolfExecutor WolfExecutorInterface, // NEW: Wolf executor for external agents
 ) *SpecTaskOrchestrator {
 	return &SpecTaskOrchestrator{
-		store:                store,
-		controller:           controller,
-		gitService:           gitService,
-		specTaskService:      specTaskService,
-		agentPool:            agentPool,
-		worktreeManager:      worktreeManager,
-		runningTasks:         make(map[string]*OrchestratedTask),
-		stopChan:             make(chan struct{}),
+		store:                 store,
+		controller:            controller,
+		gitService:            gitService,
+		specTaskService:       specTaskService,
+		agentPool:             agentPool,
+		worktreeManager:       worktreeManager,
+		wolfExecutor:          wolfExecutor, // NEW
+		runningTasks:          make(map[string]*OrchestratedTask),
+		stopChan:              make(chan struct{}),
 		orchestrationInterval: 10 * time.Second, // Check every 10 seconds
-		liveProgressHandlers: []LiveProgressHandler{},
-		testMode:             false,
+		liveProgressHandlers:  []LiveProgressHandler{},
+		testMode:              false,
 	}
 }
 

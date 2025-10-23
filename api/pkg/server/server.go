@@ -361,6 +361,7 @@ func NewServer(
 		apiServer.specDrivenTaskService,
 		apiServer.externalAgentPool,
 		apiServer.designDocsWorktreeManager,
+		apiServer.wolfExecutor, // NEW: Pass Wolf executor for external agent management
 	)
 
 	// Start orchestrator
