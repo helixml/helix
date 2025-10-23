@@ -88,13 +88,12 @@ const SpecTasksPage: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Create task form state
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
-  const [newTaskRequirements, setNewTaskRequirements] = useState('');
-  const [selectedSampleType, setSelectedSampleType] = useState('');
-  const [taskType, setTaskType] = useState('feature');
+  // Create task form state (SIMPLIFIED)
+  const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
   const [taskPriority, setTaskPriority] = useState('medium');
+  const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
+  const [primaryRepository, setPrimaryRepository] = useState('');
+  const [additionalRepos, setAdditionalRepos] = useState<Array<{id: string, localPath: string}>>([]);
 
   // Data hooks
   const { data: sampleTypes, loading: sampleTypesLoading, loadSampleTypes } = useSampleTypes();
@@ -127,49 +126,35 @@ const SpecTasksPage: FC = () => {
     return true;
   };
 
-  // Handle task creation
+  // Handle task creation - SIMPLIFIED
   const handleCreateTask = async () => {
     if (!checkLoginStatus()) return;
 
     try {
-      if (!newTaskName.trim() || !newTaskDescription.trim() || !selectedSampleType) {
-        snackbar.error('Please fill in all required fields');
+      if (!taskPrompt.trim()) {
+        snackbar.error('Please describe what you want to get done');
         return;
       }
 
-      // First create the sample repository
-      const repository = await createSampleRepo({
-        name: `${newTaskName} - ${selectedSampleType}`,
-        description: newTaskDescription,
-        owner_id: account.user?.id || '',
-        sample_type: selectedSampleType,
-      });
-
-      if (!repository) {
-        snackbar.error('Failed to create repository. Please try again.');
-        return;
-      }
-
-      // Then create the SpecTask
+      // Create SpecTask with simplified single-field approach
       const createTaskRequest: ServicesCreateTaskRequest = {
-        prompt: `${newTaskDescription}\n\nRequirements:\n${newTaskRequirements}`,
-        type: taskType,
+        prompt: taskPrompt, // Just the raw user input!
         priority: taskPriority,
         project_id: account.organizationTools.organization?.id || 'default',
       };
 
-      console.log('🔥 CREATING TASK WITH REQUEST:', createTaskRequest);
-      console.log('🔥 USER ID:', account.user?.id);
+      console.log('Creating SpecTask with simplified prompt:', createTaskRequest);
 
       const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
-        console.log('🔥 TASK CREATED SUCCESSFULLY:', response.data);
-        snackbar.success('SpecTask created successfully!');
+        console.log('SpecTask created successfully:', response.data);
+        snackbar.success('SpecTask created! Planning agent will generate specifications.');
         setCreateDialogOpen(false);
-        resetCreateForm();
+        setTaskPrompt('');
+        setTaskPriority('medium');
 
-        // Refresh the task list and kanban board
+        // Refresh the task list
         listTasks();
         setRefreshing(true);
         setTimeout(() => setRefreshing(false), 1000);
@@ -178,15 +163,6 @@ const SpecTasksPage: FC = () => {
       console.error('Failed to create SpecTask:', error);
       snackbar.error('Failed to create SpecTask. Please try again.');
     }
-  };
-
-  const resetCreateForm = () => {
-    setNewTaskName('');
-    setNewTaskDescription('');
-    setNewTaskRequirements('');
-    setSelectedSampleType('');
-    setTaskType('feature');
-    setTaskPriority('medium');
   };
 
   const handleTaskClick = (task: any) => {
@@ -331,146 +307,79 @@ const SpecTasksPage: FC = () => {
         </Box>
       </Box>
 
-      {/* Create SpecTask Dialog */}
+      {/* Create SpecTask Dialog - SIMPLIFIED */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AddIcon />
-            Create New SpecTask
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AddIcon />
+              New SpecTask
+            </Box>
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={taskPriority}
+                onChange={(e) => setTaskPriority(e.target.value)}
+                label="Priority"
+              >
+                <MenuItem value="low">Low</MenuItem>
+                <MenuItem value="medium">Medium</MenuItem>
+                <MenuItem value="high">High</MenuItem>
+                <MenuItem value="critical">Critical</MenuItem>
+              </Select>
+            </FormControl>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 1 }}>
-            {/* Basic Information */}
-            <Box>
-              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-                Basic Information
+            {/* Single large text box for everything */}
+            <TextField
+              label="Describe what you want to get done"
+              fullWidth
+              required
+              multiline
+              rows={12}
+              value={taskPrompt}
+              onChange={(e) => setTaskPrompt(e.target.value)}
+              placeholder="Dump everything you know here - the AI will parse this into requirements, design, and implementation plan.
+
+Examples:
+- Add dark mode toggle to settings page
+- Fix the user registration bug where emails aren't validated properly
+- Refactor the payment processing to use Stripe instead of PayPal"
+              helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
+            />
+
+            {/* Repository Selection - TODO: Implement repository list and multi-attach */}
+            <Alert severity="info">
+              <Typography variant="body2">
+                <strong>Note:</strong> Repository attachment UI coming soon. For now, a repository will be auto-created for your task.
               </Typography>
-              <Stack spacing={2}>
-                <TextField
-                  label="Task Name"
-                  fullWidth
-                  required
-                  value={newTaskName}
-                  onChange={(e) => setNewTaskName(e.target.value)}
-                  placeholder="e.g., Add user authentication, LinkedIn outreach campaign"
-                />
-                <TextField
-                  label="Description"
-                  fullWidth
-                  required
-                  multiline
-                  rows={3}
-                  value={newTaskDescription}
-                  onChange={(e) => setNewTaskDescription(e.target.value)}
-                  placeholder="Describe what this task should accomplish..."
-                />
-                <TextField
-                  label="Detailed Requirements"
-                  fullWidth
-                  multiline
-                  rows={4}
-                  value={newTaskRequirements}
-                  onChange={(e) => setNewTaskRequirements(e.target.value)}
-                  placeholder="Provide detailed requirements for the planning agent..."
-                  helperText="This will be used by the Zed planning agent to generate specifications"
-                />
-              </Stack>
-            </Box>
+            </Alert>
 
-            {/* Task Configuration */}
-            <Box>
-              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-                Task Configuration
+            {/* Helix Agent Selection - TODO: Implement agent list */}
+            <Alert severity="info">
+              <Typography variant="body2">
+                <strong>Note:</strong> Helix Agent selection coming soon. Default "Zed Agent" will be used.
               </Typography>
-              <Stack direction="row" spacing={2}>
-                <FormControl sx={{ minWidth: 120 }}>
-                  <InputLabel>Type</InputLabel>
-                  <Select
-                    value={taskType}
-                    onChange={(e) => setTaskType(e.target.value)}
-                    label="Type"
-                  >
-                    <MenuItem value="feature">Feature</MenuItem>
-                    <MenuItem value="bug">Bug Fix</MenuItem>
-                    <MenuItem value="refactor">Refactor</MenuItem>
-                    <MenuItem value="business">Business</MenuItem>
-                    <MenuItem value="content">Content</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl sx={{ minWidth: 120 }}>
-                  <InputLabel>Priority</InputLabel>
-                  <Select
-                    value={taskPriority}
-                    onChange={(e) => setTaskPriority(e.target.value)}
-                    label="Priority"
-                  >
-                    <MenuItem value="low">Low</MenuItem>
-                    <MenuItem value="medium">Medium</MenuItem>
-                    <MenuItem value="high">High</MenuItem>
-                    <MenuItem value="critical">Critical</MenuItem>
-                  </Select>
-                </FormControl>
-              </Stack>
-            </Box>
-
-            {/* Project Template Selection */}
-            <Box>
-              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
-                Project Template
-              </Typography>
-              {sampleTypesLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                  <CircularProgress size={24} />
-                </Box>
-              ) : (
-                <FormControl fullWidth required>
-                  <InputLabel>Project Template</InputLabel>
-                  <Select
-                    value={selectedSampleType}
-                    onChange={(e) => {
-                      console.log('🔥 Template selected:', e.target.value);
-                      setSelectedSampleType(e.target.value);
-                    }}
-                    label="Project Template"
-                  >
-                    <MenuItem value="">
-                      <em>- Select - </em>
-                    </MenuItem>
-                    {sampleTypes.map((type: SampleType) => (
-                      <MenuItem key={type.id} value={type.id}>
-                        {getSampleTypeIcon(type.id || '')} {type.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-
-              {selectedSampleType && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  <Typography variant="body2">
-                    <strong>Selected Template:</strong> {sampleTypes?.find((t: any) => t.id === selectedSampleType)?.name}
-                  </Typography>
-                  <Typography variant="caption">
-                    A git repository will be created with this template for context-aware planning by Zed agents.
-                  </Typography>
-                </Alert>
-              )}
-            </Box>
+            </Alert>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>
+          <Button onClick={() => {
+            setCreateDialogOpen(false);
+            setTaskPrompt('');
+            setTaskPriority('medium');
+          }}>
             Cancel
           </Button>
           <Button
             onClick={handleCreateTask}
             variant="contained"
-            disabled={!newTaskName.trim() || !newTaskDescription.trim() || !selectedSampleType || createSampleRepoLoading}
+            disabled={!taskPrompt.trim() || createSampleRepoLoading}
             startIcon={createSampleRepoLoading ? <CircularProgress size={16} /> : <AddIcon />}
           >
-            {createSampleRepoLoading ? 'Creating...' : 'Create SpecTask'}
+            {createSampleRepoLoading ? 'Creating...' : 'Create Task'}
           </Button>
         </DialogActions>
       </Dialog>
