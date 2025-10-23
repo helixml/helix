@@ -1493,6 +1493,7 @@ EOF
 apps = []
 config_version = 6
 hostname = 'Helix ($WOLF_HOSTNAME)'
+uuid = '$WOLF_UUID'
 paired_clients = []
 
 [gstreamer.audio]
@@ -1653,7 +1654,6 @@ videorate !
 video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
 chroma-site={color_range}, colorimetry={color_space}'''
 WOLFCONFIG
-            echo "uuid = '$WOLF_UUID'" >> "$INSTALL_DIR/wolf/config.toml"
             echo "Wolf config created at $INSTALL_DIR/wolf/config.toml"
         else
             echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
