@@ -2,6 +2,22 @@
 
 This file contains critical development guidelines and context that MUST be followed at all times during Helix development.
 
+## Git Safety Rules
+
+**CRITICAL: NEVER force-push without explicit user consent**
+
+- `git push --force` or `git push -f` can overwrite upstream changes from other team members
+- ALWAYS use regular `git push` by default
+- If push is rejected due to non-fast-forward, STOP and ask the user
+- Force-push is ONLY acceptable when user explicitly requests it
+- Use `git pull --rebase` to integrate upstream changes before pushing
+
+**Why this matters:**
+- Team members may have pushed changes while you were working
+- Force-push silently overwrites their work with yours
+- Lost commits are difficult to recover
+- This breaks collaborative workflows
+
 ## Documentation Organization
 
 **CRITICAL: LLM-generated design documents MUST live in `design/` folder ONLY**
