@@ -1671,27 +1671,26 @@ WOLFCONFIG
             echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
         fi
 
-        # Extract certificate in JSON-escaped format for moonlight-web data.json
-        WOLF_CERT_ESCAPED=$(awk 'NF {sub(/\r/, ""); printf "%s\\r\\n", $0}' "$INSTALL_DIR/wolf/cert.pem")
-
-        # Create initial moonlight-web data.json with Wolf host pre-configured
-        # This is CRITICAL - moonlight-web must have Wolf host configured with certificate for HTTPS connections
-        echo "Creating moonlight-web data.json with Wolf host configuration..."
-        cat << MOONLIGHTDATA > "$INSTALL_DIR/moonlight-web-config/data.json"
+        # Create initial moonlight-web data.json with Wolf host pre-configured for auto-pairing
+        # The address must match the hostname/IP that moonlight-web uses to reach Wolf
+        # Auto-pairing will populate the client/server certificates and complete the pairing
+        echo "Creating moonlight-web data.json with Wolf host for auto-pairing..."
+        cat << 'MOONLIGHTDATA' > "$INSTALL_DIR/moonlight-web-config/data.json"
 {
   "hosts": [
     {
-      "hostname": "localhost",
-      "mac": "00:00:00:00:00:00",
-      "paired": {
-        "app_id": "458154150",
-        "server_certificate": "${WOLF_CERT_ESCAPED}"
+      "address": "wolf",
+      "http_port": 47989,
+      "unique_id": null,
+      "cache": {
+        "name": "Helix",
+        "mac": "00:11:22:33:44:55"
       }
     }
   ]
 }
 MOONLIGHTDATA
-        echo "Moonlight-web data.json created with Wolf certificate at $INSTALL_DIR/moonlight-web-config/data.json"
+        echo "Moonlight-web data.json created for auto-pairing at $INSTALL_DIR/moonlight-web-config/data.json"
     fi
 
     # Continue with the rest of the .env file
