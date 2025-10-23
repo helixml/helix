@@ -22,6 +22,11 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// WebSocketConnectionChecker provides a way to check if a Zed instance has connected via WebSocket
+type WebSocketConnectionChecker interface {
+	IsExternalAgentConnected(sessionID string) bool
+}
+
 // AppWolfExecutor implements the Executor interface using Wolf Apps API (stable branch)
 // This is the simpler, more reliable approach without lobbies
 type AppWolfExecutor struct {
@@ -34,14 +39,16 @@ type AppWolfExecutor struct {
 	helixAPIURL       string
 	helixAPIToken     string
 	workspaceBasePath string
+	wsChecker         WebSocketConnectionChecker
 }
 
 // NewAppWolfExecutor creates a new app-based Wolf executor
-func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *AppWolfExecutor {
+func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) *AppWolfExecutor {
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
-		wolfClient:        wolfClient,
+		wolfClient: wolfClient,
+		wsChecker:  wsChecker,
 		store:             store,
 		sessions:          make(map[string]*ZedSession),
 		zedImage:          zedImage,
