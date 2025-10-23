@@ -400,6 +400,20 @@ type Store interface {
 	GetSpecTaskProgress(ctx context.Context, specTaskID string) (*types.SpecTaskProgressResponse, error)
 	UpdateSpecTaskZedInstance(ctx context.Context, specTaskID string, zedInstanceID string) error
 
+	// SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
+	CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	GetSpecTaskExternalAgent(ctx context.Context, specTaskID string) (*types.SpecTaskExternalAgent, error)
+	GetSpecTaskExternalAgentByID(ctx context.Context, agentID string) (*types.SpecTaskExternalAgent, error)
+	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
+	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
+
+	// External Agent Activity methods (idle detection)
+	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
+	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
+	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
+	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
+
 	// Agent session methods
 	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
 	GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error)

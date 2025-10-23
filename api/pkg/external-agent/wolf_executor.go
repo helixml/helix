@@ -201,6 +201,9 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	// Start background keepalive reconciliation loop
 	go executor.keepaliveReconciliationLoop(context.Background())
 
+	// Start idle external agent cleanup loop (30min timeout)
+	go executor.idleExternalAgentCleanupLoop(context.Background())
+
 	// Start Wolf health monitoring
 	executor.healthMonitor.Start(context.Background())
 
@@ -1992,4 +1995,111 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 		Msg("Keepalive session fully established - streamer running headless in moonlight-web")
 
 	return nil
+}
+
+// idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
+// Terminates external agents after 30min of inactivity across ALL sessions
+func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	defer ticker.Stop()
+
+	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout)")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Idle external agent cleanup loop stopped")
+			return
+
+		case <-ticker.C:
+			w.cleanupIdleExternalAgents(ctx)
+		}
+	}
+}
+
+// cleanupIdleExternalAgents terminates external agents that have been idle for >30min
+func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
+	cutoff := time.Now().Add(-30 * time.Minute)
+
+	// Get idle external agents (not individual sessions - entire agents)
+	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask"})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get idle external agents")
+		return
+	}
+
+	if len(idleAgents) == 0 {
+		return // No idle agents to clean up
+	}
+
+	log.Info().
+		Int("count", len(idleAgents)).
+		Time("cutoff", cutoff).
+		Msg("Found idle SpecTask external agents to terminate")
+
+	for _, activity := range idleAgents {
+		log.Info().
+			Str("external_agent_id", activity.ExternalAgentID).
+			Str("spectask_id", activity.SpecTaskID).
+			Str("wolf_app_id", activity.WolfAppID).
+			Time("last_interaction", activity.LastInteraction).
+			Dur("idle_duration", time.Since(activity.LastInteraction)).
+			Msg("Terminating idle SpecTask external agent")
+
+		// Stop Wolf app (terminates Zed container, frees GPU)
+		err := w.wolfClient.RemoveApp(ctx, activity.WolfAppID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("wolf_app_id", activity.WolfAppID).
+				Str("external_agent_id", activity.ExternalAgentID).
+				Msg("Failed to remove idle Wolf app")
+			// Continue with cleanup even if Wolf removal fails
+		}
+
+		// Update external agent status to terminated
+		agent, err := w.store.GetSpecTaskExternalAgentByID(ctx, activity.ExternalAgentID)
+		if err == nil {
+			agent.Status = "terminated"
+			agent.LastActivity = time.Now()
+			err = w.store.UpdateSpecTaskExternalAgent(ctx, agent)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to update external agent status to terminated")
+			}
+
+			// Update ALL affected Helix sessions to mark external agent as terminated
+			for _, sessionID := range agent.HelixSessionIDs {
+				session, err := w.store.GetSession(ctx, sessionID)
+				if err == nil {
+					// Update session metadata to indicate external agent is terminated
+					session.Metadata.ExternalAgentStatus = "terminated_idle"
+					_, err = w.store.UpdateSession(ctx, *session)
+					if err != nil {
+						log.Error().
+							Err(err).
+							Str("session_id", sessionID).
+							Msg("Failed to update session with terminated status")
+					}
+				}
+			}
+		}
+
+		// Delete activity record
+		err = w.store.DeleteExternalAgentActivity(ctx, activity.ExternalAgentID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("external_agent_id", activity.ExternalAgentID).
+				Msg("Failed to delete external agent activity record")
+		}
+
+		log.Info().
+			Str("external_agent_id", activity.ExternalAgentID).
+			Str("workspace_dir", activity.WorkspaceDir).
+			Msg("External agent terminated successfully, workspace preserved in filestore")
+	}
+
+	log.Info().
+		Int("terminated_count", len(idleAgents)).
+		Msg("Completed idle external agent cleanup")
 }

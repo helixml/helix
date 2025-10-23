@@ -200,19 +200,70 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 	}
 }
 
-// handleBacklog handles tasks in backlog state
+// handleBacklog handles tasks in backlog state - creates external agent and starts planning
 func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.SpecTask) error {
-	// Transition to spec generation
 	log.Info().
 		Str("task_id", task.ID).
-		Msg("Moving task from backlog to spec generation")
+		Str("helix_app_id", task.HelixAppID).
+		Msg("Starting SpecTask planning phase with external agent")
 
-	// This would trigger the existing spec generation flow
-	// For now, just update status
+	// Get Helix Agent configuration
+	app, err := o.store.GetApp(ctx, task.HelixAppID)
+	if err != nil {
+		return fmt.Errorf("failed to get Helix agent: %w", err)
+	}
+
+	// Create or get external agent for this SpecTask
+	externalAgent, err := o.getOrCreateExternalAgent(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to get/create external agent: %w", err)
+	}
+
+	// Create planning Helix session
+	planningSession, err := o.createPlanningSession(ctx, task, app, externalAgent)
+	if err != nil {
+		return fmt.Errorf("failed to create planning session: %w", err)
+	}
+
+	// Update task with session reference
+	task.PlanningSessionID = planningSession.ID
 	task.Status = types.TaskStatusSpecGeneration
 	task.UpdatedAt = time.Now()
 
-	return o.store.UpdateSpecTask(ctx, task)
+	err = o.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to update spec task: %w", err)
+	}
+
+	// Update external agent with new session
+	externalAgent.HelixSessionIDs = append(externalAgent.HelixSessionIDs, planningSession.ID)
+	externalAgent.LastActivity = time.Now()
+	err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent with planning session")
+	}
+
+	// Update activity tracking
+	err = o.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+		ExternalAgentID: externalAgent.ID,
+		SpecTaskID:      task.ID,
+		LastInteraction: time.Now(),
+		AgentType:       "spectask",
+		WolfAppID:       externalAgent.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		UserID:          task.CreatedBy,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent activity")
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", planningSession.ID).
+		Str("external_agent_id", externalAgent.ID).
+		Msg("Planning phase started successfully")
+
+	return nil
 }
 
 // handleSpecGeneration handles tasks in spec generation
@@ -254,56 +305,181 @@ func (o *SpecTaskOrchestrator) handleSpecRevision(ctx context.Context, task *typ
 	return o.store.UpdateSpecTask(ctx, task)
 }
 
-// handleImplementationQueued handles tasks ready for implementation
+// handleImplementationQueued handles tasks ready for implementation - reuses external agent
 func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, task *types.SpecTask) error {
 	log.Info().
 		Str("task_id", task.ID).
-		Msg("Starting implementation phase")
+		Str("external_agent_id", task.ExternalAgentID).
+		Msg("Starting implementation phase with existing external agent")
 
-	// Setup git repository and design docs
-	repoPath, designDocsPath, err := o.setupTaskEnvironment(ctx, task)
+	// Get Helix Agent configuration (same agent used for planning)
+	app, err := o.store.GetApp(ctx, task.HelixAppID)
 	if err != nil {
-		return fmt.Errorf("failed to setup task environment: %w", err)
+		return fmt.Errorf("failed to get Helix agent: %w", err)
 	}
 
-	// Get or create agent for task
-	agent, err := o.agentPool.GetOrCreateForTask(ctx, task, repoPath, designDocsPath)
+	// Get EXISTING external agent (already running from planning phase!)
+	externalAgent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get agent: %w", err)
+		return fmt.Errorf("failed to get external agent: %w", err)
 	}
 
-	// Parse task list from design docs
-	tasks, err := o.worktreeManager.ParseTaskList(designDocsPath)
+	// Check if agent needs resurrection (was terminated due to idle)
+	if externalAgent.Status != "running" {
+		log.Info().
+			Str("agent_id", externalAgent.ID).
+			Msg("External agent was terminated, resurrecting with same workspace")
+
+		// Resurrect agent with SAME workspace
+		agentReq := &types.ZedAgent{
+			SessionID:          externalAgent.ID,
+			UserID:             task.CreatedBy,
+			WorkDir:            externalAgent.WorkspaceDir, // SAME workspace!
+			ProjectPath:        "backend",
+			DisplayWidth:       2560,
+			DisplayHeight:      1600,
+			DisplayRefreshRate: 60,
+		}
+
+		agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
+		if err != nil {
+			return fmt.Errorf("failed to resurrect external agent: %w", err)
+		}
+
+		externalAgent.WolfAppID = agentResp.WolfAppID
+		externalAgent.Status = "running"
+		externalAgent.LastActivity = time.Now()
+
+		err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
+		if err != nil {
+			return fmt.Errorf("failed to update resurrected agent: %w", err)
+		}
+	}
+
+	// Create NEW Helix session for implementation (creates new Zed thread in existing instance)
+	implSession, err := o.createImplementationSession(ctx, task, app, externalAgent)
 	if err != nil {
-		return fmt.Errorf("failed to parse task list: %w", err)
+		return fmt.Errorf("failed to create implementation session: %w", err)
 	}
 
-	// Create orchestrated task
-	o.mutex.Lock()
-	o.runningTasks[task.ID] = &OrchestratedTask{
-		SpecTask:         task,
-		Agent:            agent,
-		CurrentSessionID: "",
-		DesignDocsPath:   designDocsPath,
-		RepoPath:         repoPath,
-		CurrentTaskIndex: -1,
-		TaskList:         tasks,
-		LastUpdate:       time.Now(),
-		Phase:            types.TaskStatusImplementation,
-	}
-	o.mutex.Unlock()
-
-	// Start first task
-	err = o.startNextTask(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to start first task: %w", err)
-	}
-
-	// Update task status
+	// Update task with session reference
+	task.ImplementationSessionID = implSession.ID
 	task.Status = types.TaskStatusImplementation
 	task.UpdatedAt = time.Now()
 
-	return o.store.UpdateSpecTask(ctx, task)
+	err = o.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		return fmt.Errorf("failed to update spec task: %w", err)
+	}
+
+	// Update external agent with new session
+	externalAgent.HelixSessionIDs = append(externalAgent.HelixSessionIDs, implSession.ID)
+	externalAgent.LastActivity = time.Now()
+	err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent with implementation session")
+	}
+
+	// Update activity tracking
+	err = o.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+		ExternalAgentID: externalAgent.ID,
+		SpecTaskID:      task.ID,
+		LastInteraction: time.Now(),
+		AgentType:       "spectask",
+		WolfAppID:       externalAgent.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		UserID:          task.CreatedBy,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent activity")
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("session_id", implSession.ID).
+		Str("external_agent_id", externalAgent.ID).
+		Int("total_sessions", len(externalAgent.HelixSessionIDs)).
+		Msg("Implementation phase started successfully")
+
+	return nil
+}
+
+// createImplementationSession creates a Helix session for the implementation phase
+func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
+	// Build system prompt for implementation phase
+	systemPrompt := o.buildImplementationPrompt(task, app)
+
+	// Create session
+	session := &types.Session{
+		ID:             fmt.Sprintf("ses_impl_%s", task.ID),
+		UserID:         task.CreatedBy,
+		AppID:          app.ID,
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		ModelName:      app.Config.Helix.Assistants[0].Model,
+		SystemPrompt:   systemPrompt,
+		ParentApp:      app.ID,
+		OrganizationID: task.Metadata.String(),
+		Metadata: types.SessionMetadata{
+			SpecTaskID:      task.ID,
+			ExternalAgentID: agent.ID,
+			Phase:           "implementation",
+		},
+	}
+
+	createdSession, err := o.store.CreateSession(ctx, *session)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create implementation session: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", createdSession.ID).
+		Str("spec_task_id", task.ID).
+		Msg("Created implementation session")
+
+	return createdSession, nil
+}
+
+// buildImplementationPrompt builds the system prompt for implementation phase
+func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, app *types.App) string {
+	basePrompt := ""
+	if len(app.Config.Helix.Assistants) > 0 {
+		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
+	}
+
+	// TODO: Add repository access and helix-design-docs reading instructions
+	// For now, return basic prompt with spec context
+
+	return fmt.Sprintf(`%s
+
+## Task: Implement According to Specifications
+
+You are running in a full external agent session with access to Zed editor.
+This is the SAME Zed instance from the planning phase - you can see the planning thread.
+
+**SpecTask**: %s
+**Description**: %s
+
+**Requirements Specification**:
+%s
+
+**Technical Design**:
+%s
+
+**Implementation Plan**:
+%s
+
+**Your job is to:**
+
+1. Read the design documents from the helix-design-docs worktree
+2. Create a feature branch for implementation
+3. Implement according to the implementation plan
+4. Mark tasks in progress/complete in the tasks.md file
+5. Make atomic commits for each implementation task
+6. Push progress updates to helix-design-docs branch
+
+Work methodically through the implementation plan. All your work persists across sessions.
+`, basePrompt, task.Name, task.Description, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan)
 }
 
 // handleImplementation handles tasks in implementation
@@ -477,6 +653,148 @@ func (o *SpecTaskOrchestrator) cleanupLoop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// getOrCreateExternalAgent gets existing external agent or creates new one for SpecTask
+func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, task *types.SpecTask) (*types.SpecTaskExternalAgent, error) {
+	// Try to get existing agent
+	agent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
+	if err == nil && agent.Status == "running" {
+		log.Info().
+			Str("agent_id", agent.ID).
+			Str("spec_task_id", task.ID).
+			Msg("Reusing existing external agent")
+		return agent, nil
+	}
+
+	// Create new external agent
+	agentID := fmt.Sprintf("zed-spectask-%s", task.ID)
+	workspaceDir := fmt.Sprintf("/opt/helix/filestore/workspaces/spectasks/%s", task.ID)
+
+	log.Info().
+		Str("agent_id", agentID).
+		Str("workspace_dir", workspaceDir).
+		Msg("Creating new external agent for SpecTask")
+
+	// Create Wolf agent with per-SpecTask workspace
+	agentReq := &types.ZedAgent{
+		SessionID:      agentID, // Agent-level session ID (not tied to specific Helix session)
+		UserID:         task.CreatedBy,
+		WorkDir:        workspaceDir,
+		ProjectPath:    "backend", // Default primary repo path
+		DisplayWidth:   2560,
+		DisplayHeight:  1600,
+		DisplayRefreshRate: 60,
+	}
+
+	agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start Wolf agent: %w", err)
+	}
+
+	// Create external agent record
+	externalAgent := &types.SpecTaskExternalAgent{
+		ID:              agentID,
+		SpecTaskID:      task.ID,
+		WolfAppID:       agentResp.WolfAppID,
+		WorkspaceDir:    workspaceDir,
+		HelixSessionIDs: []string{},
+		ZedThreadIDs:    []string{},
+		Status:          "running",
+		Created:         time.Now(),
+		LastActivity:    time.Now(),
+		UserID:          task.CreatedBy,
+	}
+
+	err = o.store.CreateSpecTaskExternalAgent(ctx, externalAgent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create external agent record: %w", err)
+	}
+
+	// Update task with external agent ID
+	task.ExternalAgentID = agentID
+	err = o.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update task with external agent ID")
+	}
+
+	log.Info().
+		Str("agent_id", agentID).
+		Str("wolf_app_id", agentResp.WolfAppID).
+		Msg("External agent created successfully")
+
+	return externalAgent, nil
+}
+
+// createPlanningSession creates a Helix session for the planning phase
+func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *types.SpecTask, app *types.App, agent *types.SpecTaskExternalAgent) (*types.Session, error) {
+	// Build system prompt for planning phase
+	systemPrompt := o.buildPlanningPrompt(task, app)
+
+	// Create session
+	session := &types.Session{
+		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
+		UserID:         task.CreatedBy,
+		AppID:          app.ID,
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		ModelName:      app.Config.Helix.Assistants[0].Model,
+		SystemPrompt:   systemPrompt,
+		ParentApp:      app.ID,
+		OrganizationID: task.Metadata.String(), // Extract from metadata if needed
+		Metadata: types.SessionMetadata{
+			SpecTaskID:      task.ID,
+			ExternalAgentID: agent.ID,
+			Phase:           "planning",
+		},
+	}
+
+	createdSession, err := o.store.CreateSession(ctx, *session)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create planning session: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", createdSession.ID).
+		Str("spec_task_id", task.ID).
+		Msg("Created planning session")
+
+	return createdSession, nil
+}
+
+// buildPlanningPrompt builds the system prompt for planning phase
+func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *types.App) string {
+	basePrompt := ""
+	if len(app.Config.Helix.Assistants) > 0 {
+		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
+	}
+
+	// TODO: Add repository clone URLs and multi-repo setup instructions
+	// TODO: Add helix-design-docs worktree setup instructions
+	// For now, return basic prompt
+
+	return fmt.Sprintf(`%s
+
+## Task: Generate Specifications from User Request
+
+You are running in a full external agent session with access to Zed editor.
+
+The user has provided the following task description:
+
+---
+%s
+---
+
+**Your job is to:**
+
+1. Parse this request and generate design documents
+2. Extract task name, description, and type (feature/bug/refactor)
+3. Write requirements specification (user stories + EARS acceptance criteria)
+4. Write technical design (architecture, components, data models)
+5. Write implementation plan (discrete tasks with [ ]/[~]/[x] markers)
+
+Work in the persistent workspace. All your work will be preserved across sessions.
+`, basePrompt, task.OriginalPrompt)
 }
 
 // GetLiveProgress returns current live progress for all running tasks
