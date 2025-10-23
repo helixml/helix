@@ -1428,7 +1428,7 @@ func (s *HelixAPIServer) streamFromExternalAgent(ctx context.Context, session *t
 			}
 
 			// Send [DONE] signal
-			if err := writeChunk(rw, []byte("data: [DONE]\n\n")); err != nil {
+			if err := writeChunk(rw, []byte("[DONE]")); err != nil {
 				log.Error().Err(err).Msg("failed to write done signal")
 			}
 

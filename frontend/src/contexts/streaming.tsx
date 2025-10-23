@@ -406,8 +406,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             if (!trimmedLine) continue;
 
             if (trimmedLine.startsWith('data: ')) {
-              const data = trimmedLine.slice(6); // 'data: ' = 6 chars              
-              
+              const data = trimmedLine.slice(6); // 'data: ' = 6 chars
+
               // Check for SSE [DONE] marker (can come as "[DONE]" or " [DONE]" with leading space)
               if (data.trim() === '[DONE]' || data === '[DONE]') {
                 console.log('[SSE] Received [DONE] marker - completing stream');
