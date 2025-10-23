@@ -135,6 +135,29 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 	return nil
 }
 
+// waitForWolf waits for Wolf to be ready
+func (s *MoonlightWebPairingService) waitForWolf(ctx context.Context, timeout time.Duration) error {
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timeout waiting for Wolf")
+		case <-ticker.C:
+			// Try to list apps from Wolf internal API
+			_, err := s.wolfClient.ListApps()
+			if err == nil {
+				log.Info().Msg("✅ Wolf is ready")
+				return nil
+			}
+		}
+	}
+}
+
 // AutoPairWolf automatically pairs moonlight-web with Wolf on startup
 // This ensures browser streaming works without manual intervention
 func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
@@ -145,9 +168,14 @@ func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
 		return fmt.Errorf("moonlight-web not ready: %w", err)
 	}
 
-	// Step 2: Add Wolf as a host in moonlight-web if not already present
+	// Step 2: Wait for Wolf to be ready
+	if err := s.waitForWolf(ctx, 30*time.Second); err != nil {
+		return fmt.Errorf("Wolf not ready: %w", err)
+	}
+
+	// Step 3: Add Wolf as a host in moonlight-web if not already present
 	if err := s.ensureWolfHostExists(); err != nil {
-		log.Warn().Err(err).Msg("Failed to add Wolf host, will attempt pairing anyway")
+		return fmt.Errorf("failed to add Wolf host: %w", err)
 	}
 
 	// Step 3: Check if Wolf is already paired
