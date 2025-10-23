@@ -269,7 +269,7 @@ func (apiServer *HelixAPIServer) GetGitService() *services.GitRepositoryService 
 func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -279,25 +279,25 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 	// Get SpecTask
 	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
 	if err != nil {
-		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		http.Error(res, "SpecTask not found", http.StatusNotFound)
 		return
 	}
 
 	// Check user owns this task
 	if task.CreatedBy != user.ID {
-		system.SendHTTPError(res, system.NewHTTPError401("not authorized to stop this agent"))
+		http.Error(res, "not authorized to stop this agent", http.StatusUnauthorized)
 		return
 	}
 
 	// Get external agent
 	externalAgent, err := apiServer.Store.GetSpecTaskExternalAgent(req.Context(), specTaskID)
 	if err != nil {
-		system.SendHTTPError(res, system.NewHTTPError404("External agent not found"))
+		http.Error(res, "External agent not found", http.StatusNotFound)
 		return
 	}
 
 	if externalAgent.Status != "running" {
-		system.SendHTTPSuccess(res, map[string]interface{}{
+		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
 			"message": "External agent is already stopped",
 			"status":  externalAgent.Status,
 		})
@@ -311,10 +311,10 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		Msg("Manually stopping SpecTask external agent")
 
 	// Stop Wolf app
-	err = apiServer.wolfExecutor.StopZedAgent(req.Context(), externalAgent.ID)
+	err = apiServer.externalAgentExecutor.StopZedAgent(req.Context(), externalAgent.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to stop external agent")
-		system.SendHTTPError(res, system.NewHTTPError500(fmt.Sprintf("Failed to stop external agent: %s", err.Error())))
+		http.Error(res, fmt.Sprintf("Failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -335,7 +335,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		}
 	}
 
-	system.SendHTTPSuccess(res, map[string]interface{}{
+	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
 		"message":           "External agent stopped successfully",
 		"external_agent_id": externalAgent.ID,
 		"workspace_dir":     externalAgent.WorkspaceDir,
@@ -356,7 +356,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -366,25 +366,25 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	// Get SpecTask
 	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
 	if err != nil {
-		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		http.Error(res, "SpecTask not found", http.StatusNotFound)
 		return
 	}
 
 	// Check user owns this task
 	if task.CreatedBy != user.ID {
-		system.SendHTTPError(res, system.NewHTTPError401("not authorized to start this agent"))
+		http.Error(res, "not authorized to start this agent", http.StatusUnauthorized)
 		return
 	}
 
 	// Get external agent
 	externalAgent, err := apiServer.Store.GetSpecTaskExternalAgent(req.Context(), specTaskID)
 	if err != nil {
-		system.SendHTTPError(res, system.NewHTTPError404("External agent not found - create SpecTask first"))
+		http.Error(res, "External agent not found - create SpecTask first", http.StatusNotFound)
 		return
 	}
 
 	if externalAgent.Status == "running" {
-		system.SendHTTPSuccess(res, map[string]interface{}{
+		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
 			"message":           "External agent is already running",
 			"external_agent_id": externalAgent.ID,
 			"wolf_app_id":       externalAgent.WolfAppID,
@@ -409,10 +409,10 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		DisplayRefreshRate: 60,
 	}
 
-	agentResp, err := apiServer.wolfExecutor.StartZedAgent(req.Context(), agentReq)
+	agentResp, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), agentReq)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to start external agent")
-		system.SendHTTPError(res, system.NewHTTPError500(fmt.Sprintf("Failed to start external agent: %s", err.Error())))
+		http.Error(res, fmt.Sprintf("Failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -448,7 +448,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
-	system.SendHTTPSuccess(res, map[string]interface{}{
+	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
 		"message":           "External agent started successfully",
 		"external_agent_id": externalAgent.ID,
 		"wolf_app_id":       agentResp.WolfAppID,
@@ -472,7 +472,7 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -482,13 +482,13 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 	// Get SpecTask
 	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
 	if err != nil {
-		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		http.Error(res, "SpecTask not found", http.StatusNotFound)
 		return
 	}
 
 	// Check user owns this task
 	if task.CreatedBy != user.ID {
-		system.SendHTTPError(res, system.NewHTTPError401("not authorized to view this agent"))
+		http.Error(res, "not authorized to view this agent", http.StatusUnauthorized)
 		return
 	}
 

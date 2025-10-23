@@ -625,6 +625,20 @@ func (mr *MockStoreMockRecorder) CreateSpecTask(ctx, task any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTask", reflect.TypeOf((*MockStore)(nil).CreateSpecTask), ctx, task)
 }
 
+// CreateSpecTaskExternalAgent mocks base method.
+func (m *MockStore) CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSpecTaskExternalAgent", ctx, agent)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSpecTaskExternalAgent indicates an expected call of CreateSpecTaskExternalAgent.
+func (mr *MockStoreMockRecorder) CreateSpecTaskExternalAgent(ctx, agent any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSpecTaskExternalAgent", reflect.TypeOf((*MockStore)(nil).CreateSpecTaskExternalAgent), ctx, agent)
+}
+
 // CreateSpecTaskImplementationTask mocks base method.
 func (m *MockStore) CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
 	m.ctrl.T.Helper()
@@ -914,6 +928,20 @@ func (mr *MockStoreMockRecorder) DeleteDynamicModelInfo(ctx, id any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).DeleteDynamicModelInfo), ctx, id)
 }
 
+// DeleteExternalAgentActivity mocks base method.
+func (m *MockStore) DeleteExternalAgentActivity(ctx context.Context, agentID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExternalAgentActivity", ctx, agentID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExternalAgentActivity indicates an expected call of DeleteExternalAgentActivity.
+func (mr *MockStoreMockRecorder) DeleteExternalAgentActivity(ctx, agentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).DeleteExternalAgentActivity), ctx, agentID)
+}
+
 // DeleteInteraction mocks base method.
 func (m *MockStore) DeleteInteraction(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1165,6 +1193,20 @@ func (m *MockStore) DeleteSlot(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteSlot(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSlot", reflect.TypeOf((*MockStore)(nil).DeleteSlot), ctx, id)
+}
+
+// DeleteSpecTaskExternalAgent mocks base method.
+func (m *MockStore) DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSpecTaskExternalAgent", ctx, agentID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSpecTaskExternalAgent indicates an expected call of DeleteSpecTaskExternalAgent.
+func (mr *MockStoreMockRecorder) DeleteSpecTaskExternalAgent(ctx, agentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSpecTaskExternalAgent", reflect.TypeOf((*MockStore)(nil).DeleteSpecTaskExternalAgent), ctx, agentID)
 }
 
 // DeleteSpecTaskImplementationTask mocks base method.
@@ -1621,6 +1663,21 @@ func (mr *MockStoreMockRecorder) GetEffectiveSystemSettings(ctx any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveSystemSettings", reflect.TypeOf((*MockStore)(nil).GetEffectiveSystemSettings), ctx)
 }
 
+// GetExternalAgentActivity mocks base method.
+func (m *MockStore) GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExternalAgentActivity", ctx, agentID)
+	ret0, _ := ret[0].(*types.ExternalAgentActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExternalAgentActivity indicates an expected call of GetExternalAgentActivity.
+func (mr *MockStoreMockRecorder) GetExternalAgentActivity(ctx, agentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).GetExternalAgentActivity), ctx, agentID)
+}
+
 // GetHelpRequestByID mocks base method.
 func (m *MockStore) GetHelpRequestByID(ctx context.Context, requestID string) (*types.HelpRequest, error) {
 	m.ctrl.T.Helper()
@@ -1634,6 +1691,21 @@ func (m *MockStore) GetHelpRequestByID(ctx context.Context, requestID string) (*
 func (mr *MockStoreMockRecorder) GetHelpRequestByID(ctx, requestID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHelpRequestByID", reflect.TypeOf((*MockStore)(nil).GetHelpRequestByID), ctx, requestID)
+}
+
+// GetIdleExternalAgents mocks base method.
+func (m *MockStore) GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIdleExternalAgents", ctx, cutoff, agentTypes)
+	ret0, _ := ret[0].([]*types.ExternalAgentActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetIdleExternalAgents indicates an expected call of GetIdleExternalAgents.
+func (mr *MockStoreMockRecorder) GetIdleExternalAgents(ctx, cutoff, agentTypes any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdleExternalAgents", reflect.TypeOf((*MockStore)(nil).GetIdleExternalAgents), ctx, cutoff, agentTypes)
 }
 
 // GetInteraction mocks base method.
@@ -2054,6 +2126,36 @@ func (m *MockStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask
 func (mr *MockStoreMockRecorder) GetSpecTask(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTask", reflect.TypeOf((*MockStore)(nil).GetSpecTask), ctx, id)
+}
+
+// GetSpecTaskExternalAgent mocks base method.
+func (m *MockStore) GetSpecTaskExternalAgent(ctx context.Context, specTaskID string) (*types.SpecTaskExternalAgent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskExternalAgent", ctx, specTaskID)
+	ret0, _ := ret[0].(*types.SpecTaskExternalAgent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskExternalAgent indicates an expected call of GetSpecTaskExternalAgent.
+func (mr *MockStoreMockRecorder) GetSpecTaskExternalAgent(ctx, specTaskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskExternalAgent", reflect.TypeOf((*MockStore)(nil).GetSpecTaskExternalAgent), ctx, specTaskID)
+}
+
+// GetSpecTaskExternalAgentByID mocks base method.
+func (m *MockStore) GetSpecTaskExternalAgentByID(ctx context.Context, agentID string) (*types.SpecTaskExternalAgent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSpecTaskExternalAgentByID", ctx, agentID)
+	ret0, _ := ret[0].(*types.SpecTaskExternalAgent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSpecTaskExternalAgentByID indicates an expected call of GetSpecTaskExternalAgentByID.
+func (mr *MockStoreMockRecorder) GetSpecTaskExternalAgentByID(ctx, agentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSpecTaskExternalAgentByID", reflect.TypeOf((*MockStore)(nil).GetSpecTaskExternalAgentByID), ctx, agentID)
 }
 
 // GetSpecTaskImplementationTask mocks base method.
@@ -2793,6 +2895,21 @@ func (m *MockStore) ListSlots(ctx context.Context, runnerID string) ([]*types.Ru
 func (mr *MockStoreMockRecorder) ListSlots(ctx, runnerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSlots", reflect.TypeOf((*MockStore)(nil).ListSlots), ctx, runnerID)
+}
+
+// ListSpecTaskExternalAgents mocks base method.
+func (m *MockStore) ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSpecTaskExternalAgents", ctx, userID)
+	ret0, _ := ret[0].([]*types.SpecTaskExternalAgent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSpecTaskExternalAgents indicates an expected call of ListSpecTaskExternalAgents.
+func (mr *MockStoreMockRecorder) ListSpecTaskExternalAgents(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSpecTaskExternalAgents", reflect.TypeOf((*MockStore)(nil).ListSpecTaskExternalAgents), ctx, userID)
 }
 
 // ListSpecTaskImplementationTasks mocks base method.
@@ -3559,6 +3676,20 @@ func (mr *MockStoreMockRecorder) UpdateSpecTask(ctx, task any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTask", reflect.TypeOf((*MockStore)(nil).UpdateSpecTask), ctx, task)
 }
 
+// UpdateSpecTaskExternalAgent mocks base method.
+func (m *MockStore) UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSpecTaskExternalAgent", ctx, agent)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateSpecTaskExternalAgent indicates an expected call of UpdateSpecTaskExternalAgent.
+func (mr *MockStoreMockRecorder) UpdateSpecTaskExternalAgent(ctx, agent any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSpecTaskExternalAgent", reflect.TypeOf((*MockStore)(nil).UpdateSpecTaskExternalAgent), ctx, agent)
+}
+
 // UpdateSpecTaskImplementationTask mocks base method.
 func (m *MockStore) UpdateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
 	m.ctrl.T.Helper()
@@ -3733,6 +3864,20 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpsertExternalAgentActivity mocks base method.
+func (m *MockStore) UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertExternalAgentActivity", ctx, activity)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertExternalAgentActivity indicates an expected call of UpsertExternalAgentActivity.
+func (mr *MockStoreMockRecorder) UpsertExternalAgentActivity(ctx, activity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).UpsertExternalAgentActivity), ctx, activity)
 }
 
 // UpsertZedSettingsOverride mocks base method.
