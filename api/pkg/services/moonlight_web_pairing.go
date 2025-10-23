@@ -3,7 +3,6 @@ package services
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -149,7 +148,7 @@ func (s *MoonlightWebPairingService) waitForWolf(ctx context.Context, timeout ti
 			return fmt.Errorf("timeout waiting for Wolf")
 		case <-ticker.C:
 			// Try to list apps from Wolf internal API
-			_, err := s.wolfClient.ListApps()
+			_, err := s.wolfClient.ListApps(ctx)
 			if err == nil {
 				log.Info().Msg("✅ Wolf is ready")
 				return nil
