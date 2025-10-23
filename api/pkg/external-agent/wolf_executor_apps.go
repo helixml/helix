@@ -248,7 +248,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	var streamSessionID string
 	for _, session := range sessionsResp.Sessions {
 		if session.AppID == wolfAppID {
-			streamSessionID = fmt.Sprintf("%d", session.ClientID)
+			streamSessionID = session.ClientID // Already a string
 			break
 		}
 	}

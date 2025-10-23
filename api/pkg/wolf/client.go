@@ -593,7 +593,7 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 // WolfSession represents a Wolf streaming session
 type WolfSession struct {
 	AppID             string `json:"app_id"`
-	ClientID          int64  `json:"client_id"`
+	ClientID          string `json:"client_id"` // Wolf returns this as string, not int64
 	ClientIP          string `json:"client_ip"`
 	AESKey            string `json:"aes_key"`
 	AESIV             string `json:"aes_iv"`
