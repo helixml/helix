@@ -76,6 +76,16 @@ type Options struct {
 	LocalFilestorePath string
 }
 
+// serverWSChecker implements WebSocketConnectionChecker interface for Wolf executor
+type serverWSChecker struct {
+	manager *ExternalAgentWSManager
+}
+
+func (s *serverWSChecker) IsExternalAgentConnected(sessionID string) bool {
+	_, exists := s.manager.getConnection(sessionID)
+	return exists
+}
+
 type HelixAPIServer struct {
 	Cfg                         *config.ServerConfig
 	Store                       store.Store
@@ -227,16 +237,20 @@ func NewServer(
 		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
 	}
 
+	// Initialize external agent WebSocket manager BEFORE executor
+	externalAgentWSManager := NewExternalAgentWSManager()
+
+	// Create simple adapter for WebSocket connection checking
+	wsChecker := &serverWSChecker{manager: externalAgentWSManager}
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		cfg.WebServer.URL,
 		cfg.WebServer.RunnerToken,
 		store,
+		wsChecker,
 	)
-
-	// Initialize external agent WebSocket manager
-	externalAgentWSManager := NewExternalAgentWSManager()
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
