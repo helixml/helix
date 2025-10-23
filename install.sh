@@ -1477,6 +1477,13 @@ EOF
         # Create Wolf directory and configuration
         mkdir -p "$INSTALL_DIR/wolf"
 
+        # Extract hostname for Wolf display name
+        if [ -n "$API_HOST" ]; then
+            WOLF_HOSTNAME=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+        else
+            WOLF_HOSTNAME="local"
+        fi
+
         # Create Wolf config.toml (version 6 with GStreamer encoders and dynamic apps support)
         # Only create if it doesn't exist to preserve user modifications
         if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
@@ -1485,7 +1492,7 @@ EOF
             cat << WOLFCONFIG > "$INSTALL_DIR/wolf/config.toml"
 apps = []
 config_version = 6
-hostname = 'Helix (\$(hostname))'
+hostname = 'Helix ($WOLF_HOSTNAME)'
 paired_clients = []
 
 [gstreamer.audio]
