@@ -1436,12 +1436,33 @@ WOLFCONFIG
             echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
         fi
 
-        # CRITICAL: Do NOT generate new Wolf certificates - use the ones checked into git
-        # The certificates in wolf/cert.pem and wolf/key.pem are specifically configured
-        # to work with moonlight-web (CN=localhost, matches data.json server_certificate)
-        # Generating new certificates will break moonlight-web HTTPS connections to Wolf
-        echo "Using Wolf SSL certificates from repository (wolf/cert.pem, wolf/key.pem)"
-        echo "These certificates are pre-configured to work with moonlight-web"
+        # Generate self-signed certificates for Wolf HTTPS
+        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
+        # CRITICAL: Use CN=localhost for Docker network compatibility
+        echo "Generating Wolf SSL certificates..."
+        openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
+            -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
+
+        # Extract certificate in JSON-escaped format for moonlight-web data.json
+        WOLF_CERT_ESCAPED=$(awk 'NF {sub(/\r/, ""); printf "%s\\r\\n", $0}' "$INSTALL_DIR/wolf/cert.pem")
+
+        # Update moonlight-web data.json with the new Wolf server certificate
+        # This is CRITICAL - moonlight-web must trust Wolf's certificate for HTTPS connections
+        if [ -f "$INSTALL_DIR/moonlight-web-config/data.json" ]; then
+            echo "Updating moonlight-web data.json with Wolf server certificate..."
+            # Use jq if available, otherwise use sed
+            if command -v jq &> /dev/null; then
+                jq --arg cert "$WOLF_CERT_ESCAPED" \
+                    '.hosts[0].paired.server_certificate = $cert' \
+                    "$INSTALL_DIR/moonlight-web-config/data.json" > "$INSTALL_DIR/moonlight-web-config/data.json.tmp"
+                mv "$INSTALL_DIR/moonlight-web-config/data.json.tmp" "$INSTALL_DIR/moonlight-web-config/data.json"
+            else
+                echo "Warning: jq not found, Wolf certificate not automatically updated in moonlight-web config"
+                echo "You may need to manually update moonlight-web-config/data.json"
+            fi
+        fi
+
+        echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
     fi
 
     # Continue with the rest of the .env file
