@@ -117,9 +117,20 @@
   - Shows agent status, idle warnings, controls
   - Integrated into existing dashboard layout
 
+**Commit 6: Compilation Fixes** (55895026a)
+- ✅ **Backend Compilation Fixes**
+  - Added ExternalAgentID, ExternalAgentStatus, Phase to SessionMetadata
+  - Fixed Session struct field names (Owner not UserID)
+  - Moved SystemPrompt to SessionMetadata
+  - Removed duplicate sanitizeForBranchName
+  - Fixed prompt building with strings.Builder (avoid nested backticks)
+  - Replaced system.SendHTTPSuccess with json.NewEncoder
+  - Fixed externalAgentExecutor references
+  - Regenerated store mocks
+
 ### Implementation Complete! ✅
 
-**Backend** (100% complete):
+**Backend** (100% complete and compiling):
 - Database schema with per-SpecTask agents
 - External agent orchestration (planning + implementation)
 - Idle detection and 30min cleanup
@@ -127,11 +138,12 @@
 - Start/stop/status API endpoints
 - State persistence in startup script
 
-**Frontend** (Core features complete):
+**Frontend** (Core features complete and compiling):
 - Simplified creation experience (single text box)
 - External agent lifecycle controls
 - Idle warnings and manual start/stop
 - Status monitoring with auto-refresh
+- Hot-reloading successfully
 
 ### TODO (Future Enhancements)
 - [ ] Repository dropdown and multi-attach UI (backend ready, frontend placeholder)
