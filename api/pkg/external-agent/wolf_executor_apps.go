@@ -237,6 +237,38 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		Str("session_id", agent.SessionID).
 		Msg("Moonlight-web keepalive session established successfully for external agent (apps mode)")
 
+	// CRITICAL: Start the runner (Docker container) - apps don't auto-start like lobbies do!
+	// We need to get the streaming session ID first
+	sessionsResp, err := w.wolfClient.ListSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list Wolf sessions: %w", err)
+	}
+
+	// Find the session for our app
+	var streamSessionID string
+	for _, session := range sessionsResp.Sessions {
+		if session.AppID == wolfAppID {
+			streamSessionID = fmt.Sprintf("%d", session.ClientID)
+			break
+		}
+	}
+
+	if streamSessionID == "" {
+		return nil, fmt.Errorf("could not find streaming session for app %s", wolfAppID)
+	}
+
+	// Start the runner with the streaming session
+	err = w.wolfClient.StartRunner(ctx, streamSessionID, app.Runner, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start runner: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("wolf_app_id", wolfAppID).
+		Str("stream_session_id", streamSessionID).
+		Msg("Wolf runner (Docker container) started successfully")
+
 	// Track session (simple - no lobbies, no keepalive)
 	session := &ZedSession{
 		SessionID:      agent.SessionID,

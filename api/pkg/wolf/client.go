@@ -589,3 +589,98 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 
 	return nil
 }
+
+// WolfSession represents a Wolf streaming session
+type WolfSession struct {
+	AppID             string `json:"app_id"`
+	ClientID          int64  `json:"client_id"`
+	ClientIP          string `json:"client_ip"`
+	AESKey            string `json:"aes_key"`
+	AESIV             string `json:"aes_iv"`
+	RTSPFakeIP        string `json:"rtsp_fake_ip"`
+	VideoWidth        int    `json:"video_width"`
+	VideoHeight       int    `json:"video_height"`
+	VideoRefreshRate  int    `json:"video_refresh_rate"`
+	AudioChannelCount int    `json:"audio_channel_count"`
+}
+
+// SessionsResponse represents the response from /api/v1/sessions
+type SessionsResponse struct {
+	Success  bool          `json:"success"`
+	Sessions []WolfSession `json:"sessions"`
+}
+
+// ListSessions retrieves all streaming sessions from Wolf
+func (c *Client) ListSessions(ctx context.Context) (*SessionsResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/v1/sessions", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result SessionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
+}
+
+// StartRunner starts a runner (Docker container) for a streaming session
+func (c *Client) StartRunner(ctx context.Context, sessionID string, runner interface{}, stopStreamWhenOver bool) error {
+	reqBody := map[string]interface{}{
+		"session_id":            sessionID,
+		"runner":                runner,
+		"stop_stream_when_over": stopStreamWhenOver,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "http://localhost/api/v1/runners/start", bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return fmt.Errorf("failed to start runner: %s", result.Error)
+	}
+
+	return nil
+}
