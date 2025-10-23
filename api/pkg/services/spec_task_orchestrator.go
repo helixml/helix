@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -415,15 +414,15 @@ func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, 
 	// Create session
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_impl_%s", task.ID),
-		UserID:         task.CreatedBy,
-		AppID:          app.ID,
+		Owner:          task.CreatedBy,
+		OwnerType:      types.OwnerTypeUser,
+		ParentApp:      app.ID,
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
 		ModelName:      app.Config.Helix.Assistants[0].Model,
-		SystemPrompt:   systemPrompt,
-		ParentApp:      app.ID,
 		OrganizationID: task.Metadata.String(),
 		Metadata: types.SessionMetadata{
+			SystemPrompt:    systemPrompt,
 			SpecTaskID:      task.ID,
 			ExternalAgentID: agent.ID,
 			Phase:           "implementation",
@@ -473,89 +472,33 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`%s
+	// Build implementation prompt
+	var promptBuilder strings.Builder
+	promptBuilder.WriteString(basePrompt)
+	promptBuilder.WriteString("\n\n## Task: Implement According to Specifications\n\n")
+	promptBuilder.WriteString("You are running in a full external agent session with Zed editor and git access.\n")
+	promptBuilder.WriteString("This is the SAME Zed instance from the planning phase - you can see the planning thread in Zed!\n\n")
+	promptBuilder.WriteString(fmt.Sprintf("**SpecTask**: %s\n", task.Name))
+	promptBuilder.WriteString(fmt.Sprintf("**Description**: %s\n\n", task.Description))
+	promptBuilder.WriteString("**Your job is to:**\n\n")
+	promptBuilder.WriteString(fmt.Sprintf("1. Fetch latest design documents from helix-design-docs branch\n"))
+	promptBuilder.WriteString(fmt.Sprintf("2. Read design docs from: .git-worktrees/helix-design-docs/tasks/%s/\n", taskDirName))
+	promptBuilder.WriteString(fmt.Sprintf("3. Create feature branch: feature/%s\n", task.ID))
+	promptBuilder.WriteString("4. Implement according to tasks.md\n")
+	promptBuilder.WriteString("5. Mark tasks in progress [ ] -> [~] and complete [~] -> [x] in tasks.md\n")
+	promptBuilder.WriteString("6. Push progress updates to helix-design-docs branch\n")
+	promptBuilder.WriteString("7. Push feature branch when ready\n\n")
+	promptBuilder.WriteString("**Git Workflow**:\n")
+	promptBuilder.WriteString(fmt.Sprintf("- Work in: /home/retro/work/%s\n", primaryRepoPath))
+	promptBuilder.WriteString("- Design docs: .git-worktrees/helix-design-docs\n")
+	promptBuilder.WriteString("- Feature branch: feature/" + task.ID + "\n\n")
+	promptBuilder.WriteString("**Context from Planning Phase**:\n\n")
+	promptBuilder.WriteString(fmt.Sprintf("Requirements: %s\n\n", task.RequirementsSpec))
+	promptBuilder.WriteString(fmt.Sprintf("Design: %s\n\n", task.TechnicalDesign))
+	promptBuilder.WriteString(fmt.Sprintf("Implementation Plan: %s\n\n", task.ImplementationPlan))
+	promptBuilder.WriteString("Work methodically. All repositories and Zed state persist across sessions.")
 
-## Task: Implement According to Specifications
-
-You are running in a full external agent session with Zed editor and git access.
-This is the SAME Zed instance from the planning phase - you can see the planning thread in Zed!
-
-**SpecTask**: %s
-**Description**: %s
-
-**Your job is to:**
-
-**Step 1: Fetch latest design documents**
-
-```bash
-cd /home/retro/work/%s
-git fetch origin helix-design-docs
-```
-
-**Step 2: Read design documents from helix-design-docs worktree**
-
-```bash
-cd .git-worktrees/helix-design-docs/tasks/%s
-cat requirements.md
-cat design.md
-cat tasks.md
-cat task-metadata.json
-```
-
-**Step 3: Create feature branch for implementation**
-
-```bash
-cd /home/retro/work/%s
-git checkout -b feature/%s
-```
-
-**Step 4: Implement according to tasks.md**
-
-Follow the implementation plan in tasks.md. For each task:
-
-1. Mark task in progress:
-```bash
-cd /home/retro/work/%s/.git-worktrees/helix-design-docs
-# Edit tasks/%s/tasks.md: change [ ] to [~]
-git add tasks/%s/tasks.md
-git commit -m "🤖 Agent: Started task X"
-git push origin helix-design-docs
-```
-
-2. Implement the task in the feature branch
-3. Commit implementation:
-```bash
-cd /home/retro/work/%s
-git add .
-git commit -m "Implement task X"
-```
-
-4. Mark task complete:
-```bash
-cd .git-worktrees/helix-design-docs
-# Edit tasks/%s/tasks.md: change [~] to [x]
-git add tasks/%s/tasks.md
-git commit -m "🤖 Agent: Completed task X"
-git push origin helix-design-docs
-```
-
-**Step 5: Push feature branch when ready**
-
-```bash
-cd /home/retro/work/%s
-git push -u origin feature/%s
-```
-
-**Context from Planning Phase**:
-
-**Requirements**: %s
-
-**Design**: %s
-
-**Implementation Plan**: %s
-
-Work methodically. All repositories and Zed state persist across sessions. You can reference the planning thread in Zed.
-`, basePrompt, task.Name, task.Description, primaryRepoPath, taskDirName, primaryRepoPath, task.ID, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, task.ID, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan)
+	return promptBuilder.String()
 }
 
 // handleImplementation handles tasks in implementation
@@ -810,15 +753,15 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 	// Create session
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
-		UserID:         task.CreatedBy,
-		AppID:          app.ID,
+		Owner:          task.CreatedBy,
+		OwnerType:      types.OwnerTypeUser,
+		ParentApp:      app.ID,
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
 		ModelName:      app.Config.Helix.Assistants[0].Model,
-		SystemPrompt:   systemPrompt,
-		ParentApp:      app.ID,
 		OrganizationID: task.Metadata.String(), // Extract from metadata if needed
 		Metadata: types.SessionMetadata{
+			SystemPrompt:    systemPrompt,
 			SpecTaskID:      task.ID,
 			ExternalAgentID: agent.ID,
 			Phase:           "planning",
@@ -878,77 +821,40 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	}
 	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
-	return fmt.Sprintf(`%s
+	// Build planning prompt using string builder to avoid nested backticks
+	var promptBuilder strings.Builder
+	promptBuilder.WriteString(basePrompt)
+	promptBuilder.WriteString("\n\n## Task: Generate Specifications from User Request\n\n")
+	promptBuilder.WriteString("You are running in a full external agent session with Zed editor and git access.\n\n")
+	promptBuilder.WriteString("The user has provided the following task description:\n\n")
+	promptBuilder.WriteString("---\n")
+	promptBuilder.WriteString(task.OriginalPrompt)
+	promptBuilder.WriteString("\n---\n\n")
+	promptBuilder.WriteString("**Your job is to:**\n")
+	promptBuilder.WriteString(repoInstructions)
+	promptBuilder.WriteString("\n**Step 2: Setup helix-design-docs branch and worktree**\n\n")
+	promptBuilder.WriteString(fmt.Sprintf("cd /home/retro/work/%s\n", primaryRepoPath))
+	promptBuilder.WriteString("git branch helix-design-docs 2>/dev/null || true\n")
+	promptBuilder.WriteString("git worktree add .git-worktrees/helix-design-docs helix-design-docs 2>/dev/null || true\n")
+	promptBuilder.WriteString("cd .git-worktrees/helix-design-docs/tasks\n")
+	promptBuilder.WriteString(fmt.Sprintf("mkdir -p %s\n", taskDirName))
+	promptBuilder.WriteString(fmt.Sprintf("cd %s\n\n", taskDirName))
+	promptBuilder.WriteString("**Step 3: Write design documents**\n\n")
+	promptBuilder.WriteString("Create these markdown files:\n")
+	promptBuilder.WriteString("1. requirements.md - User stories + EARS acceptance criteria\n")
+	promptBuilder.WriteString("2. design.md - Architecture, diagrams, data models\n")
+	promptBuilder.WriteString("3. tasks.md - Implementation tasks with [ ]/[~]/[x] markers\n")
+	promptBuilder.WriteString("4. task-metadata.json - {\"name\": \"...\", \"description\": \"...\", \"type\": \"feature|bug|refactor\"}\n\n")
+	promptBuilder.WriteString("**Step 4: Commit and push to Helix git server**\n\n")
+	promptBuilder.WriteString("Commit each file separately, then push helix-design-docs branch.\n")
+	promptBuilder.WriteString("The helix-design-docs branch is forward-only (never rolled back).\n")
+	promptBuilder.WriteString("Push to Helix git server so UI can read design docs.\n\n")
+	promptBuilder.WriteString("Work in /home/retro/work/ - everything persists across sessions.")
 
-## Task: Generate Specifications from User Request
-
-You are running in a full external agent session with Zed editor and git access.
-
-The user has provided the following task description:
-
----
-%s
----
-
-**Your job is to:**
-%s
-**Step 2: Setup helix-design-docs branch and worktree**
-
-```bash
-cd /home/retro/work/%s
-git branch helix-design-docs 2>/dev/null || true
-git worktree add .git-worktrees/helix-design-docs helix-design-docs 2>/dev/null || true
-cd .git-worktrees/helix-design-docs
-mkdir -p tasks
-cd tasks
-mkdir -p %s
-cd %s
-```
-
-**Step 3: Write design documents**
-
-Create the following markdown files:
-
-1. **requirements.md** - User stories + EARS acceptance criteria
-2. **design.md** - Architecture, sequence diagrams, data models, API contracts
-3. **tasks.md** - Discrete implementation tasks with [ ]/[~]/[x] markers
-4. **task-metadata.json** - Extract: {"name": "...", "description": "...", "type": "feature|bug|refactor"}
-
-**Step 4: Commit and push to Helix git server**
-
-```bash
-cd /home/retro/work/%s/.git-worktrees/helix-design-docs
-git add tasks/%s/requirements.md
-git commit -m "Add requirements specification for %s"
-git add tasks/%s/design.md
-git commit -m "Add technical design for %s"
-git add tasks/%s/tasks.md
-git commit -m "Add implementation plan for %s"
-git add tasks/%s/task-metadata.json
-git commit -m "Add task metadata for %s"
-git push -u origin helix-design-docs
-```
-
-**CRITICAL**:
-- The helix-design-docs branch is **forward-only** (never rolled back)
-- Push to Helix git server so UI can read design docs
-- Use the [ ]/[~]/[x] markers in tasks.md for progress tracking
-
-Work in the persistent workspace at /home/retro/work/ - everything persists across sessions.
-`, basePrompt, task.OriginalPrompt, repoInstructions, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, taskDirName, task.ID, taskDirName, task.ID, taskDirName, task.ID, taskDirName, task.ID)
+	return promptBuilder.String()
 }
 
-// sanitizeForBranchName converts text to branch-name-safe format
-func sanitizeForBranchName(text string) string {
-	// Simple sanitization for git branch names
-	text = strings.ToLower(text)
-	text = strings.ReplaceAll(text, " ", "-")
-	text = strings.ReplaceAll(text, "_", "-")
-	// Remove special characters
-	reg := regexp.MustCompile("[^a-z0-9-]")
-	text = reg.ReplaceAllString(text, "")
-	return text
-}
+// sanitizeForBranchName is already defined in design_docs_helpers.go
 
 // GetLiveProgress returns current live progress for all running tasks
 func (o *SpecTaskOrchestrator) GetLiveProgress() []*LiveAgentProgress {
