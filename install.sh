@@ -1674,21 +1674,24 @@ WOLFCONFIG
         # Extract certificate in JSON-escaped format for moonlight-web data.json
         WOLF_CERT_ESCAPED=$(awk 'NF {sub(/\r/, ""); printf "%s\\r\\n", $0}' "$INSTALL_DIR/wolf/cert.pem")
 
-        # Update moonlight-web data.json with the new Wolf server certificate
-        # This is CRITICAL - moonlight-web must trust Wolf's certificate for HTTPS connections
-        if [ -f "$INSTALL_DIR/moonlight-web-config/data.json" ]; then
-            echo "Updating moonlight-web data.json with Wolf server certificate..."
-            # Use jq if available, otherwise use sed
-            if command -v jq &> /dev/null; then
-                jq --arg cert "$WOLF_CERT_ESCAPED" \
-                    '.hosts[0].paired.server_certificate = $cert' \
-                    "$INSTALL_DIR/moonlight-web-config/data.json" > "$INSTALL_DIR/moonlight-web-config/data.json.tmp"
-                mv "$INSTALL_DIR/moonlight-web-config/data.json.tmp" "$INSTALL_DIR/moonlight-web-config/data.json"
-            else
-                echo "Warning: jq not found, Wolf certificate not automatically updated in moonlight-web config"
-                echo "You may need to manually update moonlight-web-config/data.json"
-            fi
-        fi
+        # Create initial moonlight-web data.json with Wolf host pre-configured
+        # This is CRITICAL - moonlight-web must have Wolf host configured with certificate for HTTPS connections
+        echo "Creating moonlight-web data.json with Wolf host configuration..."
+        cat << MOONLIGHTDATA > "$INSTALL_DIR/moonlight-web-config/data.json"
+{
+  "hosts": [
+    {
+      "hostname": "localhost",
+      "mac": "00:00:00:00:00:00",
+      "paired": {
+        "app_id": "458154150",
+        "server_certificate": "${WOLF_CERT_ESCAPED}"
+      }
+    }
+  ]
+}
+MOONLIGHTDATA
+        echo "Moonlight-web data.json created with Wolf certificate at $INSTALL_DIR/moonlight-web-config/data.json"
     fi
 
     # Continue with the rest of the .env file
