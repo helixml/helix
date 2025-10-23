@@ -48,8 +48,8 @@ type MoonlightWebData struct {
 
 // ensureWolfHostExists adds Wolf to moonlight-web's host list if not already present
 func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
-	// Call moonlight-web API to add Wolf host
-	url := fmt.Sprintf("%s/api/hosts/add", s.moonlightWebURL)
+	// Call moonlight-web PUT /api/host to add Wolf
+	url := fmt.Sprintf("%s/api/host", s.moonlightWebURL)
 
 	hostData := map[string]interface{}{
 		"address":   "wolf",
@@ -63,9 +63,11 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	log.Info().
 		Str("url", url).
-		Msg("Adding Wolf host to moonlight-web")
+		Str("address", "wolf").
+		Int("http_port", 47989).
+		Msg("Adding Wolf host to moonlight-web via PUT /api/host")
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
@@ -81,17 +83,19 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	body, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode == 409 {
-		// Host already exists - this is fine
-		log.Info().Msg("Wolf host already exists in moonlight-web")
+	// 404 means Wolf is not reachable yet - this is okay, pairing will retry
+	if resp.StatusCode == 404 {
+		log.Warn().Msg("Wolf not reachable yet (404), will retry during pairing")
 		return nil
 	}
 
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+	if resp.StatusCode != 200 {
 		return fmt.Errorf("failed to add Wolf host: status %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	log.Info().Msg("✅ Wolf host added to moonlight-web")
+	log.Info().
+		Str("response", string(body)).
+		Msg("✅ Wolf host added to moonlight-web")
 	return nil
 }
 
