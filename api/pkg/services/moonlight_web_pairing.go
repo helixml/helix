@@ -46,6 +46,55 @@ type MoonlightWebData struct {
 	Hosts []MoonlightWebHost `json:"hosts"`
 }
 
+// ensureWolfHostExists adds Wolf to moonlight-web's host list if not already present
+func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
+	// Call moonlight-web API to add Wolf host
+	url := fmt.Sprintf("%s/api/hosts/add", s.moonlightWebURL)
+
+	hostData := map[string]interface{}{
+		"address":   "wolf",
+		"http_port": 47989,
+	}
+
+	jsonData, err := json.Marshal(hostData)
+	if err != nil {
+		return err
+	}
+
+	log.Info().
+		Str("url", url).
+		Msg("Adding Wolf host to moonlight-web")
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.credentials)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to add Wolf host: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == 409 {
+		// Host already exists - this is fine
+		log.Info().Msg("Wolf host already exists in moonlight-web")
+		return nil
+	}
+
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return fmt.Errorf("failed to add Wolf host: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	log.Info().Msg("✅ Wolf host added to moonlight-web")
+	return nil
+}
+
 // AutoPairWolf automatically pairs moonlight-web with Wolf on startup
 // This ensures browser streaming works without manual intervention
 func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
@@ -56,7 +105,12 @@ func (s *MoonlightWebPairingService) AutoPairWolf(ctx context.Context) error {
 		return fmt.Errorf("moonlight-web not ready: %w", err)
 	}
 
-	// Step 2: Check if Wolf is already paired
+	// Step 2: Add Wolf as a host in moonlight-web if not already present
+	if err := s.ensureWolfHostExists(); err != nil {
+		log.Warn().Err(err).Msg("Failed to add Wolf host, will attempt pairing anyway")
+	}
+
+	// Step 3: Check if Wolf is already paired
 	paired, err := s.isWolfPaired()
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to check pairing status, will attempt pairing anyway")
