@@ -123,11 +123,11 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	// Display settings with defaults
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 1920
+		displayWidth = 3840  // 4K width
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 1080
+		displayHeight = 2160  // 4K height
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
