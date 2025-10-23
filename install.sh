@@ -946,49 +946,6 @@ if [ "$CODE" = true ]; then
     fi
 fi
 
-# Function to check if jq needs to be installed
-check_jq_needed() {
-    # jq is only needed for --code flag (Wolf certificate sync)
-    if [ "$CODE" != true ]; then
-        return 1  # Not needed
-    fi
-
-    if command -v jq &> /dev/null; then
-        return 1  # Already installed
-    fi
-
-    return 0  # Needed but not installed
-}
-
-# Function to install jq
-install_jq() {
-    if ! command -v jq &> /dev/null; then
-        echo "Installing jq..."
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            case $ID in
-                ubuntu|debian)
-                    sudo apt-get update
-                    sudo apt-get install -y jq
-                    ;;
-                fedora)
-                    sudo dnf install -y jq
-                    ;;
-                *)
-                    echo "Unsupported distribution for automatic jq installation."
-                    echo "Please install jq manually:"
-                    echo "  Ubuntu/Debian: sudo apt-get install jq"
-                    echo "  Fedora: sudo dnf install jq"
-                    exit 1
-                    ;;
-            esac
-        else
-            echo "Unable to determine OS distribution. Please install jq manually."
-            exit 1
-        fi
-    fi
-}
-
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
@@ -1031,16 +988,6 @@ gather_modifications() {
     if [ "$EXTERNAL_ZED_AGENT" = true ]; then
         modifications+="  - Build Zed agent Docker image\n"
         modifications+="  - Install External Zed Agent runner script\n"
-    fi
-
-    # Check if jq needs to be installed (at the end)
-    if check_jq_needed; then
-        if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
-            . /etc/os-release
-            if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
-                modifications+="  - Install jq (JSON processor for Wolf certificate sync)\n"
-            fi
-        fi
     fi
 
     echo -e "$modifications"
@@ -1092,11 +1039,6 @@ if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT"
             fi
         fi
     fi
-fi
-
-# Install jq if needed and approved (only after user approval)
-if check_jq_needed; then
-    install_jq
 fi
 
 # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
