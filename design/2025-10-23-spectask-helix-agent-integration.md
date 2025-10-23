@@ -32,7 +32,7 @@
   - Updated constructor to accept wolf executor
   - Updated `server.go` to pass wolf executor
 
-**Commit 2: Orchestration & Cleanup** (2beac2bad)
+**Commit 2: Orchestration & Cleanup** (538947705)
 - ✅ **Store Methods** - Complete CRUD for external agents
   - `store_spec_task_external_agent.go` - New file
   - CreateSpecTaskExternalAgent, Get, Update, Delete, List
@@ -61,12 +61,41 @@
   - Updates all affected Helix sessions with terminated status
   - Workspace preservation in filestore
 
+**Commit 3: Control Endpoints** (60c624c54)
+- ✅ **External Agent Control API** - Manual start/stop
+  - POST `/api/v1/spec-tasks/{id}/external-agent/start` - Start/resume agent
+  - POST `/api/v1/spec-tasks/{id}/external-agent/stop` - Stop agent (free GPU)
+  - GET `/api/v1/spec-tasks/{id}/external-agent/status` - Get status and idle time
+  - Authorization checks (user must own task)
+  - Activity tracking on start/stop
+  - Returns idle warnings (25min threshold)
+  - Routes registered in server.go
+
+**Commit 4: Complete Git Workflows** (44c62382b)
+- ✅ **Enhanced Planning Prompt** - Complete git workflow
+  - Parse AttachedRepositories and generate clone commands
+  - Identify primary repository for helix-design-docs
+  - Generate task directory: `{YYYY-MM-DD}_{branch-name}_{task_id}`
+  - Complete worktree setup instructions
+  - Write requirements.md, design.md, tasks.md, task-metadata.json
+  - Atomic commits and push to Helix git server
+
+- ✅ **Enhanced Implementation Prompt** - Git reading and progress tracking
+  - Fetch helix-design-docs from Helix git server
+  - Read design docs from worktree
+  - Create feature branch for implementation
+  - Mark tasks in progress `[~]` and complete `[x]` in tasks.md
+  - Push progress updates to helix-design-docs (live tracking!)
+  - Push feature branch when ready
+  - Include full spec context
+
+- ✅ **Helper Functions**
+  - `sanitizeForBranchName()` - Convert text to git-safe format
+
 ### In Progress
 - None currently
 
 ### TODO (Remaining Steps)
-- [ ] Enhance `buildPlanningPrompt()` with complete git workflow (multi-repo clone, helix-design-docs worktree)
-- [ ] Enhance `buildImplementationPrompt()` with git reading instructions
 - [ ] Frontend: Simplified creation form
 - [ ] Frontend: Repository dropdown and multi-attach
 - [ ] Frontend: Helix Agent selection

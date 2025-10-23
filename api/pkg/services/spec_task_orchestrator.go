@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -440,46 +443,119 @@ func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, 
 	return createdSession, nil
 }
 
-// buildImplementationPrompt builds the system prompt for implementation phase
+// buildImplementationPrompt builds the system prompt for implementation phase with git workflow
 func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, app *types.App) string {
 	basePrompt := ""
 	if len(app.Config.Helix.Assistants) > 0 {
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// TODO: Add repository access and helix-design-docs reading instructions
-	// For now, return basic prompt with spec context
+	// Parse attached repositories
+	var repos []types.AttachedRepository
+	if len(task.AttachedRepositories) > 0 {
+		json.Unmarshal(task.AttachedRepositories, &repos)
+	}
+
+	// Find primary repo and task directory
+	primaryRepoPath := "backend"
+	for _, repo := range repos {
+		if repo.IsPrimary {
+			primaryRepoPath = repo.LocalPath
+			break
+		}
+	}
+
+	// Generate task directory name (same as planning phase)
+	dateStr := time.Now().Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
 	return fmt.Sprintf(`%s
 
 ## Task: Implement According to Specifications
 
-You are running in a full external agent session with access to Zed editor.
-This is the SAME Zed instance from the planning phase - you can see the planning thread.
+You are running in a full external agent session with Zed editor and git access.
+This is the SAME Zed instance from the planning phase - you can see the planning thread in Zed!
 
 **SpecTask**: %s
 **Description**: %s
 
-**Requirements Specification**:
-%s
-
-**Technical Design**:
-%s
-
-**Implementation Plan**:
-%s
-
 **Your job is to:**
 
-1. Read the design documents from the helix-design-docs worktree
-2. Create a feature branch for implementation
-3. Implement according to the implementation plan
-4. Mark tasks in progress/complete in the tasks.md file
-5. Make atomic commits for each implementation task
-6. Push progress updates to helix-design-docs branch
+**Step 1: Fetch latest design documents**
 
-Work methodically through the implementation plan. All your work persists across sessions.
-`, basePrompt, task.Name, task.Description, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan)
+```bash
+cd /home/retro/work/%s
+git fetch origin helix-design-docs
+```
+
+**Step 2: Read design documents from helix-design-docs worktree**
+
+```bash
+cd .git-worktrees/helix-design-docs/tasks/%s
+cat requirements.md
+cat design.md
+cat tasks.md
+cat task-metadata.json
+```
+
+**Step 3: Create feature branch for implementation**
+
+```bash
+cd /home/retro/work/%s
+git checkout -b feature/%s
+```
+
+**Step 4: Implement according to tasks.md**
+
+Follow the implementation plan in tasks.md. For each task:
+
+1. Mark task in progress:
+```bash
+cd /home/retro/work/%s/.git-worktrees/helix-design-docs
+# Edit tasks/%s/tasks.md: change [ ] to [~]
+git add tasks/%s/tasks.md
+git commit -m "🤖 Agent: Started task X"
+git push origin helix-design-docs
+```
+
+2. Implement the task in the feature branch
+3. Commit implementation:
+```bash
+cd /home/retro/work/%s
+git add .
+git commit -m "Implement task X"
+```
+
+4. Mark task complete:
+```bash
+cd .git-worktrees/helix-design-docs
+# Edit tasks/%s/tasks.md: change [~] to [x]
+git add tasks/%s/tasks.md
+git commit -m "🤖 Agent: Completed task X"
+git push origin helix-design-docs
+```
+
+**Step 5: Push feature branch when ready**
+
+```bash
+cd /home/retro/work/%s
+git push -u origin feature/%s
+```
+
+**Context from Planning Phase**:
+
+**Requirements**: %s
+
+**Design**: %s
+
+**Implementation Plan**: %s
+
+Work methodically. All repositories and Zed state persist across sessions. You can reference the planning thread in Zed.
+`, basePrompt, task.Name, task.Description, primaryRepoPath, taskDirName, primaryRepoPath, task.ID, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, task.ID, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan)
 }
 
 // handleImplementation handles tasks in implementation
@@ -762,22 +838,51 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 	return createdSession, nil
 }
 
-// buildPlanningPrompt builds the system prompt for planning phase
+// buildPlanningPrompt builds the system prompt for planning phase with complete git workflow
 func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *types.App) string {
 	basePrompt := ""
 	if len(app.Config.Helix.Assistants) > 0 {
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// TODO: Add repository clone URLs and multi-repo setup instructions
-	// TODO: Add helix-design-docs worktree setup instructions
-	// For now, return basic prompt
+	// Parse attached repositories
+	var repos []types.AttachedRepository
+	if len(task.AttachedRepositories) > 0 {
+		json.Unmarshal(task.AttachedRepositories, &repos)
+	}
+
+	// Build repository clone commands
+	repoInstructions := ""
+	if len(repos) > 0 {
+		repoInstructions = "\n**Step 1: Clone all attached repositories**\n\n```bash\ncd /home/retro/work\n"
+		for _, repo := range repos {
+			repoInstructions += fmt.Sprintf("git clone %s %s\n", repo.CloneURL, repo.LocalPath)
+		}
+		repoInstructions += "```\n"
+	}
+
+	// Find primary repo for helix-design-docs
+	primaryRepoPath := "backend" // Default
+	for _, repo := range repos {
+		if repo.IsPrimary {
+			primaryRepoPath = repo.LocalPath
+			break
+		}
+	}
+
+	// Generate task directory name
+	dateStr := time.Now().Format("2006-01-02")
+	sanitizedName := sanitizeForBranchName(task.OriginalPrompt)
+	if len(sanitizedName) > 50 {
+		sanitizedName = sanitizedName[:50]
+	}
+	taskDirName := fmt.Sprintf("%s_%s_%s", dateStr, sanitizedName, task.ID)
 
 	return fmt.Sprintf(`%s
 
 ## Task: Generate Specifications from User Request
 
-You are running in a full external agent session with access to Zed editor.
+You are running in a full external agent session with Zed editor and git access.
 
 The user has provided the following task description:
 
@@ -786,15 +891,63 @@ The user has provided the following task description:
 ---
 
 **Your job is to:**
+%s
+**Step 2: Setup helix-design-docs branch and worktree**
 
-1. Parse this request and generate design documents
-2. Extract task name, description, and type (feature/bug/refactor)
-3. Write requirements specification (user stories + EARS acceptance criteria)
-4. Write technical design (architecture, components, data models)
-5. Write implementation plan (discrete tasks with [ ]/[~]/[x] markers)
+```bash
+cd /home/retro/work/%s
+git branch helix-design-docs 2>/dev/null || true
+git worktree add .git-worktrees/helix-design-docs helix-design-docs 2>/dev/null || true
+cd .git-worktrees/helix-design-docs
+mkdir -p tasks
+cd tasks
+mkdir -p %s
+cd %s
+```
 
-Work in the persistent workspace. All your work will be preserved across sessions.
-`, basePrompt, task.OriginalPrompt)
+**Step 3: Write design documents**
+
+Create the following markdown files:
+
+1. **requirements.md** - User stories + EARS acceptance criteria
+2. **design.md** - Architecture, sequence diagrams, data models, API contracts
+3. **tasks.md** - Discrete implementation tasks with [ ]/[~]/[x] markers
+4. **task-metadata.json** - Extract: {"name": "...", "description": "...", "type": "feature|bug|refactor"}
+
+**Step 4: Commit and push to Helix git server**
+
+```bash
+cd /home/retro/work/%s/.git-worktrees/helix-design-docs
+git add tasks/%s/requirements.md
+git commit -m "Add requirements specification for %s"
+git add tasks/%s/design.md
+git commit -m "Add technical design for %s"
+git add tasks/%s/tasks.md
+git commit -m "Add implementation plan for %s"
+git add tasks/%s/task-metadata.json
+git commit -m "Add task metadata for %s"
+git push -u origin helix-design-docs
+```
+
+**CRITICAL**:
+- The helix-design-docs branch is **forward-only** (never rolled back)
+- Push to Helix git server so UI can read design docs
+- Use the [ ]/[~]/[x] markers in tasks.md for progress tracking
+
+Work in the persistent workspace at /home/retro/work/ - everything persists across sessions.
+`, basePrompt, task.OriginalPrompt, repoInstructions, primaryRepoPath, taskDirName, taskDirName, primaryRepoPath, taskDirName, task.ID, taskDirName, task.ID, taskDirName, task.ID, taskDirName, task.ID)
+}
+
+// sanitizeForBranchName converts text to branch-name-safe format
+func sanitizeForBranchName(text string) string {
+	// Simple sanitization for git branch names
+	text = strings.ToLower(text)
+	text = strings.ReplaceAll(text, " ", "-")
+	text = strings.ReplaceAll(text, "_", "-")
+	// Remove special characters
+	reg := regexp.MustCompile("[^a-z0-9-]")
+	text = reg.ReplaceAllString(text, "")
+	return text
 }
 
 // GetLiveProgress returns current live progress for all running tasks
