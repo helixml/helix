@@ -7,7 +7,9 @@
 
 ## Implementation Progress
 
-### Completed
+### Completed (Backend Core)
+
+**Commit 1: Foundation** (0d1a1c78e)
 - ✅ **Database Schema** - Added new columns to SpecTask, created new tables
   - `SpecTask.HelixAppID` - Single agent for entire workflow
   - `SpecTask.AttachedRepositories` - Multiple git repo attachments (JSONB)
@@ -20,7 +22,7 @@
 
 - ✅ **Startup Script** - Complete state persistence symlinks
   - `~/.config/zed` → `work/.zed-state/config`
-  - `~/.local/share/zed` → `work/.zed-state/local-share`
+  - `~/.local/share/zed` → `work/.zed-state/local-share` (threads, db!)
   - `~/.cache/zed` → `work/.zed-state/cache`
   - `~/.claude` → `work/.claude-state`
   - File: `wolf/sway-config/start-zed-helix.sh`
@@ -30,21 +32,47 @@
   - Updated constructor to accept wolf executor
   - Updated `server.go` to pass wolf executor
 
+**Commit 2: Orchestration & Cleanup** (2beac2bad)
+- ✅ **Store Methods** - Complete CRUD for external agents
+  - `store_spec_task_external_agent.go` - New file
+  - CreateSpecTaskExternalAgent, Get, Update, Delete, List
+  - UpsertExternalAgentActivity - Upsert with conflict resolution
+  - GetIdleExternalAgents - Find idle agents by cutoff time
+  - DeleteExternalAgentActivity
+
+- ✅ **Planning Phase** - Wolf-based external agent creation
+  - `getOrCreateExternalAgent()` - Creates Wolf container with per-SpecTask workspace
+  - `handleBacklog()` - Start planning, create/reuse external agent
+  - `createPlanningSession()` - Create Helix session for planning phase
+  - `buildPlanningPrompt()` - System prompt (basic version)
+  - Activity tracking on session creation
+
+- ✅ **Implementation Phase** - External agent reuse
+  - `handleImplementationQueued()` - Reuse external agent from planning
+  - Agent resurrection if terminated (mounts same workspace)
+  - `createImplementationSession()` - New Helix session in same Zed instance
+  - `buildImplementationPrompt()` - Includes spec context
+  - Multiple sessions tracked in single external agent
+
+- ✅ **Idle Cleanup** - Automatic resource management
+  - `idleExternalAgentCleanupLoop()` - Background cleanup (5min intervals)
+  - `cleanupIdleExternalAgents()` - Terminate agents idle >30min
+  - Wolf app removal (frees GPU)
+  - Updates all affected Helix sessions with terminated status
+  - Workspace preservation in filestore
+
 ### In Progress
 - None currently
 
 ### TODO (Remaining Steps)
-- [ ] Implement `handleBacklog()` with Wolf executor and multi-repo cloning
-- [ ] Implement `buildPlanningPrompt()` with helix-design-docs worktree setup
-- [ ] Implement `handleImplementationQueued()` with external agent reuse
-- [ ] Add store methods for SpecTaskExternalAgent CRUD
-- [ ] Add store methods for ExternalAgentActivity tracking
-- [ ] Implement idle cleanup loop in Wolf executor
+- [ ] Enhance `buildPlanningPrompt()` with complete git workflow (multi-repo clone, helix-design-docs worktree)
+- [ ] Enhance `buildImplementationPrompt()` with git reading instructions
 - [ ] Frontend: Simplified creation form
 - [ ] Frontend: Repository dropdown and multi-attach
 - [ ] Frontend: Helix Agent selection
 - [ ] Frontend: Idle warning banners
 - [ ] Frontend: Basic git repository UI
+- [ ] Testing: End-to-end SpecTask workflow
 
 ---
 
