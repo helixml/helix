@@ -1010,25 +1010,15 @@ gather_modifications() {
         fi
     fi
 
-    # Check if jq needs to be installed
-    if check_jq_needed; then
-        if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
-            . /etc/os-release
-            if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
-                modifications+="  - Install jq (JSON processor for Wolf certificate sync)\n"
-            fi
-        fi
-    fi
-
     if [ "$CONTROLPLANE" = true ]; then
-        modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
+        modifications+="  - Set up Docker Compose stack for Helix Control Plane ${LATEST_RELEASE}\n"
     fi
 
     if [ "$RUNNER" = true ]; then
         if check_nvidia_runtime_needed; then
             modifications+="  - Install NVIDIA Docker runtime\n"
         fi
-        modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
+        modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
     fi
 
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
@@ -1041,6 +1031,16 @@ gather_modifications() {
     if [ "$EXTERNAL_ZED_AGENT" = true ]; then
         modifications+="  - Build Zed agent Docker image\n"
         modifications+="  - Install External Zed Agent runner script\n"
+    fi
+
+    # Check if jq needs to be installed (at the end)
+    if check_jq_needed; then
+        if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
+            . /etc/os-release
+            if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
+                modifications+="  - Install jq (JSON processor for Wolf certificate sync)\n"
+            fi
+        fi
     fi
 
     echo -e "$modifications"
