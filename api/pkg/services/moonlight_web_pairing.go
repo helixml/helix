@@ -53,30 +53,35 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	req, err := http.NewRequest("GET", listURL, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create list hosts request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+s.credentials)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to list hosts, will try adding anyway")
-	} else {
-		defer resp.Body.Close()
-		if resp.StatusCode == 200 {
-			var hostsResp struct {
-				Hosts []struct {
-					Address string `json:"address"`
-				} `json:"hosts"`
-			}
-			if err := json.NewDecoder(resp.Body).Decode(&hostsResp); err == nil {
-				// Check if Wolf is already in the list
-				for _, host := range hostsResp.Hosts {
-					if host.Address == "wolf" {
-						log.Info().Msg("Wolf host already exists in moonlight-web")
-						return nil
-					}
-				}
-			}
+		return fmt.Errorf("failed to list hosts from moonlight-web: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to list hosts: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	var hostsResp struct {
+		Hosts []struct {
+			Address string `json:"address"`
+		} `json:"hosts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&hostsResp); err != nil {
+		return fmt.Errorf("failed to decode hosts list: %w", err)
+	}
+
+	// Check if Wolf is already in the list
+	for _, host := range hostsResp.Hosts {
+		if host.Address == "wolf" {
+			log.Info().Msg("Wolf host already exists in moonlight-web")
+			return nil
 		}
 	}
 
@@ -90,7 +95,7 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	jsonData, err := json.Marshal(hostData)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal host data: %w", err)
 	}
 
 	log.Info().
@@ -101,7 +106,7 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	req, err = http.NewRequest("PUT", addURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create add host request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -115,10 +120,9 @@ func (s *MoonlightWebPairingService) ensureWolfHostExists() error {
 
 	body, _ := io.ReadAll(resp.Body)
 
-	// 404 means Wolf is not reachable yet - this is okay, pairing will retry
+	// 404 means Wolf is not reachable yet - this is a real error
 	if resp.StatusCode == 404 {
-		log.Warn().Msg("Wolf not reachable yet (404), will retry during pairing")
-		return nil
+		return fmt.Errorf("Wolf not reachable at wolf:47989 - cannot add host")
 	}
 
 	if resp.StatusCode != 200 {
