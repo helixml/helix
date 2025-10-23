@@ -69,6 +69,8 @@ import {
   type ImplementationSessionsCreateRequest,
 } from '../../services/specTaskService';
 
+import ExternalAgentControl from './ExternalAgentControl';
+
 interface MultiSessionDashboardProps {
   taskId: string;
   compact?: boolean;
@@ -516,14 +518,19 @@ const MultiSessionDashboard: React.FC<MultiSessionDashboardProps> = ({
         <Grid item xs={12}>
           {renderOverviewCard()}
         </Grid>
-        
+
+        {/* NEW: External Agent Control */}
+        <Grid item xs={12}>
+          <ExternalAgentControl specTaskId={taskId} />
+        </Grid>
+
         <Grid item xs={12} lg={8}>
           <Stack spacing={3}>
             {renderWorkSessionsTable()}
             {renderCoordinationLog()}
           </Stack>
         </Grid>
-        
+
         <Grid item xs={12} lg={4}>
           {renderZedStatus()}
         </Grid>
