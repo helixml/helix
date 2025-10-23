@@ -1485,7 +1485,7 @@ EOF
             cat << 'WOLFCONFIG' > "$INSTALL_DIR/wolf/config.toml"
 apps = []
 config_version = 6
-hostname = 'Wolf'
+hostname = 'Helix'
 paired_clients = []
 
 [gstreamer.audio]
