@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	externalagent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
-	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -39,7 +39,7 @@ func NewSpecDrivenTaskService(
 	controller *controller.Controller,
 	helixAgentID string,
 	zedAgentPool []string,
-	pubsub pubsub.PubSub,
+	executor externalagent.Executor,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
 		store:        store,
@@ -49,11 +49,11 @@ func NewSpecDrivenTaskService(
 		testMode:     false,
 	}
 
-	// Initialize Zed integration service
+	// Initialize Zed integration service with Wolf executor (replaces NATS)
 	service.ZedIntegrationService = NewZedIntegrationService(
 		store,
 		controller,
-		pubsub,
+		executor,
 	)
 
 	// Initialize document services

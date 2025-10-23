@@ -254,4 +254,41 @@ Keep defensive unpair logic as-is - simple, robust, works reliably.
 
 ## Status
 
-**RESOLVED** - Defensive re-pairing implemented and deployed. Streaming should now survive service restarts reliably.
+**REVERTED** - Defensive unpair approach caused moonlight-web streamer panics.
+
+### Why Defensive Unpair Failed
+
+The defensive unpair logic (commits 4e402d3 and e75781b) caused moonlight-web streamer to panic during video streaming:
+
+```
+thread '<unnamed>' (218) panicked at bytes-1.10.1/src/bytes.rs:396:9:
+range end out of bounds: 643903619 <= 60
+```
+
+This panic occurred ~1 minute after video stream started, causing blank screens for users.
+
+**Root cause unclear** - possibly:
+1. `unpair()` corrupts Wolf's internal state
+2. `unpair()` + `pair()` creates duplicate session records
+3. Wolf video pipeline gets confused by rapid unpair/pair cycle
+4. Timing issue where video packets arrive during unpair state transition
+
+**Reverted in commit:** `0876816` - Removed all defensive unpair logic, back to certificate persistence only (commit 38d287f).
+
+### Current State (Working)
+
+- ✅ Certificate persistence enabled (survives moonlight-web restarts)
+- ✅ Wolf debug logging enabled (helps diagnose future issues)
+- ❌ Defensive unpair removed (caused panics)
+
+**EVP_DecryptFinal_ex errors** appear to have been from stale sessions after restarts, not an active ongoing issue. Fresh restarts clear the problem.
+
+### Recommendation
+
+**Accept current behavior:**
+- Certificate persistence prevents unnecessary re-pairing within same session
+- If both Wolf and moonlight-web restart together, certs persist but Wolf loses state
+- Solution: Restart both services together for clean slate: `docker compose down wolf moonlight-web && docker compose up -d wolf moonlight-web`
+- Alternative: Delete `/server/data.json` in moonlight-web container to clear cached certs
+
+**Do NOT attempt defensive unpair** - it triggers unknown bugs in Wolf/moonlight-web interaction.

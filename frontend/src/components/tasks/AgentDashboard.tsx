@@ -629,8 +629,8 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           <Box sx={{ display: 'flex', gap: 1 }}>
                             {session.rdp_port && (
                               <Tooltip title="Open RDP Session">
-                                <IconButton 
-                                  size="small" 
+                                <IconButton
+                                  size="small"
                                   onClick={() => openRDPSession(session)}
                                   disabled={!session.rdp_port}
                                 >
@@ -638,11 +638,9 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <MoonlightConnectionButton 
-                              sessionId={session.session_id}
-                            />
+                            {/* Session-triggered agents use WebRTC streaming only (kickoff restriction) */}
                             <Tooltip title="View Session">
-                              <IconButton 
+                              <IconButton
                                 size="small"
                                 onClick={() => setSelectedSession(session)}
                               >
@@ -716,11 +714,12 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               </Box>
                             }
                           />
+                          {/* External agent connections use WebRTC streaming only (kickoff restriction) */}
                           <Tooltip title="View Desktop">
                             <IconButton
-                              size="small" 
+                              size="small"
                               onClick={() => openRunnerWebRDP(connection.session_id)}
-                              sx={{ 
+                              sx={{
                                 backgroundColor: theme.palette.success.light + '20',
                                 '&:hover': {
                                   backgroundColor: theme.palette.success.light + '40'
@@ -730,11 +729,6 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Box sx={{ ml: 1 }}>
-                            <MoonlightConnectionButton 
-                              sessionId={connection.session_id}
-                            />
-                          </Box>
                         </ListItem>
                       ))}
                     </List>

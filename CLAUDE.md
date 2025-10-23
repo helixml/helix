@@ -23,6 +23,34 @@ This file contains critical development guidelines and context that MUST be foll
 - Dates in filenames provide clear chronological history of development decisions
 - Makes it easy to follow the evolution of architectural decisions over time
 
+## Log Capture for Debugging
+
+**CRITICAL: Use consistent timestamped approach for capturing container logs**
+
+When debugging complex issues, capture logs systematically before restarting services:
+
+```bash
+# Create timestamped directory
+mkdir -p logs/$(date +%Y%m%d-%H%M%S)
+cd logs/$(date +%Y%m%d-%H%M%S)
+
+# Capture last 10 minutes from each relevant container
+docker compose -f docker-compose.dev.yaml logs --since 10m wolf 2>&1 > wolf.log
+docker compose -f docker-compose.dev.yaml logs --since 10m moonlight-web 2>&1 > moonlight-web.log
+docker compose -f docker-compose.dev.yaml logs --since 10m api 2>&1 > api.log
+
+# Verify capture
+ls -lh
+```
+
+**Why this approach:**
+- Timestamped directories prevent overwrites (YYYYMMDD-HHMMSS format)
+- Captures both stdout and stderr (`2>&1`)
+- Preserves logs before restarting services (restarts clear logs)
+- Easy to reference in design docs and issue reports
+
+**Note:** `logs/` directory is in `.gitignore` - logs are local debugging artifacts only.
+
 ## Hot Reloading Development Stack
 
 The Helix development stack has hot reloading enabled in multiple components for fast iteration:

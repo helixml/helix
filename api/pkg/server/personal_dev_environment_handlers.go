@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/wolf"
 )
 
 // Personal dev environment request/response types
@@ -61,14 +62,8 @@ func (apiServer *HelixAPIServer) listPersonalDevEnvironments(res http.ResponseWr
 		return
 	}
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	environments, err := wolfExecutor.GetPersonalDevEnvironments(req.Context(), user.ID)
+	// Use executor interface directly (works with both AppWolfExecutor and WolfExecutor)
+	environments, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironments(req.Context(), user.ID)
 	if err != nil {
 		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to list personal dev environments")
 		http.Error(res, fmt.Sprintf("Failed to list environments: %s", err.Error()), http.StatusInternalServerError)
@@ -125,13 +120,6 @@ func (apiServer *HelixAPIServer) createPersonalDevEnvironment(res http.ResponseW
 		return
 	}
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
 	// Set default display parameters if not provided
 	displayWidth := createReq.DisplayWidth
 	if displayWidth == 0 {
@@ -156,7 +144,7 @@ func (apiServer *HelixAPIServer) createPersonalDevEnvironment(res http.ResponseW
 		Msg("Creating personal dev environment")
 
 	// Create the environment with display configuration
-	environment, err := wolfExecutor.CreatePersonalDevEnvironmentWithDisplay(req.Context(), user.ID, createReq.AppID, createReq.EnvironmentName, displayWidth, displayHeight, displayFPS)
+	environment, err := apiServer.externalAgentExecutor.CreatePersonalDevEnvironmentWithDisplay(req.Context(), user.ID, createReq.AppID, createReq.EnvironmentName, displayWidth, displayHeight, displayFPS)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).
@@ -194,14 +182,8 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironment(res http.ResponseWrit
 	vars := mux.Vars(req)
 	environmentID := vars["environmentID"]
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	environment, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	// Use executor interface directly
+	environment, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).
@@ -238,15 +220,8 @@ func (apiServer *HelixAPIServer) updatePersonalDevEnvironment(res http.ResponseW
 		return
 	}
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
 	// Get existing environment to update
-	environment, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	environment, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("Environment not found: %s", err.Error()), http.StatusNotFound)
 		return
@@ -295,14 +270,8 @@ func (apiServer *HelixAPIServer) deletePersonalDevEnvironment(res http.ResponseW
 	vars := mux.Vars(req)
 	environmentID := vars["environmentID"]
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	err := wolfExecutor.StopPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	// Use executor interface directly
+	err := apiServer.externalAgentExecutor.StopPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		log.Error().Err(err).
 			Str("user_id", user.ID).
@@ -343,15 +312,8 @@ func (apiServer *HelixAPIServer) startPersonalDevEnvironment(res http.ResponseWr
 	vars := mux.Vars(req)
 	environmentID := vars["environmentID"]
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
 	// Get environment and restart if needed
-	environment, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	environment, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("Environment not found: %s", err.Error()), http.StatusNotFound)
 		return
@@ -398,15 +360,8 @@ func (apiServer *HelixAPIServer) stopPersonalDevEnvironment(res http.ResponseWri
 	vars := mux.Vars(req)
 	environmentID := vars["environmentID"]
 
-	// Check if we have Wolf executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
 	// Get environment and stop
-	environment, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	environment, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("Environment not found: %s", err.Error()), http.StatusNotFound)
 		return
@@ -437,14 +392,8 @@ func (apiServer *HelixAPIServer) getWolfPendingPairRequests(res http.ResponseWri
 		return
 	}
 
-	// Get Wolf client from the executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	wolfClient := wolfExecutor.GetWolfClient()
+	// Get Wolf client from executor (works with both AppWolfExecutor and WolfExecutor)
+	wolfClient := getWolfClientFromExecutor(apiServer.externalAgentExecutor)
 	if wolfClient == nil {
 		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
 		return
@@ -513,14 +462,8 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 		return
 	}
 
-	// Get Wolf client from the executor
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	wolfClient := wolfExecutor.GetWolfClient()
+	// Get Wolf client from executor (works with both AppWolfExecutor and WolfExecutor)
+	wolfClient := getWolfClientFromExecutor(apiServer.externalAgentExecutor)
 	if wolfClient == nil {
 		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
 		return
@@ -563,13 +506,7 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironmentScreenshot(res http.Re
 	environmentID := vars["environmentID"]
 
 	// Get the Personal Dev Environment instance to verify ownership
-	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
-	if !ok {
-		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	instance, err := wolfExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
+	instance, err := apiServer.externalAgentExecutor.GetPersonalDevEnvironment(req.Context(), user.ID, environmentID)
 	if err != nil {
 		log.Error().Err(err).Str("environment_id", environmentID).Msg("Failed to get Personal Dev Environment")
 		http.Error(res, "Personal dev environment not found", http.StatusNotFound)
@@ -638,4 +575,20 @@ func (apiServer *HelixAPIServer) getPersonalDevEnvironmentScreenshot(res http.Re
 	res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	res.WriteHeader(http.StatusOK)
 	res.Write(pngData)
+}
+
+// getWolfClientFromExecutor extracts Wolf client from executor interface
+// Works with both AppWolfExecutor and WolfExecutor (lobby-based)
+func getWolfClientFromExecutor(executor external_agent.Executor) *wolf.Client {
+	// Try AppWolfExecutor first (apps mode)
+	if appExecutor, ok := executor.(*external_agent.AppWolfExecutor); ok {
+		return appExecutor.GetWolfClient()
+	}
+
+	// Try WolfExecutor (lobby mode)
+	if wolfExecutor, ok := executor.(*external_agent.WolfExecutor); ok {
+		return wolfExecutor.GetWolfClient()
+	}
+
+	return nil
 }

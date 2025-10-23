@@ -34,10 +34,11 @@ type AppWolfExecutor struct {
 	helixAPIURL       string
 	helixAPIToken     string
 	workspaceBasePath string
+	wsChecker         WebSocketConnectionChecker // For checking if Zed has connected via WebSocket
 }
 
 // NewAppWolfExecutor creates a new app-based Wolf executor
-func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *AppWolfExecutor {
+func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) *AppWolfExecutor {
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
@@ -48,6 +49,7 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 		helixAPIURL:       helixAPIURL,
 		helixAPIToken:     helixAPIToken,
 		workspaceBasePath: "/opt/helix/filestore/workspaces",
+		wsChecker:         wsChecker,
 	}
 
 	// Create health monitor for Wolf crashes
@@ -869,14 +871,21 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 		Str("wolf_app_id", wolfAppID).
 		Msg("Sent keepalive auth message to moonlight-web with session persistence (single mode)")
 
-	// KICKOFF APPROACH: Wait 10 seconds for Wolf to start the container, then disconnect
+	// KICKOFF APPROACH: Wait for Zed to connect via WebSocket (smarter than fixed 10 seconds)
 	// This triggers Wolf to launch the app, making it "resumable" for this client
 	// When browser connects later, it will RESUME this app instead of creating new session
 	log.Info().
 		Str("session_id", sessionID).
-		Msg("Waiting 10 seconds for Wolf container to start (kickoff approach)...")
+		Msg("Waiting for Zed instance to connect via WebSocket (kickoff approach)...")
 
-	time.Sleep(10 * time.Second)
+	// Wait for Zed WebSocket connection with 60-second timeout
+	if err := w.waitForZedConnection(ctx, sessionID, 60*time.Second); err != nil {
+		log.Warn().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Zed WebSocket connection not detected, but continuing with kickoff (may work anyway)")
+		// Don't fail - container might still be starting, just log the warning
+	}
 
 	// Disconnect cleanly - app is now resumable for this client
 	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "kickoff complete")
@@ -994,6 +1003,59 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 	}
 
 	return fmt.Errorf("Wolf app %s (title: %s) not available in Moonlight API after %v", wolfAppID, expectedTitle, timeout)
+}
+
+// waitForZedConnection waits for the Zed instance to connect via WebSocket
+// This replaces the fixed 10-second sleep with a smarter wait based on actual connection
+func (w *AppWolfExecutor) waitForZedConnection(ctx context.Context, sessionID string, timeout time.Duration) error {
+	if w.wsChecker == nil {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("WebSocket checker not available, cannot wait for connection")
+		return fmt.Errorf("WebSocket checker not configured")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Dur("timeout", timeout).
+		Msg("Waiting for Zed WebSocket connection")
+
+	startTime := time.Now()
+	checkInterval := 500 * time.Millisecond
+
+	for time.Since(startTime) < timeout {
+		// Check if Zed has connected via WebSocket
+		if w.wsChecker.IsExternalAgentConnected(sessionID) {
+			elapsed := time.Since(startTime)
+			log.Info().
+				Str("session_id", sessionID).
+				Dur("elapsed", elapsed).
+				Msg("✅ Zed WebSocket connection detected - kickoff ready!")
+			return nil
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(checkInterval):
+			// Continue checking
+		}
+
+		// Log progress every 5 seconds
+		elapsed := time.Since(startTime)
+		if int(elapsed.Seconds())%5 == 0 && elapsed > 0 {
+			timeLeft := timeout - elapsed
+			log.Debug().
+				Str("session_id", sessionID).
+				Dur("elapsed", elapsed).
+				Dur("time_left", timeLeft).
+				Msg("Still waiting for Zed WebSocket connection...")
+		}
+	}
+
+	elapsed := time.Since(startTime)
+	return fmt.Errorf("timeout waiting for Zed WebSocket connection after %v", elapsed)
 }
 
 // Helper functions shared between apps and lobbies executors

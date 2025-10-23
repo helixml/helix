@@ -1711,7 +1711,7 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		"stream_url":          "moonlight://localhost:47989",
 		"status":              agentSession.Status,
 		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
-		"websocket_connected": s.isExternalAgentConnected(agentSession.SessionID),
+		"websocket_connected": s.IsExternalAgentConnected(agentSession.SessionID),
 	}
 
 	log.Info().

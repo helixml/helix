@@ -227,16 +227,20 @@ func NewServer(
 		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
 	}
 
+	// Initialize external agent WebSocket manager BEFORE executor (executor needs it for connection checking)
+	externalAgentWSManager := NewExternalAgentWSManager()
+
+	// Create WebSocket checker adapter for executor
+	wsChecker := &webSocketCheckerAdapter{manager: externalAgentWSManager}
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
 		cfg.WebServer.URL,
 		cfg.WebServer.RunnerToken,
 		store,
+		wsChecker,
 	)
-
-	// Initialize external agent WebSocket manager
-	externalAgentWSManager := NewExternalAgentWSManager()
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
@@ -290,7 +294,7 @@ func NewServer(
 			controller,
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
-			ps,                         // PubSub for Zed integration
+			externalAgentExecutor,      // Wolf executor for SpecTask Zed instances (replaces NATS)
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,

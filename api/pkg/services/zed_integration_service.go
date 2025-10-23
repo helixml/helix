@@ -7,38 +7,33 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
-	"github.com/helixml/helix/api/pkg/pubsub"
+	externalagent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 // ZedIntegrationService manages Zed instances and threads for multi-session SpecTasks
+// NOW USES WOLF EXECUTOR (same as session-scoped agents) instead of NATS
 type ZedIntegrationService struct {
-	store          store.Store
-	controller     *controller.Controller
-	pubsub         pubsub.PubSub
-	protocolClient *pubsub.ZedProtocolClient
-	testMode       bool
+	store      store.Store
+	controller *controller.Controller
+	executor   externalagent.Executor // Wolf executor for creating instances
+	testMode   bool
 }
 
 // NewZedIntegrationService creates a new Zed integration service
 func NewZedIntegrationService(
 	store store.Store,
 	controller *controller.Controller,
-	ps pubsub.PubSub,
+	executor externalagent.Executor,
 ) *ZedIntegrationService {
-	service := &ZedIntegrationService{
+	return &ZedIntegrationService{
 		store:      store,
 		controller: controller,
-		pubsub:     ps,
+		executor:   executor,
 		testMode:   false,
 	}
-
-	// Initialize protocol client
-	service.protocolClient = pubsub.NewZedProtocolClient(ps)
-
-	return service
 }
 
 // SetTestMode enables or disables test mode
@@ -316,20 +311,18 @@ func (s *ZedIntegrationService) GetZedInstanceStatus(
 // Private helper methods
 
 func (s *ZedIntegrationService) launchZedInstance(ctx context.Context, zedAgent *types.ZedAgent) error {
-	// Convert ZedAgent to instance creation request
-	instanceReq := pubsub.ConvertZedAgentToInstanceRequest(zedAgent)
-
-	// Send instance creation request via protocol
-	err := s.protocolClient.SendInstanceCreateRequest(ctx, instanceReq)
+	// Use Wolf executor to create instance (replaces NATS-based system)
+	response, err := s.executor.StartZedInstance(ctx, zedAgent)
 	if err != nil {
-		return fmt.Errorf("failed to send instance create request: %w", err)
+		return fmt.Errorf("failed to create Zed instance via Wolf executor: %w", err)
 	}
 
 	log.Info().
 		Str("instance_id", zedAgent.InstanceID).
 		Str("spec_task_id", zedAgent.SessionID).
 		Str("project_path", zedAgent.ProjectPath).
-		Msg("Sent Zed instance creation request via protocol")
+		Str("status", response.Status).
+		Msg("Created Zed instance via Wolf executor (with kickoff)")
 
 	return nil
 }
@@ -340,83 +333,31 @@ func (s *ZedIntegrationService) createThreadInZedInstance(
 	threadID string,
 	config map[string]interface{},
 ) error {
-	// Create thread configuration
-	threadConfig := pubsub.ZedThreadConfig{
-		ThreadID: threadID,
-		Name:     fmt.Sprintf("Thread %s", threadID),
-	}
-
-	// Extract work session info from config
-	if workSessionID, ok := config["work_session_id"].(string); ok {
-		threadConfig.WorkSessionID = workSessionID
-	}
-	if name, ok := config["work_session_name"].(string); ok {
-		threadConfig.Name = name
-	}
-	if desc, ok := config["description"].(string); ok {
-		threadConfig.Description = desc
-	}
-	if title, ok := config["implementation_task_title"].(string); ok {
-		threadConfig.ImplementationTaskTitle = title
-	}
-	if index, ok := config["implementation_task_index"].(int); ok {
-		threadConfig.ImplementationTaskIndex = index
-	}
-
-	// Create thread request
-	threadReq := &pubsub.ZedThreadCreateRequest{
-		InstanceID: instanceID,
-		Thread:     threadConfig,
-	}
-
-	// Send thread creation request via protocol
-	err := s.protocolClient.SendThreadCreateRequest(ctx, threadReq)
+	// Use Wolf executor to create thread (replaces NATS-based system)
+	err := s.executor.CreateZedThread(ctx, instanceID, threadID, config)
 	if err != nil {
-		return fmt.Errorf("failed to send thread create request: %w", err)
+		return fmt.Errorf("failed to create Zed thread via Wolf executor: %w", err)
 	}
 
 	log.Info().
 		Str("instance_id", instanceID).
 		Str("thread_id", threadID).
-		Str("work_session_id", threadConfig.WorkSessionID).
-		Msg("Sent thread creation request via protocol")
+		Interface("config", config).
+		Msg("Created Zed thread via Wolf executor")
 
 	return nil
 }
 
 func (s *ZedIntegrationService) shutdownZedInstance(ctx context.Context, instanceID string) error {
-	// Create shutdown message
-	data := map[string]interface{}{
-		"instance_id": instanceID,
-		"command":     "shutdown",
-	}
-
-	metadata := pubsub.ZedMessageMetadata{
-		InstanceID: instanceID,
-		Priority:   1,
-		TTL:        60,
-	}
-
-	msg := pubsub.NewZedProtocolMessage(pubsub.ZedMessageTypeInstanceStop, data, metadata)
-
-	// Serialize and send
-	msgData, err := pubsub.SerializeZedMessage(msg)
+	// Use Wolf executor to stop instance (replaces NATS-based system)
+	err := s.executor.StopZedInstance(ctx, instanceID)
 	if err != nil {
-		return fmt.Errorf("failed to serialize shutdown message: %w", err)
-	}
-
-	headers := pubsub.CreateMessageHeaders(msg)
-	stream := pubsub.GetStreamForMessageType(msg.Type)
-	queue := pubsub.GetQueueForMessageType(msg.Type)
-
-	_, err = s.pubsub.StreamRequest(ctx, stream, queue, msgData, headers, 10*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to send shutdown command: %w", err)
+		return fmt.Errorf("failed to stop Zed instance via Wolf executor: %w", err)
 	}
 
 	log.Info().
 		Str("instance_id", instanceID).
-		Msg("Sent shutdown command via protocol")
+		Msg("Stopped Zed instance via Wolf executor")
 
 	return nil
 }

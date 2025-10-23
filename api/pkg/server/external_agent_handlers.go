@@ -377,7 +377,7 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		"stream_url":          "moonlight://localhost:47989",
 		"status":              session.Status,
 		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
-		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
+		"websocket_connected": apiServer.IsExternalAgentConnected(session.SessionID),
 	}
 
 	log.Info().
@@ -537,8 +537,9 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 	json.NewEncoder(res).Encode(logs)
 }
 
-// isExternalAgentConnected checks if external agent is connected via WebSocket
-func (apiServer *HelixAPIServer) isExternalAgentConnected(sessionID string) bool {
+// IsExternalAgentConnected checks if external agent is connected via WebSocket
+// This implements the external_agent.WebSocketConnectionChecker interface
+func (apiServer *HelixAPIServer) IsExternalAgentConnected(sessionID string) bool {
 	_, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
 	return exists
 }

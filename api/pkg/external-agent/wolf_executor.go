@@ -158,7 +158,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 // NewWolfExecutor creates a Wolf executor based on WOLF_MODE environment variable
 // WOLF_MODE=apps (default) - simpler, more reliable apps-based approach
 // WOLF_MODE=lobbies - feature-rich lobbies with keepalive and PINs
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) Executor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) Executor {
 	wolfMode := os.Getenv("WOLF_MODE")
 	if wolfMode == "" {
 		wolfMode = "apps" // Default to simpler, more stable apps model
@@ -168,9 +168,10 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 
 	switch wolfMode {
 	case "lobbies":
+		// Note: LobbyWolfExecutor doesn't support wsChecker yet
 		return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store)
 	case "apps":
-		return NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store)
+		return NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, wsChecker)
 	default:
 		log.Fatal().Str("wolf_mode", wolfMode).Msg("Invalid WOLF_MODE - must be 'apps' or 'lobbies'")
 		return nil

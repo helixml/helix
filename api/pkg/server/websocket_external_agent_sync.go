@@ -33,6 +33,17 @@ type ExternalAgentWSConnection struct {
 	mu          sync.Mutex
 }
 
+// webSocketCheckerAdapter adapts ExternalAgentWSManager to external_agent.WebSocketConnectionChecker interface
+type webSocketCheckerAdapter struct {
+	manager *ExternalAgentWSManager
+}
+
+// IsExternalAgentConnected implements external_agent.WebSocketConnectionChecker
+func (w *webSocketCheckerAdapter) IsExternalAgentConnected(sessionID string) bool {
+	_, exists := w.manager.getConnection(sessionID)
+	return exists
+}
+
 func NewExternalAgentWSManager() *ExternalAgentWSManager {
 	return &ExternalAgentWSManager{
 		connections: make(map[string]*ExternalAgentWSConnection),

@@ -11,6 +11,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// WebSocketConnectionChecker provides a way to check if a Zed instance has connected via WebSocket
+type WebSocketConnectionChecker interface {
+	IsExternalAgentConnected(sessionID string) bool
+}
+
 // Executor defines the interface for external agent executors
 type Executor interface {
 	// Single-session methods (legacy)
@@ -26,6 +31,13 @@ type Executor interface {
 	StopZedInstance(ctx context.Context, instanceID string) error
 	GetInstanceStatus(instanceID string) (*ZedInstanceStatus, error)
 	ListInstanceThreads(instanceID string) ([]*ZedThreadInfo, error)
+
+	// Personal Dev Environment methods
+	CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error)
+	CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error)
+	GetPersonalDevEnvironments(ctx context.Context, userID string) ([]*ZedInstanceInfo, error)
+	GetPersonalDevEnvironment(ctx context.Context, userID, environmentID string) (*ZedInstanceInfo, error)
+	StopPersonalDevEnvironment(ctx context.Context, userID, environmentID string) error
 
 	// Screenshot support
 	FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error)
@@ -403,6 +415,27 @@ func (pe *PoolExecutor) FindContainerBySessionID(ctx context.Context, helixSessi
 	return "", fmt.Errorf("screenshot support not available for pool-based executors")
 }
 
+// Personal Dev Environment methods (not supported by PoolExecutor)
+func (pe *PoolExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by pool-based executors")
+}
+
+func (pe *PoolExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by pool-based executors")
+}
+
+func (pe *PoolExecutor) GetPersonalDevEnvironments(ctx context.Context, userID string) ([]*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by pool-based executors")
+}
+
+func (pe *PoolExecutor) GetPersonalDevEnvironment(ctx context.Context, userID, environmentID string) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by pool-based executors")
+}
+
+func (pe *PoolExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, environmentID string) error {
+	return fmt.Errorf("personal dev environments not supported by pool-based executors")
+}
+
 // Private helper methods
 
 func (pe *PoolExecutor) createThreadInInstance(instanceID, threadID string, config map[string]interface{}) error {
@@ -647,4 +680,25 @@ func (adapter *NATSExecutorAdapter) ListInstanceThreads(instanceID string) ([]*Z
 // FindContainerBySessionID implements Executor interface
 func (adapter *NATSExecutorAdapter) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
 	return "", fmt.Errorf("screenshot support not available for NATS-based external agents")
+}
+
+// Personal Dev Environment methods (not supported by NATSExecutorAdapter)
+func (adapter *NATSExecutorAdapter) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by NATS-based external agents")
+}
+
+func (adapter *NATSExecutorAdapter) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by NATS-based external agents")
+}
+
+func (adapter *NATSExecutorAdapter) GetPersonalDevEnvironments(ctx context.Context, userID string) ([]*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by NATS-based external agents")
+}
+
+func (adapter *NATSExecutorAdapter) GetPersonalDevEnvironment(ctx context.Context, userID, environmentID string) (*ZedInstanceInfo, error) {
+	return nil, fmt.Errorf("personal dev environments not supported by NATS-based external agents")
+}
+
+func (adapter *NATSExecutorAdapter) StopPersonalDevEnvironment(ctx context.Context, userID, environmentID string) error {
+	return fmt.Errorf("personal dev environments not supported by NATS-based external agents")
 }

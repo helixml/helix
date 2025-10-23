@@ -51,7 +51,6 @@ import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
 import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
-import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
 import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
@@ -218,7 +217,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
 
   // Check if this is an external agent session and show Zed editor by default
   useEffect(() => {
@@ -1361,7 +1359,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
-                onOpenPairingDialog={() => setPairingDialogOpen(true)}
                 showRDPViewer={showRDPViewer}
                 onToggleRDPViewer={() => setShowRDPViewer(!showRDPViewer)}
                 isExternalAgent={isExternalAgent}
@@ -1750,15 +1747,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Window>
       )}
 
-      {/* Moonlight Pairing Dialog */}
-      <MoonlightPairingOverlay
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onPairingComplete={() => {
-          setPairingDialogOpen(false)
-          snackbar.success('Moonlight client paired successfully!')
-        }}
-      />
+      {/* REMOVED: Moonlight pairing for external agents
+          Session-triggered external agents use WebRTC streaming only (kickoff restriction).
+          See design/2025-10-23-kickoff-certificate-restriction.md
+      */}
 
     </Box>
   )
