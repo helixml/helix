@@ -1613,8 +1613,25 @@ WOLFCONFIG
             echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
         fi
 
-        # Note: moonlight-web will auto-generate data.json on first run
-        # The auto-pairing service will add Wolf as a host and complete pairing automatically
+        # Create initial moonlight-web data.json with Wolf host pre-registered
+        # This allows moonlight-web's per-session pairing to work (needs host_id 0 to exist)
+        echo "Creating moonlight-web data.json with Wolf host..."
+        cat << 'MOONLIGHTDATA' > "$INSTALL_DIR/moonlight-web-config/data.json"
+{
+  "hosts": [
+    {
+      "address": "wolf",
+      "http_port": 47989,
+      "unique_id": null,
+      "cache": {
+        "name": "Helix",
+        "mac": "00:11:22:33:44:55"
+      }
+    }
+  ]
+}
+MOONLIGHTDATA
+        echo "Moonlight-web data.json created at $INSTALL_DIR/moonlight-web-config/data.json"
     fi
 
     # Continue with the rest of the .env file
