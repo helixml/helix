@@ -373,19 +373,10 @@ func NewServer(
 	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
 	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
 		go func() {
-			// Auto-pair moonlight-web with Wolf for browser streaming
-			time.Sleep(3 * time.Second) // Wait for services to stabilize
-			moonlightPairing := services.NewMoonlightWebPairingService(
-				wolfExecutor.GetWolfClient(),
-				"http://moonlight-web:8080",
-				"helix", // Matches moonlight-web-config/config.json
-			)
-			if err := moonlightPairing.InitializeOnStartup(context.Background()); err != nil {
-				log.Warn().Err(err).Msg("Moonlight-web auto-pairing initialization failed (non-fatal)")
-			}
-
+			// Wolf is pre-registered in moonlight-web's data.json via installer
+			// Per-session pairing happens automatically in moonlight-web's stream.rs
 			// Initial reconciliation on startup
-			time.Sleep(5 * time.Second)
+			time.Sleep(8 * time.Second)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
