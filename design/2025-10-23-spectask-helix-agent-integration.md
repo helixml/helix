@@ -71,7 +71,7 @@
   - Returns idle warnings (25min threshold)
   - Routes registered in server.go
 
-**Commit 4: Complete Git Workflows** (44c62382b)
+**Commit 4: Complete Git Workflows** (11d4edf2c)
 - ✅ **Enhanced Planning Prompt** - Complete git workflow
   - Parse AttachedRepositories and generate clone commands
   - Identify primary repository for helix-design-docs
@@ -92,16 +92,55 @@
 - ✅ **Helper Functions**
   - `sanitizeForBranchName()` - Convert text to git-safe format
 
-### In Progress
-- None currently
+**Commit 5: Frontend Simplified UI** (35a8d233b)
+- ✅ **Simplified SpecTask Creation Form**
+  - Single large text box for task description (replaced 3 fields)
+  - Priority dropdown in dialog header (top-right placement)
+  - Removed Type field (AI will infer)
+  - Removed sample template clutter from creation flow
+  - Streamlined create handler (just prompt + priority)
+  - File: `frontend/src/pages/SpecTasksPage.tsx`
 
-### TODO (Remaining Steps)
-- [ ] Frontend: Simplified creation form
-- [ ] Frontend: Repository dropdown and multi-attach
-- [ ] Frontend: Helix Agent selection
-- [ ] Frontend: Idle warning banners
-- [ ] Frontend: Basic git repository UI
-- [ ] Testing: End-to-end SpecTask workflow
+- ✅ **ExternalAgentControl Component** (NEW)
+  - Real-time external agent status display
+  - Idle time tracking with progress bar
+  - Warning banner at 25-minute idle threshold
+  - Start/Stop buttons for manual GPU management
+  - Lists all Helix sessions using agent
+  - Shows workspace preservation info
+  - Auto-refreshes every 30 seconds
+  - React Query for data fetching
+  - File: `frontend/src/components/tasks/ExternalAgentControl.tsx`
+
+- ✅ **MultiSessionDashboard Integration**
+  - External agent control card prominently displayed
+  - Shows agent status, idle warnings, controls
+  - Integrated into existing dashboard layout
+
+### Implementation Complete! ✅
+
+**Backend** (100% complete):
+- Database schema with per-SpecTask agents
+- External agent orchestration (planning + implementation)
+- Idle detection and 30min cleanup
+- Complete git workflows in prompts
+- Start/stop/status API endpoints
+- State persistence in startup script
+
+**Frontend** (Core features complete):
+- Simplified creation experience (single text box)
+- External agent lifecycle controls
+- Idle warnings and manual start/stop
+- Status monitoring with auto-refresh
+
+### TODO (Future Enhancements)
+- [ ] Repository dropdown and multi-attach UI (backend ready, frontend placeholder)
+- [ ] Helix Agent selection dropdown (backend ready, frontend placeholder)
+- [ ] "From Example Tasks" dropdown (separate button)
+- [ ] Basic git repository browser UI
+- [ ] Design docs viewer (read from helix-design-docs branch)
+- [ ] Live task progress visualization (dashboard enhancement)
+- [ ] Testing: End-to-end SpecTask workflow with real agents
 
 ---
 
