@@ -255,3 +255,292 @@ func (apiServer *HelixAPIServer) GetOrchestrator() *services.SpecTaskOrchestrato
 func (apiServer *HelixAPIServer) GetGitService() *services.GitRepositoryService {
 	return apiServer.gitRepositoryService
 }
+
+// @Summary Stop SpecTask external agent
+// @Description Manually stop the external agent for a SpecTask (frees GPU)
+// @Tags SpecTasks
+// @Param id path string true "SpecTask ID"
+// @Success 200 {object} system.HTTPSuccess
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/spec-tasks/{id}/external-agent/stop [post]
+func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		return
+	}
+
+	vars := mux.Vars(req)
+	specTaskID := vars["id"]
+
+	// Get SpecTask
+	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
+	if err != nil {
+		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		return
+	}
+
+	// Check user owns this task
+	if task.CreatedBy != user.ID {
+		system.SendHTTPError(res, system.NewHTTPError401("not authorized to stop this agent"))
+		return
+	}
+
+	// Get external agent
+	externalAgent, err := apiServer.Store.GetSpecTaskExternalAgent(req.Context(), specTaskID)
+	if err != nil {
+		system.SendHTTPError(res, system.NewHTTPError404("External agent not found"))
+		return
+	}
+
+	if externalAgent.Status != "running" {
+		system.SendHTTPSuccess(res, map[string]interface{}{
+			"message": "External agent is already stopped",
+			"status":  externalAgent.Status,
+		})
+		return
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("external_agent_id", externalAgent.ID).
+		Str("wolf_app_id", externalAgent.WolfAppID).
+		Msg("Manually stopping SpecTask external agent")
+
+	// Stop Wolf app
+	err = apiServer.wolfExecutor.StopZedAgent(req.Context(), externalAgent.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stop external agent")
+		system.SendHTTPError(res, system.NewHTTPError500(fmt.Sprintf("Failed to stop external agent: %s", err.Error())))
+		return
+	}
+
+	// Update external agent status
+	externalAgent.Status = "stopped"
+	externalAgent.LastActivity = time.Now()
+	err = apiServer.Store.UpdateSpecTaskExternalAgent(req.Context(), externalAgent)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent status")
+	}
+
+	// Update all sessions to reflect agent is stopped
+	for _, sessionID := range externalAgent.HelixSessionIDs {
+		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+		if err == nil {
+			session.Metadata.ExternalAgentStatus = "stopped_manual"
+			apiServer.Store.UpdateSession(req.Context(), *session)
+		}
+	}
+
+	system.SendHTTPSuccess(res, map[string]interface{}{
+		"message":           "External agent stopped successfully",
+		"external_agent_id": externalAgent.ID,
+		"workspace_dir":     externalAgent.WorkspaceDir,
+		"note":              "Workspace preserved in filestore - use start endpoint to resume",
+	})
+}
+
+// @Summary Start SpecTask external agent
+// @Description Start or resume the external agent for a SpecTask (allocates GPU)
+// @Tags SpecTasks
+// @Param id path string true "SpecTask ID"
+// @Success 200 {object} system.HTTPSuccess
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/spec-tasks/{id}/external-agent/start [post]
+func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		return
+	}
+
+	vars := mux.Vars(req)
+	specTaskID := vars["id"]
+
+	// Get SpecTask
+	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
+	if err != nil {
+		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		return
+	}
+
+	// Check user owns this task
+	if task.CreatedBy != user.ID {
+		system.SendHTTPError(res, system.NewHTTPError401("not authorized to start this agent"))
+		return
+	}
+
+	// Get external agent
+	externalAgent, err := apiServer.Store.GetSpecTaskExternalAgent(req.Context(), specTaskID)
+	if err != nil {
+		system.SendHTTPError(res, system.NewHTTPError404("External agent not found - create SpecTask first"))
+		return
+	}
+
+	if externalAgent.Status == "running" {
+		system.SendHTTPSuccess(res, map[string]interface{}{
+			"message":           "External agent is already running",
+			"external_agent_id": externalAgent.ID,
+			"wolf_app_id":       externalAgent.WolfAppID,
+		})
+		return
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("external_agent_id", externalAgent.ID).
+		Str("workspace_dir", externalAgent.WorkspaceDir).
+		Msg("Starting SpecTask external agent (resurrection)")
+
+	// Resurrect agent with SAME workspace
+	agentReq := &types.ZedAgent{
+		SessionID:          externalAgent.ID,
+		UserID:             task.CreatedBy,
+		WorkDir:            externalAgent.WorkspaceDir, // SAME workspace - all state preserved!
+		ProjectPath:        "backend",
+		DisplayWidth:       2560,
+		DisplayHeight:      1600,
+		DisplayRefreshRate: 60,
+	}
+
+	agentResp, err := apiServer.wolfExecutor.StartZedAgent(req.Context(), agentReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to start external agent")
+		system.SendHTTPError(res, system.NewHTTPError500(fmt.Sprintf("Failed to start external agent: %s", err.Error())))
+		return
+	}
+
+	// Update external agent status
+	externalAgent.WolfAppID = agentResp.WolfAppID
+	externalAgent.Status = "running"
+	externalAgent.LastActivity = time.Now()
+	err = apiServer.Store.UpdateSpecTaskExternalAgent(req.Context(), externalAgent)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update external agent status")
+	}
+
+	// Update activity tracking
+	err = apiServer.Store.UpsertExternalAgentActivity(req.Context(), &types.ExternalAgentActivity{
+		ExternalAgentID: externalAgent.ID,
+		SpecTaskID:      task.ID,
+		LastInteraction: time.Now(),
+		AgentType:       "spectask",
+		WolfAppID:       externalAgent.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		UserID:          task.CreatedBy,
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to update activity tracking")
+	}
+
+	// Update all sessions to reflect agent is running
+	for _, sessionID := range externalAgent.HelixSessionIDs {
+		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+		if err == nil {
+			session.Metadata.ExternalAgentStatus = "running"
+			apiServer.Store.UpdateSession(req.Context(), *session)
+		}
+	}
+
+	system.SendHTTPSuccess(res, map[string]interface{}{
+		"message":           "External agent started successfully",
+		"external_agent_id": externalAgent.ID,
+		"wolf_app_id":       agentResp.WolfAppID,
+		"workspace_dir":     externalAgent.WorkspaceDir,
+		"screenshot_url":    agentResp.ScreenshotURL,
+		"stream_url":        agentResp.StreamURL,
+		"note":              "Agent resumed with all previous state (threads, git repos, Zed state)",
+	})
+}
+
+// @Summary Get SpecTask external agent status
+// @Description Get the current status and info for a SpecTask's external agent
+// @Tags SpecTasks
+// @Param id path string true "SpecTask ID"
+// @Produce json
+// @Success 200 {object} SpecTaskExternalAgentStatusResponse
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/spec-tasks/{id}/external-agent/status [get]
+func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		system.SendHTTPError(res, system.NewHTTPError401("unauthorized"))
+		return
+	}
+
+	vars := mux.Vars(req)
+	specTaskID := vars["id"]
+
+	// Get SpecTask
+	task, err := apiServer.Store.GetSpecTask(req.Context(), specTaskID)
+	if err != nil {
+		system.SendHTTPError(res, system.NewHTTPError404("SpecTask not found"))
+		return
+	}
+
+	// Check user owns this task
+	if task.CreatedBy != user.ID {
+		system.SendHTTPError(res, system.NewHTTPError401("not authorized to view this agent"))
+		return
+	}
+
+	// Get external agent
+	externalAgent, err := apiServer.Store.GetSpecTaskExternalAgent(req.Context(), specTaskID)
+	if err != nil {
+		// No external agent yet (task hasn't started)
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode(map[string]interface{}{
+			"exists":  false,
+			"message": "External agent not created yet - task must enter planning phase",
+		})
+		return
+	}
+
+	// Get activity info for idle time
+	var idleMinutes int
+	activity, err := apiServer.Store.GetExternalAgentActivity(req.Context(), externalAgent.ID)
+	if err == nil {
+		idleMinutes = int(time.Since(activity.LastInteraction).Minutes())
+	}
+
+	response := map[string]interface{}{
+		"exists":             true,
+		"external_agent_id":  externalAgent.ID,
+		"status":             externalAgent.Status,
+		"wolf_app_id":        externalAgent.WolfAppID,
+		"workspace_dir":      externalAgent.WorkspaceDir,
+		"helix_session_ids":  externalAgent.HelixSessionIDs,
+		"zed_thread_ids":     externalAgent.ZedThreadIDs,
+		"session_count":      len(externalAgent.HelixSessionIDs),
+		"created":            externalAgent.Created,
+		"last_activity":      externalAgent.LastActivity,
+		"idle_minutes":       idleMinutes,
+		"will_terminate_in":  max(0, 30-idleMinutes),
+		"warning_threshold":  idleMinutes >= 25,
+	}
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
+}
+
+// SpecTaskExternalAgentStatusResponse represents external agent status
+type SpecTaskExternalAgentStatusResponse struct {
+	Exists            bool     `json:"exists"`
+	ExternalAgentID   string   `json:"external_agent_id,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	WolfAppID         string   `json:"wolf_app_id,omitempty"`
+	WorkspaceDir      string   `json:"workspace_dir,omitempty"`
+	HelixSessionIDs   []string `json:"helix_session_ids,omitempty"`
+	SessionCount      int      `json:"session_count,omitempty"`
+	IdleMinutes       int      `json:"idle_minutes,omitempty"`
+	WillTerminateIn   int      `json:"will_terminate_in,omitempty"`
+	WarningThreshold  bool     `json:"warning_threshold,omitempty"`
+}
