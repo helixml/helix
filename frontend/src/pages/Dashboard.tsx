@@ -40,6 +40,7 @@ import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecision
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
+import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -623,6 +624,7 @@ const Dashboard: FC = () => {
                     </Box>
                 )}
 
+<<<<<<< HEAD
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box
                         sx={{
@@ -630,6 +632,16 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <AgentSandboxes />
+=======
+                {tab === "users" && account.admin && (
+                    <Box
+                        sx={{
+                            width: "100%",
+                            p: 2,
+                        }}
+                    >
+                        <UsersTable />
+>>>>>>> origin/main
                     </Box>
                 )}
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/crisp-im/go-crisp-api/crisp/v3"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/ptr"
@@ -288,10 +287,6 @@ func (c *CrispBot) handleTextMessage(ctx context.Context, client *crisp.Client, 
 		log.Error().Err(err).Msg("failed to get message")
 		return fmt.Errorf("failed to get message: %w", err)
 	}
-
-	fmt.Println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
-	spew.Dump(messages)
-	fmt.Println("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 
 	if isInstructedToStop(c.trigger.Nickname, *messages) {
 		log.Info().Str("app_id", c.app.ID).Msg("bot is instructed to stop")

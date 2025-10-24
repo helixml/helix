@@ -32,7 +32,6 @@ func (s *HelixRunnerAPIServer) createChatCompletion(rw http.ResponseWriter, r *h
 	log.Info().
 		Str("slot_id", slotUUID.String()).
 		Str("model", slot.Model).
-		Bool("is_active", slot.Active).
 		Msg("chat completion request started")
 
 	// When everything has finished, mark the slot as complete
