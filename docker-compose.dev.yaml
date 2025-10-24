@@ -311,6 +311,7 @@ services:
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:
       image: helix-moonlight-web:helix-fixed
+      command: bash -c "/app/server/init-moonlight-config.sh && exec /app/web-server"
       ports:
         - "8081:8080"  # Web interface
         - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
