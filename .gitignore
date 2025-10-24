@@ -41,3 +41,13 @@ test-zed-config/
 wolf/config.toml
 wolf/config.toml.v4.old
 moonlight-web-config/data.json
+
+# Integration test artifacts
+integration-test/**/integration_*
+integration-test/**/*_sync
+.test_runner_token
+screenshot-server
+simple-moonlight-server
+test-websocket-sync.sh
+test-screenshot.png
+screencopy-frames/
