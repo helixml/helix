@@ -70,7 +70,22 @@ type Interaction struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
 	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
+
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
 }
+
+type FeedbackRequest struct {
+	Feedback        Feedback `json:"feedback" gorm:"index"`
+	FeedbackMessage string   `json:"feedback_message"`
+}
+
+type Feedback string
+
+const (
+	FeedbackLike    Feedback = "like"
+	FeedbackDislike Feedback = "dislike"
+)
 
 func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
 	messages := []openai.ChatCompletionMessage{}
@@ -142,6 +157,7 @@ type ListInteractionsQuery struct {
 	GenerationID  int // Use -1 to get all generations for a session
 	Page          int
 	PerPage       int
+	Feedback      string
 	Order         string // Defaults to ID ASC
 }
 
@@ -1280,6 +1296,14 @@ type PaginatedInteractions struct {
 	PageSize     int            `json:"pageSize"`
 	TotalCount   int64          `json:"totalCount"`
 	TotalPages   int            `json:"totalPages"`
+}
+
+type PaginatedUsersList struct {
+	Users      []*User `json:"users"`
+	Page       int     `json:"page"`
+	PageSize   int     `json:"pageSize"`
+	TotalCount int64   `json:"totalCount"`
+	TotalPages int     `json:"totalPages"`
 }
 
 type ToolType string

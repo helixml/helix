@@ -1,4 +1,4 @@
-import { FC, useState } from 'react'
+import { FC, useState, useEffect } from 'react'
 import { styled } from '@mui/system'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -16,8 +16,11 @@ import TextField from '@mui/material/TextField'
 import CopyButtonWithCheck from './CopyButtonWithCheck'
 import ToolStepsWidget from './ToolStepsWidget'
 
+import { ThumbsUp, ThumbsDown } from 'lucide-react'
+
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import { useUpdateInteractionFeedback } from '../../services/interactionsService'
 
 import {
   emitEvent,
@@ -27,7 +30,7 @@ import {
   IServerConfig,
 } from '../../types'
 
-import { TypesInteraction, TypesSession } from '../../api/api'
+import { TypesInteraction, TypesSession, TypesFeedback } from '../../api/api'
 
 const GeneratedImage = styled('img')({
   cursor: 'pointer',
@@ -93,11 +96,27 @@ export const InteractionInference: FC<{
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
     const [internalIsEditing, setInternalIsEditing] = useState(false)
     const [internalEditedMessage, setInternalEditedMessage] = useState(message || '')
+    const [currentFeedback, setCurrentFeedback] = useState<TypesFeedback | undefined>(interaction.feedback)
     const isEditing = externalIsEditing !== undefined ? externalIsEditing : internalIsEditing
     const editedMessage = externalEditedMessage !== undefined ? externalEditedMessage : internalEditedMessage
     const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
+
+    const { updateFeedback } = useUpdateInteractionFeedback(session.id || '', interaction.id || '')
     const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
     const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id || '', internalEditedMessage) } setInternalIsEditing(false) })
+
+    const handleFeedback = async (feedback: TypesFeedback) => {
+      try {
+        await updateFeedback({ feedback })
+        setCurrentFeedback(feedback)
+      } catch (error) {
+        console.error('Failed to update feedback:', error)
+      }
+    }
+
+    useEffect(() => {
+      setCurrentFeedback(interaction.feedback)
+    }, [interaction.feedback])
 
     // Filter tool steps for this interaction
     const toolSteps = sessionSteps
@@ -247,6 +266,54 @@ export const InteractionInference: FC<{
                             </IconButton>
                           </Tooltip>
                           <CopyButtonWithCheck text={message || ''} alwaysVisible={isLastInteraction} />
+                            
+                          
+                          <Tooltip title="Love this">
+                            <IconButton
+                              onClick={() => handleFeedback(TypesFeedback.FeedbackLike)}
+                              size="small"
+                              className="thumbs-up-btn"
+                              sx={theme => ({
+                                mt: 0.5,
+                                color: currentFeedback === TypesFeedback.FeedbackLike 
+                                  ? '#4caf50' 
+                                  : theme.palette.mode === 'light' ? '#888' : '#bbb',
+                                '&:hover': {
+                                  color: currentFeedback === TypesFeedback.FeedbackLike 
+                                    ? '#45a049'
+                                    : theme.palette.mode === 'light' ? '#000' : '#fff',
+                                },
+                              })}
+                              aria-label="thumbs up"
+                            >
+                              <ThumbsUp size={16} fill={currentFeedback === TypesFeedback.FeedbackLike ? '#4caf50' : 'none'} />
+                            </IconButton>
+                          </Tooltip>
+
+                          <Tooltip title="Needs improvement">
+                            <IconButton
+                              onClick={() => handleFeedback(TypesFeedback.FeedbackDislike)}
+                              size="small"
+                              className="thumbs-down-btn"
+                              sx={theme => ({
+                                mt: 0.5,
+                                color: currentFeedback === TypesFeedback.FeedbackDislike 
+                                  ? '#f44336' 
+                                  : theme.palette.mode === 'light' ? '#888' : '#bbb',
+                                '&:hover': {
+                                  color: currentFeedback === TypesFeedback.FeedbackDislike 
+                                    ? '#d32f2f'
+                                    : theme.palette.mode === 'light' ? '#000' : '#fff',
+                                },
+                              })}
+                              aria-label="thumbs down"
+                            >
+                              <ThumbsDown size={16} fill={currentFeedback === TypesFeedback.FeedbackDislike ? '#f44336' : 'none'} />
+                            </IconButton>
+                          </Tooltip>
+                          
+                          
+                          
                         </Box>
                       )}
                     </Box>

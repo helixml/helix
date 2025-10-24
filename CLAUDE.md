@@ -1,5 +1,12 @@
 # Claude Rules for Helix Development
 
+The following rule files should be consulted when working on the codebase:
+
+@.cursor/rules/helix.mdc
+@.cursor/rules/go-api-handlers.mdc
+@.cursor/rules/use-gorm-for-database.mdc
+@.cursor/rules/use-frontend-api-client.mdc
+
 This file contains critical development guidelines and context that MUST be followed at all times during Helix development.
 
 ## Documentation Organization

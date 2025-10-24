@@ -46,12 +46,14 @@ const Account: FC = () => {
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
-  const themeConfig = useThemeConfig()
-  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet()
+  const themeConfig = useThemeConfig()  
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
+
+  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(undefined, !isLoadingServerConfig && serverConfig?.billing_enabled)
+
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
@@ -150,7 +152,7 @@ const Account: FC = () => {
     return null
   }
 
-  const paymentsActive = serverConfig?.stripe_enabled
+  const paymentsActive = serverConfig?.stripe_enabled && serverConfig?.billing_enabled
   const colSize = paymentsActive ? 6 : 12
 
   const apiKey = apiKeys.length > 0 ? apiKeys[0].key : ''
@@ -165,7 +167,7 @@ export HELIX_API_KEY=${apiKey}
     <Page
       breadcrumbTitle="Account"
     >
-      <Container maxWidth="lg" sx={{ mb: 4}}>
+      <Container maxWidth="lg" sx={{ mb: 4 }}>
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
             <Typography variant="h4" gutterBottom sx={{ mt: 4 }}></Typography>
@@ -183,8 +185,9 @@ export HELIX_API_KEY=${apiKey}
               </Grid>
             </Grid>
 
-            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
-              {paymentsActive && (
+            {paymentsActive && (
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+
                 <>
                   <Grid item xs={12} md={colSize}>
                     <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
@@ -238,7 +241,7 @@ export HELIX_API_KEY=${apiKey}
                               <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
                               <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
                             </Box>
-                            <Box sx={{ display: 'flex',  mb: 1,justifyContent: 'flex-end' }}>
+                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
                               <Button variant="outlined" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
                                 Manage Subscription
                               </Button>
@@ -261,21 +264,21 @@ export HELIX_API_KEY=${apiKey}
                       </Box>
                     </Box>
                   </Grid></>
-              )}
-            </Grid>
+              </Grid>
+            )}
 
             {/* API keys setup */}
             <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
               <Grid item xs={12}>
                 {/* <Typography variant="h4" gutterBottom>API Keys</Typography> */}
-                
+
                 {/* API Key Display */}
                 <Box sx={{ mb: 3 }}>
                   <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>API Key</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Specify your key as a header 'Authorization: Bearer &lt;token&gt;' with every request
                   </Typography>
-                  
+
                   {apiKeys && apiKeys.length > 0 ? (
                     apiKeys.map((apiKey) => (
                       <Box key={apiKey.key} sx={{ mb: 2 }}>
@@ -304,7 +307,7 @@ export HELIX_API_KEY=${apiKey}
                                 </IconButton>
                                 <IconButton
                                   onClick={() => handleRegenerateApiKey(apiKey.key || '')}
-                                  edge="end"                                  
+                                  edge="end"
                                 >
                                   <RefreshIcon />
                                 </IconButton>
@@ -329,7 +332,7 @@ export HELIX_API_KEY=${apiKey}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Install the Helix CLI to interact with the API from your terminal
                   </Typography>
-                  
+
                   <Box sx={{ position: 'relative' }}>
                     <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
                       <Button
@@ -366,7 +369,7 @@ export HELIX_API_KEY=${apiKey}
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Set your authentication credentials for the CLI
                   </Typography>
-                  
+
                   {apiKeys && apiKeys.length > 0 ? (
                     apiKeys.map((apiKey) => (
                       <Box key={apiKey.key} sx={{ position: 'relative' }}>
@@ -448,23 +451,23 @@ export HELIX_API_KEY=${apiKey}
 
       {/* Footer */}
       <Box
-          component="footer"
+        component="footer"
+        sx={{
+          py: 2,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+        }}
+      >
+        <Typography
           sx={{
-            py: 2,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+            fontSize: '0.8rem',
           }}
         >
-          <Typography
-            sx={{              
-              fontSize: '0.8rem',
-            }}
-          >
-            {/* TODO: Add footer text, maybe helix version */}
-          </Typography>
-        </Box>
+          {/* TODO: Add footer text, maybe helix version */}
+        </Typography>
+      </Box>
 
       {/* Regenerate API Key Confirmation Dialog */}
       <Dialog
@@ -476,7 +479,7 @@ export HELIX_API_KEY=${apiKey}
         <DialogTitle>Regenerate API Key</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to regenerate your API key? This will invalidate the current key and create a new one. 
+            Are you sure you want to regenerate your API key? This will invalidate the current key and create a new one.
             Any applications or scripts using the current key will need to be updated with the new key.
           </DialogContentText>
         </DialogContent>
@@ -484,10 +487,10 @@ export HELIX_API_KEY=${apiKey}
           <Button onClick={handleCancelRegenerate} disabled={regenerateApiKey.isPending}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleConfirmRegenerate} 
-            color="error" 
-            variant="contained" 
+          <Button
+            onClick={handleConfirmRegenerate}
+            color="error"
+            variant="contained"
             disabled={regenerateApiKey.isPending}
           >
             {regenerateApiKey.isPending ? 'Regenerating...' : 'Regenerate Key'}
