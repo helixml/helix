@@ -165,16 +165,12 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 		},
 	}
 
-	// Mock parent work session
+	// Mock parent work session (no longer includes nested SpecTask)
 	_ = &types.SpecTaskWorkSession{
 		ID:         parentSessionID,
 		SpecTaskID: specTaskID,
 		Status:     types.SpecTaskWorkSessionStatusActive,
 		Phase:      types.SpecTaskPhaseImplementation,
-		SpecTask: &types.SpecTask{
-			ID:        specTaskID,
-			CreatedBy: "test-user",
-		},
 	}
 
 	specTask := &types.SpecTask{
