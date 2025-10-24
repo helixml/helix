@@ -58,11 +58,12 @@ type SpecTaskWorkSession struct {
 	// NOTE: We store IDs, not nested objects, to avoid circular references in Swagger/JSON
 	// Use GORM preloading to load these relationships when needed:
 	//   db.Preload("HelixSession").Find(&workSession)
-	HelixSession      *Session              `json:"helix_session,omitempty" gorm:"foreignKey:HelixSessionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	ParentWorkSession *SpecTaskWorkSession  `json:"parent_work_session,omitempty" gorm:"foreignKey:ParentWorkSessionID"`
-	SpawnedBySession  *SpecTaskWorkSession  `json:"spawned_by_session,omitempty" gorm:"foreignKey:SpawnedBySessionID"`
-	ZedThread         *SpecTaskZedThread    `json:"zed_thread,omitempty" gorm:"foreignKey:WorkSessionID"`
-	ChildWorkSessions []SpecTaskWorkSession `json:"child_work_sessions,omitempty" gorm:"foreignKey:ParentWorkSessionID"`
+	// swaggerignore prevents circular reference in swagger generation
+	HelixSession      *Session              `json:"helix_session,omitempty" gorm:"foreignKey:HelixSessionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" swaggerignore:"true"`
+	ParentWorkSession *SpecTaskWorkSession  `json:"parent_work_session,omitempty" gorm:"foreignKey:ParentWorkSessionID" swaggerignore:"true"`
+	SpawnedBySession  *SpecTaskWorkSession  `json:"spawned_by_session,omitempty" gorm:"foreignKey:SpawnedBySessionID" swaggerignore:"true"`
+	ZedThread         *SpecTaskZedThread    `json:"zed_thread,omitempty" gorm:"foreignKey:WorkSessionID" swaggerignore:"true"`
+	ChildWorkSessions []SpecTaskWorkSession `json:"child_work_sessions,omitempty" gorm:"foreignKey:ParentWorkSessionID" swaggerignore:"true"`
 }
 
 // SpecTaskZedThread maps individual work sessions to threads within a Zed instance
