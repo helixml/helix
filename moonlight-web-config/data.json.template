@@ -1,0 +1,13 @@
+{
+  "hosts": [
+    {
+      "address": "wolf",
+      "http_port": 47989,
+      "unique_id": null,
+      "cache": {
+        "name": "Helix",
+        "mac": "00:11:22:33:44:55"
+      }
+    }
+  ]
+}
