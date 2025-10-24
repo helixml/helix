@@ -522,7 +522,7 @@ function build-zed-agent() {
     return 1
   fi
 
-  docker build -t helix/zed-agent:latest -f Dockerfile.zed-agent-vnc .
+  docker build -t helix-sway:latest -f Dockerfile.sway-helix .
 
   if [ $? -eq 0 ]; then
     echo "✅ Zed agent Docker image built successfully"
