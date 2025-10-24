@@ -260,7 +260,7 @@ func (apiServer *HelixAPIServer) GetGitService() *services.GitRepositoryService 
 // @Description Manually stop the external agent for a SpecTask (frees GPU)
 // @Tags SpecTasks
 // @Param id path string true "SpecTask ID"
-// @Success 200 {object} system.HTTPSuccess
+// @Success 200 {string} string "OK"
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
@@ -347,7 +347,7 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 // @Description Start or resume the external agent for a SpecTask (allocates GPU)
 // @Tags SpecTasks
 // @Param id path string true "SpecTask ID"
-// @Success 200 {object} system.HTTPSuccess
+// @Success 200 {string} string "OK"
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
