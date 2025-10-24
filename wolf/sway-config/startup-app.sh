@@ -10,10 +10,9 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# Create Zed config directory (settings-sync-daemon will manage settings.json)
-echo "Creating Zed config directory..."
-mkdir -p $HOME/.config/zed
-echo "Zed config directory created (settings managed by settings-sync-daemon)"
+# Zed config directory will be created by start-zed-helix.sh as a symlink
+# to work/.zed-state/config for persistence across container restarts.
+# Settings-sync-daemon will write to the symlink target.
 
 # Start screenshot server in background (if binary exists)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
