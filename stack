@@ -1053,13 +1053,41 @@ function install() {
 }
 
 function update_openapi() {
-	go install github.com/swaggo/swag/cmd/swag@v1.16.4 && \
+	echo "🔄 Installing swag..."
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4 || {
+		echo "❌ Failed to install swag"
+		return 1
+	}
+
+	echo "🔄 Generating swagger documentation..."
 	swag init -g api/pkg/server/swagger.go \
-	--parseDependency --parseInternal --parseDepth 3 \
-	-o api/pkg/server
-	# Copy the generated files to the frontend
-	cp -r api/pkg/server/swagger.yaml frontend/swagger/
-	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
+		--parseDependency --parseInternal --parseDepth 3 \
+		-o api/pkg/server || {
+		echo "❌ CRITICAL: Swagger generation FAILED"
+		echo "Check for ParseComment errors above"
+		return 1
+	}
+
+	# Verify swagger files were created
+	if [[ ! -f "api/pkg/server/swagger.json" ]]; then
+		echo "❌ CRITICAL: swagger.json was not generated"
+		return 1
+	fi
+
+	echo "✅ Swagger generated successfully"
+	echo "📋 Copying swagger to frontend..."
+	cp -r api/pkg/server/swagger.yaml frontend/swagger/ || {
+		echo "❌ Failed to copy swagger.yaml"
+		return 1
+	}
+
+	echo "🔄 Generating TypeScript client..."
+	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts || {
+		echo "❌ TypeScript client generation FAILED"
+		return 1
+	}
+
+	echo "✅ OpenAPI update complete"
 }
 
 function lint() {
