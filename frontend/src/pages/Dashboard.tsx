@@ -624,7 +624,6 @@ const Dashboard: FC = () => {
                     </Box>
                 )}
 
-<<<<<<< HEAD
                 {tab === "agent_sandboxes" && account.admin && (
                     <Box
                         sx={{
@@ -632,7 +631,9 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <AgentSandboxes />
-=======
+                    </Box>
+                )}
+
                 {tab === "users" && account.admin && (
                     <Box
                         sx={{
@@ -641,7 +642,6 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <UsersTable />
->>>>>>> origin/main
                     </Box>
                 )}
 
