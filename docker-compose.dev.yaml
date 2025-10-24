@@ -277,6 +277,8 @@ services:
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
+        # Mount init script into container init directory
+        - ./wolf/init-wolf-config.sh:/etc/cont-init.d/05-init-wolf-config.sh:ro
         - /tmp/sockets:/tmp/sockets:rw
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
