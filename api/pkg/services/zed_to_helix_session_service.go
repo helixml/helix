@@ -195,7 +195,11 @@ func (s *ZedToHelixSessionService) HandleZedThreadSpawnEvent(
 
 	userID, _ := spawnContext["user_id"].(string)
 	if userID == "" {
-		userID = parentWorkSession.SpecTask.CreatedBy
+		// Load SpecTask to get CreatedBy
+		specTask, err := s.store.GetSpecTask(ctx, parentWorkSession.SpecTaskID)
+		if err == nil && specTask != nil {
+			userID = specTask.CreatedBy
+		}
 	}
 
 	// Create context for spawned thread

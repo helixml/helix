@@ -54,8 +54,10 @@ type SpecTaskWorkSession struct {
 	StartedAt   *time.Time `json:"started_at,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 
-	// Relationships (loaded via joins, not stored)
-	SpecTask          *SpecTask             `json:"spec_task,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	// Relationships (loaded via joins, not stored in database)
+	// NOTE: We store IDs, not nested objects, to avoid circular references in Swagger/JSON
+	// Use GORM preloading to load these relationships when needed:
+	//   db.Preload("HelixSession").Find(&workSession)
 	HelixSession      *Session              `json:"helix_session,omitempty" gorm:"foreignKey:HelixSessionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	ParentWorkSession *SpecTaskWorkSession  `json:"parent_work_session,omitempty" gorm:"foreignKey:ParentWorkSessionID"`
 	SpawnedBySession  *SpecTaskWorkSession  `json:"spawned_by_session,omitempty" gorm:"foreignKey:SpawnedBySessionID"`
@@ -78,9 +80,10 @@ type SpecTaskZedThread struct {
 	CreatedAt time.Time `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 
-	// Relationships (loaded via joins, not stored)
+	// Relationships (loaded via joins, not stored in database)
+	// NOTE: We store IDs, not nested objects, to avoid circular references
+	// Use GORM preloading: db.Preload("WorkSession").Find(&zedThread)
 	WorkSession *SpecTaskWorkSession `json:"work_session,omitempty" gorm:"foreignKey:WorkSessionID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	SpecTask    *SpecTask            `json:"spec_task,omitempty" gorm:"foreignKey:SpecTaskID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 }
 
 // SpecTaskImplementationTask represents parsed tasks from ImplementationPlan

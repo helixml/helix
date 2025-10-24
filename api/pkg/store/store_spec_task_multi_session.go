@@ -567,6 +567,12 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 			parentSession.Status, parentSession.Phase)
 	}
 
+	// Load the SpecTask to get CreatedBy and ImplementationAgent
+	specTask, err := s.GetSpecTask(ctx, parentSession.SpecTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get SpecTask: %w", err)
+	}
+
 	// Create new work session
 	workSession := &types.SpecTaskWorkSession{
 		SpecTaskID:          parentSession.SpecTaskID,
@@ -599,13 +605,13 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 	helixSession := &types.Session{
 		ID:      system.GenerateSessionID(),
 		Name:    fmt.Sprintf("[Spawned] %s", config.Name),
-		Owner:   parentSession.SpecTask.CreatedBy,
+		Owner:   specTask.CreatedBy,
 		Type:    types.SessionTypeText,
 		Mode:    types.SessionModeInference,
 		Created: time.Now(),
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:    parentSession.SpecTask.ImplementationAgent,
+			AgentType:    specTask.ImplementationAgent,
 			SpecTaskID:   parentSession.SpecTaskID,
 			SessionRole:  "implementation",
 			SystemPrompt: "", // Will be set when session starts
