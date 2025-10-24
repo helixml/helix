@@ -68,7 +68,9 @@ type SpecTask struct {
 	LabelsDB  datatypes.JSON `json:"-" gorm:"column:labels;type:jsonb"`
 	Metadata  datatypes.JSON `json:"metadata,omitempty" gorm:"type:jsonb"`
 
-	// Relationships (loaded via joins, not stored)
+	// Relationships (loaded via joins, not stored in database)
+	// NOTE: Use GORM preloading to load these when needed:
+	//   db.Preload("WorkSessions").Preload("ZedThreads").Find(&specTask)
 	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID"`
 	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID"`
 }
