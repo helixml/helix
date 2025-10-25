@@ -135,44 +135,11 @@ export const SessionToolbar: FC<{
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [showPin, setShowPin] = useState(false)
   const [clientMenuAnchor, setClientMenuAnchor] = useState<null | HTMLElement>(null)
-  const [keepaliveStatus, setKeepaliveStatus] = useState<{
-    session_id: string
-    lobby_id: string
-    keepalive_status: 'starting' | 'active' | 'reconnecting' | 'failed' | ''
-    keepalive_start_time?: string
-    keepalive_last_check?: string
-    keepalive_error?: string
-    connection_uptime_seconds: number
-  } | null>(null)
 
   useEffect(() => {
     setSessionName(session.name)
   }, [session.name])
 
-  // Fetch keepalive status for external agent sessions
-  useEffect(() => {
-    if (!isExternalAgent || !session.id) return
-
-    const fetchKeepaliveStatus = async () => {
-      try {
-        const response = await fetch(`/api/v1/external-agents/${session.id}/keepalive`)
-        if (response.ok) {
-          const status = await response.json()
-          setKeepaliveStatus(status)
-        }
-      } catch (err) {
-        // Silently fail for keepalive status updates
-        console.error('Failed to fetch keepalive status:', err)
-      }
-    }
-
-    fetchKeepaliveStatus()
-
-    // Poll for keepalive status every 10 seconds
-    const interval = setInterval(fetchKeepaliveStatus, 10000)
-
-    return () => clearInterval(interval)
-  }, [isExternalAgent, session.id])
 
   const handleSessionNameChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setSessionName(event.target.value)
@@ -199,84 +166,6 @@ export const SessionToolbar: FC<{
     setEditingSession(false)
   }
 
-  // Render keepalive status indicator
-  const renderKeepaliveIndicator = () => {
-    if (!keepaliveStatus || !keepaliveStatus.keepalive_status) return null
-
-    const status = keepaliveStatus.keepalive_status
-
-    switch (status) {
-      case 'active':
-        return (
-          <Tooltip title={`Keepalive active (uptime: ${Math.floor(keepaliveStatus.connection_uptime_seconds / 60)}m)`}>
-            <Chip
-              icon={<CheckCircle />}
-              label="Keepalive Active"
-              color="success"
-              size="small"
-              sx={{
-                fontSize: '0.65rem',
-                height: 'auto',
-                '& .MuiChip-label': { px: 0.75, py: 0.25 },
-                '& .MuiChip-icon': { fontSize: '0.85rem' }
-              }}
-            />
-          </Tooltip>
-        )
-      case 'starting':
-        return (
-          <Tooltip title="Keepalive session starting">
-            <Chip
-              icon={<CircularProgress size={12} />}
-              label="Keepalive Starting"
-              color="info"
-              size="small"
-              sx={{
-                fontSize: '0.65rem',
-                height: 'auto',
-                '& .MuiChip-label': { px: 0.75, py: 0.25 }
-              }}
-            />
-          </Tooltip>
-        )
-      case 'reconnecting':
-        return (
-          <Tooltip title="Keepalive session reconnecting">
-            <Chip
-              icon={<Sync />}
-              label="Keepalive Reconnecting"
-              color="warning"
-              size="small"
-              sx={{
-                fontSize: '0.65rem',
-                height: 'auto',
-                '& .MuiChip-label': { px: 0.75, py: 0.25 },
-                '& .MuiChip-icon': { fontSize: '0.85rem' }
-              }}
-            />
-          </Tooltip>
-        )
-      case 'failed':
-        return (
-          <Tooltip title={keepaliveStatus.keepalive_error || "Keepalive session failed - will retry"}>
-            <Chip
-              icon={<ErrorIcon />}
-              label="Keepalive Failed"
-              color="error"
-              size="small"
-              sx={{
-                fontSize: '0.65rem',
-                height: 'auto',
-                '& .MuiChip-label': { px: 0.75, py: 0.25 },
-                '& .MuiChip-icon': { fontSize: '0.85rem' }
-              }}
-            />
-          </Tooltip>
-        )
-      default:
-        return null
-    }
-  }
 
   return (
     <Row
@@ -600,8 +489,6 @@ export const SessionToolbar: FC<{
                   </Box>
                 )}
 
-                {/* Keepalive Status */}
-                {renderKeepaliveIndicator()}
               </Box>
             )}
           </Box>
