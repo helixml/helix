@@ -24,6 +24,7 @@ import {
   HelpCircle,
   Kanban,
   Activity,
+  GitBranch,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -381,6 +382,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('fleet'),
         onClick: () => orgNavigateTo('fleet'),
         label: "Fleet",
+      },
+      {
+        icon: <GitBranch size={NAV_BUTTON_SIZE} />,
+        tooltip: "View git repositories",
+        isActive: isActive('git-repos'),
+        onClick: () => orgNavigateTo('git-repos'),
+        label: "Git Repos",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
