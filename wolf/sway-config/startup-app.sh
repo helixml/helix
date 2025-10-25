@@ -10,9 +10,35 @@ if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     echo "Created symlink: /usr/local/bin/zed -> /zed-build/zed"
 fi
 
-# Zed config directory will be created by start-zed-helix.sh as a symlink
-# to work/.zed-state/config for persistence across container restarts.
-# Settings-sync-daemon will write to the symlink target.
+# CRITICAL: Create Zed config symlinks BEFORE Sway starts
+# Settings-sync-daemon (started by Sway) needs the symlink to exist
+WORK_DIR=/home/retro/work
+ZED_STATE_DIR=$WORK_DIR/.zed-state
+
+# Ensure workspace directory exists with correct ownership
+cd /home/retro
+sudo chown retro:retro work
+cd /home/retro/work
+
+# Create persistent state directory structure
+mkdir -p $ZED_STATE_DIR/config
+mkdir -p $ZED_STATE_DIR/local-share
+mkdir -p $ZED_STATE_DIR/cache
+
+# Create symlinks BEFORE Sway starts (so settings-sync-daemon can write immediately)
+rm -rf ~/.config/zed
+mkdir -p ~/.config
+ln -sf $ZED_STATE_DIR/config ~/.config/zed
+
+rm -rf ~/.local/share/zed
+mkdir -p ~/.local/share
+ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
+
+rm -rf ~/.cache/zed
+mkdir -p ~/.cache
+ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
+
+echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
 
 # Start screenshot server in background (if binary exists)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
