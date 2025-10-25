@@ -11,53 +11,21 @@ fi
 # Environment variables are passed from Wolf executor via container env
 # HELIX_API_URL, HELIX_API_TOKEN, ANTHROPIC_API_KEY should be available
 
-# CRITICAL: Relocate ALL editor state to persistent workspace
-# This ensures state survives container termination (30min idle cleanup)
-WORK_DIR=/home/retro/work
-ZED_STATE_DIR=$WORK_DIR/.zed-state
-CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
+# NOTE: Zed state symlinks are already created by startup-app.sh BEFORE Sway starts
+# This ensures settings-sync-daemon can write config.json immediately on startup
 
 # Set workspace to mounted work directory
-cd /home/retro
-sudo chown retro:retro work
-cd /home/retro/work
+WORK_DIR=/home/retro/work
+cd $WORK_DIR
 
-# Create persistent state directory structure
-mkdir -p $ZED_STATE_DIR/config
-mkdir -p $ZED_STATE_DIR/local-share
-mkdir -p $ZED_STATE_DIR/cache
-
-# Symlink entire Zed state directories to persistent workspace
-# This captures EVERYTHING (settings, db, threads, conversations, extensions, etc.)
-
-# ~/.config/zed → work/.zed-state/config
-rm -rf ~/.config/zed
-mkdir -p ~/.config
-ln -sf $ZED_STATE_DIR/config ~/.config/zed
-
-# ~/.local/share/zed → work/.zed-state/local-share (CRITICAL: threads, db, conversations!)
-rm -rf ~/.local/share/zed
-mkdir -p ~/.local/share
-ln -sf $ZED_STATE_DIR/local-share ~/.local/share/zed
-
-# ~/.cache/zed → work/.zed-state/cache
-rm -rf ~/.cache/zed
-mkdir -p ~/.cache
-ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
-
-# ~/.claude → work/.claude-state (if Claude Code is installed)
-# Claude stores ALL state in one directory, making this simpler
+# Create Claude Code state symlink if needed
+CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
     mkdir -p $CLAUDE_STATE_DIR
     rm -rf ~/.claude
     ln -sf $CLAUDE_STATE_DIR ~/.claude
-    echo "   Claude: ~/.claude → $CLAUDE_STATE_DIR"
+    echo "✅ Claude: ~/.claude → $CLAUDE_STATE_DIR"
 fi
-
-echo "✅ All editor state directories symlinked to persistent workspace"
-echo "   Zed Config: ~/.config/zed → $ZED_STATE_DIR/config"
-echo "   Zed Data: ~/.local/share/zed → $ZED_STATE_DIR/local-share"
-echo "   Zed Cache: ~/.cache/zed → $ZED_STATE_DIR/cache"
 
 # Initialize workspace with README if empty
 # This ensures Zed creates a workspace and triggers WebSocket connection
