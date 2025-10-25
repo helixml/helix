@@ -10948,8 +10948,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_id": {
-                    "description": "Wolf returns this as uint64 (can exceed int64 max)",
-                    "type": "integer"
+                    "description": "Wolf returns this as string (Moonlight protocol requirement)",
+                    "type": "string"
                 }
             }
         },

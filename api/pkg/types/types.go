@@ -831,6 +831,7 @@ type StripeUser struct {
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
+	Slug   string     `json:"slug"`   // User slug for GitHub-style URLs
 	Config UserConfig `json:"config"`
 }
 
