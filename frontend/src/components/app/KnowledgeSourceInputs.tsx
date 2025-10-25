@@ -33,10 +33,10 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
   // Local state for all input fields
   const [urls, setUrls] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [resultsCount, setResultsCount] = useState<number>(0);
-  const [chunkSize, setChunkSize] = useState<number | undefined>(undefined);
-  const [chunkOverflow, setChunkOverflow] = useState<number>(0);
-  const [maxDepth, setMaxDepth] = useState<number>(default_max_depth);
+  const [resultsCount, setResultsCount] = useState<string>('0');
+  const [chunkSize, setChunkSize] = useState<string>('');
+  const [chunkOverflow, setChunkOverflow] = useState<string>('0');
+  const [maxDepth, setMaxDepth] = useState<string>(default_max_depth.toString());
   const [readability, setReadability] = useState<boolean>(true);
   const [refreshSchedule, setRefreshSchedule] = useState<string>('');
   const [customSchedule, setCustomSchedule] = useState<string>('');
@@ -46,10 +46,10 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
   useEffect(() => {
     setUrls(knowledge.source.web?.urls?.join(', ') || '');
     setDescription(knowledge.description || '');
-    setResultsCount(knowledge.rag_settings.results_count);
-    setChunkSize(knowledge.rag_settings.chunk_size || undefined);
-    setChunkOverflow(knowledge.rag_settings.chunk_overflow);
-    setMaxDepth(knowledge.source.web?.crawler?.max_depth || default_max_depth);
+    setResultsCount(knowledge.rag_settings.results_count.toString());
+    setChunkSize(knowledge.rag_settings.chunk_size ? knowledge.rag_settings.chunk_size.toString() : '');
+    setChunkOverflow(knowledge.rag_settings.chunk_overflow.toString());
+    setMaxDepth((knowledge.source.web?.crawler?.max_depth || default_max_depth).toString());
     setReadability(knowledge.source.web?.crawler?.readability ?? true);
     setRefreshSchedule(knowledge.refresh_schedule === '' ? 'One off' :
       (knowledge.refresh_schedule === '@hourly' || knowledge.refresh_schedule === '@daily' ? knowledge.refresh_schedule : 'custom'));
@@ -112,15 +112,14 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField
           fullWidth
-          label="Results Count (optional)"
-          type="number"
+          label="Results Count (optional)"          
           value={resultsCount}
-          onChange={(e) => setResultsCount(parseInt(e.target.value) || 0)}
+          onChange={(e) => setResultsCount(e.target.value)}
           onBlur={() => {
             updateKnowledge(knowledge.id, {
               rag_settings: {
                 ...knowledge.rag_settings,
-                results_count: resultsCount
+                results_count: parseInt(resultsCount) || 0
               }
             });
           }}
@@ -129,17 +128,13 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
         <TextField
           fullWidth
           label="Chunk Size (optional)"
-          type="number"
-          value={chunkSize === undefined ? '' : chunkSize}
-          onChange={(e) => {
-            const value = e.target.value ? parseInt(e.target.value) : undefined;
-            setChunkSize(value);
-          }}
+          value={chunkSize}
+          onChange={(e) => setChunkSize(e.target.value)}
           onBlur={() => {
             updateKnowledge(knowledge.id, {
               rag_settings: {
                 ...knowledge.rag_settings,
-                chunk_size: chunkSize ?? 0
+                chunk_size: chunkSize ? parseInt(chunkSize) : 0
               }
             });
           }}
@@ -148,14 +143,13 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
         <TextField
           fullWidth
           label="Chunk Overflow (optional)"
-          type="number"
           value={chunkOverflow}
-          onChange={(e) => setChunkOverflow(parseInt(e.target.value) || 0)}
+          onChange={(e) => setChunkOverflow(e.target.value)}
           onBlur={() => {
             updateKnowledge(knowledge.id, {
               rag_settings: {
                 ...knowledge.rag_settings,
-                chunk_overflow: chunkOverflow
+                chunk_overflow: parseInt(chunkOverflow) || 0
               }
             });
           }}
@@ -188,9 +182,8 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
             <TextField
               fullWidth
               label="Max crawling depth (pages to visit, max 100)"
-              type="number"
               value={maxDepth}
-              onChange={(e) => setMaxDepth(parseInt(e.target.value) || default_max_depth)}
+              onChange={(e) => setMaxDepth(e.target.value)}
               onBlur={() => {
                 updateKnowledge(knowledge.id, {
                   source: {
@@ -199,7 +192,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
                       crawler: {
                         enabled: true,
                         ...knowledge.source.web?.crawler,
-                        max_depth: maxDepth
+                        max_depth: parseInt(maxDepth) || default_max_depth
                       }
                     }
                   }
@@ -232,7 +225,7 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
                       disabled={disabled}
                     />
                   }
-                  label="Filter out headers, footers, etc."
+                  label="Strip headers"
                   sx={{ mb: 2 }}
                 />
               </span>
