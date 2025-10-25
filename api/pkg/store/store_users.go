@@ -279,11 +279,33 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// generateUserSlug creates a URL-friendly slug from a user ID or email
+// generateUserSlug creates a URL-friendly slug from a user's name, email, or ID
 // Similar to GitHub usernames: lowercase, alphanumeric, hyphens only
 func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) string {
-	// Start with the user ID
-	slug := strings.ToLower(userID)
+	// Try to get the actual user to extract username/email for better slug
+	user, err := s.GetUser(ctx, &GetUserQuery{ID: userID})
+
+	var baseText string
+	if err == nil && user != nil {
+		// Prefer username, fallback to full name, then email
+		if user.Username != "" {
+			baseText = user.Username
+		} else if user.FullName != "" {
+			baseText = user.FullName
+		} else if user.Email != "" {
+			// Extract username part from email (before @)
+			parts := strings.Split(user.Email, "@")
+			baseText = parts[0]
+		}
+	}
+
+	// Fallback to user ID if we couldn't get better info
+	if baseText == "" {
+		baseText = userID
+	}
+
+	// Start with the base text
+	slug := strings.ToLower(baseText)
 
 	// Replace non-alphanumeric characters (except hyphens) with hyphens
 	reg := regexp.MustCompile(`[^a-z0-9-]+`)

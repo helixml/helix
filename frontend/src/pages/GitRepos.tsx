@@ -219,51 +219,51 @@ const GitRepos: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Git Repositories"
-      orgBreadcrumbs={true}
+      breadcrumbTitle=""
+      orgBreadcrumbs={false}
     >
-      <Container maxWidth="xl" sx={{ mb: 4 }}>
-        {/* GitHub-style header */}
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Typography variant="h5" component="h1" sx={{ color: 'primary.main', fontWeight: 600 }}>
-              {ownerSlug}
-            </Typography>
-            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
-              /
-            </Typography>
-            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
-              repositories
-            </Typography>
-          </Box>
-
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        {/* GitHub-style header with owner/repositories */}
+        <Box sx={{ mb: 3, borderBottom: 1, borderColor: 'divider', pb: 2 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              {repositories?.length || 0} {repositories?.length === 1 ? 'repository' : 'repositories'}
-            </Typography>
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <span style={{ color: '#0969da', cursor: 'pointer' }}>{ownerSlug}</span>
+                  <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
+                  <span style={{ fontWeight: 600 }}>repositories</span>
+                </Typography>
+              </Box>
+            </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<GitBranch size={16} />}
                 onClick={() => setDemoRepoDialogOpen(true)}
+                sx={{ textTransform: 'none' }}
               >
-                From Demo
+                From demo
               </Button>
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<Link size={16} />}
                 onClick={() => setLinkRepoDialogOpen(true)}
+                sx={{ textTransform: 'none' }}
               >
-                Link External
+                Link external
               </Button>
               <Button
                 variant="contained"
                 size="small"
                 startIcon={<Plus size={16} />}
                 onClick={() => setCreateDialogOpen(true)}
-                color="success"
+                sx={{
+                  bgcolor: '#1a7f37',
+                  '&:hover': { bgcolor: '#1a7f37dd' },
+                  textTransform: 'none'
+                }}
               >
                 New
               </Button>
@@ -282,117 +282,121 @@ const GitRepos: FC = () => {
             <CircularProgress />
           </Box>
         ) : repositories && repositories.length > 0 ? (
-          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))' }}>
+          /* GitHub-style list view */
+          <Box>
             {repositories.map((repo: ServicesGitRepository) => (
-              <Card key={repo.id} sx={{
-                '&:hover': {
-                  boxShadow: 3,
-                  transform: 'translateY(-2px)',
-                  transition: 'all 0.2s'
-                }
-              }}>
-                <CardContent>
-                  {/* GitHub-style owner/repo header */}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <GitBranch size={16} color="#666" />
+              <Box
+                key={repo.id}
+                sx={{
+                  py: 3,
+                  px: 2,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  '&:hover': {
+                    bgcolor: 'rgba(0, 0, 0, 0.02)',
+                  },
+                  cursor: 'pointer'
+                }}
+                onClick={() => {
+                  // TODO: Navigate to repository details
+                  console.log('View repo:', repo.id)
+                }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box sx={{ flex: 1 }}>
+                    {/* Repo name as owner/repo */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <GitBranch size={16} color="#656d76" />
                       <Typography
-                        variant="body1"
-                        component="h2"
+                        variant="h6"
                         sx={{
-                          color: 'primary.main',
+                          fontSize: '1.25rem',
                           fontWeight: 600,
+                          color: '#0969da',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 0.5
+                          gap: 0.5,
+                          '&:hover': {
+                            textDecoration: 'underline'
+                          }
                         }}
                       >
-                        <span style={{ color: '#666', fontWeight: 400 }}>{ownerSlug}</span>
-                        <span style={{ color: '#666' }}>/</span>
-                        <span>{repo.name || repo.id}</span>
+                        {ownerSlug}
+                        <span style={{ color: '#656d76', fontWeight: 400 }}>/</span>
+                        {repo.name || repo.id}
                       </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                      <Chip
-                        label={repo.repo_type || 'unknown'}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
+
+                      {/* Chips */}
                       {repo.metadata?.is_external && (
-                        <Tooltip title={`External ${repo.metadata.external_type || 'repository'}: ${repo.metadata.external_url || ''}`}>
-                          <Chip
-                            icon={<Link size={14} />}
-                            label={repo.metadata.external_type || 'External'}
-                            size="small"
-                            color="secondary"
-                            variant="outlined"
-                          />
-                        </Tooltip>
+                        <Chip
+                          icon={<Link size={12} />}
+                          label={repo.metadata.external_type || 'External'}
+                          size="small"
+                          sx={{ height: 20, fontSize: '0.75rem' }}
+                        />
                       )}
                       {repo.metadata?.kodit_indexing && (
-                        <Tooltip title="Code Intelligence enabled - Kodit indexes this repo for MCP server">
-                          <Chip
-                            icon={<Brain size={14} />}
-                            label="Code Intelligence"
-                            size="small"
-                            color="success"
-                            variant="outlined"
-                          />
-                        </Tooltip>
+                        <Chip
+                          icon={<Brain size={12} />}
+                          label="Code Intelligence"
+                          size="small"
+                          color="success"
+                          sx={{ height: 20, fontSize: '0.75rem' }}
+                        />
+                      )}
+                      <Chip
+                        label={repo.repo_type || 'project'}
+                        size="small"
+                        variant="outlined"
+                        sx={{ height: 20, fontSize: '0.75rem', borderRadius: '12px' }}
+                      />
+                    </Box>
+
+                    {/* Description */}
+                    {repo.description && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ml: 3 }}>
+                        {repo.description}
+                      </Typography>
+                    )}
+
+                    {/* Metadata row */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 3, mt: 1 }}>
+                      {repo.created_at && (
+                        <Typography variant="caption" color="text.secondary">
+                          Updated {new Date(repo.created_at).toLocaleDateString()}
+                        </Typography>
                       )}
                     </Box>
                   </Box>
 
-                  {repo.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      {repo.description}
-                    </Typography>
-                  )}
-
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {repo.metadata?.is_external && repo.metadata?.external_url && (
+                  {/* Action button */}
+                  <Box onClick={(e) => e.stopPropagation()}>
+                    {repo.metadata?.is_external && repo.metadata?.external_url ? (
                       <Button
                         size="small"
                         variant="outlined"
                         startIcon={<ExternalLink size={14} />}
                         onClick={() => window.open(repo.metadata.external_url, '_blank')}
+                        sx={{ textTransform: 'none' }}
                       >
-                        View on {repo.metadata.external_type}
+                        View
                       </Button>
-                    )}
-                    {repo.clone_url && !repo.metadata?.is_external && (
+                    ) : (
                       <Button
                         size="small"
                         variant="outlined"
-                        startIcon={<ExternalLink size={14} />}
                         onClick={() => {
-                          // TODO: Show clone instructions
+                          // TODO: Show clone instructions or details
                           console.log('Clone:', repo.clone_url)
                         }}
+                        sx={{ textTransform: 'none' }}
                       >
                         Clone
                       </Button>
                     )}
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => {
-                        // TODO: Navigate to repository details
-                        console.log('View repo:', repo.id)
-                      }}
-                    >
-                      Details
-                    </Button>
                   </Box>
-
-                  {repo.created_at && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
-                      Created {new Date(repo.created_at).toLocaleDateString()}
-                    </Typography>
-                  )}
-                </CardContent>
-              </Card>
+                </Box>
+              </Box>
             ))}
           </Box>
         ) : (
