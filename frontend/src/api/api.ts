@@ -46,6 +46,10 @@ export interface FilestoreItem {
   url?: string;
 }
 
+export interface GithubComHelixmlHelixApiPkgTypesConfig {
+  rules?: TypesRule[];
+}
+
 export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
@@ -566,6 +570,8 @@ export interface ServerCreatePersonalDevEnvironmentRequest {
 
 export interface ServerCreateSampleRepositoryRequest {
   description?: string;
+  /** Enable Kodit code intelligence indexing */
+  kodit_indexing?: boolean;
   name?: string;
   owner_id?: string;
   sample_type?: string;
@@ -1744,10 +1750,6 @@ export interface TypesChoice {
   text?: string;
 }
 
-export interface TypesConfig {
-  rules?: TypesRule[];
-}
-
 export interface TypesContextMenuAction {
   /** Forms the grouping in the UI */
   action_label?: string;
@@ -2809,7 +2811,7 @@ export enum TypesResponseFormatType {
 }
 
 export interface TypesRole {
-  config?: TypesConfig;
+  config?: GithubComHelixmlHelixApiPkgTypesConfig;
   created_at?: string;
   description?: string;
   id?: string;
@@ -3806,11 +3808,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {

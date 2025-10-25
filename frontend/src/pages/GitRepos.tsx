@@ -19,14 +19,18 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  FormControlLabel,
+  Switch,
+  Tooltip,
 } from '@mui/material'
-import { GitBranch, Plus, ExternalLink } from 'lucide-react'
+import { GitBranch, Plus, ExternalLink, Brain } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
 import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
 import type { ServicesGitRepository, ServerSampleType } from '../api/api'
@@ -34,6 +38,7 @@ import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 const GitRepos: FC = () => {
   const account = useAccount()
   const queryClient = useQueryClient()
+  const api = useApi()
 
   // Get current org ID - use org ID for org repos, user ID for personal repos
   const currentOrg = account.organizationTools.organization
@@ -47,8 +52,10 @@ const GitRepos: FC = () => {
   const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
   const [selectedSampleType, setSelectedSampleType] = useState('')
   const [demoRepoName, setDemoRepoName] = useState('')
+  const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
   const [repoName, setRepoName] = useState('')
   const [repoDescription, setRepoDescription] = useState('')
+  const [koditIndexing, setKoditIndexing] = useState(true)
   const [creating, setCreating] = useState(false)
 
   // Auto-fill name when sample type is selected
@@ -79,6 +86,7 @@ const GitRepos: FC = () => {
         owner_id: ownerId,
         sample_type: selectedSampleType,
         name: demoRepoName,
+        kodit_indexing: demoKoditIndexing,
       })
 
       // Invalidate and refetch git repositories query
@@ -87,6 +95,7 @@ const GitRepos: FC = () => {
       setDemoRepoDialogOpen(false)
       setSelectedSampleType('')
       setDemoRepoName('')
+      setDemoKoditIndexing(true)
     } catch (error) {
       console.error('Failed to create demo repository:', error)
     } finally {
@@ -94,12 +103,35 @@ const GitRepos: FC = () => {
     }
   }
 
-  const handleCreateCustomRepo = () => {
-    // TODO: Implement custom repository creation
-    console.log('Create custom repository:', { repoName, repoDescription })
-    setCreateDialogOpen(false)
-    setRepoName('')
-    setRepoDescription('')
+  const handleCreateCustomRepo = async () => {
+    if (!repoName.trim() || !ownerId) return
+
+    setCreating(true)
+    try {
+      const apiClient = api.getApiClient()
+      await apiClient.v1GitRepositoriesCreate({
+        name: repoName,
+        description: repoDescription,
+        owner_id: ownerId,
+        repo_type: 'project' as any,
+        default_branch: 'main',
+        metadata: {
+          kodit_indexing: koditIndexing,
+        },
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      setCreateDialogOpen(false)
+      setRepoName('')
+      setRepoDescription('')
+      setKoditIndexing(true)
+    } catch (error) {
+      console.error('Failed to create repository:', error)
+    } finally {
+      setCreating(false)
+    }
   }
 
   // Show logged out state if user is not authenticated
@@ -186,12 +218,25 @@ const GitRepos: FC = () => {
                         {repo.name || repo.id}
                       </Typography>
                     </Box>
-                    <Chip
-                      label={repo.repo_type || 'unknown'}
-                      size="small"
-                      color="primary"
-                      variant="outlined"
-                    />
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      <Chip
+                        label={repo.repo_type || 'unknown'}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                      {repo.metadata?.kodit_indexing && (
+                        <Tooltip title="Code Intelligence enabled - Kodit indexes this repo for MCP server">
+                          <Chip
+                            icon={<Brain size={14} />}
+                            label="Code Intelligence"
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
+                        </Tooltip>
+                      )}
+                    </Box>
                   </Box>
 
                   {repo.description && (
@@ -294,8 +339,29 @@ const GitRepos: FC = () => {
                     helperText="Auto-generated from template, customize if needed"
                   />
 
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={demoKoditIndexing}
+                        onChange={(e) => setDemoKoditIndexing(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Brain size={18} />
+                        <Typography variant="body2">
+                          Enable Code Intelligence
+                        </Typography>
+                      </Box>
+                    }
+                  />
+
                   <Alert severity="info">
-                    {sampleTypes.find((t: ServerSampleType) => t.id === selectedSampleType)?.description}
+                    {demoKoditIndexing
+                      ? 'Code Intelligence enabled: Kodit will index this repository to provide code snippets and architectural summaries via MCP server.'
+                      : sampleTypes.find((t: ServerSampleType) => t.id === selectedSampleType)?.description
+                    }
                   </Alert>
                 </>
               )}
@@ -306,6 +372,7 @@ const GitRepos: FC = () => {
               setDemoRepoDialogOpen(false)
               setSelectedSampleType('')
               setDemoRepoName('')
+              setDemoKoditIndexing(true)
             }}>Cancel</Button>
             <Button
               onClick={handleCreateDemoRepo}
@@ -339,16 +406,46 @@ const GitRepos: FC = () => {
                 onChange={(e) => setRepoDescription(e.target.value)}
                 helperText="Describe the purpose of this repository"
               />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={koditIndexing}
+                    onChange={(e) => setKoditIndexing(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Brain size={18} />
+                    <Typography variant="body2">
+                      Enable Code Intelligence
+                    </Typography>
+                  </Box>
+                }
+              />
+
+              <Alert severity="info">
+                {koditIndexing
+                  ? 'Code Intelligence enabled: Kodit will index this repository to provide code snippets and architectural summaries via MCP server.'
+                  : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
+                }
+              </Alert>
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => {
+              setCreateDialogOpen(false)
+              setRepoName('')
+              setRepoDescription('')
+              setKoditIndexing(true)
+            }}>Cancel</Button>
             <Button
               onClick={handleCreateCustomRepo}
               variant="contained"
-              disabled={!repoName.trim()}
+              disabled={!repoName.trim() || creating}
             >
-              Create
+              {creating ? <CircularProgress size={20} /> : 'Create'}
             </Button>
           </DialogActions>
         </Dialog>

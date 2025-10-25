@@ -52,6 +52,13 @@ definitions:
         description: the URL that can be used to load the object directly
         type: string
     type: object
+  github_com_helixml_helix_api_pkg_types.Config:
+    properties:
+      rules:
+        items:
+          $ref: '#/definitions/types.Rule'
+        type: array
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -874,6 +881,9 @@ definitions:
     properties:
       description:
         type: string
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing
+        type: boolean
       name:
         type: string
       owner_id:
@@ -3014,13 +3024,6 @@ definitions:
       text:
         type: string
     type: object
-  types.Config:
-    properties:
-      rules:
-        items:
-          $ref: '#/definitions/types.Rule'
-        type: array
-    type: object
   types.ContextMenuAction:
     properties:
       action_label:
@@ -4852,7 +4855,7 @@ definitions:
   types.Role:
     properties:
       config:
-        $ref: '#/definitions/types.Config'
+        $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Config'
       created_at:
         type: string
       description:
@@ -6593,18 +6596,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

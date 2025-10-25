@@ -319,6 +319,7 @@ func (s *ZedPlanningService) createRepositoryForPlanning(
 			request.Description,
 			request.OwnerID,
 			request.SampleType,
+			true, // Enable Kodit indexing by default for new projects
 		)
 	}
 

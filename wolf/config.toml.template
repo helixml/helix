@@ -1,8 +1,14 @@
-apps = []
 config_version = 6
 hostname = 'Helix'
 uuid = ''
 paired_clients = []
+
+# wolf-ui requires profiles instead of top-level apps array
+# Apps created via API will be added to this profile
+[[profiles]]
+id = 'moonlight-profile-id'
+name = 'Moonlight'
+apps = []
 
 [gstreamer.audio]
 default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
