@@ -103,6 +103,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		fmt.Sprintf("Demo repository for SpecTask"),
 		user.ID,
 		demoReq.DemoRepo,
+		true, // Enable Kodit indexing by default for demo repos
 	)
 	if err != nil {
 		log.Error().Err(err).Str("demo_repo", demoReq.DemoRepo).Msg("Failed to create sample repository")

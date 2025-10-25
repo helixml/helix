@@ -81,6 +81,59 @@ type GitRepositoryCreateRequest struct {
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// Conversion helpers between services.GitRepository and store.GitRepository
+
+// toStoreGitRepository converts services.GitRepository to store.GitRepository
+func toStoreGitRepository(repo *GitRepository) *store.GitRepository {
+	return &store.GitRepository{
+		ID:            repo.ID,
+		Name:          repo.Name,
+		Description:   repo.Description,
+		OwnerID:       repo.OwnerID,
+		ProjectID:     repo.ProjectID,
+		SpecTaskID:    repo.SpecTaskID,
+		RepoType:      string(repo.RepoType),
+		Status:        string(repo.Status),
+		CloneURL:      repo.CloneURL,
+		LocalPath:     repo.LocalPath,
+		DefaultBranch: repo.DefaultBranch,
+		LastActivity:  repo.LastActivity,
+		CreatedAt:     repo.CreatedAt,
+		UpdatedAt:     repo.UpdatedAt,
+		Metadata:      repo.Metadata,
+	}
+}
+
+// fromStoreGitRepository converts store.GitRepository to services.GitRepository
+func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
+	return &GitRepository{
+		ID:            repo.ID,
+		Name:          repo.Name,
+		Description:   repo.Description,
+		OwnerID:       repo.OwnerID,
+		ProjectID:     repo.ProjectID,
+		SpecTaskID:    repo.SpecTaskID,
+		RepoType:      GitRepositoryType(repo.RepoType),
+		Status:        GitRepositoryStatus(repo.Status),
+		CloneURL:      repo.CloneURL,
+		LocalPath:     repo.LocalPath,
+		DefaultBranch: repo.DefaultBranch,
+		LastActivity:  repo.LastActivity,
+		CreatedAt:     repo.CreatedAt,
+		UpdatedAt:     repo.UpdatedAt,
+		Metadata:      repo.Metadata,
+	}
+}
+
+// fromStoreGitRepositories converts []*store.GitRepository to []*GitRepository
+func fromStoreGitRepositories(repos []*store.GitRepository) []*GitRepository {
+	result := make([]*GitRepository, len(repos))
+	for i, repo := range repos {
+		result[i] = fromStoreGitRepository(repo)
+	}
+	return result
+}
+
 // NewGitRepositoryService creates a new git repository service
 func NewGitRepositoryService(
 	store store.Store,
@@ -220,17 +273,17 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error) {
 	// Try to list from database first
 	if postgresStore, ok := s.store.(interface {
-		ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error)
+		ListGitRepositories(ctx context.Context, ownerID string) ([]*store.GitRepository, error)
 	}); ok {
-		repos, err := postgresStore.ListGitRepositories(ctx, ownerID)
+		storeRepos, err := postgresStore.ListGitRepositories(ctx, ownerID)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to list repositories from database, falling back to filesystem scan")
 		} else {
 			log.Info().
-				Int("count", len(repos)).
+				Int("count", len(storeRepos)).
 				Str("owner_id", ownerID).
 				Msg("Listed repositories from database")
-			return repos, nil
+			return fromStoreGitRepositories(storeRepos), nil
 		}
 	}
 
@@ -319,6 +372,7 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	description string,
 	ownerID string,
 	sampleType string,
+	koditIndexing bool,
 ) (*GitRepository, error) {
 	// Get sample files based on type
 	initialFiles := s.getSampleProjectFiles(sampleType)
@@ -331,8 +385,9 @@ func (s *GitRepositoryService) CreateSampleRepository(
 		InitialFiles:  initialFiles,
 		DefaultBranch: "main",
 		Metadata: map[string]interface{}{
-			"sample_type":  sampleType,
-			"created_from": "sample",
+			"sample_type":    sampleType,
+			"created_from":   "sample",
+			"kodit_indexing": koditIndexing,
 		},
 	}
 
@@ -974,9 +1029,9 @@ dist/
 func (s *GitRepositoryService) storeRepositoryMetadata(ctx context.Context, repo *GitRepository) error {
 	// Use the store's git repository methods if available
 	if postgresStore, ok := s.store.(interface {
-		CreateGitRepository(ctx context.Context, repo *GitRepository) error
+		CreateGitRepository(ctx context.Context, repo *store.GitRepository) error
 	}); ok {
-		err := postgresStore.CreateGitRepository(ctx, repo)
+		err := postgresStore.CreateGitRepository(ctx, toStoreGitRepository(repo))
 		if err != nil {
 			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to store repository metadata in database")
 			return err
@@ -997,13 +1052,13 @@ func (s *GitRepositoryService) storeRepositoryMetadata(ctx context.Context, repo
 func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID string) (*GitRepository, error) {
 	// Use the store's git repository methods if available
 	if postgresStore, ok := s.store.(interface {
-		GetGitRepository(ctx context.Context, id string) (*GitRepository, error)
+		GetGitRepository(ctx context.Context, id string) (*store.GitRepository, error)
 	}); ok {
-		repo, err := postgresStore.GetGitRepository(ctx, repoID)
+		storeRepo, err := postgresStore.GetGitRepository(ctx, repoID)
 		if err != nil {
 			return nil, err
 		}
-		return repo, nil
+		return fromStoreGitRepository(storeRepo), nil
 	}
 
 	return nil, fmt.Errorf("repository metadata not found in store")

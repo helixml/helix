@@ -8922,6 +8922,17 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_helixml_helix_api_pkg_types.Config": {
+            "type": "object",
+            "properties": {
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Rule"
+                    }
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -10051,6 +10062,10 @@ const docTemplate = `{
             "properties": {
                 "description": {
                     "type": "string"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"
@@ -13168,17 +13183,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.Config": {
-            "type": "object",
-            "properties": {
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Rule"
-                    }
-                }
-            }
-        },
         "types.ContextMenuAction": {
             "type": "object",
             "properties": {
@@ -15807,7 +15811,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "config": {
-                    "$ref": "#/definitions/types.Config"
+                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Config"
                 },
                 "created_at": {
                     "type": "string"
@@ -18289,18 +18293,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

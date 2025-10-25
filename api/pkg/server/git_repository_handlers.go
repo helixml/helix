@@ -209,6 +209,7 @@ func (apiServer *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r
 		request.Description,
 		request.OwnerID,
 		request.SampleType,
+		request.KoditIndexing,
 	)
 	if err != nil {
 		log.Error().Err(err).Str("sample_type", request.SampleType).Msg("Failed to create sample repository")
@@ -335,6 +336,7 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 			sample.Description,
 			request.OwnerID,
 			sample.SampleType,
+			true, // Enable Kodit indexing by default for sample repos
 		)
 		if err != nil {
 			log.Error().Err(err).Str("sample_type", sample.SampleType).Msg("Failed to create sample repository")
@@ -446,10 +448,11 @@ type CreateSpecTaskRepositoryRequest struct {
 
 // CreateSampleRepositoryRequest represents a request to create a sample repository
 type CreateSampleRepositoryRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	OwnerID     string `json:"owner_id"`
-	SampleType  string `json:"sample_type"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	OwnerID        string `json:"owner_id"`
+	SampleType     string `json:"sample_type"`
+	KoditIndexing  bool   `json:"kodit_indexing"`  // Enable Kodit code intelligence indexing
 }
 
 // CloneCommandResponse represents the response for clone command request
