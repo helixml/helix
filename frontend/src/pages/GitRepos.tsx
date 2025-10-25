@@ -23,7 +23,7 @@ import {
   Switch,
   Tooltip,
 } from '@mui/material'
-import { GitBranch, Plus, ExternalLink, Brain } from 'lucide-react'
+import { GitBranch, Plus, ExternalLink, Brain, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -50,12 +50,20 @@ const GitRepos: FC = () => {
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
+  const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
   const [selectedSampleType, setSelectedSampleType] = useState('')
   const [demoRepoName, setDemoRepoName] = useState('')
   const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
   const [repoName, setRepoName] = useState('')
   const [repoDescription, setRepoDescription] = useState('')
   const [koditIndexing, setKoditIndexing] = useState(true)
+
+  // External repository states
+  const [externalRepoName, setExternalRepoName] = useState('')
+  const [externalRepoUrl, setExternalRepoUrl] = useState('')
+  const [externalRepoType, setExternalRepoType] = useState<'github' | 'gitlab' | 'ado' | 'other'>('github')
+  const [externalKoditIndexing, setExternalKoditIndexing] = useState(true)
+
   const [creating, setCreating] = useState(false)
 
   // Auto-fill name when sample type is selected
@@ -134,6 +142,50 @@ const GitRepos: FC = () => {
     }
   }
 
+  const handleLinkExternalRepo = async () => {
+    if (!externalRepoUrl.trim() || !ownerId) return
+
+    setCreating(true)
+    try {
+      const apiClient = api.getApiClient()
+
+      // Extract repo name from URL if not provided
+      let repoName = externalRepoName.trim()
+      if (!repoName) {
+        // Try to extract from URL (e.g., github.com/org/repo.git -> repo)
+        const match = externalRepoUrl.match(/\/([^\/]+?)(\.git)?$/)
+        repoName = match ? match[1] : 'external-repo'
+      }
+
+      await apiClient.v1GitRepositoriesCreate({
+        name: repoName,
+        description: `External ${externalRepoType} repository`,
+        owner_id: ownerId,
+        repo_type: 'project' as any,
+        default_branch: 'main',
+        metadata: {
+          is_external: true,
+          external_url: externalRepoUrl,
+          external_type: externalRepoType,
+          kodit_indexing: externalKoditIndexing,
+        },
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      setLinkRepoDialogOpen(false)
+      setExternalRepoName('')
+      setExternalRepoUrl('')
+      setExternalRepoType('github')
+      setExternalKoditIndexing(true)
+    } catch (error) {
+      console.error('Failed to link external repository:', error)
+    } finally {
+      setCreating(false)
+    }
+  }
+
   // Show logged out state if user is not authenticated
   if (!account.user) {
     return (
@@ -181,6 +233,13 @@ const GitRepos: FC = () => {
               From Demo Repos
             </Button>
             <Button
+              variant="outlined"
+              startIcon={<Link size={18} />}
+              onClick={() => setLinkRepoDialogOpen(true)}
+            >
+              Link External Repo
+            </Button>
+            <Button
               variant="contained"
               startIcon={<Plus size={18} />}
               onClick={() => setCreateDialogOpen(true)}
@@ -225,6 +284,17 @@ const GitRepos: FC = () => {
                         color="primary"
                         variant="outlined"
                       />
+                      {repo.metadata?.is_external && (
+                        <Tooltip title={`External ${repo.metadata.external_type || 'repository'}: ${repo.metadata.external_url || ''}`}>
+                          <Chip
+                            icon={<Link size={14} />}
+                            label={repo.metadata.external_type || 'External'}
+                            size="small"
+                            color="secondary"
+                            variant="outlined"
+                          />
+                        </Tooltip>
+                      )}
                       {repo.metadata?.kodit_indexing && (
                         <Tooltip title="Code Intelligence enabled - Kodit indexes this repo for MCP server">
                           <Chip
@@ -246,7 +316,17 @@ const GitRepos: FC = () => {
                   )}
 
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {repo.clone_url && (
+                    {repo.metadata?.is_external && repo.metadata?.external_url && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ExternalLink size={14} />}
+                        onClick={() => window.open(repo.metadata.external_url, '_blank')}
+                      >
+                        View on {repo.metadata.external_type}
+                      </Button>
+                    )}
+                    {repo.clone_url && !repo.metadata?.is_external && (
                       <Button
                         size="small"
                         variant="outlined"
@@ -446,6 +526,95 @@ const GitRepos: FC = () => {
               disabled={!repoName.trim() || creating}
             >
               {creating ? <CircularProgress size={20} /> : 'Create'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Link External Repository Dialog */}
+        <Dialog open={linkRepoDialogOpen} onClose={() => setLinkRepoDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Link External Repository</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Link an existing repository from GitHub, GitLab, or Azure DevOps to enable AI collaboration.
+              </Typography>
+
+              <FormControl fullWidth required>
+                <InputLabel>Repository Type</InputLabel>
+                <Select
+                  value={externalRepoType}
+                  onChange={(e) => setExternalRepoType(e.target.value as 'github' | 'gitlab' | 'ado' | 'other')}
+                  label="Repository Type"
+                >
+                  <MenuItem value="github">GitHub</MenuItem>
+                  <MenuItem value="gitlab">GitLab</MenuItem>
+                  <MenuItem value="ado">Azure DevOps</MenuItem>
+                  <MenuItem value="other">Other (Bitbucket, Gitea, Self-hosted, etc.)</MenuItem>
+                </Select>
+              </FormControl>
+
+              <TextField
+                label="Repository URL"
+                fullWidth
+                required
+                value={externalRepoUrl}
+                onChange={(e) => setExternalRepoUrl(e.target.value)}
+                placeholder="https://github.com/org/repo.git"
+                helperText="Full URL to the external repository"
+              />
+
+              <TextField
+                label="Repository Name (Optional)"
+                fullWidth
+                value={externalRepoName}
+                onChange={(e) => setExternalRepoName(e.target.value)}
+                helperText="Display name (auto-extracted from URL if empty)"
+              />
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={externalKoditIndexing}
+                    onChange={(e) => setExternalKoditIndexing(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Brain size={18} />
+                    <Typography variant="body2">
+                      Enable Code Intelligence
+                    </Typography>
+                  </Box>
+                }
+              />
+
+              <Alert severity="warning">
+                Authentication to external repositories is not yet implemented. You can link repositories for reference, but cloning and syncing will require manual setup.
+              </Alert>
+
+              <Alert severity="info">
+                {externalKoditIndexing
+                  ? 'Code Intelligence enabled: Kodit will index this external repository to provide code snippets and architectural summaries via MCP server.'
+                  : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
+                }
+              </Alert>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => {
+              setLinkRepoDialogOpen(false)
+              setExternalRepoName('')
+              setExternalRepoUrl('')
+              setExternalRepoType('github')
+              setExternalKoditIndexing(true)
+            }}>Cancel</Button>
+            <Button
+              onClick={handleLinkExternalRepo}
+              variant="contained"
+              disabled={!externalRepoUrl.trim() || creating}
+            >
+              {creating ? <CircularProgress size={20} /> : 'Link Repository'}
             </Button>
           </DialogActions>
         </Dialog>
