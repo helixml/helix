@@ -521,11 +521,6 @@ export const useApp = (appId: string) => {
     }
   }, [api, snackbar, apps, isLoadingProviders, validateApp])
   
-  // Debounce timeout ref for saveFlatApp
-  const saveFlatAppTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const pendingUpdatesRef = useRef<IAppFlatState | null>(null)
-  const pendingOptsRef = useRef<{ quiet?: boolean, forceSave?: boolean } | null>(null)
-
   /**
    * Saves the app from the flat state
    * @param updates - The updates to apply
@@ -540,26 +535,7 @@ export const useApp = (appId: string) => {
       return
     }
     
-    // Store the latest updates and options
-    pendingUpdatesRef.current = updates
-    pendingOptsRef.current = opts
-    
-    // Clear existing timeout
-    if (saveFlatAppTimeoutRef.current) {
-      clearTimeout(saveFlatAppTimeoutRef.current)
-    }
-    
-    // Set new timeout to execute the save after 1 second
-    saveFlatAppTimeoutRef.current = setTimeout(async () => {
-      const latestUpdates = pendingUpdatesRef.current
-      const latestOpts = pendingOptsRef.current
-      
-      if (latestUpdates && latestOpts) {
-        await saveApp(mergeFlatStateIntoApp(app, latestUpdates), latestOpts)
-        pendingUpdatesRef.current = null
-        pendingOptsRef.current = null
-      }
-    }, 1000)
+    await saveApp(mergeFlatStateIntoApp(app, updates), opts)
   }, [app, saveApp, mergeFlatStateIntoApp, isLoadingProviders])
 
   /**
@@ -1031,15 +1007,6 @@ export const useApp = (appId: string) => {
     createAccessGrant,
     deleteAccessGrant,
   }
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveFlatAppTimeoutRef.current) {
-        clearTimeout(saveFlatAppTimeoutRef.current)
-      }
-    }
-  }, [])
 }
 
 export default useApp 
