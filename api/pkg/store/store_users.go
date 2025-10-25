@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 
 	"gorm.io/gorm"
 )
@@ -72,10 +73,25 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 	// Ensure existing user has a slug
 	if existing.Slug == "" {
 		existing.Slug = s.generateUserSlug(ctx, existing.ID)
+		log.Info().
+			Str("user_id", existing.ID).
+			Str("generated_slug", existing.Slug).
+			Msg("updating user_meta with generated slug")
 		return s.UpdateUserMeta(ctx, *existing)
 	}
 
-	return s.UpdateUserMeta(ctx, user)
+	// Merge any new config values from the parameter
+	if user.Config.StripeCustomerID != "" {
+		existing.Config.StripeCustomerID = user.Config.StripeCustomerID
+	}
+	if user.Config.StripeSubscriptionID != "" {
+		existing.Config.StripeSubscriptionID = user.Config.StripeSubscriptionID
+	}
+	if user.Config.StripeSubscriptionActive {
+		existing.Config.StripeSubscriptionActive = user.Config.StripeSubscriptionActive
+	}
+
+	return s.UpdateUserMeta(ctx, *existing)
 }
 
 // GetUser retrieves a user by ID
@@ -284,30 +300,45 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) string {
 	// Try to get the actual user to extract username/email for better slug
 	user, err := s.GetUser(ctx, &GetUserQuery{ID: userID})
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", userID).Msg("failed to get user for slug generation")
+	}
 
 	var baseText string
 	if err == nil && user != nil {
-		// Prefer username, fallback to full name, then email
-		if user.Username != "" {
-			baseText = user.Username
-		} else if user.FullName != "" {
+		// Prefer full name first (most readable), then username (unless it's an email), then email
+		if user.FullName != "" {
 			baseText = user.FullName
+		} else if user.Username != "" && !strings.Contains(user.Username, "@") {
+			// Use username only if it's not an email address
+			baseText = user.Username
 		} else if user.Email != "" {
 			// Extract username part from email (before @)
 			parts := strings.Split(user.Email, "@")
 			baseText = parts[0]
 		}
+		log.Debug().
+			Str("user_id", userID).
+			Str("username", user.Username).
+			Str("full_name", user.FullName).
+			Str("email", user.Email).
+			Str("base_text", baseText).
+			Msg("slug generation from user data")
 	}
 
 	// Fallback to user ID if we couldn't get better info
 	if baseText == "" {
 		baseText = userID
+		log.Warn().Str("user_id", userID).Msg("slug generation falling back to user ID")
 	}
 
 	// Start with the base text
 	slug := strings.ToLower(baseText)
 
-	// Replace non-alphanumeric characters (except hyphens) with hyphens
+	// Remove spaces entirely, replace other non-alphanumeric with hyphens
+	slug = strings.ReplaceAll(slug, " ", "")
+
+	// Replace remaining non-alphanumeric characters (except hyphens) with hyphens
 	reg := regexp.MustCompile(`[^a-z0-9-]+`)
 	slug = reg.ReplaceAllString(slug, "-")
 
@@ -323,17 +354,24 @@ func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) str
 		slug = "user"
 	}
 
-	// Check for uniqueness and append number if needed
+	// Check for uniqueness against both user_meta slugs and organization names
 	baseSlug := slug
 	counter := 1
 	for {
-		var existing types.UserMeta
-		err := s.gdb.WithContext(ctx).Where("slug = ?", slug).First(&existing).Error
-		if err == gorm.ErrRecordNotFound {
-			// Slug is unique
+		// Check if slug conflicts with existing user slug
+		var existingUser types.UserMeta
+		userErr := s.gdb.WithContext(ctx).Where("slug = ?", slug).First(&existingUser).Error
+
+		// Check if slug conflicts with organization name
+		var existingOrg types.Organization
+		orgErr := s.gdb.WithContext(ctx).Where("name = ?", slug).First(&existingOrg).Error
+
+		if userErr == gorm.ErrRecordNotFound && orgErr == gorm.ErrRecordNotFound {
+			// Slug is unique across both users and orgs
 			break
 		}
-		if err != nil {
+		if (userErr != nil && userErr != gorm.ErrRecordNotFound) ||
+		   (orgErr != nil && orgErr != gorm.ErrRecordNotFound) {
 			// On error, just use the slug as-is
 			break
 		}
@@ -341,6 +379,13 @@ func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) str
 		counter++
 		slug = fmt.Sprintf("%s-%d", baseSlug, counter)
 	}
+
+	log.Info().
+		Str("user_id", userID).
+		Str("slug", slug).
+		Str("base_slug", baseSlug).
+		Int("counter", counter-1).
+		Msg("generated user slug")
 
 	return slug
 }
