@@ -31,9 +31,10 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import WarningIcon from '@mui/icons-material/Warning';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import { ThumbsUp, ThumbsDown } from 'lucide-react'
 // import SearchIcon from '@mui/icons-material/Search';
 import { CircleCheck, Cog, OctagonX, Search, ExternalLink, Eye } from 'lucide-react';
-import { TypesLLMCall, TypesInteraction, TypesInteractionState } from '../../api/api';
+import { TypesLLMCall, TypesInteraction, TypesInteractionState, TypesFeedback } from '../../api/api';
 import { TypesUsersAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
@@ -289,6 +290,18 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     return state || 'unknown';
   };
 
+  // Helper function to get feedback icon
+  const getFeedbackIcon = (feedback: TypesFeedback | undefined) => {
+    if (!feedback) return '-';
+    if (feedback === TypesFeedback.FeedbackLike) {
+      return <ThumbsUp size={16} strokeWidth={0} fill="#4caf50" />;
+    } 
+    
+    if (feedback === TypesFeedback.FeedbackDislike) {
+      return <ThumbsDown size={16} strokeWidth={0} fill="#f44336" />;
+    }
+  };
+
   if (!interactionsData) return null;
 
   return (
@@ -364,7 +377,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>By feedback</InputLabel>
+            <InputLabel>Rating</InputLabel>
             <Select
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
@@ -437,6 +450,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle}>Time</TableCell>
               <TableCell sx={headerCellStyle}>User Prompt</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
+              <TableCell sx={headerCellStyle} align="center">Rating</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -490,6 +504,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                       >
                         {getStatusDisplay(interaction.state || 'unknown')}
                       </Button>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        {getFeedbackIcon(interaction.feedback)}
+                      </Box>
                     </TableCell>
                   </TableRow>
                   <TableRow>
