@@ -32,7 +32,12 @@ import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
-  const { data: repositories, isLoading, error } = useGitRepositories(account.user?.id)
+
+  // Get current org ID - use org ID for org repos, user ID for personal repos
+  const currentOrg = account.organizationTools.organization
+  const ownerId = currentOrg?.id || account.user?.id || ''
+
+  const { data: repositories, isLoading, error } = useGitRepositories(ownerId)
   const { data: sampleTypes, loading: sampleTypesLoading, createSampleRepository } = useSampleTypes()
 
   // Dialog states
@@ -44,13 +49,32 @@ const GitRepos: FC = () => {
   const [repoDescription, setRepoDescription] = useState('')
   const [creating, setCreating] = useState(false)
 
+  // Auto-fill name when sample type is selected
+  const handleSampleTypeChange = (sampleTypeId: string) => {
+    setSelectedSampleType(sampleTypeId)
+
+    // Auto-generate default name from sample type
+    if (sampleTypeId) {
+      const selectedType = sampleTypes.find((t: ServerSampleType) => t.id === sampleTypeId)
+      if (selectedType?.name) {
+        // Generate a name like "nodejs-todo-repo" from "Node.js Todo App"
+        const defaultName = selectedType.name
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+        setDemoRepoName(defaultName)
+      }
+    }
+  }
+
   const handleCreateDemoRepo = async () => {
-    if (!selectedSampleType || !account.user?.id || !demoRepoName.trim()) return
+    if (!selectedSampleType || !ownerId || !demoRepoName.trim()) return
 
     setCreating(true)
     try {
       await createSampleRepository({
-        owner_id: account.user.id,
+        owner_id: ownerId,
         sample_type: selectedSampleType,
         name: demoRepoName,
       })
@@ -235,20 +259,11 @@ const GitRepos: FC = () => {
                 Choose a demo repository template to get started quickly with common project types.
               </Typography>
 
-              <TextField
-                label="Repository Name"
-                fullWidth
-                required
-                value={demoRepoName}
-                onChange={(e) => setDemoRepoName(e.target.value)}
-                helperText="Enter a name for your repository"
-              />
-
-              <FormControl fullWidth>
+              <FormControl fullWidth required>
                 <InputLabel>Demo Template</InputLabel>
                 <Select
                   value={selectedSampleType}
-                  onChange={(e) => setSelectedSampleType(e.target.value)}
+                  onChange={(e) => handleSampleTypeChange(e.target.value)}
                   disabled={sampleTypesLoading}
                 >
                   <MenuItem value="">
@@ -263,14 +278,29 @@ const GitRepos: FC = () => {
               </FormControl>
 
               {selectedSampleType && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  {sampleTypes.find((t: ServerSampleType) => t.id === selectedSampleType)?.description}
-                </Alert>
+                <>
+                  <TextField
+                    label="Repository Name"
+                    fullWidth
+                    required
+                    value={demoRepoName}
+                    onChange={(e) => setDemoRepoName(e.target.value)}
+                    helperText="Auto-generated from template, customize if needed"
+                  />
+
+                  <Alert severity="info">
+                    {sampleTypes.find((t: ServerSampleType) => t.id === selectedSampleType)?.description}
+                  </Alert>
+                </>
               )}
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setDemoRepoDialogOpen(false)}>Cancel</Button>
+            <Button onClick={() => {
+              setDemoRepoDialogOpen(false)
+              setSelectedSampleType('')
+              setDemoRepoName('')
+            }}>Cancel</Button>
             <Button
               onClick={handleCreateDemoRepo}
               variant="contained"
