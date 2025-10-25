@@ -26,6 +26,7 @@ func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.Use
 	return types.UserStatus{
 		Admin:  user.Admin,
 		User:   user.ID,
+		Slug:   usermeta.Slug,
 		Config: usermeta.Config,
 	}, nil
 }

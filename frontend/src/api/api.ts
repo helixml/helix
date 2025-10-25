@@ -913,8 +913,8 @@ export interface ServerWolfClientConnection {
   lobby_id?: string;
   memory_bytes?: number;
   resolution?: string;
-  /** Wolf returns this as uint64 (can exceed int64 max) */
-  session_id?: number;
+  /** Wolf returns this as string (Moonlight protocol requirement) */
+  session_id?: string;
 }
 
 export interface ServerWolfLobbyInfo {

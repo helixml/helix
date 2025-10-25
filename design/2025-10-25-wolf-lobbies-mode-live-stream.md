@@ -257,3 +257,22 @@ If issues arise, revert to apps mode:
 ## Conclusion
 
 Successfully transitioned Live Stream to work with Wolf lobbies mode while maintaining backward compatibility with apps mode. Users can now enjoy multi-user streaming with PIN protection, and the codebase is cleaner without the keepalive hack. The frontend automatically adapts based on the presence of `wolfLobbyId`, making the transition transparent to users.
+
+## Additional Fix: Wolf App State Indicator (AppNotFound error)
+
+### Problem
+
+The WolfAppStateIndicator component on the Session page was causing errors by querying only Wolf apps, not lobbies.
+
+### Solution
+
+Updated `getSessionWolfAppState()` in `api/pkg/server/agent_sandboxes_handlers.go`:
+- Detect lobbies mode via `wolfLobbyID != ""`
+- Query Wolf lobbies when in lobbies mode
+- Query Wolf apps when in apps mode
+- Proper resource existence checks for both modes
+
+### Commit
+- `e8b6ae1d9` - Fix getSessionWolfAppState to support lobbies mode
+
+**Final status:** All AppNotFound errors resolved. Both apps mode and lobbies mode working correctly.

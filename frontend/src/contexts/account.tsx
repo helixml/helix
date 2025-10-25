@@ -24,6 +24,7 @@ export interface IAccountContext {
   isOrgAdmin: boolean,
   isOrgMember: boolean,
   user?: IKeycloakUser,
+  userMeta?: { slug: string },  // User metadata including slug for GitHub-style URLs
   token?: string,
   tokenUrlEscaped?: string,
   loggingOut?: boolean,
@@ -97,6 +98,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
+  const [ userMeta, setUserMeta ] = useState<{ slug: string }>()
   const [ tokenExpiryMinutes, setTokenExpiryMinutes ] = useState<number | null>(null)
   const [ credits, setCredits ] = useState(0)
   const [ loggingOut, setLoggingOut ] = useState(false)
@@ -166,6 +168,9 @@ export const useAccountContext = (): IAccountContext => {
       setCredits(statusResult.credits)
       setAdmin(statusResult.admin)
       setUserConfig(statusResult.config)
+      if (statusResult.slug) {
+        setUserMeta({ slug: statusResult.slug })
+      }
       await organizationTools.loadOrganizations()
     } catch (error) {
       console.error('Error loading status:', error)
@@ -540,6 +545,7 @@ export const useAccountContext = (): IAccountContext => {
   return {
     initialized,
     user,
+    userMeta,
     token,
     tokenUrlEscaped,
     admin,
