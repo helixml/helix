@@ -173,6 +173,17 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			user.AppID = apiKey.AppID.String
 		}
 
+		// Ensure user_meta exists with slug for GitHub-style URLs
+		if user.ID != "" {
+			_, err := auth.store.EnsureUserMeta(ctx, types.UserMeta{
+				ID: user.ID,
+			})
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to ensure user meta")
+				// Don't fail auth if user_meta creation fails - just log the warning
+			}
+		}
+
 		return user, nil
 	}
 
@@ -182,6 +193,18 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		log.Error().Err(err).Str("token", token).Msg("error validating user token")
 		return nil, err
 	}
+
+	// Ensure user_meta exists with slug for GitHub-style URLs
+	if user != nil && user.ID != "" {
+		_, err := auth.store.EnsureUserMeta(ctx, types.UserMeta{
+			ID: user.ID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to ensure user meta")
+			// Don't fail auth if user_meta creation fails - just log the warning
+		}
+	}
+
 	return user, nil
 }
 

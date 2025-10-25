@@ -71,15 +71,6 @@ interface AgentStats {
   status: string;
 }
 
-interface KeepaliveStatus {
-  session_id: string;
-  lobby_id: string;
-  keepalive_status: 'starting' | 'active' | 'reconnecting' | 'failed' | '';
-  keepalive_start_time?: string;
-  keepalive_last_check?: string;
-  connection_uptime_seconds: number;
-}
-
 const ExternalAgentManager: React.FC = () => {
   const [agents, setAgents] = useState<ExternalAgent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -89,7 +80,6 @@ const ExternalAgentManager: React.FC = () => {
   const [selectedAgent, setSelectedAgent] = useState<ExternalAgent | null>(null);
   const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [statsDialogOpen, setStatsDialogOpen] = useState(false);
-  const [keepaliveStatuses, setKeepaliveStatuses] = useState<Record<string, KeepaliveStatus>>({});
 
   // Create agent form state
   const [createForm, setCreateForm] = useState<CreateAgentRequest>({
@@ -188,40 +178,6 @@ const ExternalAgentManager: React.FC = () => {
     }
   };
 
-  // Fetch keepalive status for all agents
-  const fetchKeepaliveStatuses = async () => {
-    if (agents.length === 0) return;
-
-    try {
-      const statusPromises = agents.map(async (agent) => {
-        try {
-          const response = await fetch(`/api/v1/external-agents/${agent.session_id}/keepalive`);
-          if (response.ok) {
-            const status: KeepaliveStatus = await response.json();
-            return { sessionId: agent.session_id, status };
-          }
-          return null;
-        } catch (err) {
-          // Silently fail for individual agent keepalive status
-          return null;
-        }
-      });
-
-      const results = await Promise.all(statusPromises);
-      const newStatuses: Record<string, KeepaliveStatus> = {};
-
-      results.forEach((result) => {
-        if (result) {
-          newStatuses[result.sessionId] = result.status;
-        }
-      });
-
-      setKeepaliveStatuses(newStatuses);
-    } catch (err) {
-      // Silently fail for keepalive status updates
-      console.error('Failed to fetch keepalive statuses:', err);
-    }
-  };
 
   // Handle create form submission
   const handleCreateSubmit = (e: React.FormEvent) => {
@@ -239,66 +195,6 @@ const ExternalAgentManager: React.FC = () => {
     setCreateForm(prev => ({ ...prev, env: envVars }));
   };
 
-  // Render keepalive status indicator
-  const renderKeepaliveIndicator = (sessionId: string) => {
-    const keepaliveStatus = keepaliveStatuses[sessionId];
-    if (!keepaliveStatus) return null;
-
-    const status = keepaliveStatus.keepalive_status;
-
-    switch (status) {
-      case 'active':
-        return (
-          <Tooltip title={`Keepalive active (uptime: ${Math.floor(keepaliveStatus.connection_uptime_seconds / 60)}m)`}>
-            <Chip
-              icon={<CheckCircle />}
-              label="Keepalive Active"
-              color="success"
-              size="small"
-              sx={{ mt: 1 }}
-            />
-          </Tooltip>
-        );
-      case 'starting':
-        return (
-          <Tooltip title="Keepalive session starting">
-            <Chip
-              icon={<CircularProgress size={16} />}
-              label="Keepalive Starting"
-              color="info"
-              size="small"
-              sx={{ mt: 1 }}
-            />
-          </Tooltip>
-        );
-      case 'reconnecting':
-        return (
-          <Tooltip title="Keepalive session reconnecting">
-            <Chip
-              icon={<Sync />}
-              label="Keepalive Reconnecting"
-              color="warning"
-              size="small"
-              sx={{ mt: 1 }}
-            />
-          </Tooltip>
-        );
-      case 'failed':
-        return (
-          <Tooltip title="Keepalive session failed - will retry">
-            <Chip
-              icon={<ErrorIcon />}
-              label="Keepalive Failed"
-              color="error"
-              size="small"
-              sx={{ mt: 1 }}
-            />
-          </Tooltip>
-        );
-      default:
-        return null;
-    }
-  };
 
   // Initialize and set up polling
   useEffect(() => {
@@ -310,17 +206,6 @@ const ExternalAgentManager: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for keepalive status updates
-  useEffect(() => {
-    if (agents.length === 0) return;
-
-    fetchKeepaliveStatuses();
-
-    // Poll for keepalive status every 10 seconds
-    const interval = setInterval(fetchKeepaliveStatuses, 10000);
-
-    return () => clearInterval(interval);
-  }, [agents]);
 
   if (viewerRunnerId) {
     return (
@@ -416,8 +301,6 @@ const ExternalAgentManager: React.FC = () => {
                       size="small"
                     />
                   </Box>
-
-                  {renderKeepaliveIndicator(agent.session_id)}
 
                   <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 1 }}>
                     Session: {agent.session_id}
