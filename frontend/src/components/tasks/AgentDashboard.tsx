@@ -638,8 +638,9 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <MoonlightConnectionButton 
+                            <MoonlightConnectionButton
                               sessionId={session.session_id}
+                              wolfMode="lobbies"
                             />
                             <Tooltip title="View Session">
                               <IconButton 
@@ -731,8 +732,9 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             </IconButton>
                           </Tooltip>
                           <Box sx={{ ml: 1 }}>
-                            <MoonlightConnectionButton 
+                            <MoonlightConnectionButton
                               sessionId={connection.session_id}
+                              wolfMode="lobbies"
                             />
                           </Box>
                         </ListItem>

@@ -33,12 +33,16 @@ interface MoonlightConnectionButtonProps {
   sessionId: string;
   hostname?: string;
   port?: number;
+  wolfLobbyPin?: string; // PIN for Wolf lobbies mode
+  wolfMode?: string; // "apps" or "lobbies"
 }
 
 const MoonlightConnectionButton: React.FC<MoonlightConnectionButtonProps> = ({
   sessionId,
   hostname = window.location.hostname,
   port = 47989, // Wolf's default HTTP port
+  wolfLobbyPin,
+  wolfMode = "apps",
 }) => {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -47,7 +51,8 @@ const MoonlightConnectionButton: React.FC<MoonlightConnectionButtonProps> = ({
   const httpsUrl = `https://${hostname}:47984`; // Wolf's HTTPS port for pairing
   const httpUrl = `http://${hostname}:${port}`; // Wolf's HTTP port
   const appId = 1; // From our Wolf config - "Helix Desktop"
-  const password = "helix123"; // Same as VNC password
+  // Use wolfLobbyPin if in lobbies mode, otherwise use default password
+  const password = wolfMode === "lobbies" && wolfLobbyPin ? wolfLobbyPin : "helix123";
 
   const handleCopy = async (text: string) => {
     try {
@@ -160,21 +165,23 @@ const MoonlightConnectionButton: React.FC<MoonlightConnectionButtonProps> = ({
               helperText="Use if client requires HTTPS or during initial pairing"
             />
 
-            <TextField
-              label="PIN (if required)"
-              value={password}
-              type="password"
-              fullWidth
-              InputProps={{
-                readOnly: true,
-                endAdornment: (
-                  <IconButton onClick={() => handleCopy(password)}>
-                    <CopyIcon />
-                  </IconButton>
-                ),
-              }}
-              helperText="Use this PIN if Moonlight requests pairing authentication"
-            />
+            {wolfMode === "lobbies" && wolfLobbyPin && (
+              <TextField
+                label="Lobby PIN"
+                value={password}
+                type="password"
+                fullWidth
+                InputProps={{
+                  readOnly: true,
+                  endAdornment: (
+                    <IconButton onClick={() => handleCopy(password)}>
+                      <CopyIcon />
+                    </IconButton>
+                  ),
+                }}
+                helperText="Use this PIN to join the lobby (required for multi-user access)"
+              />
+            )}
           </Box>
 
           {copied && (
@@ -240,10 +247,10 @@ const MoonlightConnectionButton: React.FC<MoonlightConnectionButtonProps> = ({
               <strong>Setup Instructions:</strong>
               <br />1. Install Moonlight client on your device
               <br />2. Add server manually using the hostname/IP above
-              <br />3. Enter the PIN if prompted during pairing
-              <br />4. Select from available apps:
-              <br />&nbsp;&nbsp;• "Helix Desktop" - Full desktop access
-              <br />&nbsp;&nbsp;• Individual Helix sessions (auto-generated)
+              <br />3. {wolfMode === "lobbies" ? "Enter the lobby PIN when prompted" : "Enter the PIN if prompted during pairing"}
+              <br />4. {wolfMode === "lobbies"
+                ? "Join the lobby - multiple users can connect simultaneously"
+                : "Select from available apps: Helix Desktop or individual sessions"}
             </Typography>
           </Alert>
 
