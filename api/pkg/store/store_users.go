@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -38,6 +39,11 @@ func (s *PostgresStore) CreateUserMeta(ctx context.Context, user types.UserMeta)
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
 
+	// Auto-generate slug from user ID if not provided
+	if user.Slug == "" {
+		user.Slug = s.generateUserSlug(ctx, user.ID)
+	}
+
 	err := s.gdb.WithContext(ctx).Create(&user).Error
 	if err != nil {
 		return nil, err
@@ -62,6 +68,13 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 	if err != nil || existing == nil {
 		return s.CreateUserMeta(ctx, user)
 	}
+
+	// Ensure existing user has a slug
+	if existing.Slug == "" {
+		existing.Slug = s.generateUserSlug(ctx, existing.ID)
+		return s.UpdateUserMeta(ctx, *existing)
+	}
+
 	return s.UpdateUserMeta(ctx, user)
 }
 
@@ -264,4 +277,48 @@ func (s *PostgresStore) CountUsers(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// generateUserSlug creates a URL-friendly slug from a user ID or email
+// Similar to GitHub usernames: lowercase, alphanumeric, hyphens only
+func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) string {
+	// Start with the user ID
+	slug := strings.ToLower(userID)
+
+	// Replace non-alphanumeric characters (except hyphens) with hyphens
+	reg := regexp.MustCompile(`[^a-z0-9-]+`)
+	slug = reg.ReplaceAllString(slug, "-")
+
+	// Remove leading/trailing hyphens
+	slug = strings.Trim(slug, "-")
+
+	// Collapse multiple consecutive hyphens
+	reg = regexp.MustCompile(`-+`)
+	slug = reg.ReplaceAllString(slug, "-")
+
+	// Ensure slug is not empty
+	if slug == "" {
+		slug = "user"
+	}
+
+	// Check for uniqueness and append number if needed
+	baseSlug := slug
+	counter := 1
+	for {
+		var existing types.UserMeta
+		err := s.gdb.WithContext(ctx).Where("slug = ?", slug).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			// Slug is unique
+			break
+		}
+		if err != nil {
+			// On error, just use the slug as-is
+			break
+		}
+		// Slug exists, try with counter
+		counter++
+		slug = fmt.Sprintf("%s-%d", baseSlug, counter)
+	}
+
+	return slug
 }
