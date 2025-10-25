@@ -156,6 +156,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.AgentSessionStatus{},
 		&types.HelpRequest{},
 		&types.JobCompletion{},
+		&DBGitRepository{},
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
 		&types.PersonalDevEnvironment{},

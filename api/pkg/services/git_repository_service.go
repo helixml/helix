@@ -218,6 +218,23 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 
 // ListRepositories lists all repositories
 func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error) {
+	// Try to list from database first
+	if postgresStore, ok := s.store.(interface {
+		ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error)
+	}); ok {
+		repos, err := postgresStore.ListGitRepositories(ctx, ownerID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to list repositories from database, falling back to filesystem scan")
+		} else {
+			log.Info().
+				Int("count", len(repos)).
+				Str("owner_id", ownerID).
+				Msg("Listed repositories from database")
+			return repos, nil
+		}
+	}
+
+	// Fallback to filesystem scan if database not available
 	repositories := []*GitRepository{}
 
 	// Walk the git repositories directory
@@ -248,6 +265,11 @@ func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID str
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}
+
+	log.Info().
+		Int("count", len(repositories)).
+		Str("owner_id", ownerID).
+		Msg("Listed repositories from filesystem")
 
 	return repositories, nil
 }
@@ -950,18 +972,39 @@ dist/
 
 // storeRepositoryMetadata stores repository metadata in the store (if supported)
 func (s *GitRepositoryService) storeRepositoryMetadata(ctx context.Context, repo *GitRepository) error {
-	// This would integrate with the existing store to persist repository metadata
-	// For now, we'll just log it
-	log.Info().
-		Str("repo_id", repo.ID).
-		Str("repo_type", string(repo.RepoType)).
-		Msg("Repository metadata stored")
-	return nil
+	// Use the store's git repository methods if available
+	if postgresStore, ok := s.store.(interface {
+		CreateGitRepository(ctx context.Context, repo *GitRepository) error
+	}); ok {
+		err := postgresStore.CreateGitRepository(ctx, repo)
+		if err != nil {
+			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to store repository metadata in database")
+			return err
+		}
+		log.Info().
+			Str("repo_id", repo.ID).
+			Str("repo_type", string(repo.RepoType)).
+			Str("owner_id", repo.OwnerID).
+			Msg("Repository metadata stored in database")
+		return nil
+	}
+
+	log.Warn().Msg("Store does not support git repository persistence")
+	return fmt.Errorf("store does not support git repository persistence")
 }
 
 // getRepositoryMetadata retrieves repository metadata from store
 func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID string) (*GitRepository, error) {
-	// This would retrieve from the existing store
-	// For now, return not found
+	// Use the store's git repository methods if available
+	if postgresStore, ok := s.store.(interface {
+		GetGitRepository(ctx context.Context, id string) (*GitRepository, error)
+	}); ok {
+		repo, err := postgresStore.GetGitRepository(ctx, repoID)
+		if err != nil {
+			return nil, err
+		}
+		return repo, nil
+	}
+
 	return nil, fmt.Errorf("repository metadata not found in store")
 }
