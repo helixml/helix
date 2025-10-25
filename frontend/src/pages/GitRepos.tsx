@@ -1,18 +1,73 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import Container from '@mui/material/Container'
-import { Box, Typography, Card, CardContent, CircularProgress, Alert, Button, Chip } from '@mui/material'
+import {
+  Box,
+  Typography,
+  Card,
+  CardContent,
+  CircularProgress,
+  Alert,
+  Button,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Stack,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from '@mui/material'
 import { GitBranch, Plus, ExternalLink } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
 import useAccount from '../hooks/useAccount'
-import { useGitRepositories } from '../services/gitRepositoryService'
-import type { ServicesGitRepository } from '../api/api'
+import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
+import { useSampleTypes } from '../hooks/useSampleTypes'
+import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
   const { data: repositories, isLoading, error } = useGitRepositories(account.user?.id)
+  const { data: sampleTypes, loading: sampleTypesLoading, createSampleRepository } = useSampleTypes()
+
+  // Dialog states
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
+  const [selectedSampleType, setSelectedSampleType] = useState('')
+  const [repoName, setRepoName] = useState('')
+  const [repoDescription, setRepoDescription] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const handleCreateDemoRepo = async () => {
+    if (!selectedSampleType || !account.user?.id) return
+
+    setCreating(true)
+    try {
+      await createSampleRepository({
+        owner_id: account.user.id,
+        sample_type: selectedSampleType,
+      })
+      setDemoRepoDialogOpen(false)
+      setSelectedSampleType('')
+    } catch (error) {
+      console.error('Failed to create demo repository:', error)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleCreateCustomRepo = () => {
+    // TODO: Implement custom repository creation
+    console.log('Create custom repository:', { repoName, repoDescription })
+    setCreateDialogOpen(false)
+    setRepoName('')
+    setRepoDescription('')
+  }
 
   // Show logged out state if user is not authenticated
   if (!account.user) {
@@ -52,16 +107,22 @@ const GitRepos: FC = () => {
           <Typography variant="h4" component="h1">
             Git Repositories
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<Plus size={18} />}
-            onClick={() => {
-              // TODO: Implement create repository dialog
-              console.log('Create repository')
-            }}
-          >
-            New Repository
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              startIcon={<GitBranch size={18} />}
+              onClick={() => setDemoRepoDialogOpen(true)}
+            >
+              From Demo Repos
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<Plus size={18} />}
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              New Repository
+            </Button>
+          </Box>
         </Box>
 
         {error && (
@@ -154,16 +215,95 @@ const GitRepos: FC = () => {
               <Button
                 variant="contained"
                 startIcon={<Plus size={18} />}
-                onClick={() => {
-                  // TODO: Implement create repository dialog
-                  console.log('Create repository')
-                }}
+                onClick={() => setCreateDialogOpen(true)}
               >
                 Create Repository
               </Button>
             </CardContent>
           </Card>
         )}
+
+        {/* Demo Repository Dialog */}
+        <Dialog open={demoRepoDialogOpen} onClose={() => setDemoRepoDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Create from Demo Repository</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Choose a demo repository template to get started quickly with common project types.
+              </Typography>
+
+              <FormControl fullWidth>
+                <InputLabel>Demo Template</InputLabel>
+                <Select
+                  value={selectedSampleType}
+                  onChange={(e) => setSelectedSampleType(e.target.value)}
+                  disabled={sampleTypesLoading}
+                >
+                  <MenuItem value="">
+                    <em>Select a demo template</em>
+                  </MenuItem>
+                  {sampleTypes.map((type: ServerSampleType) => (
+                    <MenuItem key={type.id} value={type.id}>
+                      {getSampleTypeIcon(type.id || '')} {type.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {selectedSampleType && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  {sampleTypes.find((t: ServerSampleType) => t.id === selectedSampleType)?.description}
+                </Alert>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDemoRepoDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleCreateDemoRepo}
+              variant="contained"
+              disabled={!selectedSampleType || creating}
+            >
+              {creating ? <CircularProgress size={20} /> : 'Create'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Custom Repository Dialog */}
+        <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Create New Repository</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField
+                label="Repository Name"
+                fullWidth
+                value={repoName}
+                onChange={(e) => setRepoName(e.target.value)}
+                helperText="Enter a name for your repository"
+              />
+
+              <TextField
+                label="Description"
+                fullWidth
+                multiline
+                rows={3}
+                value={repoDescription}
+                onChange={(e) => setRepoDescription(e.target.value)}
+                helperText="Describe the purpose of this repository"
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleCreateCustomRepo}
+              variant="contained"
+              disabled={!repoName.trim()}
+            >
+              Create
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </Page>
   )
