@@ -41,9 +41,12 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Construct moonlight-web stream URL
-  // For now, we'll need to configure Wolf as a host in moonlight-web
-  // TODO: Auto-configure Wolf host via moonlight-web API
-  const streamUrl = `/moonlight/stream.html?hostId=0&appId=${wolfLobbyId || '1'}`;
+  // In lobbies mode (wolfLobbyId present): Connect to Wolf UI (appId=0) to browse lobbies
+  // In apps mode (no wolfLobbyId): Connect directly to specific app
+  // hostId=0 refers to the Wolf server configured in moonlight-web
+  const streamUrl = wolfLobbyId
+    ? `/moonlight/stream.html?hostId=0&appId=0` // Lobbies mode: connect to Wolf UI browser
+    : `/moonlight/stream.html?hostId=0&appId=1`; // Apps mode: connect to specific app
 
   useEffect(() => {
     // Handle iframe load

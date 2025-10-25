@@ -84,9 +84,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
       console.log(`MoonlightStreamViewer: Using moonlight-web mode: ${moonlightWebMode}`);
 
-      // For external agents, fetch the actual Wolf app ID
+      // Determine app ID based on mode
       let actualAppId = appId;
-      if (sessionId && !isPersonalDevEnvironment) {
+
+      if (wolfLobbyId) {
+        // Lobbies mode: Connect to Wolf UI browser (app 0) where user will navigate to their lobby
+        actualAppId = 0;
+        console.log(`MoonlightStreamViewer: Using Wolf UI (app 0) for lobbies mode, lobby ${wolfLobbyId}`);
+      } else if (sessionId && !isPersonalDevEnvironment) {
+        // Apps mode: Fetch the specific Wolf app ID for this session
         try {
           const wolfStateResponse = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
           if (wolfStateResponse.data?.wolf_app_id) {
