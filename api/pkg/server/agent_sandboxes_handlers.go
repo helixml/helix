@@ -600,24 +600,20 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		}
 	}
 
-	// Query Wolf to check if app exists
-	apps, err := fetchWolfApps(ctx, wolfClient)
-	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Find this session's Wolf app (the app ID is stored in the session config or we can derive it)
-	// For now, we'll look it up from the external agent executor
+	// Find this session's Wolf app/lobby ID from the external agent executor
 	type SessionProvider interface {
 		GetSession(sessionID string) (*external_agent.ZedSession, error)
 	}
 	sessionProvider, ok := apiServer.externalAgentExecutor.(SessionProvider)
 	var wolfAppID string
+	var wolfLobbyID string
+	var isLobbiesMode bool
 	if ok {
 		zedSession, err := sessionProvider.GetSession(sessionID)
 		if err == nil && zedSession != nil {
 			wolfAppID = zedSession.WolfAppID
+			wolfLobbyID = zedSession.WolfLobbyID
+			isLobbiesMode = wolfLobbyID != "" // If lobby ID exists, we're in lobbies mode
 		}
 	}
 
@@ -639,18 +635,37 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		}
 	} else {
 		// No moonlight session found
-		// Check if Wolf app still exists (container might be running without moonlight session)
-		appExists := false
-		for _, app := range apps {
-			if app.ID == wolfAppID {
-				appExists = true
-				break
+		// Check if Wolf app/lobby still exists (container might be running without moonlight session)
+		resourceExists := false
+
+		if isLobbiesMode {
+			// Check lobbies
+			lobbies, err := fetchWolfLobbies(ctx, wolfClient)
+			if err == nil {
+				for _, lobby := range lobbies {
+					if lobby.ID == wolfLobbyID {
+						resourceExists = true
+						break
+					}
+				}
+			}
+		} else {
+			// Check apps
+			apps, err := fetchWolfApps(ctx, wolfClient)
+			if err == nil {
+				for _, app := range apps {
+					if app.ID == wolfAppID {
+						resourceExists = true
+						break
+					}
+				}
 			}
 		}
-		if appExists {
-			state = "resumable" // App exists but no moonlight session
+
+		if resourceExists {
+			state = "resumable" // App/lobby exists but no moonlight session
 		} else {
-			state = "absent" // No app, no session
+			state = "absent" // No app/lobby, no session
 		}
 	}
 
