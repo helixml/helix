@@ -93,6 +93,7 @@ services:
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+            - WOLF_MODE=lobbies  # "apps" (default) or "lobbies" (multi-user with PIN support)
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
