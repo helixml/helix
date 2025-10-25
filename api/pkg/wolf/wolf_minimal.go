@@ -55,7 +55,7 @@ func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, ba
 		ID:                     id,
 		StartVirtualCompositor: true,  // Wolf provides virtual compositor
 
-			// Let Wolf use its own default pipelines based on WOLF_USE_ZERO_COPY env var
+		// Let Wolf use its own default pipelines based on WOLF_USE_ZERO_COPY env var
 		// Wolf will automatically choose correct pipelines based on zero-copy setting
 		// DO NOT override these - Wolf's defaults handle DMABuf vs non-DMABuf correctly
 

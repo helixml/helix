@@ -44,6 +44,9 @@ const GitRepos: FC = () => {
   const currentOrg = account.organizationTools.organization
   const ownerId = currentOrg?.id || account.user?.id || ''
 
+  // Get owner slug for GitHub-style URLs (org name or user slug)
+  const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
+
   const { data: repositories, isLoading, error } = useGitRepositories(ownerId)
   const { data: sampleTypes, loading: sampleTypesLoading, createSampleRepository } = useSampleTypes()
 
@@ -220,32 +223,51 @@ const GitRepos: FC = () => {
       orgBreadcrumbs={true}
     >
       <Container maxWidth="xl" sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h4" component="h1">
-            Git Repositories
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<GitBranch size={18} />}
-              onClick={() => setDemoRepoDialogOpen(true)}
-            >
-              From Demo Repos
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<Link size={18} />}
-              onClick={() => setLinkRepoDialogOpen(true)}
-            >
-              Link External Repo
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<Plus size={18} />}
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              New Repository
-            </Button>
+        {/* GitHub-style header */}
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <Typography variant="h5" component="h1" sx={{ color: 'primary.main', fontWeight: 600 }}>
+              {ownerSlug}
+            </Typography>
+            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+              /
+            </Typography>
+            <Typography variant="h6" sx={{ color: 'text.secondary' }}>
+              repositories
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              {repositories?.length || 0} {repositories?.length === 1 ? 'repository' : 'repositories'}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<GitBranch size={16} />}
+                onClick={() => setDemoRepoDialogOpen(true)}
+              >
+                From Demo
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Link size={16} />}
+                onClick={() => setLinkRepoDialogOpen(true)}
+              >
+                Link External
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<Plus size={16} />}
+                onClick={() => setCreateDialogOpen(true)}
+                color="success"
+              >
+                New
+              </Button>
+            </Box>
           </Box>
         </Box>
 
@@ -270,11 +292,24 @@ const GitRepos: FC = () => {
                 }
               }}>
                 <CardContent>
+                  {/* GitHub-style owner/repo header */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <GitBranch size={20} />
-                      <Typography variant="h6" component="h2">
-                        {repo.name || repo.id}
+                      <GitBranch size={16} color="#666" />
+                      <Typography
+                        variant="body1"
+                        component="h2"
+                        sx={{
+                          color: 'primary.main',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.5
+                        }}
+                      >
+                        <span style={{ color: '#666', fontWeight: 400 }}>{ownerSlug}</span>
+                        <span style={{ color: '#666' }}>/</span>
+                        <span>{repo.name || repo.id}</span>
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
