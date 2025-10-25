@@ -1,4 +1,5 @@
 import React, { FC, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Container from '@mui/material/Container'
 import {
   Box,
@@ -37,6 +38,7 @@ import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const api = useApi()
 
@@ -297,10 +299,7 @@ const GitRepos: FC = () => {
                   },
                   cursor: 'pointer'
                 }}
-                onClick={() => {
-                  // TODO: Navigate to repository details
-                  console.log('View repo:', repo.id)
-                }}
+                onClick={() => navigate(`/git-repos/${repo.id}`)}
               >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box sx={{ flex: 1 }}>
@@ -385,10 +384,7 @@ const GitRepos: FC = () => {
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => {
-                          // TODO: Show clone instructions or details
-                          console.log('Clone:', repo.clone_url)
-                        }}
+                        onClick={() => navigate(`/git-repos/${repo.id}`)}
                         sx={{ textTransform: 'none' }}
                       >
                         Clone

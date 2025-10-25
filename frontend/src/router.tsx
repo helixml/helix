@@ -27,6 +27,7 @@ import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import Fleet from './pages/Fleet'
 import GitRepos from './pages/GitRepos'
+import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 
 // extend the base router5 route to add metadata and self rendering
@@ -99,6 +100,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <GitRepos />
+    ),
+  }, {
+    name: namePrefix + 'git-repo-detail',
+    path: routePrefix + '/git-repos/:repoId',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Repository',
+    },
+    render: () => (
+      <GitRepoDetail />
     ),
   },
   {
