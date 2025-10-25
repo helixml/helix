@@ -203,7 +203,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
   const [memory, setMemory] = useState(app.memory || false)
-  const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+  const [max_iterations, setMaxIterations] = useState(String(app.max_iterations ?? DEFAULT_VALUES.max_iterations))
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
@@ -257,7 +257,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
-      setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+      setMaxIterations(String(app.max_iterations ?? DEFAULT_VALUES.max_iterations))
       
       // Mark as initialized
       isInitialized.current = true
@@ -290,7 +290,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       temperature: field === 'temperature' ? value as number : temperature,
       top_p: field === 'topP' ? value as number : topP,
       system_prompt: field === 'system_prompt' ? value as string : system_prompt,
-      max_iterations: field === 'maxIterations' ? value as number : max_iterations
+      max_iterations: field === 'maxIterations' ? parseInt(value as string) || 0 : parseInt(max_iterations) || 0
     }
     
     onUpdate(updatedApp)
@@ -323,7 +323,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
-      max_iterations: max_iterations
+      max_iterations: parseInt(max_iterations) || 0
     }
     
     onUpdate(updatedApp)
@@ -347,7 +347,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
-      max_iterations: max_iterations
+      max_iterations: parseInt(max_iterations) || 0
     }
     
     onUpdate(updatedApp)
@@ -412,8 +412,8 @@ const AppSettings: FC<AppSettingsProps> = ({
         handleAdvancedChangeWithDebounce('system_prompt', value as string)
         break
       case 'max_iterations':
-        setMaxIterations(value as number)
-        handleAdvancedChangeWithDebounce('maxIterations', value as number)
+        setMaxIterations(String(value))
+        handleAdvancedChangeWithDebounce('maxIterations', String(value))
         break
     }
   }
@@ -830,16 +830,17 @@ const AppSettings: FC<AppSettingsProps> = ({
 
               <TextField
                 sx={{ mt: 1 }}
-                type="number"              
                 value={max_iterations}
                 onChange={(e) => {
-                  const value = parseInt(e.target.value) || DEFAULT_VALUES.max_iterations;
-                  setMaxIterations(value);
-                  handleAdvancedChangeWithDebounce('maxIterations', value);
+                  // const value = parseInt(e.target.value);
+                  // if (isNaN(value)) {
+                  //   return;
+                  // }
+                  setMaxIterations(e.target.value);
+                  handleAdvancedChangeWithDebounce('maxIterations', e.target.value);
                 }}
                 fullWidth
                 disabled={readOnly}
-                inputProps={{ min: 1 }}
               />
             </Box>
           </Box>
@@ -1051,25 +1052,6 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
-      )}     
-               
-      {isAdmin && (
-        <Tooltip title="Make this app available to all users">
-          <FormGroup>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={global}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                    handleCheckboxChange('global', event.target.checked)
-                  }}
-                // Never disable global checkbox -- required for github apps and normal apps
-                />
-              }
-              label="Global?"
-            />
-          </FormGroup>
-        </Tooltip>
       )}
     </Box>
   )
