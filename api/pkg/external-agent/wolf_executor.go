@@ -191,15 +191,15 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
 	}
 
-	// Create health monitor with reconciliation callback
+	// Create health monitor for Wolf restarts (no keepalive reconciliation in lobbies mode)
 	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
-		// After Wolf restarts, reconcile all keepalive sessions
-		log.Info().Msg("Wolf restarted, reconciling all keepalive sessions")
-		executor.reconcileKeepaliveSessions(ctx)
+		// After Wolf restarts, reconcile lobbies
+		log.Info().Msg("Wolf restarted, reconciling lobbies")
+		executor.reconcileLobbies(ctx)
 	})
 
-	// Start background keepalive reconciliation loop
-	go executor.keepaliveReconciliationLoop(context.Background())
+	// Lobbies mode doesn't need keepalive reconciliation
+	// Lobbies persist naturally without the keepalive hack
 
 	// Start idle external agent cleanup loop (30min timeout)
 	go executor.idleExternalAgentCleanupLoop(context.Background())
@@ -274,6 +274,13 @@ func (w *WolfExecutor) reconcileKeepaliveSessions(ctx context.Context) {
 		// Start new keepalive goroutine
 		go w.startKeepaliveSession(ctx, sessionID, session.WolfLobbyID, "")
 	}
+}
+
+// reconcileLobbies checks lobbies after Wolf restarts (lobbies persist naturally, no keepalive needed)
+func (w *WolfExecutor) reconcileLobbies(ctx context.Context) {
+	// In lobbies mode, lobbies persist naturally without keepalive
+	// This is just a placeholder for future lobby reconciliation logic if needed
+	log.Info().Msg("Lobbies reconciliation completed (lobbies persist without keepalive)")
 }
 
 // StartZedAgent implements the Executor interface for external agent sessions
@@ -428,9 +435,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 	w.sessions[agent.SessionID] = session
 
-	// Start keepalive session to prevent stale buffer crash on rejoin
-	// This keeps the lobby alive even when all human users disconnect
-	go w.startKeepaliveSession(ctx, agent.SessionID, lobbyResp.LobbyID, lobbyPINString)
+	// Lobbies mode doesn't need keepalive - lobbies persist naturally
+	// (keepalive was a hack for apps mode to prevent stale buffer crashes)
 
 	// Return response with screenshot URL, Moonlight info, and PIN
 	response := &types.ZedAgentResponse{
