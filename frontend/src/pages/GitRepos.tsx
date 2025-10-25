@@ -21,6 +21,7 @@ import {
   MenuItem,
 } from '@mui/material'
 import { GitBranch, Plus, ExternalLink } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
@@ -32,6 +33,7 @@ import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
+  const queryClient = useQueryClient()
 
   // Get current org ID - use org ID for org repos, user ID for personal repos
   const currentOrg = account.organizationTools.organization
@@ -78,6 +80,10 @@ const GitRepos: FC = () => {
         sample_type: selectedSampleType,
         name: demoRepoName,
       })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
       setDemoRepoDialogOpen(false)
       setSelectedSampleType('')
       setDemoRepoName('')
