@@ -270,9 +270,9 @@ services:
         # Fix HTTPS SSL certificate paths for proper SSL operation
         - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
         - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-        # Workaround for Nvidia zero-copy OpenGL context thrashing bug
-        # https://github.com/games-on-whales/wolf/pull/179#issuecomment-3058215348
-        - WOLF_USE_ZERO_COPY=FALSE
+        # Enable Nvidia zero-copy for better performance with new waylanddisplaysrc
+        # New wolf-ui branch supports direct CUDAMemory output from waylanddisplaysrc
+        - WOLF_USE_ZERO_COPY=TRUE
         # Internal moonlight-web pairing PIN (secure random, shared via env)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       volumes:
