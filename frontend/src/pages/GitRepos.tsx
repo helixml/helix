@@ -39,21 +39,24 @@ const GitRepos: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
   const [selectedSampleType, setSelectedSampleType] = useState('')
+  const [demoRepoName, setDemoRepoName] = useState('')
   const [repoName, setRepoName] = useState('')
   const [repoDescription, setRepoDescription] = useState('')
   const [creating, setCreating] = useState(false)
 
   const handleCreateDemoRepo = async () => {
-    if (!selectedSampleType || !account.user?.id) return
+    if (!selectedSampleType || !account.user?.id || !demoRepoName.trim()) return
 
     setCreating(true)
     try {
       await createSampleRepository({
         owner_id: account.user.id,
         sample_type: selectedSampleType,
+        name: demoRepoName,
       })
       setDemoRepoDialogOpen(false)
       setSelectedSampleType('')
+      setDemoRepoName('')
     } catch (error) {
       console.error('Failed to create demo repository:', error)
     } finally {
@@ -232,6 +235,15 @@ const GitRepos: FC = () => {
                 Choose a demo repository template to get started quickly with common project types.
               </Typography>
 
+              <TextField
+                label="Repository Name"
+                fullWidth
+                required
+                value={demoRepoName}
+                onChange={(e) => setDemoRepoName(e.target.value)}
+                helperText="Enter a name for your repository"
+              />
+
               <FormControl fullWidth>
                 <InputLabel>Demo Template</InputLabel>
                 <Select
@@ -262,7 +274,7 @@ const GitRepos: FC = () => {
             <Button
               onClick={handleCreateDemoRepo}
               variant="contained"
-              disabled={!selectedSampleType || creating}
+              disabled={!selectedSampleType || !demoRepoName.trim() || creating}
             >
               {creating ? <CircularProgress size={20} /> : 'Create'}
             </Button>
