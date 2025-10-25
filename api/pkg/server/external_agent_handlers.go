@@ -177,18 +177,26 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		Str("lobby_id", response.WolfLobbyID).
 		Msg("External agent started successfully")
 
-	// Store the lobby PIN in the Helix session metadata (Phase 3: Multi-tenancy)
+	// Store the lobby ID and PIN in the Helix session metadata (Phase 3: Multi-tenancy)
+	if response.WolfLobbyID != "" {
+		createdSession.Metadata.WolfLobbyID = response.WolfLobbyID
+	}
 	if response.WolfLobbyPIN != "" {
 		createdSession.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	}
+
+	// Update session with Wolf lobby info
+	if response.WolfLobbyID != "" || response.WolfLobbyPIN != "" {
 		_, err = apiServer.Controller.Options.Store.UpdateSession(req.Context(), *createdSession)
 		if err != nil {
-			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store lobby PIN in session")
-			// Continue anyway - PIN just won't be in database
+			log.Error().Err(err).Str("session_id", createdSession.ID).Msg("Failed to store Wolf lobby info in session")
+			// Continue anyway - lobby info just won't be in database
 		} else {
 			log.Info().
 				Str("helix_session_id", createdSession.ID).
+				Str("lobby_id", response.WolfLobbyID).
 				Str("lobby_pin", response.WolfLobbyPIN).
-				Msg("✅ Stored lobby PIN in Helix session metadata")
+				Msg("✅ Stored Wolf lobby ID and PIN in Helix session metadata")
 		}
 	}
 
