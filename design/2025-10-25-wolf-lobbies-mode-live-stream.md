@@ -275,4 +275,88 @@ Updated `getSessionWolfAppState()` in `api/pkg/server/agent_sandboxes_handlers.g
 ### Commit
 - `e8b6ae1d9` - Fix getSessionWolfAppState to support lobbies mode
 
+## Additional Fix: Wolf UI App Configuration (moonlight-web AppNotFound)
+
+### Problem
+
+After fixing the backend to store `wolf_lobby_id` in session metadata, moonlight-web was still showing AppNotFound errors:
+
+```
+moonlight-web-1  | 05:41:18 [INFO] [Stream]: Looking for app_id 0 in 4 available apps
+moonlight-web-1  | 05:41:18 [INFO] [Stream]:   App 0: id=1972195426, title="Agent edjs"
+moonlight-web-1  | 05:41:18 [WARN] [Stream]: AppNotFound - requested app_id 0 not in list of 4 apps
+```
+
+**Root cause**: Helix's `/home/luke/pm/helix/wolf/config.toml` was missing the Wolf UI app as the first app in the profile. The upstream Wolf default config (`~/pm/wolf/src/moonlight-server/state/default/config.v6.toml`) includes Wolf UI as the first app, but Helix's custom config didn't have it.
+
+In lobbies mode:
+- Frontend requests appId=0 (Wolf UI lobby browser)
+- moonlight-web queries Wolf's `/api/v1/apps` endpoint
+- Wolf only had Helix agent apps, NOT Wolf UI
+- moonlight-web couldn't find app 0 → AppNotFound
+
+### Solution
+
+Added Wolf UI app as the **first app** in `/home/luke/pm/helix/wolf/config.toml` (lines 776-802):
+
+```toml
+# Wolf UI app (lobby browser) - MUST be first app for lobbies mode (app 0)
+[[profiles.apps]]
+start_virtual_compositor = true
+title = 'Wolf UI'
+icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
+
+    [profiles.apps.runner]
+    type = 'docker'
+    name = 'Wolf-UI'
+    image = 'ghcr.io/games-on-whales/wolf-ui:main'
+    mounts = ['/var/run/wolf/wolf.sock:/var/run/wolf/wolf.sock']
+    env = [
+        'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia*',
+        'WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock',
+        'WOLF_UI_AUTOUPDATE=False',
+        'LOGLEVEL=INFO'
+    ]
+    devices = []
+    ports = []
+    base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}'''
+```
+
+**Key principle**: In Wolf config, the **first app** in a profile gets a specific app ID. By making Wolf UI the first app, it becomes available for moonlight-web to connect to when frontend requests app 0 for lobbies mode.
+
+### Verification
+
+After restarting Wolf container:
+
+```bash
+docker compose -f docker-compose.dev.yaml down wolf && docker compose -f docker-compose.dev.yaml up -d wolf
+```
+
+Querying Wolf's apps endpoint now shows Wolf UI:
+
+```bash
+docker compose -f docker-compose.dev.yaml exec api curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
+```
+
+Result:
+```json
+{
+  "id": "134906179",
+  "title": "Wolf UI"
+}
+{
+  "id": "1972195426",
+  "title": "Agent edjs"
+}
+```
+
+Wolf UI is now available and moonlight-web can successfully find it for lobbies mode connections.
+
 **Final status:** All AppNotFound errors resolved. Both apps mode and lobbies mode working correctly.
