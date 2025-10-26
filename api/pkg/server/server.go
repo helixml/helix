@@ -685,6 +685,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Wolf pairing routes
 	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
 	authRouter.HandleFunc("/wolf/pairing/complete", apiServer.completeWolfPairing).Methods("POST")
+	authRouter.HandleFunc("/wolf/ui-app-id", apiServer.getWolfUIAppID).Methods("GET")
 
 	// Reverse dial endpoint for external agent runners (requires runner token authentication)
 	// This handles both control connections (non-WebSocket) and data connections (WebSocket)

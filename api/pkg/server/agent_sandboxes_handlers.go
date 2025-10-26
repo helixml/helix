@@ -276,6 +276,47 @@ func fetchWolfApps(ctx context.Context, wolfClient *wolf.Client) ([]WolfAppInfo,
 	return appsResponse.Apps, nil
 }
 
+// getWolfUIAppID godoc
+// @Summary Get Wolf UI app ID
+// @Description Get the Wolf UI app ID for lobbies mode streaming
+// @Tags Wolf
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/wolf/ui-app-id [get]
+func (apiServer *HelixAPIServer) getWolfUIAppID(rw http.ResponseWriter, req *http.Request) {
+	// Get Wolf client from executor
+	type WolfClientProvider interface {
+		GetWolfClient() *wolf.Client
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+	if !ok {
+		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
+		return
+	}
+	wolfClient := provider.GetWolfClient()
+
+	// Fetch Wolf apps
+	apps, err := fetchWolfApps(req.Context(), wolfClient)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf apps: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Find "Wolf UI" app by name
+	for _, app := range apps {
+		if app.Title == "Wolf UI" {
+			rw.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(rw).Encode(map[string]string{
+				"wolf_ui_app_id": app.ID,
+			})
+			return
+		}
+	}
+
+	http.Error(rw, "Wolf UI app not found in apps list", http.StatusNotFound)
+}
+
 // fetchWolfSessions retrieves all streaming sessions from Wolf
 func fetchWolfSessions(ctx context.Context, wolfClient *wolf.Client) ([]WolfSessionInfo, error) {
 	resp, err := wolfClient.Get(ctx, "/api/v1/sessions")

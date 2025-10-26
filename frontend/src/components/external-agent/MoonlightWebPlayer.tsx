@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Box, Typography, Alert, CircularProgress } from '@mui/material';
+import useApi from '../../hooks/useApi';
 
 interface MoonlightWebPlayerProps {
   sessionId: string;
@@ -39,14 +40,38 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string>('');
+  const api = useApi();
+  const apiClient = api.getApiClient();
 
-  // Construct moonlight-web stream URL
-  // In lobbies mode (wolfLobbyId present): Connect to Wolf UI (appId=0) to browse lobbies
-  // In apps mode (no wolfLobbyId): Connect directly to specific app
-  // hostId=0 refers to the Wolf server configured in moonlight-web
-  const streamUrl = wolfLobbyId
-    ? `/moonlight/stream.html?hostId=0&appId=0` // Lobbies mode: connect to Wolf UI browser
-    : `/moonlight/stream.html?hostId=0&appId=1`; // Apps mode: connect to specific app
+  // Fetch Wolf UI app ID for lobbies mode
+  useEffect(() => {
+    const fetchAppId = async () => {
+      if (wolfLobbyId) {
+        // Lobbies mode: Fetch Wolf UI app ID dynamically from Wolf
+        try {
+          const response = await fetch('/api/v1/wolf/ui-app-id');
+          if (response.ok) {
+            const data = await response.json();
+            const wolfUIAppID = data.wolf_ui_app_id;
+            setStreamUrl(`/moonlight/stream.html?hostId=0&appId=${wolfUIAppID}`);
+            console.log(`MoonlightWebPlayer: Using Wolf UI app ID ${wolfUIAppID} for lobbies mode`);
+          } else {
+            console.warn('MoonlightWebPlayer: Failed to fetch Wolf UI app ID, using default 0');
+            setStreamUrl(`/moonlight/stream.html?hostId=0&appId=0`);
+          }
+        } catch (err) {
+          console.warn('MoonlightWebPlayer: Failed to fetch Wolf UI app ID, using default 0:', err);
+          setStreamUrl(`/moonlight/stream.html?hostId=0&appId=0`);
+        }
+      } else {
+        // Apps mode: connect directly to specific app
+        setStreamUrl(`/moonlight/stream.html?hostId=0&appId=1`);
+      }
+    };
+
+    fetchAppId();
+  }, [sessionId, wolfLobbyId]);
 
   useEffect(() => {
     // Handle iframe load
@@ -127,19 +152,21 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
       )}
 
       {/* Moonlight Web Stream Iframe */}
-      <iframe
-        ref={iframeRef}
-        src={streamUrl}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          backgroundColor: '#000',
-        }}
-        title="Moonlight Web Stream"
-        allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-modals allow-pointer-lock"
-      />
+      {streamUrl && (
+        <iframe
+          ref={iframeRef}
+          src={streamUrl}
+          style={{
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            backgroundColor: '#000',
+          }}
+          title="Moonlight Web Stream"
+          allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-modals allow-pointer-lock"
+        />
+      )}
 
       {/* Usage Hint */}
       {!isLoading && !error && (
