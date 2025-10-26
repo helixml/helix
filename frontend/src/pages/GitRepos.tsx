@@ -1,5 +1,4 @@
 import React, { FC, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import Container from '@mui/material/Container'
 import {
   Box,
@@ -32,13 +31,15 @@ import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
 import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
 import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
   const account = useAccount()
-  const navigate = useNavigate()
+  const router = useRouter()
+  const { navigate } = router
   const queryClient = useQueryClient()
   const api = useApi()
 
@@ -299,7 +300,7 @@ const GitRepos: FC = () => {
                   },
                   cursor: 'pointer'
                 }}
-                onClick={() => navigate(`/git-repos/${repo.id}`)}
+                onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
               >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box sx={{ flex: 1 }}>
@@ -384,7 +385,7 @@ const GitRepos: FC = () => {
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => navigate(`/git-repos/${repo.id}`)}
+                        onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
                         sx={{ textTransform: 'none' }}
                       >
                         Clone
