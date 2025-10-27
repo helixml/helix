@@ -3,6 +3,8 @@ package skill
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
@@ -108,22 +110,24 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, 
 		ProcessOutput: config.ProcessOutput,
 		Tools: []agent.Tool{
 			&browserTool{
-				browser:   browser,
-				config:    config,
-				llm:       llm,
-				parser:    readability.NewParser(), // TODO: add config for this
-				converter: md.NewConverter("", true, nil),
+				browser:    browser,
+				config:     config,
+				llm:        llm,
+				parser:     readability.NewParser(), // TODO: add config for this
+				converter:  md.NewConverter("", true, nil),
+				httpClient: http.DefaultClient,
 			},
 		},
 	}
 }
 
 type browserTool struct {
-	browser   *browser.Browser
-	config    *types.ToolBrowserConfig
-	parser    readability.Parser
-	converter *md.Converter
-	llm       *agent.LLM
+	browser    *browser.Browser
+	config     *types.ToolBrowserConfig
+	parser     readability.Parser
+	converter  *md.Converter
+	llm        *agent.LLM
+	httpClient *http.Client
 }
 
 func (t *browserTool) Name() string {
@@ -183,40 +187,70 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 	)
 
 	go func() {
-		b, err := t.browser.GetBrowser()
-		if err != nil {
-			errCh <- fmt.Errorf("error getting browser: %w", err)
-			return
-		}
-		defer func() {
-			if err := t.browser.PutBrowser(b); err != nil {
-				log.Warn().Err(err).Msg("error putting browser")
+		var html string
+
+		if t.config.NoBrowser {
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				errCh <- fmt.Errorf("error creating request: %w", err)
+				return
 			}
-		}()
+			resp, err := t.httpClient.Do(req)
+			if err != nil {
+				errCh <- fmt.Errorf("error doing request: %w", err)
+				return
+			}
+			defer resp.Body.Close()
 
-		page, err := t.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
-		if err != nil {
-			errCh <- fmt.Errorf("error getting page for %s: %w", url, err)
-			return
-		}
-		defer t.browser.PutPage(page)
+			bts, err := io.ReadAll(resp.Body)
+			if err != nil {
+				errCh <- fmt.Errorf("error reading response body: %w", err)
+				return
+			}
 
-		err = page.WaitLoad()
-		if err != nil {
-			errCh <- fmt.Errorf("error waiting for page to load for %s: %w", url, err)
-			return
-		}
+			if resp.StatusCode >= 400 {
+				errCh <- fmt.Errorf("error getting response body: %w", err)
+				return
+			}
 
-		// Wait until stable
-		err = page.WaitStable(5 * time.Second)
-		if err != nil {
-			log.Warn().Err(err).Str("url", url).Msg("error waiting for page to be stable")
-		}
+			html = string(bts)
 
-		html, err := page.HTML()
-		if err != nil {
-			errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
-			return
+		} else {
+			b, err := t.browser.GetBrowser()
+			if err != nil {
+				errCh <- fmt.Errorf("error getting browser: %w", err)
+				return
+			}
+			defer func() {
+				if err := t.browser.PutBrowser(b); err != nil {
+					log.Warn().Err(err).Msg("error putting browser")
+				}
+			}()
+
+			page, err := t.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+			if err != nil {
+				errCh <- fmt.Errorf("error getting page for %s: %w", url, err)
+				return
+			}
+			defer t.browser.PutPage(page)
+
+			err = page.WaitLoad()
+			if err != nil {
+				errCh <- fmt.Errorf("error waiting for page to load for %s: %w", url, err)
+				return
+			}
+
+			// Wait until stable
+			err = page.WaitStable(5 * time.Second)
+			if err != nil {
+				log.Warn().Err(err).Str("url", url).Msg("error waiting for page to be stable")
+			}
+
+			html, err = page.HTML()
+			if err != nil {
+				errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
+				return
+			}
 		}
 
 		if t.config.MarkdownPostProcessing {
