@@ -11,6 +11,25 @@ This document describes the complete build and development setup for running AGS
 
 **Important:** While this documentation was recovered from Hyprland-based development work, AGS has **full native Sway support** and the configuration works with both compositors. The current Helix implementation uses Sway, not Hyprland.
 
+## Quick Links - All GitHub Repositories
+
+**🔧 Build Infrastructure:**
+- **Main Helix Repo**: https://github.com/helixml/helix
+- **Sway Dockerfile**: https://github.com/helixml/helix/blob/feature/helix-code/Dockerfile.sway-helix
+- **Hyprland Dockerfiles** (reference): https://github.com/helixml/helix/tree/feature/helix-code (Dockerfile.hyprland-wolf, Dockerfile.hyprland-wolf-zed)
+
+**🎨 AGS Configuration:**
+- **helixml Fork**: https://github.com/helixml/dots-hyperland/tree/ii-ags (ii-ags branch)
+- **Sway Service**: https://github.com/helixml/dots-hyperland/blob/ii-ags/.config/ags/services/sway.js
+- **AGS Config Snapshot in Helix**: https://github.com/helixml/helix/tree/feature/helix-code/hypr-config/ags
+
+**📦 AGS Binary:**
+- **ii-agsv1 (upstream)**: https://github.com/end-4/ii-agsv1
+
+**🎮 Related:**
+- **Wolf (Moonlight Streaming)**: https://github.com/games-on-whales/wolf
+- **Zed (Helix Fork)**: https://github.com/helixml/zed
+
 ## Compositor Compatibility
 
 ### AGS Works with Both Sway and Hyprland
@@ -93,18 +112,24 @@ This is the **primary reason** Helix uses Sway:
 
 **Bottom line:** The Hyprland work was exploratory/development only. For production Helix with Wolf streaming, Sway is required.
 
-## Key Repositories
+## Key Repositories and Build Infrastructure on GitHub
 
 ### 1. AGS Configuration: helixml/dots-hyperland (Fork)
 
 **Repository:** https://github.com/helixml/dots-hyperland
 **Branch:** `ii-ags`
+**Direct Link:** https://github.com/helixml/dots-hyperland/tree/ii-ags
 **Upstream:** https://github.com/end-4/dots-hyprland (branch: `ii-ags`)
 
 **Custom Modifications:**
 - `f1b80060` - Disable audio controls in AGS (removed 200+ lines from audio module)
 - `030c1012` - Disable xwayland in Hyprland config
 - Additional commits for container compatibility
+
+**Key Files:**
+- AGS Config: `.config/ags/` - Complete AGS desktop shell configuration
+- SCSS Styles: `.config/ags/scss/` - Material Design theming
+- Sway Integration: `.config/ags/services/sway.js` - Sway IPC protocol implementation
 
 **Local Development Path:** `/home/luke/pm/dots-hyprland` (on mind.lukemarsden.net)
 
@@ -113,6 +138,30 @@ This is the **primary reason** Helix uses Sway:
 **Repository:** https://github.com/end-4/ii-agsv1
 **Purpose:** AGS v1 binary implementation
 **Build Method:** Meson + npm in Dockerfile
+
+### 3. Helix Build Infrastructure (This Repository)
+
+**Repository:** https://github.com/helixml/helix
+
+**Dockerfiles (Historical Reference):**
+- **Dockerfile.hyprland-wolf**: https://github.com/helixml/helix/blob/feature/helix-code/Dockerfile.hyprland-wolf
+  - Basic Hyprland v0.51.1 with Wolf streaming
+  - ~177 lines, builds all Hyprland dependencies from source
+
+- **Dockerfile.hyprland-wolf-zed**: https://github.com/helixml/helix/blob/feature/helix-code/Dockerfile.hyprland-wolf-zed
+  - Full dev environment with AGS, Zed, Helix integration
+  - ~433 lines, includes SCSS compilation and complete toolchain
+
+**Current Sway Implementation:**
+- **Dockerfile.sway-helix**: https://github.com/helixml/helix/blob/feature/helix-code/Dockerfile.sway-helix
+  - Production Sway + Wolf + Zed environment
+  - Uses standard Ubuntu Sway package (not building from source)
+
+**AGS Configuration Snapshot:**
+- **hypr-config/**: https://github.com/helixml/helix/tree/feature/helix-code/hypr-config
+  - Complete Hyprland configuration from development era
+  - **hypr-config/ags/**: AGS configuration copied from dots-hyperland ii-ags branch
+  - Can be used as a reference or mounted into containers
 
 ## Complete Build Setup
 
