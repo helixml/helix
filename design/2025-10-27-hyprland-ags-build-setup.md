@@ -133,11 +133,48 @@ This is the **primary reason** Helix uses Sway:
 
 **Local Development Path:** `/home/luke/pm/dots-hyprland` (on mind.lukemarsden.net)
 
-### 2. AGS Binary: end-4/ii-agsv1
+### 2. AGS Binary: end-4/ii-agsv1 (Must Build from Source)
 
 **Repository:** https://github.com/end-4/ii-agsv1
 **Purpose:** AGS v1 binary implementation
 **Build Method:** Meson + npm in Dockerfile
+
+**⚠️ CRITICAL: AGS is NOT available as a package - you MUST build the binary from source!**
+
+Unlike Sway (which is `apt install sway`), AGS has no Ubuntu package. Every Dockerfile must include the AGS build steps.
+
+**Complete Build Code:**
+```dockerfile
+# Install AGS build dependencies
+RUN apt-get update && apt-get install -y \
+    git meson npm \
+    libgjs-dev libgtk-3-dev libgtk-layer-shell-dev \
+    libpulse-dev libpam0g-dev libglib2.0-dev \
+    gir1.2-gtk-3.0 gir1.2-glib-2.0 gobject-introspection \
+    libgirepository1.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build AGS v1 binary from source
+RUN npm install -g typescript && \
+    cd /tmp && \
+    git clone https://github.com/end-4/ii-agsv1.git && \
+    cd ii-agsv1 && \
+    npm install && \
+    meson setup build --libdir "lib/ii-agsv1" -Dbuild_types=true && \
+    meson compile -C build && \
+    meson install -C build && \
+    # Create agsv1 symlink (following PKGBUILD pattern)
+    rm -f /usr/bin/ags && \
+    ln -sf /usr/local/share/com.github.Aylur.ags/com.github.Aylur.ags /usr/bin/agsv1 && \
+    rm -rf /tmp/ii-agsv1
+```
+
+**Why the symlink?**
+- AGS installs to `/usr/local/share/com.github.Aylur.ags/com.github.Aylur.ags`
+- We create `/usr/bin/agsv1` symlink for easy access
+- Follows the Arch Linux PKGBUILD pattern
+
+**Build time:** ~2-3 minutes (cached npm/meson builds significantly faster)
 
 ### 3. Helix Build Infrastructure (This Repository)
 
@@ -582,8 +619,11 @@ To get AGS running with Sway for Helix:
    - Simpler Dockerfile
 
 ✅ **Three required components:**
-   1. **AGS v1 binary** - Build from `github.com/end-4/ii-agsv1` (meson + npm)
-   2. **SCSS compiler** - Install `sass` package
+   1. **AGS v1 binary** - ⚠️ **MUST build from source** (`github.com/end-4/ii-agsv1`) - no package available!
+      - Build time: ~2-3 minutes
+      - Uses meson + npm
+      - See complete build code in "AGS Binary" section
+   2. **SCSS compiler** - Install `sass` package (standard Ubuntu package)
    3. **AGS config** - Clone from `github.com/helixml/dots-hyperland` (ii-ags branch)
 
 ✅ **SCSS pre-compilation is critical:**
