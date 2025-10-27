@@ -295,6 +295,15 @@ function start() {
     }
   fi
 
+  # Check if Moonlight Web container exists, build if needed
+  if ! docker image inspect helix-moonlight-web:helix-fixed &> /dev/null; then
+    echo "🌙 Moonlight Web container not found, building automatically..."
+    build-moonlight-web || {
+      echo "❌ Failed to build Moonlight Web. Please check the error messages above."
+      exit 1
+    }
+  fi
+
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
@@ -672,12 +681,15 @@ function rebuild-wolf() {
   fi
   cd - > /dev/null
 
-  # Push to registry
-  local IMAGE_BASE="registry.helixml.tech/helix/wolf"
-  if push_image_tags "$IMAGE_BASE"; then
-    echo "✅ Wolf images pushed to registry successfully"
-  else
-    echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/wolf"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Wolf images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
   fi
 
   # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
@@ -689,8 +701,6 @@ function rebuild-wolf() {
     echo "✅ Wolf container rebuilt and restarted successfully"
     echo "🐺 Wolf is ready for testing with latest source code changes"
   fi
-
-  echo "📦 Registry images pushed"
 }
 
 function build-xfce() {
@@ -768,16 +778,18 @@ function build-sway() {
     exit 1
   fi
 
-  # Push to registry
-  local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
-  if push_image_tags "$IMAGE_BASE"; then
-    echo "✅ Sway/Zed agent images pushed to registry successfully"
-  else
-    echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Sway/Zed agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
   fi
 
-  echo "✅ Sway container build and push completed"
-  echo "📦 Registry images pushed"
+  echo "✅ Sway container build completed"
 }
 
 function build-moonlight-web() {
@@ -836,9 +848,8 @@ function build-moonlight-web() {
   fi
   cd - > /dev/null
 
-  # Push to registry only in production mode (when SKIP_DEV_RESTART is set)
-  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
-    # Production mode: push to registry, skip container restart
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
     if push_image_tags "$IMAGE_BASE"; then
       echo "✅ Moonlight Web images pushed to registry successfully"
@@ -846,8 +857,10 @@ function build-moonlight-web() {
       echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
     fi
     echo "📦 Registry images pushed"
-  else
-    # Development mode: restart container locally, skip registry push
+  fi
+
+  # Remove and recreate Moonlight Web container to use updated image (skip if SKIP_DEV_RESTART is set)
+  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
     echo "🔄 Removing old Moonlight Web container and recreating with updated image..."
     docker compose -f docker-compose.dev.yaml rm -f moonlight-web
     docker compose -f docker-compose.dev.yaml up -d moonlight-web
@@ -864,6 +877,8 @@ function build-and-push-helix-code() {
   echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, and Moonlight Web"
   echo ""
 
+  # Enable image pushing to registry for production builds
+  export PUSH_TO_REGISTRY=1
   # Skip dev service restarts during production builds
   export SKIP_DEV_RESTART=1
 
