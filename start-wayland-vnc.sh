@@ -3,12 +3,6 @@ set -e
 
 # Hyprland-only startup script for 4K@60Hz with NVIDIA GPU acceleration
 
-# Export HyprMoon environment variables if available
-export HYPRMOON_MODE="${HYPRMOON_MODE:-true}"
-export HYPRMOON_FRAME_SOURCE="${HYPRMOON_FRAME_SOURCE:-screencopy}"
-export HYPRMOON_WAYLAND_DISPLAY="${HYPRMOON_WAYLAND_DISPLAY:-wayland-1}"
-export HYPRMOON_DEBUG_SAVE_FRAMES="${HYPRMOON_DEBUG_SAVE_FRAMES:-1}"
-
 # Lock file to prevent multiple concurrent executions
 LOCK_FILE="/tmp/start-wayland-vnc.lock"
 
@@ -25,37 +19,6 @@ echo $$ > "$LOCK_FILE"
 # Cleanup lock file on exit
 trap 'rm -f "$LOCK_FILE"' EXIT
 
-# === HYPRMOON VERSION INFORMATION ===
-echo "================================================================"
-echo "HYPRMOON VERSION CHECK - CRITICAL DEBUGGING INFORMATION"
-echo "================================================================"
-echo "Checking what version of HyprMoon/Hyprland is actually installed..."
-
-# Check if hyprmoon package is installed
-if dpkg -l hyprmoon >/dev/null 2>&1; then
-    echo "✅ HYPRMOON PACKAGE FOUND:"
-    dpkg -l hyprmoon | grep "^ii"
-    echo ""
-    echo "HyprMoon binary location:"
-    which Hyprland || echo "❌ Hyprland binary not found in PATH"
-    ls -la /usr/bin/Hyprland 2>/dev/null || echo "❌ /usr/bin/Hyprland not found"
-else
-    echo "❌ HYPRMOON PACKAGE NOT FOUND!"
-    echo "Checking for Ubuntu hyprland package instead..."
-    if dpkg -l hyprland >/dev/null 2>&1; then
-        echo "⚠️  UBUNTU HYPRLAND PACKAGE FOUND (THIS IS WRONG!):"
-        dpkg -l hyprland | grep "^ii"
-    else
-        echo "❌ NO HYPRLAND PACKAGE FOUND AT ALL!"
-    fi
-fi
-
-echo ""
-echo "All hypr-related packages installed:"
-dpkg -l | grep hypr || echo "❌ No hypr packages found"
-echo "================================================================"
-echo ""
-
 echo "Starting Hyprland compositor with NVIDIA GPU acceleration..."
 
 # Set up environment for Wayland GPU acceleration
@@ -65,6 +28,10 @@ export WLR_BACKENDS=${WLR_BACKENDS:-headless}
 export WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS:-1}
 export WLR_HEADLESS_OUTPUTS=${WLR_HEADLESS_OUTPUTS:-1}
 
+# Prevent Vulkan zink driver which breaks Sunshine capture - use NVIDIA OpenGL instead
+export VK_ICD_FILENAMES=""
+export VK_DRIVER_FILES=""
+export DISABLE_VK_LAYER_NV_optimus_1=1
 
 # Set GPU acceleration settings
 export __GL_THREADED_OPTIMIZATIONS=1
