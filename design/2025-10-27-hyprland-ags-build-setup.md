@@ -74,9 +74,15 @@ pkill Hyprland || pkill sway      # Kill compositor
    - **Sway**: Available as standard Ubuntu package (`apt install sway`)
    - **Result**: Sway builds are **significantly faster and simpler**
 
-### Sway Build Advantages
+### Why Helix Uses Sway Instead of Hyprland
 
-Using Sway instead of Hyprland for Helix deployments provides:
+**CRITICAL: Wolf streaming doesn't work with Hyprland!**
+
+This is the **primary reason** Helix uses Sway:
+- 🚫 **Wolf + Hyprland = Incompatible** - Wolf's Moonlight streaming server does not work with Hyprland
+- ✅ **Wolf + Sway = Works** - Wolf streaming works perfectly with Sway
+
+**Secondary benefits of Sway:**
 
 ✅ **Faster builds** - No source compilation needed, just `apt install sway`
 ✅ **Smaller images** - No build dependencies required
@@ -85,7 +91,7 @@ Using Sway instead of Hyprland for Helix deployments provides:
 ✅ **Faster iteration** - Quick container recreation
 ✅ **Same AGS experience** - Full desktop shell functionality
 
-**This is why Helix currently uses Sway!**
+**Bottom line:** The Hyprland work was exploratory/development only. For production Helix with Wolf streaming, Sway is required.
 
 ## Key Repositories
 
@@ -521,6 +527,7 @@ The following files were restored from git history to the helix repo:
 To get AGS running with Sway for Helix:
 
 ✅ **Use Sway, not Hyprland**
+   - **CRITICAL**: Wolf streaming doesn't work with Hyprland
    - AGS has full native Sway support
    - Much faster builds (5 min vs 30+ min)
    - Simpler Dockerfile
