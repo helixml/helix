@@ -187,6 +187,8 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 						Enabled:                assistant.Browser.Enabled,
 						MarkdownPostProcessing: assistant.Browser.MarkdownPostProcessing,
 						ProcessOutput:          assistant.Browser.ProcessOutput,
+						Cache:                  assistant.Browser.Cache,
+						NoBrowser:              assistant.Browser.NoBrowser,
 					},
 				},
 			})
