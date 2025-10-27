@@ -307,6 +307,16 @@ function start() {
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
+  # Clean Wolf and moonlight-web pairing state for fresh startup
+  echo "🧹 Cleaning Wolf and moonlight-web pairing state..."
+
+  # Stop services if running (ignore errors if already stopped)
+  docker compose -f docker-compose.dev.yaml stop wolf moonlight-web 2>/dev/null || true
+
+  # Remove state files to force fresh pairing on startup
+  rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
+  echo "✅ Pairing state cleaned (will auto-pair on startup)"
+
   echo "🐳 Starting docker compose"
 
   # Setup runner profiles first

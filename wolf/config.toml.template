@@ -8,7 +8,34 @@ paired_clients = []
 [[profiles]]
 id = 'moonlight-profile-id'
 name = 'Moonlight'
-apps = []
+
+# Wolf UI app (lobby browser) - MUST be first app for lobbies mode (app 0)
+[[profiles.apps]]
+start_virtual_compositor = true
+title = 'Wolf UI'
+icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
+
+    [profiles.apps.runner]
+    type = 'docker'
+    name = 'Wolf-UI'
+    image = 'ghcr.io/games-on-whales/wolf-ui:main'
+    mounts = ['/var/run/wolf/wolf.sock:/var/run/wolf/wolf.sock']
+    env = [
+        'GOW_REQUIRED_DEVICES=/dev/input/event* /dev/dri/* /dev/nvidia*',
+        'WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock',
+        'WOLF_UI_AUTOUPDATE=False',
+        'LOGLEVEL=INFO'
+    ]
+    devices = []
+    ports = []
+    base_create_json = '''{
+  "HostConfig": {
+    "IpcMode": "host",
+    "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
+    "Privileged": false,
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+  }
+}'''
 
 [gstreamer.audio]
 default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
