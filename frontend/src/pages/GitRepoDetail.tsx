@@ -1,5 +1,4 @@
 import React, { FC, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
 import Container from '@mui/material/Container'
 import {
   Box,
@@ -27,12 +26,14 @@ import { useQueryClient } from '@tanstack/react-query'
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
 import { useGitRepository } from '../services/gitRepositoryService'
 
 const GitRepoDetail: FC = () => {
-  const { repoId } = useParams<{ repoId: string }>()
+  const router = useRouter()
+  const repoId = router.params.repoId
   const account = useAccount()
-  const navigate = useNavigate()
+  const { navigate } = router
   const queryClient = useQueryClient()
   const api = useApi()
 
@@ -98,7 +99,7 @@ const GitRepoDetail: FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
       // Navigate back to list
-      navigate('/git-repos')
+      navigate('git-repos')
     } catch (error) {
       console.error('Failed to delete repository:', error)
       setDeleting(false)
@@ -132,7 +133,7 @@ const GitRepoDetail: FC = () => {
           </Alert>
           <Button
             startIcon={<ArrowLeft size={16} />}
-            onClick={() => navigate('/git-repos')}
+            onClick={() => navigate('git-repos')}
           >
             Back to Repositories
           </Button>
@@ -152,7 +153,7 @@ const GitRepoDetail: FC = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <Button
               startIcon={<ArrowLeft size={16} />}
-              onClick={() => navigate('/git-repos')}
+              onClick={() => navigate('git-repos')}
               sx={{ textTransform: 'none', color: '#0969da' }}
             >
               Repositories
