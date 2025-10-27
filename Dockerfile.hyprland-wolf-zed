@@ -1,0 +1,433 @@
+# syntax=docker/dockerfile:1.4
+ARG BASE_APP_IMAGE=ghcr.io/games-on-whales/base-app:edge
+
+# ====================================================================
+# Go build stage (contains Helix binary, Go runtime, and air)
+# ====================================================================
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY api ./api
+COPY .git /.git
+WORKDIR /app/api
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /helix
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/air-verse/air@v1.52.3
+
+# ====================================================================
+# Hyprland Wolf base with Zed additions
+# ====================================================================
+
+# hadolint ignore=DL3006
+FROM ${BASE_APP_IMAGE}
+
+# List taken from https://wiki.hypr.land/Getting-Started/Installation/#packages
+ARG HYPRLAND_PACKAGES="meson wget build-essential ninja-build cmake-extras cmake gettext gettext-base fontconfig libfontconfig-dev libffi-dev libxml2-dev libdrm-dev libxkbcommon-x11-dev libxkbregistry-dev libxkbcommon-dev libpixman-1-dev libudev-dev libseat-dev seatd libxcb-dri3-dev libegl-dev libgles2 libegl1-mesa-dev glslang-tools libxcb-composite0-dev libavutil-dev libavcodec-dev libavformat-dev libxcb-ewmh2 libxcb-ewmh-dev libxcb-present-dev libxcb-icccm4-dev libxcb-render-util0-dev libxcb-res0-dev libxcb-xinput-dev libtomlplusplus3 libre2-dev libxcursor-dev"
+ARG BUILD_PACKAGES="git curl libzip-dev librsvg2-dev libtomlplusplus-dev libpugixml-dev libseat-dev libdisplay-info-dev hwdata libre2-dev libmagic-dev libjxl-dev wayland-protocols libwayland-dev libgbm-dev libxcb-errors-dev qt6-base-dev qt6-base-private-dev qt6-wayland-dev qt6-declarative-dev qt6-declarative-private-dev qt6-wayland-private-dev libspng-dev libpolkit-agent-1-dev libpolkit-qt6-1-dev qt6-tools-dev libqt6core5compat6-dev libspa-0.2-dev libpipewire-0.3-dev libsdbus-c++-dev"
+ARG LIBINPUT_EXTRA_PACKAGES="libudev-dev libevdev-dev"
+
+RUN apt-get update -y && \
+    apt-get install -y ${HYPRLAND_PACKAGES} ${BUILD_PACKAGES} ${LIBINPUT_EXTRA_PACKAGES} && \
+        apt clean && \
+        rm -rf \
+            /config/.cache \
+            /var/lib/apt/lists/* \
+            /var/tmp/* \
+            /tmp/*
+
+ARG HYPRLAND_VERSION="v0.51.1"
+# TODO: pin those deps
+ARG HYPRUTILS_TAG="main"
+ARG HYPRLANG_TAG="main"
+ARG HYPRCURSOR_TAG="main"
+ARG HYPRWAYLAND_SCANNER_TAG="main"
+ARG HYPRGRAPHICS_TAG="main"
+ARG AQUAMARINE_TAG="v0.9.4"
+ARG WAYLAND_PROTOCOLS_TAG="main"
+ARG HYPRLAND_QTUTILS_VERSION="v0.1.4"
+ARG HYPRLAND_QT_SUPPORT_VERSION="v0.1.0"
+ARG XDPH_VERSION="v1.3.10"
+ARG LIBINPUT_VERSION="1.29.1"
+
+RUN --mount=type=cache,target=/root/hyprsource \
+    --mount=type=cache,target=/root/.cache \
+    <<_INSTALL_DEPENDENCIES
+#!/bin/bash
+set -e
+
+mkdir -p ~/hyprsource
+cd ~/hyprsource
+
+echo "Build libinput"
+git clone --branch ${LIBINPUT_VERSION} https://gitlab.freedesktop.org/libinput/libinput
+cd ./libinput
+  meson setup --prefix=/usr -Ddocumentation=false -Dtests=false -Ddebug-gui=false -Dlibwacom=false builddir/
+  ninja -C builddir/
+  ninja -C builddir/ install
+cd ~/hyprsource
+
+echo "Build wayland-protocols"
+git clone --depth 1 --branch ${WAYLAND_PROTOCOLS_TAG} https://gitlab.freedesktop.org/wayland/wayland-protocols.git
+cd ./wayland-protocols
+    mkdir ./build && cd ./build
+    meson setup --prefix=/usr --buildtype=release
+    ninja
+    ninja install
+cd ~/hyprsource
+
+echo "Build hyprutils"
+git clone --depth 1 --branch ${HYPRUTILS_TAG} https://github.com/hyprwm/hyprutils.git
+cd ./hyprutils
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "Build hyprlang"
+git clone --depth 1 --branch ${HYPRLANG_TAG} https://github.com/hyprwm/hyprlang.git
+cd ./hyprlang
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target hyprlang -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprcursor"
+git clone --depth 1 --branch ${HYPRCURSOR_TAG} https://github.com/hyprwm/hyprcursor.git
+cd ./hyprcursor
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+
+echo "hyprwayland-scanner"
+git clone --depth 1 --branch ${HYPRWAYLAND_SCANNER_TAG} https://github.com/hyprwm/hyprwayland-scanner.git
+cd ./hyprwayland-scanner
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "aquamarine"
+git clone --depth 1 --branch ${AQUAMARINE_TAG} https://github.com/hyprwm/aquamarine.git
+cd ./aquamarine
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprgraphics"
+git clone --depth 1 --branch ${HYPRGRAPHICS_TAG} https://github.com/hyprwm/hyprgraphics.git
+cd ./hyprgraphics
+    cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+    cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+    cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprland-qt-support"
+git clone --branch ${HYPRLAND_QT_SUPPORT_VERSION} https://github.com/hyprwm/hyprland-qt-support
+cd hyprland-qt-support
+  cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -DINSTALL_QML_PREFIX=/lib/qt6/qml -S . -B ./build
+  cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+  cmake --install ./build
+cd ~/hyprsource
+
+echo "hyprland-qtutils"
+git clone --branch ${HYPRLAND_QTUTILS_VERSION} https://github.com/hyprwm/hyprland-qtutils
+cd hyprland-qtutils
+  cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_INSTALL_PREFIX:PATH=/usr -S . -B ./build
+  cmake --build ./build --config Release --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+  cmake --install ./build
+cd ~/hyprsource
+
+echo "xdg-desktop-portal-hyprland"
+git clone --branch ${XDPH_VERSION} --recursive https://github.com/hyprwm/xdg-desktop-portal-hyprland
+cd xdg-desktop-portal-hyprland
+  cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -DCMAKE_INSTALL_PREFIX=/usr -B build
+  cmake --build build
+  cmake --install build
+cd ~/hyprsource
+
+# Cleanup
+rm -r ~/hyprsource
+_INSTALL_DEPENDENCIES
+
+RUN --mount=type=cache,target=/root/.cache \
+    --mount=type=cache,target=/tmp/hyprland-build \
+    <<_INSTALL_HYPRLAND
+#!/bin/bash
+set -e
+# Enable gcc 15
+apt-get update -y
+apt-get install -y g++-15
+update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 100
+update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 100
+
+# Get sources
+git clone --recursive https://github.com/hyprwm/Hyprland
+cd Hyprland
+git checkout ${HYPRLAND_VERSION}
+
+# Build debug build (it's the requirement needed to enable nested wayland)
+# And disable systemd
+cmake --no-warn-unused-cli -DNO_SYSTEMD=true -DCMAKE_BUILD_TYPE:STRING=Debug -DCMAKE_INSTALL_PREFIX:STRING=${PREFIX} -S . -B ./build
+cmake --build ./build --config Debug --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
+cmake --install ./build
+
+# Cleanup
+cd ..
+rm -r Hyprland
+_INSTALL_HYPRLAND
+
+ARG RUN_PACKAGES="xwayland kitty nano waybar fonts-font-awesome qtwayland5"
+RUN apt-get update -y && \
+    apt-get install -y ${RUN_PACKAGES} && \
+        apt clean && \
+        rm -rf \
+            /config/.cache \
+            /var/lib/apt/lists/* \
+            /var/tmp/* \
+            /tmp/*
+
+# ====================================================================
+# Zed-specific additions
+# ====================================================================
+
+# Install Zed runtime dependencies and development tools
+RUN apt-get update && apt-get install -y \
+    # Zed development and runtime dependencies
+    nodejs npm python3 python3-pip sqlite3 \
+    # Core libraries for Zed
+    libfontconfig1 libfreetype6 libxcb1 libxcb-render0 libxcb-shape0 \
+    libxcb-xfixes0 libxcb-shm0 libxkbcommon0 libxkbcommon-x11-0 \
+    libasound2t64 libssl3 libgtk-3-0 libgdk-pixbuf2.0-0 libpango-1.0-0 libcairo2 \
+    # DBus and session management
+    dbus-x11 dbus \
+    # Additional development tools
+    build-essential cmake \
+    # Audio tools
+    pipewire-audio pulseaudio-utils alsa-utils \
+    # Additional utilities
+    supervisor nano vim fuzzel \
+    # GPU acceleration dependencies
+    va-driver-all intel-media-va-driver-non-free \
+    libva-drm2 libva-x11-2 libvpl2 \
+    mesa-utils mesa-utils-extra \
+    libgl1-mesa-dri libglx-mesa0 \
+    libegl-mesa0 libgles2-mesa-dev \
+    libgbm1 libdrm2 \
+    # Hardware detection tools
+    pciutils lshw usbutils kmod libkmod2 \
+    # Terminal emulator
+    kitty \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add NVIDIA CUDA runtime libraries for GPU acceleration
+RUN <<_ADD_NVRTC
+    #!/bin/bash
+    set -e
+
+    # Extra deps for NVIDIA CUDA runtime
+    apt-get update -y
+    apt-get install -y unzip curl
+
+    cd /tmp
+    curl -fsSL -o nvidia_cuda_nvrtc_linux_x86_64.whl "https://developer.download.nvidia.com/compute/redist/nvidia-cuda-nvrtc/nvidia_cuda_nvrtc-11.0.221-cp36-cp36m-linux_x86_64.whl"
+    unzip -joq -d ./nvrtc nvidia_cuda_nvrtc_linux_x86_64.whl
+    cd nvrtc
+    chmod 755 libnvrtc*
+
+    find . -maxdepth 1 -type f -name "*libnvrtc.so.*" -exec sh -c 'ln -snf $(basename {}) libnvrtc.so' \;
+    mkdir -p /usr/local/nvidia/lib
+    mv -f libnvrtc* /usr/local/nvidia/lib
+    rm -rf /tmp/*
+
+    echo "/usr/local/nvidia/lib" >> /etc/ld.so.conf.d/nvidia.conf
+    echo "/usr/local/nvidia/lib64" >> /etc/ld.so.conf.d/nvidia.conf
+    ldconfig
+
+    # Cleanup
+    apt-get remove -y --purge unzip curl
+    rm -rf /var/lib/apt/lists/*
+_ADD_NVRTC
+
+# Install Ghostty terminal
+RUN apt-get update && apt-get install -y curl \
+    # GTK and GUI dependencies for Ghostty
+    libgtk-4-dev libgtk-4-1 libadwaita-1-0 \
+    libgraphene-1.0-0 libcairo2 libcairo-gobject2 \
+    libgdk-pixbuf-2.0-0 libpango-1.0-0 libpangocairo-1.0-0 \
+    libfontconfig1 libfreetype6 libharfbuzz0b \
+    libglib2.0-0 libgobject-2.0-0 libgio-2.0-0 \
+    # Additional runtime dependencies
+    libegl1 libgl1 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+    libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 \
+    && wget -q -O /tmp/ghostty.deb "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.1.3-0-ppa2/ghostty_1.1.3-0.ppa2_amd64_25.04.deb" && dpkg -i /tmp/ghostty.deb && rm /tmp/ghostty.deb && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Google Chrome
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Fix Chrome desktop file to work with Wayland
+RUN sed -i 's|Exec=/usr/bin/google-chrome-stable|Exec=/usr/bin/google-chrome-stable --enable-wayland-ime --ozone-platform=wayland|g' /usr/share/applications/google-chrome.desktop
+
+# Install Zed icon for dock display
+RUN mkdir -p /usr/share/icons/hicolor/512x512/apps \
+    && curl -L 'https://zed.dev/_next/static/media/stable-app-logo.9b5f959f.png' -o /usr/share/icons/hicolor/512x512/apps/zed.png \
+    && gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
+
+# Install Material Symbols Rounded font for AGS
+RUN mkdir -p /usr/share/fonts/truetype/material-symbols \
+    && curl -L 'https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf' \
+       -o /usr/share/fonts/truetype/material-symbols/MaterialSymbolsRounded.ttf \
+    && fc-cache -f -v
+
+# Add Go to PATH (will be copied later from build stage)
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/go"
+ENV GOMODCACHE="/go/pkg/mod"
+ENV GOCACHE="/root/.cache/go-build"
+
+# Fix git ownership issue for mounted source code
+RUN git config --global --add safe.directory /workspace/helix
+
+# Create symlink to mounted zed-build directory (this is what the stack script expects)
+RUN ln -sf /zed-build/zed /usr/local/bin/zed
+
+# Configure retro user for Wayland sessions (following Wolf base-app pattern)
+RUN echo 'retro:retro123' | chpasswd 2>/dev/null || (useradd -m -s /bin/bash retro && echo 'retro:retro123' | chpasswd)
+
+# Add retro user to video and render groups for GPU access
+RUN groupadd -f -g 992 render && usermod -aG video,render retro
+
+# Install MCP filesystem server
+RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP install failed, continuing..."
+
+# Create workspace directory
+RUN mkdir -p /workspace && chmod 755 /workspace
+
+# AGS (Aylur's GTK Shell) build dependencies
+RUN apt-get update && apt-get install -y \
+    # AGS build dependencies
+    git meson npm \
+    libgjs-dev libgtk-3-dev libgtk-layer-shell-dev \
+    libpulse-dev libpam0g-dev libglib2.0-dev \
+    gir1.2-gtk-3.0 gir1.2-glib-2.0 gobject-introspection \
+    libgirepository1.0-dev \
+    # AGS runtime dependencies
+    gvfs gjs glib2.0-bin libglib2.0-0 libgtk-3-0 \
+    libgtk-layer-shell0 libpulse0 libpam0g \
+    # SCSS compilation dependencies for dots-hyprland AGS
+    sass build-essential \
+    # Notification support for AGS
+    libnotify-bin libnotify-dev gir1.2-notify-0.7 \
+    # System tray support for AGS
+    libdbusmenu-gtk3-dev gir1.2-dbusmenu-glib-0.4 gir1.2-dbusmenu-gtk3-0.4 \
+    # GtkSource library for AGS
+    libgtksourceview-3.0-dev gir1.2-gtksource-3.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build AGS v1 (ii-agsv1) - cached separately
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/tmp/ags-build \
+    npm install -g typescript && \
+    cd /tmp && \
+    git clone https://github.com/end-4/ii-agsv1.git && \
+    cd ii-agsv1 && \
+    npm install && \
+    meson setup build --libdir "lib/ii-agsv1" -Dbuild_types=true && \
+    meson compile -C build && \
+    meson install -C build && \
+    # Create agsv1 symlink (following the PKGBUILD pattern)
+    rm -f /usr/bin/ags && \
+    ln -sf /usr/local/share/com.github.Aylur.ags/com.github.Aylur.ags /usr/bin/agsv1 && \
+    # Cleanup build files
+    rm -rf /tmp/ii-agsv1
+
+# Create user options for dots-hyprland AGS with Chrome in dock
+RUN mkdir -p /home/retro/.config/ags && \
+    echo '{"dock": {"enabled": true, "pinnedApps": ["google-chrome", "firefox", "org.gnome.Nautilus", "foot", "ghostty"]}}' > /home/retro/.config/ags/user_options.jsonc && \
+    chown -R retro:retro /home/retro/.config
+
+# Create startup script for Helix External Agent Runner
+COPY <<EOF /start-helix-agent.sh
+#!/bin/bash
+set -e
+echo "Starting Helix External Agent Runner..."
+
+# Set up environment for GPU acceleration
+export DISPLAY=:0
+export WAYLAND_DISPLAY=wayland-1
+
+# Start the external agent runner with environment variables
+exec /usr/local/bin/helix external-agent-runner
+EOF
+
+# Create entrypoint script that executes user startup script if available
+COPY <<EOF /entrypoint-with-startup.sh
+#!/bin/bash
+set -e
+
+echo "Helix Personal Dev Environment Starting..."
+
+# Check if we have a user startup script
+if [[ -n "\$HELIX_STARTUP_SCRIPT" && -f "\$HELIX_STARTUP_SCRIPT" ]]; then
+    echo "Running user startup script: \$HELIX_STARTUP_SCRIPT"
+    chmod +x "\$HELIX_STARTUP_SCRIPT"
+    # Run as root to enable sudo usage
+    bash "\$HELIX_STARTUP_SCRIPT"
+    echo "User startup script completed"
+fi
+
+# Ensure work directory exists and has proper ownership
+if [[ -d "/home/user/work" ]]; then
+    chown -R retro:retro /home/user/work
+    echo "Work directory set up with proper ownership"
+fi
+
+# Execute original entrypoint with all arguments
+exec "\$@"
+EOF
+
+RUN chmod +x /start-helix-agent.sh /entrypoint-with-startup.sh
+
+# Environment variables for Wayland and Wolf
+ENV WAYLAND_DISPLAY=wayland-1 \
+    XDG_RUNTIME_DIR=/tmp/runtime-retro \
+    WLR_RENDERER=gles2 \
+    API_HOST=http://api:8080 \
+    CONCURRENCY=5 \
+    MAX_TASKS=0 \
+    WORKSPACE_DIR=/tmp/workspace
+
+# Wolf apps are started by Wolf itself, so we don't need a custom entrypoint
+# The base-app image handles the Wolf integration
+
+# Replace launch scripts with Wolf-compatible versions
+# COPY --chmod=777 scripts/startup.sh /opt/gow/
+COPY --chmod=777 --chown=retro:retro wolf/hyperlandd.conf /cfg/hypr/hyprlandd.conf
+
+# Copy everything from Go build stage LAST to avoid cache invalidation
+COPY --from=go-build-env /usr/local/go /usr/local/go
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
+COPY --from=go-build-env /helix /usr/local/bin/helix
+
+# Enable sudo capabilities for the container
+RUN apt-get update && apt-get install -y sudo && \
+    echo "retro ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set the entrypoint to run startup script first
+ENTRYPOINT ["/entrypoint-with-startup.sh"]
+
+ARG IMAGE_SOURCE
+LABEL org.opencontainers.image.source=$IMAGE_SOURCE
