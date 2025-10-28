@@ -1,6 +1,7 @@
 package external_agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1193,4 +1194,67 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 	)
 }
 
-// ensureWolfPaired is now defined in wolf_executor.go (shared between apps and lobbies mode)
+// ensureWolfPaired ensures Wolf is paired with moonlight-web using auto-pairing PIN
+// Based on moonlight_web_pairing.go approach but simplified for runtime usage
+func ensureWolfPaired(ctx context.Context, wolfClient *wolf.Client, moonlightWebURL, credentials string) error {
+	log.Info().Msg("🔗 Checking if Wolf is paired with moonlight-web")
+
+	// Since Wolf has MOONLIGHT_INTERNAL_PAIRING_PIN set, it will auto-accept pairing
+	// We just need to trigger moonlight-web to initiate pairing with Wolf
+	// Wolf will automatically fulfill the pairing without waiting for us to submit PIN
+
+	// Step 1: Trigger pairing from moonlight-web to Wolf
+	url := fmt.Sprintf("%s/api/pair", moonlightWebURL)
+	reqBody := map[string]interface{}{
+		"host_id": 0, // Wolf is host 0
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+credentials) // Use Bearer, not Basic Auth!
+
+	log.Info().
+		Str("url", url).
+		Msg("Triggering Wolf pairing in moonlight-web (auto-PIN enabled in Wolf)")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call moonlight-web /api/pair: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("moonlight-web pairing failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Read PIN from NDJSON stream (first JSON object)
+	var pinResponse struct {
+		Pin string `json:"Pin"`
+	}
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&pinResponse); err != nil {
+		return fmt.Errorf("could not read PIN from stream: %w", err)
+	}
+
+	log.Info().
+		Str("pin", pinResponse.Pin).
+		Msg("moonlight-web generated PIN - Wolf should auto-accept via MOONLIGHT_INTERNAL_PAIRING_PIN")
+
+	// Read rest of stream to completion (Wolf auto-accepts, should return "Paired")
+	finalResult, _ := io.ReadAll(resp.Body)
+	log.Info().
+		Str("final_response", string(finalResult)).
+		Msg("✅ Pairing stream completed")
+
+	return nil
+}
