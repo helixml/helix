@@ -361,11 +361,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Extract video settings from agent config (Phase 3.5) with defaults
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 2560 // MacBook Pro 13" default
+		displayWidth = 3840 // 4K default for consistent resolution
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 1600
+		displayHeight = 2160 // 4K default for consistent resolution
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
@@ -388,7 +388,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			RefreshRate:             displayRefreshRate,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw", // Simpler caps without memory type
+			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
@@ -668,7 +668,7 @@ func (w *WolfExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo,
 
 // CreatePersonalDevEnvironment creates a new personal development environment with default display settings
 func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
-	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 2360, 1640, 120)
+	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 3840, 2160, 60)
 }
 
 // CreatePersonalDevEnvironmentWithDisplay creates a new personal development environment with custom display settings
@@ -741,7 +741,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 			RefreshRate:             displayFPS,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw", // Simpler caps without memory type
+			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,

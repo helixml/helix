@@ -70,11 +70,13 @@ func NewMinimalDockerApp(id, title, name, image string, env, mounts []string, ba
 		DefaultDisplayFPS:    IntPtr(displayFPS),
 
 		Runner: MinimalWolfRunner{
-			Type:           "docker",
-			Name:           StringPtr(name),
-			Image:          StringPtr(image),
-			Mounts:         &mounts,
-			Env:            &env,
+			Type:   "docker",
+			Name:   StringPtr(name),
+			Image:  StringPtr(image),
+			Mounts: &mounts,
+			Env:    &env,
+			// Mount input devices for keyboard/mouse support via Wolf streaming
+			// These must be explicitly mounted even though GOW_REQUIRED_DEVICES is set
 			Devices:        &[]string{},
 			Ports:          &[]string{},
 			BaseCreateJSON: StringPtr(baseCreateJSON),
