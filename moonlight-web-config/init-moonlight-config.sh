@@ -67,8 +67,19 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
     if ! grep -q '"paired"' "$DATA_FILE"; then
         echo "🔗 Auto-pairing moonlight-web with Wolf (MOONLIGHT_INTERNAL_PAIRING_PIN is set)..."
 
-        # Wait for Wolf to be ready too
-        sleep 2
+        # Wait for Wolf to be ready (check serverinfo endpoint)
+        echo "⏳ Waiting for Wolf to be ready..."
+        for i in {1..60}; do
+            if curl -s http://wolf:47989/serverinfo?uniqueid=test >/dev/null 2>&1; then
+                echo "✅ Wolf is ready"
+                break
+            fi
+            if [ $i -eq 60 ]; then
+                echo "❌ Wolf failed to start within 60 seconds, skipping auto-pair"
+                exit 0  # Don't fail the container, just skip pairing
+            fi
+            sleep 1
+        done
 
         # Trigger pairing via internal API (Wolf will auto-accept with PIN)
         curl -X POST http://localhost:8080/api/pair \
