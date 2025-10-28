@@ -50,7 +50,8 @@ WEB_SERVER_PID=$!
 # Wait for web server to be ready (poll until it responds)
 echo "⏳ Waiting for moonlight-web server to be ready..."
 for i in {1..30}; do
-    if curl -s http://localhost:8080/ > /dev/null 2>&1; then
+    # Check /api/authenticate endpoint which doesn't require auth
+    if curl -sf http://localhost:8080/api/authenticate > /dev/null 2>&1; then
         echo "✅ moonlight-web server is ready"
         break
     fi
