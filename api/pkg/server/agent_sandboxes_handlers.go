@@ -64,7 +64,7 @@ type WolfLobbyMemory struct {
 	LobbyID     string `json:"lobby_id"`
 	LobbyName   string `json:"lobby_name"`
 	Resolution  string `json:"resolution"`
-	ClientCount string `json:"client_count"`
+	ClientCount int    `json:"client_count"`
 	MemoryBytes int64  `json:"memory_bytes"`
 }
 
