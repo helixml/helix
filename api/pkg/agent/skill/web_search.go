@@ -35,6 +35,8 @@ func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchPr
 				config: &types.ToolBrowserConfig{
 					Enabled:                true,
 					MarkdownPostProcessing: true,
+					NoBrowser:              false,
+					Cache:                  false,
 				},
 				parser:    readability.NewParser(), // TODO: add config for this
 				converter: md.NewConverter("", true, nil),
