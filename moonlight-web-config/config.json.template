@@ -14,10 +14,11 @@
     },
     {
       "urls": [
-        "turn:__TURN_HOST__:__TURN_PORT__?transport=udp"
+        "turn:{{TURN_PUBLIC_IP}}:3478?transport=udp",
+        "turn:{{TURN_PUBLIC_IP}}:3478?transport=tcp"
       ],
-      "username": "__TURN_USERNAME__",
-      "credential": "__TURN_PASSWORD__"
+      "username": "helix",
+      "credential": "helix-turn-secret"
     }
   ],
   "webrtc_port_range": {
