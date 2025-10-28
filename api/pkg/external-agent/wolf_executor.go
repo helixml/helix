@@ -1,10 +1,13 @@
 package external_agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,6 +375,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
+	// Auto-pair Wolf with moonlight-web before creating lobby
+	// This ensures moonlight-web can connect to Wolf without manual pairing
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080"
+	}
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+
+	// Attempt pairing using MOONLIGHT_INTERNAL_PAIRING_PIN
+	// Wolf will auto-accept when it receives the PIN
+	if err := ensureWolfPaired(ctx, w.wolfClient, moonlightWebURL, credentials); err != nil {
+		log.Warn().
+			Err(err).
+			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
+	}
+
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
@@ -723,6 +742,22 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// Build extra environment variables specific to PDEs
 	extraEnv := []string{
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
+	}
+
+	// Auto-pair Wolf with moonlight-web before creating lobby
+	// This ensures moonlight-web can connect to Wolf without manual pairing
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080"
+	}
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+
+	// Attempt pairing using MOONLIGHT_INTERNAL_PAIRING_PIN
+	// Wolf will auto-accept when it receives the PIN
+	if err := ensureWolfPaired(ctx, w.wolfClient, moonlightWebURL, credentials); err != nil {
+		log.Warn().
+			Err(err).
+			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
 	}
 
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
@@ -1472,6 +1507,22 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
 
+	// Auto-pair Wolf with moonlight-web before creating lobby
+	// This ensures moonlight-web can connect to Wolf without manual pairing
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://moonlight-web:8080"
+	}
+	credentials := os.Getenv("MOONLIGHT_CREDENTIALS")
+
+	// Attempt pairing using MOONLIGHT_INTERNAL_PAIRING_PIN
+	// Wolf will auto-accept when it receives the PIN
+	if err := ensureWolfPaired(ctx, w.wolfClient, moonlightWebURL, credentials); err != nil {
+		log.Warn().
+			Err(err).
+			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
+	}
+
 	// Generate new PIN since we don't have the old one
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
@@ -2108,4 +2159,69 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("terminated_count", len(idleAgents)).
 		Msg("Completed idle external agent cleanup")
+}
+
+// ensureWolfPaired ensures Wolf is paired with moonlight-web using auto-pairing PIN
+// Based on moonlight_web_pairing.go approach but simplified for runtime usage
+func ensureWolfPaired(ctx context.Context, wolfClient *wolf.Client, moonlightWebURL, credentials string) error {
+	log.Info().Msg("🔗 Checking if Wolf is paired with moonlight-web")
+
+	// Since Wolf has MOONLIGHT_INTERNAL_PAIRING_PIN set, it will auto-accept pairing
+	// We just need to trigger moonlight-web to initiate pairing with Wolf
+	// Wolf will automatically fulfill the pairing without waiting for us to submit PIN
+
+	// Step 1: Trigger pairing from moonlight-web to Wolf
+	url := fmt.Sprintf("%s/api/pair", moonlightWebURL)
+	reqBody := map[string]interface{}{
+		"host_id": 0, // Wolf is host 0
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+credentials) // Use Bearer, not Basic Auth!
+
+	log.Info().
+		Str("url", url).
+		Msg("Triggering Wolf pairing in moonlight-web (auto-PIN enabled in Wolf)")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call moonlight-web /api/pair: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("moonlight-web pairing failed: status %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Read PIN from NDJSON stream (first JSON object)
+	var pinResponse struct {
+		Pin string `json:"Pin"`
+	}
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(&pinResponse); err != nil {
+		return fmt.Errorf("could not read PIN from stream: %w", err)
+	}
+
+	log.Info().
+		Str("pin", pinResponse.Pin).
+		Msg("moonlight-web generated PIN - Wolf should auto-accept via MOONLIGHT_INTERNAL_PAIRING_PIN")
+
+	// Read rest of stream to completion (Wolf auto-accepts, should return "Paired")
+	finalResult, _ := io.ReadAll(resp.Body)
+	log.Info().
+		Str("final_response", string(finalResult)).
+		Msg("✅ Pairing stream completed")
+
+	return nil
 }
