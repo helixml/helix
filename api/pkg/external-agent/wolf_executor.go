@@ -372,8 +372,12 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
-	lobbyPIN, lobbyPINString := generateLobbyPIN()
+	// CRITICAL: Do NOT set lobby PIN - moonlight-web is paired with Wolf UI, not individual lobbies
+	// Setting PIN here would cause HostNotPaired errors when streaming via moonlight-web
+	// Individual lobbies don't need PINs because:
+	// 1. Access is already controlled by Helix session ownership
+	// 2. moonlight-web is trusted (internal component, already paired with Wolf UI)
+	// 3. Lobby URLs are not publicly exposed (only via Helix frontend)
 
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
@@ -381,7 +385,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false, // CRITICAL: Agent must keep running when no Moonlight clients connected!
-		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
+		PIN:                    nil,   // No PIN - moonlight-web connects using Wolf UI pairing
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
 			Height:                  displayHeight,
@@ -417,8 +421,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	log.Info().
 		Str("lobby_id", lobbyResp.LobbyID).
 		Str("session_id", agent.SessionID).
-		Str("lobby_pin", lobbyPINString).
-		Msg("Wolf lobby created successfully - container starting immediately")
+		Msg("Wolf lobby created successfully (no PIN required - using Wolf UI pairing)")
 
 	// Track session with lobby ID
 	session := &ZedSession{
@@ -438,7 +441,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Lobbies mode doesn't need keepalive - lobbies persist naturally
 	// (keepalive was a hack for apps mode to prevent stale buffer crashes)
 
-	// Return response with screenshot URL, Moonlight info, and PIN
+	// Return response with screenshot URL and Moonlight info (no PIN needed)
 	response := &types.ZedAgentResponse{
 		SessionID:     agent.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
@@ -446,7 +449,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
 		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString, // NEW: Return PIN for storage in Helix session
+		WolfLobbyPIN:  "", // No PIN - moonlight-web uses Wolf UI pairing
 	}
 
 	log.Info().
@@ -725,8 +728,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 
-	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
-	lobbyPIN, lobbyPINString := generateLobbyPIN()
+	// CRITICAL: Do NOT set lobby PIN - moonlight-web is paired with Wolf UI, not individual lobbies
+	// Setting PIN here would cause HostNotPaired errors when streaming via moonlight-web
+	// See External Agent lobby creation (line 375) for detailed explanation
 
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
@@ -734,7 +738,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		Name:                   fmt.Sprintf("PDE: %s", environmentName),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
-		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
+		PIN:                    nil,   // No PIN - moonlight-web connects using Wolf UI pairing
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
 			Height:                  displayHeight,
@@ -770,8 +774,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	log.Info().
 		Str("lobby_id", lobbyResp.LobbyID).
 		Str("instance_id", instanceID).
-		Str("lobby_pin", lobbyPINString).
-		Msg("Wolf lobby created successfully - PDE container starting immediately")
+		Msg("Wolf lobby created successfully - PDE container starting immediately (no PIN required)")
 
 	// Save to database
 	pde := &types.PersonalDevEnvironment{
@@ -780,7 +783,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		AppID:           appID, // Original Helix App ID for configuration
 		WolfAppID:       wolfAppID, // Keep for backward compatibility
 		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
-		WolfLobbyPIN:    lobbyPINString, // NEW: Store PIN for access control
+		WolfLobbyPIN:    "", // No PIN - moonlight-web uses Wolf UI pairing
 		EnvironmentName: environmentName,
 		Status:          "running", // Container is running immediately with lobbies
 		LastActivity:    time.Now(),
@@ -1472,8 +1475,8 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
 
-	// Generate new PIN since we don't have the old one
-	lobbyPIN, lobbyPINString := generateLobbyPIN()
+	// No PIN needed - moonlight-web connects using Wolf UI pairing
+	// See External Agent lobby creation (line 375) for detailed explanation
 
 	// Create lobby request
 	lobbyReq := &wolf.CreateLobbyRequest{
@@ -1481,7 +1484,7 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 		Name:                   fmt.Sprintf("PDE: %s", pde.EnvironmentName),
 		MultiUser:              true,
 		StopWhenEveryoneLeaves: false,
-		PIN:                    lobbyPIN,
+		PIN:                    nil,
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   pde.DisplayWidth,
 			Height:                  pde.DisplayHeight,
@@ -1514,9 +1517,9 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 		return fmt.Errorf("failed to create lobby: %w", err)
 	}
 
-	// Update PDE with new lobby ID and PIN
+	// Update PDE with new lobby ID (no PIN)
 	pde.WolfLobbyID = lobbyResp.LobbyID
-	pde.WolfLobbyPIN = lobbyPINString
+	pde.WolfLobbyPIN = "" // No PIN - moonlight-web uses Wolf UI pairing
 	pde.Status = "running"
 
 	_, err = w.store.UpdatePersonalDevEnvironment(ctx, pde)
@@ -1529,8 +1532,7 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 	log.Info().
 		Str("instance_id", pde.ID).
 		Str("lobby_id", lobbyResp.LobbyID).
-		Str("lobby_pin", lobbyPINString).
-		Msg("Successfully recreated lobby for PDE")
+		Msg("Successfully recreated lobby for PDE (no PIN required)")
 
 	return nil
 }

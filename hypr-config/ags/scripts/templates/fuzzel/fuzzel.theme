@@ -1,0 +1,8 @@
+[colors]
+background={{ $background }}ff
+text={{ $onBackground }}ff
+selection={{ $surfaceVariant }}ff
+selection-text={{ $onSurfaceVariant }}ff
+border={{ $surfaceVariant }}dd
+match={{ $primary }}ff
+selection-match={{ $primary }}ff
