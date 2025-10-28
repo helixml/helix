@@ -312,7 +312,7 @@ services:
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:
       image: helix-moonlight-web:helix-fixed
-      command: bash -c "/app/server/init-moonlight-config.sh && exec /app/web-server"
+      command: bash -c "/app/server/init-moonlight-config.sh"
       ports:
         - "8081:8080"  # Web interface
         - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
@@ -323,8 +323,14 @@ services:
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-        # Note: TURN config is in moonlight-web-config/config.json (webrtc_ice_servers)
+        # TURN server public IP (auto-detected if not set, or use --api-host from install.sh)
+        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        # Note: TURN config is templated in config.json.template with {{TURN_PUBLIC_IP}}
         # Both moonlight-web and browser clients use the same ICE servers from that config
+        #
+        # IMPORTANT: config.json persists across restarts to avoid unnecessary regeneration.
+        # If your public IP changes and browser input stops working, force a refresh:
+        #   rm moonlight-web-config/config.json && docker compose -f docker-compose.dev.yaml restart moonlight-web
       volumes:
         - ./moonlight-web-config:/app/server:rw
       restart: unless-stopped

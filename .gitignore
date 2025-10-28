@@ -41,6 +41,7 @@ test-zed-config/
 wolf/config.toml
 wolf/config.toml.v4.old
 moonlight-web-config/data.json
+moonlight-web-config/config.json
 
 # Integration test artifacts
 integration-test/**/integration_*
