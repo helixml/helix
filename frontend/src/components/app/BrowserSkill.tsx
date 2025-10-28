@@ -60,6 +60,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
     markdown_post_processing: false,
     process_output: false,
     no_browser: false,
+    cache: false,
   });
 
   useEffect(() => {
@@ -71,6 +72,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
         markdown_post_processing: false,
         process_output: false,
         no_browser: false,
+        cache: false,
       });
     }
   }, [app.browserTool]);
@@ -136,6 +138,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
         markdown_post_processing: false,
         process_output: false,
         no_browser: false,
+        cache: false,
       };
       
       // Update the application
@@ -164,6 +167,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             markdown_post_processing: false,
             process_output: false,
             no_browser: false,
+            cache: false,
           });
           setError(null);
           onClosed?.();
@@ -241,6 +245,27 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               When enabled, this will not use Chrome browser and will instead use a simple but very fast HTTP client to fetch the text.
               While this works great for static websites or /llms.txt, this approach does not suit SPA applications.
+            </Typography>
+          </SectionCard>
+
+          <SectionCard>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={browserConfig.cache}
+                  onChange={(e) => handleChange('cache', e.target.checked)}
+                  color="primary"
+                  disabled={!browserConfig.enabled}
+                />
+              }
+              label={
+                <Typography sx={{ color: '#F8FAFC' }}>
+                  Cache Browser Results
+                </Typography>
+              }
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              When enabled, the browser will cache the results of tool calls to avoid re-fetching the same content. This can improve performance and reduce redundant requests.
             </Typography>
           </SectionCard>
         </Box>

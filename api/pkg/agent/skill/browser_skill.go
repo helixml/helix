@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dgraph-io/ristretto/v2"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
@@ -100,7 +101,7 @@ var browserSkillParameters = jsonschema.Definition{
 }
 
 // NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner)
-func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM) agent.Skill {
+func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, llm *agent.LLM, cache *ristretto.Cache[string, string]) agent.Skill {
 	return agent.Skill{
 		Name:          "Browser",
 		Description:   browserSkillDescription,
@@ -116,6 +117,7 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser, 
 				parser:     readability.NewParser(), // TODO: add config for this
 				converter:  md.NewConverter("", true, nil),
 				httpClient: http.DefaultClient,
+				cache:      cache,
 			},
 		},
 	}
@@ -128,6 +130,7 @@ type browserTool struct {
 	converter  *md.Converter
 	llm        *agent.LLM
 	httpClient *http.Client
+	cache      *ristretto.Cache[string, string]
 }
 
 func (t *browserTool) Name() string {
@@ -188,6 +191,15 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 
 	go func() {
 		var html string
+
+		// If cache is enabled, try to get it directly from it
+		if t.config.Cache && t.cache != nil {
+			html, ok := t.cache.Get(url)
+			if ok {
+				respCh <- html
+				return
+			}
+		}
 
 		if t.config.NoBrowser {
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -251,6 +263,11 @@ func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 				errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
 				return
 			}
+		}
+
+		// Cache it
+		if t.config.Cache && t.cache != nil {
+			t.cache.SetWithTTL(url, html, 1, 15*time.Minute)
 		}
 
 		if t.config.MarkdownPostProcessing {
