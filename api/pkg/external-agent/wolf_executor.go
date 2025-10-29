@@ -21,11 +21,10 @@ import (
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	wolfClient    *wolf.Client
-	healthMonitor *wolf.HealthMonitor
-	store         store.Store
-	sessions      map[string]*ZedSession
-	mutex         sync.RWMutex
+	wolfClient *wolf.Client
+	store      store.Store
+	sessions   map[string]*ZedSession
+	mutex      sync.RWMutex
 
 	// Zed configuration
 	zedImage      string
@@ -191,21 +190,11 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
 	}
 
-	// Create health monitor for Wolf restarts (no keepalive reconciliation in lobbies mode)
-	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
-		// After Wolf restarts, reconcile lobbies
-		log.Info().Msg("Wolf restarted, reconciling lobbies")
-		executor.reconcileLobbies(ctx)
-	})
-
-	// Lobbies mode doesn't need keepalive reconciliation
-	// Lobbies persist naturally without the keepalive hack
+	// Lobbies mode doesn't need health monitoring or reconciliation
+	// Lobbies persist naturally across Wolf restarts
 
 	// Start idle external agent cleanup loop (30min timeout)
 	go executor.idleExternalAgentCleanupLoop(context.Background())
-
-	// Start Wolf health monitoring
-	executor.healthMonitor.Start(context.Background())
 
 	return executor
 }
@@ -274,13 +263,6 @@ func (w *WolfExecutor) reconcileKeepaliveSessions(ctx context.Context) {
 		// Start new keepalive goroutine
 		go w.startKeepaliveSession(ctx, sessionID, session.WolfLobbyID, "")
 	}
-}
-
-// reconcileLobbies checks lobbies after Wolf restarts (lobbies persist naturally, no keepalive needed)
-func (w *WolfExecutor) reconcileLobbies(ctx context.Context) {
-	// In lobbies mode, lobbies persist naturally without keepalive
-	// This is just a placeholder for future lobby reconciliation logic if needed
-	log.Info().Msg("Lobbies reconciliation completed (lobbies persist without keepalive)")
 }
 
 // StartZedAgent implements the Executor interface for external agent sessions
