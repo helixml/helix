@@ -325,7 +325,9 @@ services:
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
         # Moonlight credentials for API authentication (must match config.json)
-        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+        # TURN server credentials (must match config.json)
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         # TURN server public IP (auto-detected if not set, or use --api-host from install.sh)
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
         # Note: TURN config is templated in config.json.template with {{TURN_PUBLIC_IP}}

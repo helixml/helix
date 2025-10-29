@@ -3,9 +3,9 @@
 # Initialize moonlight-web data.json and config.json from templates
 
 DATA_FILE="/app/server/data.json"
-DATA_TEMPLATE="/app/server/data.json.template"
+DATA_TEMPLATE="/app/templates/data.json.template"
 CONFIG_FILE="/app/server/config.json"
-CONFIG_TEMPLATE="/app/server/config.json.template"
+CONFIG_TEMPLATE="/app/templates/config.json.template"
 
 # Initialize data.json if it doesn't exist or is empty
 if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
@@ -19,6 +19,19 @@ fi
 # Initialize config.json with dynamic TURN server IP
 if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
     echo "🔧 Initializing moonlight-web config.json from template..."
+
+    # Validate required credentials are set (no insecure defaults!)
+    if [ -z "$MOONLIGHT_CREDENTIALS" ]; then
+        echo "❌ ERROR: MOONLIGHT_CREDENTIALS environment variable is required but not set."
+        echo "This should be set by install.sh or docker-compose environment."
+        exit 1
+    fi
+
+    if [ -z "$TURN_PASSWORD" ]; then
+        echo "❌ ERROR: TURN_PASSWORD environment variable is required but not set."
+        echo "This should be set by install.sh or docker-compose environment."
+        exit 1
+    fi
 
     # Auto-detect public IP if TURN_PUBLIC_IP not set
     if [ -z "$TURN_PUBLIC_IP" ]; then
@@ -35,8 +48,11 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "✅ Using configured TURN_PUBLIC_IP: $TURN_PUBLIC_IP"
     fi
 
-    # Substitute {{TURN_PUBLIC_IP}} in template
-    sed "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
+    # Substitute all template variables
+    sed -e "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" \
+        -e "s/{{MOONLIGHT_CREDENTIALS}}/$MOONLIGHT_CREDENTIALS/g" \
+        -e "s/{{TURN_PASSWORD}}/$TURN_PASSWORD/g" \
+        "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
     echo "✅ moonlight-web config.json initialized with TURN server at $TURN_PUBLIC_IP"
 else
     echo "ℹ️  moonlight-web config.json already exists, skipping initialization"
@@ -89,12 +105,14 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
 
         # Trigger pairing via internal API (Wolf will auto-accept with PIN)
         # Use bash /dev/tcp since curl is not available in container
+        # Store credentials in variable to ensure proper expansion
+        CREDS="${MOONLIGHT_CREDENTIALS:-helix}"
         exec 3<>/dev/tcp/localhost/8080
         {
             echo -ne "POST /api/pair HTTP/1.1\r\n"
             echo -ne "Host: localhost:8080\r\n"
             echo -ne "Content-Type: application/json\r\n"
-            echo -ne "Authorization: Bearer ${MOONLIGHT_CREDENTIALS:-helix}\r\n"
+            echo -ne "Authorization: Bearer $CREDS\r\n"
             echo -ne "Content-Length: 13\r\n"
             echo -ne "\r\n"
             echo -ne '{"host_id":0}'
