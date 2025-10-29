@@ -323,6 +323,8 @@ services:
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       # Moonlight credentials for API authentication (must match config.json)
       - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      # TURN server credentials (must match config.json)
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
     volumes:
       - ./moonlight-web-config:/app/server:rw
     restart: unless-stopped

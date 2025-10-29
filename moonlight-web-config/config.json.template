@@ -1,6 +1,6 @@
 {
   "bind_address": "0.0.0.0:8080",
-  "credentials": "helix",
+  "credentials": "{{MOONLIGHT_CREDENTIALS}}",
   "webrtc_ice_servers": [
     {
       "urls": [
@@ -18,7 +18,7 @@
         "turn:{{TURN_PUBLIC_IP}}:3478?transport=tcp"
       ],
       "username": "helix",
-      "credential": "helix-turn-secret"
+      "credential": "{{TURN_PASSWORD}}"
     }
   ],
   "webrtc_port_range": {
