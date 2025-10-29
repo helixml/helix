@@ -153,19 +153,13 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		Str("session_id", agent.SessionID).
 		Msg("Wolf app created successfully for external agent (apps mode)")
 
-	// Wait for app to appear in internal API first
-	apps, err := w.wolfClient.ListApps(ctx)
-	if err == nil {
-		found := false
-		for _, app := range apps {
-			if app.ID == wolfAppID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			time.Sleep(2 * time.Second) // Brief wait if not immediately available
-		}
+	// Wait for Wolf app to be available in Moonlight API before proceeding
+	// For external agents, the title uses getShortID(sessionID)
+	err = w.waitForWolfAppInMoonlightAPI(ctx, wolfAppID, fmt.Sprintf("Agent %s", getShortID(agent.SessionID)), 15*time.Second)
+	if err != nil {
+		// If app doesn't become available, remove it and fail
+		w.wolfClient.RemoveApp(ctx, wolfAppID)
+		return nil, fmt.Errorf("Wolf app not available in Moonlight API after external agent creation: %w", err)
 	}
 
 	// Auto-pair Wolf with moonlight-web before creating session
