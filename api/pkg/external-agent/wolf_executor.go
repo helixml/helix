@@ -101,10 +101,24 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build standard mounts (common to all Sway apps)
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Development mode: mount host files for hot-reloading
+	// Production mode: use files baked into helix-sway image
+	if os.Getenv("HELIX_DEV_MODE") == "true" {
+		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+
+		mounts = append(mounts,
+			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+		)
+	} else {
+		log.Debug().Msg("Production mode - using files baked into helix-sway image")
 	}
 
 	// Add SSH keys mount if user has SSH keys
