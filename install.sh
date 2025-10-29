@@ -1603,12 +1603,33 @@ WOLFCONFIG
 
         # Generate self-signed certificates for Wolf HTTPS only if they don't exist
         # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
-        # CRITICAL: Use CN=localhost for Docker network compatibility
+        # CRITICAL: Include SANs for both "localhost" AND "wolf" (Docker hostname)
+        # This allows moonlight-web to connect via "wolf" hostname without cert validation errors
         if [ ! -f "$INSTALL_DIR/wolf/cert.pem" ] || [ ! -f "$INSTALL_DIR/wolf/key.pem" ]; then
             echo "Generating Wolf SSL certificates..."
+            # Create temp config for SAN (Subject Alternative Names)
+            cat > /tmp/wolf-cert-san.conf <<EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = IT
+O = GamesOnWhales
+CN = localhost
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = wolf
+EOF
             openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
-                -days 365 -nodes -subj "/C=IT/O=GamesOnWhales/CN=localhost" 2>/dev/null
-            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/"
+                -days 365 -nodes -config /tmp/wolf-cert-san.conf -extensions v3_req 2>/dev/null
+            rm -f /tmp/wolf-cert-san.conf
+            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/ (with SANs: localhost, wolf)"
         else
             echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
         fi
