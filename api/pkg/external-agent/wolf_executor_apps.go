@@ -31,7 +31,6 @@ type WebSocketConnectionChecker interface {
 // This is the simpler, more reliable approach without lobbies
 type AppWolfExecutor struct {
 	wolfClient        *wolf.Client
-	healthMonitor     *wolf.HealthMonitor
 	store             store.Store
 	sessions          map[string]*ZedSession
 	mutex             sync.RWMutex
@@ -47,8 +46,8 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
-		wolfClient: wolfClient,
-		wsChecker:  wsChecker,
+		wolfClient:        wolfClient,
+		wsChecker:         wsChecker,
 		store:             store,
 		sessions:          make(map[string]*ZedSession),
 		zedImage:          zedImage,
@@ -57,14 +56,9 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 		workspaceBasePath: "/opt/helix/filestore/workspaces",
 	}
 
-	// Create health monitor for Wolf crashes
-	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
-		log.Info().Msg("Wolf restarted, apps will need to be re-added")
-		// Apps-based model: apps are lost on Wolf restart, need to be recreated
-		// Reconciliation will handle this
-	})
-
-	executor.healthMonitor.Start(context.Background())
+	// Apps-based model: apps are lost on Wolf restart
+	// We don't auto-restart Wolf - let Docker/systemd handle container crashes
+	// Apps will need to be manually recreated if Wolf restarts
 
 	return executor
 }
