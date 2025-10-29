@@ -155,12 +155,12 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 }
 
 // NewWolfExecutor creates a Wolf executor based on WOLF_MODE environment variable
-// WOLF_MODE=apps (default) - simpler, more reliable apps-based approach
-// WOLF_MODE=lobbies - feature-rich lobbies with keepalive and PINs
+// WOLF_MODE=lobbies (default) - lobbies persist naturally, no keepalive needed
+// WOLF_MODE=apps - requires keepalive sessions to prevent stale buffer crashes
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) Executor {
 	wolfMode := os.Getenv("WOLF_MODE")
 	if wolfMode == "" {
-		wolfMode = "apps" // Default to simpler, more stable apps model
+		wolfMode = "lobbies" // Default to lobbies - simpler, no keepalive needed
 	}
 
 	log.Info().Str("wolf_mode", wolfMode).Msg("Initializing Wolf executor")
