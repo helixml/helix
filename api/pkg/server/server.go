@@ -148,6 +148,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     cfg.OIDC.Audience,
 			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -170,6 +171,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     "account",
 			Scopes:       []string{"openid", "profile", "email"},
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create keycloak client: %w", err)

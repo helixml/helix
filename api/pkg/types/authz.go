@@ -131,6 +131,9 @@ type User struct {
 	Email    string    `json:"email"`
 	Username string    `json:"username"`
 	FullName string    `json:"full_name"`
+
+	SB          bool `json:"sb"`
+	Deactivated bool `json:"deactivated"`
 }
 
 type UserSearchResponse struct {
