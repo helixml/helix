@@ -96,6 +96,7 @@ services:
             - WOLF_MODE=${WOLF_MODE:-apps}  # "apps" (default) or "lobbies" (multi-user with PIN support)
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
             - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
             - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
