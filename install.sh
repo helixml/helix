@@ -1361,6 +1361,7 @@ EOF
 # Wolf streaming platform
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
+HELIX_HOST_HOME=${INSTALL_DIR}
 
 # Moonlight Web credentials (secure random, shared between API and moonlight-web)
 MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
