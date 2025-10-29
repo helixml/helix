@@ -44,6 +44,16 @@ type AppWolfExecutor struct {
 
 // NewAppWolfExecutor creates a new app-based Wolf executor
 func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) *AppWolfExecutor {
+	// CRITICAL: Validate HELIX_HOST_HOME is set - required for Wolf container mounts
+	helixHostHome := os.Getenv("HELIX_HOST_HOME")
+	if helixHostHome == "" {
+		log.Fatal().Msg("HELIX_HOST_HOME environment variable is required but not set. This variable must point to the Helix installation directory (e.g., /opt/HelixML or $HOME/HelixML). Please set it in your .env file.")
+	}
+
+	log.Info().
+		Str("helix_host_home", helixHostHome).
+		Msg("Wolf executor (apps mode) initialized with HELIX_HOST_HOME")
+
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
