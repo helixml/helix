@@ -37,6 +37,10 @@ const DefaultHistoryLimit = 6
 
 // RunSessionBlocking - creates the interaction, runs the chat completion and returns the updated integration (already updated in the database)
 func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequest) (*types.Interaction, error) {
+	if req.User.Deactivated {
+		return nil, fmt.Errorf("user is deactivated")
+	}
+
 	if len(req.PromptMessage.Parts) == 0 {
 		return nil, fmt.Errorf("prompt message is required")
 	}

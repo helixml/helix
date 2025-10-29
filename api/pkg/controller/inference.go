@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -47,6 +48,34 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 // Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+	if user.Deactivated {
+		return nil, nil, fmt.Errorf("user is deactivated")
+	}
+
+	if user.SB {
+		if c.Options.Config.SBMessage != "" {
+			return &openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Content: c.Options.Config.SBMessage,
+						},
+					},
+				},
+			}, &req, nil
+		}
+
+		return &openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{
+				{
+					Message: openai.ChatCompletionMessage{
+						Content: "",
+					},
+				},
+			},
+		}, &req, nil
+	}
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
@@ -176,6 +205,40 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
+	if user.Deactivated {
+		return nil, nil, fmt.Errorf("user is deactivated")
+	}
+
+	if user.SB {
+		msg := c.Options.Config.SBMessage
+
+		stream, writer, err := transport.NewOpenAIStreamingAdapter(req)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create openai streaming adapter: %w", err)
+		}
+
+		go func() {
+			defer writer.Close()
+			_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{Content: msg},
+					},
+				},
+			})
+			_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						FinishReason: openai.FinishReasonStop,
+					},
+				},
+			})
+		}()
+
+		return stream, &req, nil
+
+	}
+
 	req.Stream = true
 
 	if opts == nil {
