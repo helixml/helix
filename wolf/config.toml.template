@@ -14,6 +14,7 @@ name = 'Moonlight'
 start_virtual_compositor = true
 title = 'Wolf UI'
 icon_png_path = 'https://raw.githubusercontent.com/games-on-whales/wolf-ui/refs/heads/main/src/Icons/wolf_ui_icon.png'
+video_producer_buffer_caps = 'video/x-raw(memory:CUDAMemory)'
 
     [profiles.apps.runner]
     type = 'docker'
