@@ -320,6 +320,8 @@ services:
       - RUST_LOG=moonlight_common=info,moonlight_web=info
       # Internal pairing PIN (shared with Wolf, secure random in production)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      # Moonlight credentials for API authentication (must match config.json)
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
     volumes:
       - ./moonlight-web-config:/app/server:rw
     restart: unless-stopped
