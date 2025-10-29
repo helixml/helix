@@ -68,10 +68,10 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
     if ! grep -q '"paired"' "$DATA_FILE"; then
         echo "🔗 Auto-pairing moonlight-web with Wolf (MOONLIGHT_INTERNAL_PAIRING_PIN is set)..."
 
-        # Wait for Wolf to be ready (check serverinfo endpoint)
+        # Wait for Wolf to be ready (check if port 47989 is accepting connections)
         echo "⏳ Waiting for Wolf to be ready..."
         for i in {1..60}; do
-            if curl -s http://wolf:47989/serverinfo?uniqueid=test >/dev/null 2>&1; then
+            if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/wolf/47989' 2>/dev/null; then
                 echo "✅ Wolf is ready"
                 break
             fi
@@ -83,11 +83,20 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
         done
 
         # Trigger pairing via internal API (Wolf will auto-accept with PIN)
-        curl -X POST http://localhost:8080/api/pair \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${MOONLIGHT_CREDENTIALS:-helix}" \
-            -d '{"host_id":0}' \
-            > /tmp/pair-response.log 2>&1
+        # Use bash /dev/tcp since curl is not available in container
+        exec 3<>/dev/tcp/localhost/8080
+        {
+            echo -ne "POST /api/pair HTTP/1.1\r\n"
+            echo -ne "Host: localhost:8080\r\n"
+            echo -ne "Content-Type: application/json\r\n"
+            echo -ne "Authorization: Bearer ${MOONLIGHT_CREDENTIALS:-helix}\r\n"
+            echo -ne "Content-Length: 13\r\n"
+            echo -ne "\r\n"
+            echo -ne '{"host_id":0}'
+        } >&3
+        cat <&3 > /tmp/pair-response.log
+        exec 3<&-
+        exec 3>&-
 
         if grep -q '"Paired"' /tmp/pair-response.log; then
             echo "✅ Auto-pairing with Wolf completed successfully"
