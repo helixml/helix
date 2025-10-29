@@ -269,8 +269,8 @@ services:
       # SSL certificate paths
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      # Performance optimization
-      - WOLF_USE_ZERO_COPY=FALSE
+      # GPU zero-copy optimization (required for lobbies mode format consistency)
+      - WOLF_USE_ZERO_COPY=TRUE
       # Internal moonlight-web pairing PIN (secure random, shared via env)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
     volumes:
