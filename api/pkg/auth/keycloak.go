@@ -483,6 +483,9 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 		return nil
 	}
 
+	user.Deactivated = existing.Deactivated
+	user.SB = existing.SB
+
 	// If email or name hasn't changed, don't update
 	if existing.Email == user.Email && existing.FullName == user.FullName && existing.Username == user.Username {
 		return nil
