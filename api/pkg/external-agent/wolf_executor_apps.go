@@ -3,6 +3,7 @@ package external_agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -991,9 +992,16 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 		}
 
 		// App in internal API - now ACTUALLY verify it's in Moonlight HTTPS API
-		// Query Wolf's HTTP server on port 47989 (what moonlight-web uses)
-		httpClient := &http.Client{Timeout: 2 * time.Second}
-		req, err := http.NewRequestWithContext(ctx, "GET", "http://wolf:47989/applist?uniqueid=helix&uuid=test", nil)
+		// Query Wolf's HTTPS server on port 47984 (what moonlight-web actually uses)
+		// Use HTTP client that accepts self-signed certs (Wolf uses self-signed)
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		httpClient := &http.Client{
+			Timeout:   2 * time.Second,
+			Transport: tr,
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://wolf:47984/applist?uniqueid=helix&uuid=test", nil)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create HTTP request")
 			time.Sleep(checkInterval)
@@ -1006,7 +1014,7 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 				Err(err).
 				Str("wolf_app_id", wolfAppID).
 				Dur("elapsed", time.Since(startTime)).
-				Msg("Failed to query Wolf Moonlight HTTP API, will retry")
+				Msg("Failed to query Wolf Moonlight HTTPS API, will retry")
 			time.Sleep(checkInterval)
 			continue
 		}
@@ -1041,9 +1049,9 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 			Str("wolf_app_id", wolfAppID).
 			Dur("elapsed", time.Since(startTime)).
 			Int("internal_apps", len(apps)).
-			Int("http_apps", appCount).
-			Str("http_response_preview", preview).
-			Msg("Wolf app in internal API but NOT yet in Moonlight HTTP API, waiting...")
+			Int("https_apps", appCount).
+			Str("https_response_preview", preview).
+			Msg("Wolf app in internal API but NOT yet in Moonlight HTTPS API, waiting...")
 
 		time.Sleep(checkInterval)
 	}
