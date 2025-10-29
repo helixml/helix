@@ -50,8 +50,8 @@ WEB_SERVER_PID=$!
 # Wait for web server to be ready (poll until it responds)
 echo "⏳ Waiting for moonlight-web server to be ready..."
 for i in {1..30}; do
-    # Check /api/authenticate endpoint which doesn't require auth
-    if curl -sf http://localhost:8080/api/authenticate > /dev/null 2>&1; then
+    # Check if port 8080 is accepting connections (using bash built-in /dev/tcp)
+    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8080' 2>/dev/null; then
         echo "✅ moonlight-web server is ready"
         break
     fi
