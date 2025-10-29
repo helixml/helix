@@ -72,7 +72,12 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
         echo "⏳ Waiting for Wolf to be ready..."
         for i in {1..60}; do
             if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/wolf/47989' 2>/dev/null; then
-                echo "✅ Wolf is ready"
+                echo "✅ Wolf port is responding"
+                # Wait additional 5 seconds for HTTPS endpoint to fully initialize
+                # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
+                echo "⏳ Waiting 5s for Wolf HTTPS endpoint to initialize..."
+                sleep 5
+                echo "✅ Wolf is ready for pairing"
                 break
             fi
             if [ $i -eq 60 ]; then
