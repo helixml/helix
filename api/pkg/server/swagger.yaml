@@ -1494,7 +1494,7 @@ definitions:
   server.WolfLobbyMemory:
     properties:
       client_count:
-        type: string
+        type: integer
       lobby_id:
         type: string
       lobby_name:
@@ -7932,6 +7932,52 @@ paths:
       summary: Get enhanced dashboard data with agent management
       tags:
       - dashboard
+  /api/v1/external-agents/{sessionID}/auto-join-lobby:
+    post:
+      consumes:
+      - application/json
+      description: Automatically join a Wolf lobby after moonlight-web has connected.
+        This endpoint should be called by the frontend after the moonlight-web iframe
+        has loaded and the user has connected to Wolf UI.
+      parameters:
+      - description: Helix Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Auto-join Wolf lobby after connection
+      tags:
+      - ExternalAgents
   /api/v1/external-agents/{sessionID}/keepalive:
     get:
       consumes:
@@ -11958,6 +12004,25 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
+  /api/v1/wolf/ui-app-id:
+    get:
+      description: Get the Wolf UI app ID for lobbies mode streaming
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      summary: Get Wolf UI app ID
+      tags:
+      - Wolf
   /api/v1/work-sessions/{sessionId}:
     get:
       description: Get comprehensive details about a specific work session including
