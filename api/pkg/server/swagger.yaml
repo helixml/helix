@@ -808,6 +808,13 @@ definitions:
       project_path:
         type: string
     type: object
+  server.BoardSettings:
+    properties:
+      wip_limits:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
   server.CloneCommandResponse:
     properties:
       clone_command:
@@ -1599,6 +1606,9 @@ definitions:
     - CoordinationEventTypeSpawn
   services.CreateTaskRequest:
     properties:
+      app_id:
+        description: 'Optional: Helix agent to use for spec generation'
+        type: string
       priority:
         type: string
       project_id:
@@ -2295,10 +2305,9 @@ definitions:
       completed_at:
         type: string
       config:
+        additionalProperties: true
         description: Agent configuration
-        items:
-          type: integer
-        type: array
+        type: object
       created_at:
         type: string
       deadline_at:
@@ -2310,16 +2319,15 @@ definitions:
       labels:
         description: Labels/tags for filtering
         items:
-          type: integer
+          type: string
         type: array
       last_error:
         type: string
       max_retries:
         type: integer
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       organization_id:
@@ -2355,10 +2363,9 @@ definitions:
       user_id:
         type: string
       work_data:
+        additionalProperties: true
         description: Work-specific data
-        items:
-          type: integer
-        type: array
+        type: object
     type: object
   types.AgentWorkItemCreateRequest:
     properties:
@@ -5199,6 +5206,9 @@ definitions:
         type: string
       organizations_create_enabled_for_non_admins:
         type: boolean
+      providers_management_enabled:
+        description: Controls if users can add their own AI provider API keys
+        type: boolean
       rudderstack_data_plane_url:
         type: string
       rudderstack_write_key:
@@ -5660,6 +5670,9 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      archived:
+        description: Archive to hide from main view
+        type: boolean
       attached_repositories:
         description: Git repository attachments (multiple repos can be attached)
         items:
@@ -5700,9 +5713,8 @@ definitions:
           type: string
         type: array
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       original_prompt:
@@ -6610,18 +6622,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -6679,6 +6691,8 @@ definitions:
         type: string
       created_at:
         type: string
+      deactivated:
+        type: boolean
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
@@ -6687,6 +6701,8 @@ definitions:
         type: string
       id:
         type: string
+      sb:
+        type: boolean
       token:
         description: the actual token used and its type
         type: string
@@ -10468,6 +10484,11 @@ paths:
         in: query
         name: user_id
         type: string
+      - default: false
+        description: Include archived tasks
+        in: query
+        name: include_archived
+        type: boolean
       - default: 50
         description: Limit number of results
         in: query
@@ -10790,6 +10811,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Approve specs and execute document handoff
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/archive:
+    patch:
+      consumes:
+      - application/json
+      description: Archive a spec task to hide it from the main view, or unarchive
+        to restore it
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Archive status (true to archive, false to unarchive)
+        in: body
+        name: archived
+        required: true
+        schema:
+          type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/commit-progress:
@@ -11224,6 +11287,43 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/start-planning:
+    post:
+      consumes:
+      - application/json
+      description: Explicitly start spec generation (planning phase) for a backlog
+        task. This transitions the task to planning status and starts a spec generation
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Start planning for a SpecTask
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/work-sessions:
     get:
       description: Get all work sessions associated with a specific SpecTask
@@ -11351,6 +11451,56 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
+  /api/v1/spec-tasks/board-settings:
+    get:
+      description: Get the Kanban board settings (WIP limits) for the default project
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BoardSettings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get board settings for spec tasks
+      tags:
+      - spec-driven-tasks
+    put:
+      consumes:
+      - application/json
+      description: Update the Kanban board settings (WIP limits) for the default project
+      parameters:
+      - description: Board settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.BoardSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BoardSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update board settings for spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:

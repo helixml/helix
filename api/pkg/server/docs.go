@@ -5682,6 +5682,13 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include archived tasks",
+                        "name": "include_archived",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -5704,6 +5711,86 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.SpecTask"
                             }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/board-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get board settings for spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.BoardSettings"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update board settings for spec tasks",
+                "parameters": [
+                    {
+                        "description": "Board settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.BoardSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.BoardSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
@@ -6251,6 +6338,70 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.CombinedApprovalHandoffResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/archive": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Archive or unarchive a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Archive status (true to archive, false to unarchive)",
+                        "name": "archived",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
                         }
                     },
                     "400": {
@@ -6914,6 +7065,61 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.TaskSpecsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/start-planning": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Start planning for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -10050,6 +10256,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.BoardSettings": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -11231,6 +11448,10 @@ const docTemplate = `{
         "services.CreateTaskRequest": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "Optional: Helix agent to use for spec generation",
+                    "type": "string"
+                },
                 "priority": {
                     "type": "string"
                 },
@@ -12252,10 +12473,8 @@ const docTemplate = `{
                 },
                 "config": {
                     "description": "Agent configuration",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "created_at": {
                     "type": "string"
@@ -12273,7 +12492,7 @@ const docTemplate = `{
                     "description": "Labels/tags for filtering",
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "string"
                     }
                 },
                 "last_error": {
@@ -12283,10 +12502,8 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "name": {
                     "type": "string"
@@ -12336,10 +12553,8 @@ const docTemplate = `{
                 },
                 "work_data": {
                     "description": "Work-specific data",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },
@@ -16398,6 +16613,10 @@ const docTemplate = `{
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
+                "providers_management_enabled": {
+                    "description": "Controls if users can add their own AI provider API keys",
+                    "type": "boolean"
+                },
                 "rudderstack_data_plane_url": {
                     "type": "string"
                 },
@@ -17045,6 +17264,10 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
+                "archived": {
+                    "description": "Archive to hide from main view",
+                    "type": "boolean"
+                },
                 "attached_repositories": {
                     "description": "Git repository attachments (multiple repos can be attached)",
                     "type": "array",
@@ -17100,10 +17323,8 @@ const docTemplate = `{
                     }
                 },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "name": {
                     "type": "string"
@@ -18406,18 +18627,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
@@ -18507,6 +18728,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "deactivated": {
+                    "type": "boolean"
+                },
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
@@ -18518,6 +18742,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "sb": {
+                    "type": "boolean"
                 },
                 "token": {
                     "description": "the actual token used and its type",

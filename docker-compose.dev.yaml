@@ -82,6 +82,8 @@ services:
             # Discord integration
             - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
             - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
+            # AI Providers management - enable/disable user-facing AI provider API keys management
+            - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-true}
             # Socket configuration for haystack communication
             - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
             - RAG_HAYSTACK_ENABLED=true

@@ -993,7 +993,8 @@ type ServerConfigForFrontend struct {
 	DeploymentID                           string               `json:"deployment_id"`
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	MoonlightWebMode                       string               `json:"moonlight_web_mode"` // "single" or "multi" - determines streaming architecture
+	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
 }
 
 // a short version of a session that we keep for the dashboard

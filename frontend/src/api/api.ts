@@ -529,6 +529,10 @@ export interface ServerApprovalWithHandoffRequest {
   project_path?: string;
 }
 
+export interface ServerBoardSettings {
+  wip_limits?: Record<string, number>;
+}
+
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
@@ -986,6 +990,8 @@ export enum ServicesCoordinationEventType {
 }
 
 export interface ServicesCreateTaskRequest {
+  /** Optional: Helix agent to use for spec generation */
+  app_id?: string;
   priority?: string;
   project_id?: string;
   prompt?: string;
@@ -1328,16 +1334,16 @@ export interface TypesAgentWorkItem {
   assigned_session_id?: string;
   completed_at?: string;
   /** Agent configuration */
-  config?: number[];
+  config?: Record<string, any>;
   created_at?: string;
   deadline_at?: string;
   description?: string;
   id?: string;
   /** Labels/tags for filtering */
-  labels?: number[];
+  labels?: string[];
   last_error?: string;
   max_retries?: number;
-  metadata?: number[];
+  metadata?: Record<string, any>;
   name?: string;
   organization_id?: string;
   /** Lower = higher priority */
@@ -1359,7 +1365,7 @@ export interface TypesAgentWorkItem {
   updated_at?: string;
   user_id?: string;
   /** Work-specific data */
-  work_data?: number[];
+  work_data?: Record<string, any>;
 }
 
 export interface TypesAgentWorkItemCreateRequest {
@@ -2998,6 +3004,8 @@ export interface TypesServerConfigForFrontend {
   /** "single" or "multi" - determines streaming architecture */
   moonlight_web_mode?: string;
   organizations_create_enabled_for_non_admins?: boolean;
+  /** Controls if users can add their own AI provider API keys */
+  providers_management_enabled?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -3279,6 +3287,8 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /** Archive to hide from main view */
+  archived?: boolean;
   /** Git repository attachments (multiple repos can be attached) */
   attached_repositories?: number[];
   branch_name?: string;
@@ -3299,7 +3309,7 @@ export interface TypesSpecTask {
   implementation_plan?: string;
   implementation_session_id?: string;
   labels?: string[];
-  metadata?: number[];
+  metadata?: Record<string, any>;
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
@@ -3816,11 +3826,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -3858,10 +3868,12 @@ export interface TypesUser {
   /** if the token is associated with an app */
   app_id?: string;
   created_at?: string;
+  deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
   full_name?: string;
   id?: string;
+  sb?: boolean;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -7243,6 +7255,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Filter by user ID */
         user_id?: string;
         /**
+         * Include archived tasks
+         * @default false
+         */
+        include_archived?: boolean;
+        /**
          * Limit number of results
          * @default 50
          */
@@ -7423,6 +7440,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/approve-with-handoff`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksArchivePartialUpdate
+     * @summary Archive or unarchive a spec task
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
+     * @secure
+     */
+    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/archive`,
+        method: "PATCH",
+        body: archived,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -7691,6 +7728,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksStartPlanningCreate
+     * @summary Start planning for a SpecTask
+     * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
+     * @secure
+     */
+    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/start-planning`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all work sessions associated with a specific SpecTask
      *
      * @tags spec-driven-tasks
@@ -7767,6 +7823,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<ServerBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (request: ServerBoardSettings, params: RequestParams = {}) =>
+      this.request<ServerBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
