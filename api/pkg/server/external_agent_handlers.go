@@ -804,9 +804,18 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 		return
 	}
 
+	// Parse request body to get optional Wolf client_id
+	var requestBody struct {
+		WolfClientID string `json:"wolf_client_id"`
+	}
+	if req.Body != nil {
+		json.NewDecoder(req.Body).Decode(&requestBody)
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("user_id", user.ID).
+		Str("wolf_client_id", requestBody.WolfClientID).
 		Msg("[AUTO-JOIN] Auto-join lobby request received")
 
 	// Get Helix session
@@ -842,10 +851,11 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 		Str("session_id", sessionID).
 		Str("lobby_id", lobbyID).
 		Bool("has_pin", lobbyPIN != "").
+		Str("wolf_client_id", requestBody.WolfClientID).
 		Msg("[AUTO-JOIN] Found lobby credentials, attempting auto-join")
 
-	// Call the auto-join function
-	err = apiServer.autoJoinWolfLobby(req.Context(), lobbyID, lobbyPIN)
+	// Call the auto-join function (with optional wolf_client_id for precise matching)
+	err = apiServer.autoJoinWolfLobby(req.Context(), lobbyID, lobbyPIN, requestBody.WolfClientID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -871,7 +881,9 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 
 // autoJoinWolfLobby performs the actual auto-join operation by finding the Wolf UI session and joining the lobby
 // This is a helper function called by autoJoinExternalAgentLobby after the user has connected
-func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, lobbyID string, lobbyPIN string) error {
+// wolfClientID (optional): If provided, uses this exact Wolf client_id for lobby join.
+//                          If empty, falls back to selecting first available Wolf UI session.
+func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, lobbyID string, lobbyPIN string, wolfClientID string) error {
 	// Get Wolf client from executor
 	type WolfClientProvider interface {
 		GetWolfClient() *wolf.Client
@@ -930,22 +942,51 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, lobbyID 
 		return fmt.Errorf("failed to parse Wolf sessions response: %w", err)
 	}
 
-	// Find the session with Wolf UI app
+	// Find the Wolf UI session to join to the lobby
 	var moonlightSessionID string
-	for _, session := range sessionsData.Sessions {
-		if session.AppID == wolfUIAppID {
-			moonlightSessionID = session.ClientID
-			log.Info().
-				Str("moonlight_session_id", moonlightSessionID).
-				Str("client_ip", session.ClientIP).
-				Msg("[AUTO-JOIN] Found Wolf UI session")
-			break
+	var wolfUISessions []string
+
+	if wolfClientID != "" {
+		// Frontend provided exact Wolf client_id - use it directly (precise matching)
+		log.Info().
+			Str("wolf_client_id", wolfClientID).
+			Msg("[AUTO-JOIN] Using frontend-provided Wolf client_id for precise session matching")
+		moonlightSessionID = wolfClientID
+	} else {
+		// No client_id provided - fall back to finding first available Wolf UI session
+		log.Warn().Msg("[AUTO-JOIN] No wolf_client_id provided by frontend - falling back to first Wolf UI session (may be incorrect if multiple sessions exist)")
+
+		for _, session := range sessionsData.Sessions {
+			if session.AppID == wolfUIAppID {
+				wolfUISessions = append(wolfUISessions, fmt.Sprintf("client_id=%s ip=%s", session.ClientID, session.ClientIP))
+				if moonlightSessionID == "" {
+					// Pick the first Wolf UI session
+					moonlightSessionID = session.ClientID
+				}
+			}
+		}
+
+		if moonlightSessionID == "" {
+			log.Warn().
+				Int("total_sessions", len(sessionsData.Sessions)).
+				Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
+			return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
+		}
+
+		// Log all available Wolf UI sessions for visibility
+		if len(wolfUISessions) > 1 {
+			log.Warn().
+				Strs("all_wolf_ui_sessions", wolfUISessions).
+				Str("selected_session", moonlightSessionID).
+				Int("session_count", len(wolfUISessions)).
+				Msg("[AUTO-JOIN] Multiple Wolf UI sessions exist - selected first one (may cause issues if wrong session)")
 		}
 	}
 
-	if moonlightSessionID == "" {
-		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
-	}
+	log.Info().
+		Str("moonlight_session_id", moonlightSessionID).
+		Bool("frontend_provided", wolfClientID != "").
+		Msg("[AUTO-JOIN] Using Wolf UI session for auto-join")
 
 	// Convert PIN string to array of int16 for Wolf API
 	var pinDigits []int16

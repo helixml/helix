@@ -436,7 +436,108 @@ The "confusion" was likely:
 
 These need to be mapped correctly, and the timing must be right for auto-join to work.
 
-## Proposed Fix: Deferred Auto-Join API Endpoint
+## FINAL SOLUTION: Frontend-Provided Wolf Client ID
+
+### Root Cause Analysis (CONFIRMED)
+
+**Wolf client_id generation:**
+```cpp
+// From ~/pm/wolf/src/moonlight-server/state/config.hpp:99-101
+inline std::size_t get_client_id(const PairedClient &current_client) {
+  return std::hash<std::string>{}(current_client.client_cert);
+}
+```
+
+- Wolf generates `client_id` as a HASH of the client certificate (not sequential, not random - deterministic per cert)
+- Multiple connections from same paired client get DIFFERENT client_ids (different certs created per session)
+- The `session_id` moonlight-web sends (`agent-${sessionId}`) is NOT exposed in Wolf's `/api/v1/sessions` API
+
+**Why IP matching doesn't work:**
+- moonlight-web runs as a proxy in Docker network
+- From Wolf's perspective, ALL client connections have the SAME IP (moonlight-web container IP: 172.19.0.14)
+- Cannot distinguish between different browser clients based on IP
+
+**Why we can't match without Wolf changes:**
+Wolf's `/api/v1/sessions` API response:
+```json
+{
+  "app_id": "134906179",
+  "client_id": "6318980640517831945",  // Certificate hash (what we need!)
+  "client_ip": "172.19.0.14",          // Same for all connections (useless)
+  // NO session_id field
+  // NO client_unique_id field
+}
+```
+
+moonlight-web sends but Wolf doesn't expose:
+- `session_id`: `"agent-${helixSessionId}"`
+- `client_unique_id`: `"helix-agent-${helixSessionId}"`
+
+### The Solution: Three-Part Modification
+
+**Backend (COMPLETED ✅):**
+- `/api/v1/external-agents/{sessionID}/auto-join-lobby` endpoint now accepts optional `wolf_client_id` in POST body
+- If provided: Uses exact client_id for precise matching
+- If not provided: Falls back to first available Wolf UI session (may be wrong if multiple exist)
+- Enhanced logging for debugging session matching issues
+
+**Wolf (TODO):**
+1. Modify `ConnectionComplete` message struct to include `client_id`:
+```rust
+// File: ~/pm/wolf/common/src/api_bindings.rs
+ConnectionComplete {
+    capabilities: StreamCapabilities,
+    width: u32,
+    height: u32,
+    client_id: String,  // ADD THIS - Wolf knows this value
+}
+```
+
+2. Populate it in Wolf's streaming code when sending ConnectionComplete message
+
+**moonlight-web (TODO):**
+1. Update api_bindings.rs to include new `client_id` field in `ConnectionComplete`
+2. Modify Stream class to expose the received client_id:
+```typescript
+// File: ~/pm/moonlight-web-stream/moonlight-web/web-server/web/stream/index.ts
+private wolfClientID: string | null = null;
+
+// In onMessage handler for ConnectionComplete:
+} else if ("ConnectionComplete" in message) {
+    this.wolfClientID = message.ConnectionComplete.client_id;
+    // ... existing code
+}
+
+// Add getter method:
+getWolfClientID(): string | null {
+    return this.wolfClientID;
+}
+```
+
+**Frontend (TODO):**
+Modify MoonlightStreamViewer.tsx to pass wolf_client_id to auto-join API:
+```typescript
+setTimeout(async () => {
+  try {
+    // Get Wolf client_id from stream instance
+    const wolfClientID = streamRef.current?.getWolfClientID();
+
+    const apiClient = helixApi.getApiClient();
+    const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(
+      sessionId,
+      { wolf_client_id: wolfClientID }  // Pass it to backend
+    );
+
+    if (response.status === 200) {
+      console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby');
+    }
+  } catch (err) {
+    console.error('[AUTO-JOIN] Error:', err);
+  }
+}, 1000);
+```
+
+## Proposed Fix: Deferred Auto-Join API Endpoint (DEPRECATED - See above)
 
 ### Approach: Post-Connection Auto-Join
 
