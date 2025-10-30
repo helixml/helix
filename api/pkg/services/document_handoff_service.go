@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -258,20 +257,15 @@ func (s *DocumentHandoffService) executeSpecRejectionHandoff(
 	specTask.Status = types.TaskStatusSpecRevision
 	specTask.SpecRevisionCount++
 
-	// Add rejection comments to spec task
+	// Add rejection comments to spec task (GORM serializer handles JSON conversion)
 	if approval.Comments != "" {
 		// Store rejection feedback for planning agent to address
-		rejectionData := map[string]interface{}{
+		specTask.Metadata = map[string]interface{}{
 			"rejected_by":    approval.ApprovedBy,
 			"rejected_at":    approval.ApprovedAt,
 			"comments":       approval.Comments,
 			"changes":        approval.Changes,
 			"revision_count": specTask.SpecRevisionCount,
-		}
-
-		metadataBytes, err := json.Marshal(rejectionData)
-		if err == nil {
-			specTask.Metadata = metadataBytes
 		}
 	}
 

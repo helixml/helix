@@ -1,11 +1,9 @@
 package types
 
 import (
-	"encoding/json"
 	"time"
 
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 // SpecTask represents a task following Kiro's actual spec-driven approach
@@ -61,12 +59,11 @@ type SpecTask struct {
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 
 	// Metadata
-	CreatedBy string         `json:"created_by"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	Labels    []string       `json:"labels" gorm:"-"`
-	LabelsDB  datatypes.JSON `json:"-" gorm:"column:labels;type:jsonb"`
-	Metadata  datatypes.JSON `json:"metadata,omitempty" gorm:"type:jsonb"`
+	CreatedBy string                 `json:"created_by"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
@@ -192,10 +189,8 @@ type SpecTaskExternalAgent struct {
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`   // Parent SpecTask
 	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`                   // Wolf app managing this agent
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                 // /workspaces/spectasks/{id}/work/
-	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"-"`                    // All sessions using this agent
-	HelixSessionsDB datatypes.JSON `json:"-" gorm:"column:helix_session_ids;type:jsonb"` // DB storage
-	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"-"`                       // Zed threads (1:1 with sessions)
-	ZedThreadsDB    datatypes.JSON `json:"-" gorm:"column:zed_thread_ids;type:jsonb"`    // DB storage
+	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"type:jsonb;serializer:json"` // All sessions using this agent
+	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"type:jsonb;serializer:json"`    // Zed threads (1:1 with sessions)
 	Status          string    `json:"status" gorm:"size:50;default:creating;index"`  // creating, running, terminated
 	Created         time.Time `json:"created" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	LastActivity    time.Time `json:"last_activity" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
@@ -220,58 +215,4 @@ func (SpecTaskExternalAgent) TableName() string {
 
 func (ExternalAgentActivity) TableName() string {
 	return "external_agent_activity"
-}
-
-// GORM hooks for SpecTaskExternalAgent
-func (s *SpecTaskExternalAgent) BeforeCreate(tx *gorm.DB) error {
-	// Marshal slice fields to JSON for database storage
-	if len(s.HelixSessionIDs) > 0 {
-		data, err := json.Marshal(s.HelixSessionIDs)
-		if err != nil {
-			return err
-		}
-		s.HelixSessionsDB = data
-	}
-	if len(s.ZedThreadIDs) > 0 {
-		data, err := json.Marshal(s.ZedThreadIDs)
-		if err != nil {
-			return err
-		}
-		s.ZedThreadsDB = data
-	}
-	return nil
-}
-
-func (s *SpecTaskExternalAgent) AfterFind(tx *gorm.DB) error {
-	// Unmarshal JSON fields back to slices
-	if len(s.HelixSessionsDB) > 0 {
-		if err := json.Unmarshal(s.HelixSessionsDB, &s.HelixSessionIDs); err != nil {
-			return err
-		}
-	}
-	if len(s.ZedThreadsDB) > 0 {
-		if err := json.Unmarshal(s.ZedThreadsDB, &s.ZedThreadIDs); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *SpecTaskExternalAgent) BeforeUpdate(tx *gorm.DB) error {
-	// Marshal slice fields to JSON for database storage
-	if len(s.HelixSessionIDs) > 0 {
-		data, err := json.Marshal(s.HelixSessionIDs)
-		if err != nil {
-			return err
-		}
-		s.HelixSessionsDB = data
-	}
-	if len(s.ZedThreadIDs) > 0 {
-		data, err := json.Marshal(s.ZedThreadIDs)
-		if err != nil {
-			return err
-		}
-		s.ZedThreadsDB = data
-	}
-	return nil
 }
