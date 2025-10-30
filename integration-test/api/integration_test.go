@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/joho/godotenv"
+	"github.com/kelseyhightower/envconfig"
 )
 
 var serverCmd *exec.Cmd
@@ -216,8 +217,29 @@ func TestExternalAgentModelParameter(t *testing.T) {
 		t.Fatalf("Failed to get store client: %v", err)
 	}
 
+	// Initialize Keycloak authenticator for user creation
+	var keycloakCfg config.Keycloak
+	err = envconfig.Process("", &keycloakCfg)
+	if err != nil {
+		t.Fatalf("Failed to load Keycloak config: %v", err)
+	}
+
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
+		KeycloakURL:         keycloakCfg.KeycloakURL,
+		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
+		ServerURL:           keycloakCfg.ServerURL,
+		APIClientID:         keycloakCfg.APIClientID,
+		AdminRealm:          keycloakCfg.AdminRealm,
+		Realm:               keycloakCfg.Realm,
+		Username:            keycloakCfg.Username,
+		Password:            keycloakCfg.Password,
+	}, db)
+	if err != nil {
+		t.Fatalf("Failed to create Keycloak authenticator: %v", err)
+	}
+
 	// Create test user
-	_, apiKey, err := createUser(t, db, nil, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
+	_, apiKey, err := createUser(t, db, keycloakAuthenticator, fmt.Sprintf("test-external-agent-%d@example.com", time.Now().Unix()))
 	if err != nil {
 		t.Fatalf("Failed to create user: %v", err)
 	}
