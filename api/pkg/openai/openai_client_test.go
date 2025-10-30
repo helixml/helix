@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,6 +41,100 @@ func TestRetry(t *testing.T) {
 	require.Equal(t, 3, called)
 
 	require.Equal(t, "test-model", resp.Model)
+}
+
+func TestIncludeUsage(t *testing.T) {
+	var called bool
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+
+		var req openai.ChatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			require.NoError(t, err)
+		}
+
+		require.True(t, req.StreamOptions.IncludeUsage)
+
+		if err := json.NewEncoder(w).Encode(&openai.ChatCompletionResponse{
+			Model: "test-model",
+			Usage: openai.Usage{
+				TotalTokens: 100,
+			},
+		}); err != nil {
+			t.Logf("failed encoding request: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	client := New("test", ts.URL, true)
+
+	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
+	require.NoError(t, err)
+
+	require.True(t, called)
+	require.Equal(t, 100, resp.Usage.TotalTokens)
+}
+
+func TestIncludeUsage_Stream(t *testing.T) {
+	var called bool
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+
+		var req openai.ChatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			require.NoError(t, err)
+		}
+
+		require.True(t, req.Stream)
+		require.True(t, req.StreamOptions.IncludeUsage)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		// Send a stream event that includes usage per IncludeUsage option
+		payload := struct {
+			Model string       `json:"model"`
+			Usage openai.Usage `json:"usage"`
+		}{
+			Model: "test-model",
+			Usage: openai.Usage{TotalTokens: 100},
+		}
+		b, err := json.Marshal(payload)
+		require.NoError(t, err)
+
+		_, _ = w.Write([]byte("data: "))
+		_, _ = w.Write(b)
+		_, _ = w.Write([]byte("\n\n"))
+
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
+		// Terminate the stream
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer ts.Close()
+
+	client := New("test", ts.URL, true)
+
+	stream, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{})
+	require.NoError(t, err)
+
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		require.True(t, called)
+		require.Equal(t, 100, chunk.Usage.TotalTokens)
+	}
 }
 
 func TestValidateModel_Denied(t *testing.T) {
