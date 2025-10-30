@@ -248,14 +248,15 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 	// Execute
 	prompt := service.buildSpecGenerationPrompt(task)
 
-	// Assert
+	// Assert - check for new worktree-based format
 	assert.Contains(t, prompt, "software specification expert")
 	assert.Contains(t, prompt, "test-project")
 	assert.Contains(t, prompt, "feature")
 	assert.Contains(t, prompt, "high")
-	assert.Contains(t, prompt, "Requirements Specification")
-	assert.Contains(t, prompt, "Technical Design")
-	assert.Contains(t, prompt, "Implementation Plan")
+	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "requirements.md")   // New format files
+	assert.Contains(t, prompt, "design.md")
+	assert.Contains(t, prompt, "tasks.md")
 }
 
 func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
@@ -273,14 +274,14 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 	// Execute
 	prompt := service.buildImplementationPrompt(task)
 
-	// Assert
+	// Assert - check for new worktree-based format
 	assert.Contains(t, prompt, "senior software engineer")
 	assert.Contains(t, prompt, "User Authentication System")
 	assert.Contains(t, prompt, "Create a user authentication system")
-	assert.Contains(t, prompt, "Generated requirements")
-	assert.Contains(t, prompt, "Generated design")
-	assert.Contains(t, prompt, "Generated plan")
-	assert.Contains(t, prompt, "APPROVED SPECIFICATIONS")
+	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "requirements.md")   // Design docs are in files now
+	assert.Contains(t, prompt, "design.md")
+	assert.Contains(t, prompt, "tasks.md")
 }
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
