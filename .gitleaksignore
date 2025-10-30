@@ -4,3 +4,24 @@ searxng/settings.yml:generic-api-key:13
 install.sh:generic-api-key:573
 api/pkg/stripe/testdata/sub_active.json:generic-api-key:194
 api/pkg/stripe/testdata/paid.json:generic-api-key:250
+
+# Design documentation - example API keys for documentation purposes
+design/2025-09-08-EXTERNAL_AGENT_STATUS_FINAL.md:generic-api-key:212
+design/2025-10-22-websocket-sync-fix-summary.md:generic-api-key:98
+design/2025-10-22-FINAL-RESULTS.md:curl-auth-header:128
+design/2025-10-20-prod-external-agents-not-starting.md:generic-api-key:405
+design/STREAMING_IMPLEMENTATION_COMPLETE.md:curl-auth-header:235
+design/TESTING_STATUS_EXTERNAL_AGENTS.md:curl-auth-header:122
+design/MOONLIGHT_STREAMING_FINAL.md:generic-api-key:426
+design/VERIFIED_IMPLEMENTATION_STATUS.md:curl-auth-header:429
+design/VERIFIED_IMPLEMENTATION_STATUS.md:curl-auth-header:436
+design/archive-debugging-logs/2025-10-22-websocket-testing-methodology.md:generic-api-key:57
+
+# Integration test - test API key (not a real secret)
+integration-test/zed-websocket/enhanced_source_of_truth_test.go:generic-api-key:22
+
+# Script comment - example credentials in documentation
+scripts/init-moonlight-web.sh:curl-auth-user:64
+
+# Wolf development certificate (local development only)
+wolf/key.pem:private-key:1
