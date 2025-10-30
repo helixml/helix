@@ -233,7 +233,11 @@ func TestExternalAgentActivity_GetIdleAgents(t *testing.T) {
 	}
 
 	// Manually insert with old timestamp (bypassing Upsert which sets time.Now())
-	err := store.gdb.WithContext(ctx).Exec(`
+	// Cast to *PostgresStore to access GetDB() method for testing
+	pgStore, ok := store.(*PostgresStore)
+	require.True(t, ok, "store must be *PostgresStore for this test")
+
+	err := pgStore.GetDB().WithContext(ctx).Exec(`
 		INSERT INTO external_agent_activity (external_agent_id, spec_task_id, last_interaction, agent_type, wolf_app_id, workspace_dir, user_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, oldActivity.ExternalAgentID, oldActivity.SpecTaskID, oldActivity.LastInteraction, oldActivity.AgentType, oldActivity.WolfAppID, oldActivity.WorkspaceDir, oldActivity.UserID).Error

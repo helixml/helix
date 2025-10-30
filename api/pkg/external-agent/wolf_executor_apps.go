@@ -31,7 +31,7 @@ type WebSocketConnectionChecker interface {
 // AppWolfExecutor implements the Executor interface using Wolf Apps API (stable branch)
 // This is the simpler, more reliable approach without lobbies
 type AppWolfExecutor struct {
-	wolfClient        *wolf.Client
+	wolfClient        WolfClientInterface
 	store             store.Store
 	sessions          map[string]*ZedSession
 	mutex             sync.RWMutex
@@ -193,11 +193,14 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 
 	// Attempt pairing using MOONLIGHT_INTERNAL_PAIRING_PIN
 	// Wolf will auto-accept when it receives the PIN
-	if err := ensureWolfPaired(ctx, w.wolfClient, moonlightWebURL, credentials); err != nil {
-		log.Warn().
-			Err(err).
-			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
-		// Don't fail here - pairing might already be done manually
+	// Type-assert the interface to concrete type for pairing function
+	if wolfClient, ok := w.wolfClient.(*wolf.Client); ok {
+		if err := ensureWolfPaired(ctx, wolfClient, moonlightWebURL, credentials); err != nil {
+			log.Warn().
+				Err(err).
+				Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
+			// Don't fail here - pairing might already be done manually
+		}
 	}
 
 	log.Info().
@@ -910,8 +913,16 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 	return nil
 }
 
+// GetWolfClient returns the Wolf client for direct access to Wolf API
+// Note: This type-asserts the interface back to the concrete type.
+// Only use this when you need direct access to wolf.Client specific methods.
 func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
-	return w.wolfClient
+	if client, ok := w.wolfClient.(*wolf.Client); ok {
+		return client
+	}
+	// This should never happen in production, only in tests with mocks
+	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
+	return nil
 }
 
 // waitForZedConnection waits for the Zed instance to connect via WebSocket

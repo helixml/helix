@@ -506,3 +506,9 @@ func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Projec
 	}
 	return project, nil
 }
+
+// GetDB returns the underlying GORM database connection for testing purposes
+// This should only be used in tests when direct database access is needed
+func (s *PostgresStore) GetDB() *gorm.DB {
+	return s.gdb
+}
