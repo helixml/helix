@@ -580,6 +580,13 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 			assert.True(t, thread.IsCompleted())
 		}
 
+		// Mark work sessions as completed for cleanup validation
+		for _, ws := range workSessions {
+			ws.Status = types.SpecTaskWorkSessionStatusCompleted
+			completedTime := time.Now()
+			ws.CompletedAt = &completedTime
+		}
+
 		// Simulate instance cleanup
 		instanceCleaned := true
 		assert.True(t, instanceCleaned)

@@ -166,7 +166,7 @@ func (m *SpecTaskMultiSessionManager) SpawnWorkSession(
 	}
 
 	// Create Zed thread if spec task has Zed instance
-	if specTask.ZedInstanceID != "" {
+	if specTask.ZedInstanceID != "" && m.zedIntegrationService != nil {
 		_, err = m.zedIntegrationService.CreateZedThreadForWorkSession(ctx, workSession, specTask.ZedInstanceID)
 		if err != nil {
 			log.Error().Err(err).
