@@ -59,6 +59,8 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
     enabled: false,
     markdown_post_processing: false,
     process_output: false,
+    no_browser: false,
+    cache: false,
   });
 
   useEffect(() => {
@@ -69,6 +71,8 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
         enabled: false,
         markdown_post_processing: false,
         process_output: false,
+        no_browser: false,
+        cache: false,
       });
     }
   }, [app.browserTool]);
@@ -109,6 +113,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       // Enable the browser skill and default options
       browserConfig.enabled = true;      
       browserConfig.markdown_post_processing = true;
+      browserConfig.no_browser = browserConfig.no_browser ?? false;
       
       // Update the browser tool configuration
       appCopy.browserTool = browserConfig;
@@ -132,6 +137,8 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
         enabled: false,
         markdown_post_processing: false,
         process_output: false,
+        no_browser: false,
+        cache: false,
       };
       
       // Update the application
@@ -159,6 +166,8 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             enabled: false,
             markdown_post_processing: false,
             process_output: false,
+            no_browser: false,
+            cache: false,
           });
           setError(null);
           onClosed?.();
@@ -214,6 +223,49 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               {/* This will use small generation model to summarize the web page results. This can greatly reduce the costs, however some information might be lost */}
               When enabled, the browser will use a small generation model to summarize web page results. This can greatly reduce costs, however some information might be lost.
+            </Typography>
+          </SectionCard>
+
+          <SectionCard>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={browserConfig.no_browser}
+                  onChange={(e) => handleChange('no_browser', e.target.checked)}
+                  color="primary"
+                  disabled={!browserConfig.enabled}
+                />
+              }
+              label={
+                <Typography sx={{ color: '#F8FAFC' }}>
+                  No Browser Mode
+                </Typography>
+              }
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              When enabled, this will not use Chrome browser and will instead use a simple but very fast HTTP client to fetch the text.
+              While this works great for static websites or /llms.txt, this approach does not suit SPA applications.
+            </Typography>
+          </SectionCard>
+
+          <SectionCard>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={browserConfig.cache}
+                  onChange={(e) => handleChange('cache', e.target.checked)}
+                  color="primary"
+                  disabled={!browserConfig.enabled}
+                />
+              }
+              label={
+                <Typography sx={{ color: '#F8FAFC' }}>
+                  Cache Browser Results
+                </Typography>
+              }
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              When enabled, the browser will cache the results of tool calls to avoid re-fetching the same content. This can improve performance and reduce redundant requests.
             </Typography>
           </SectionCard>
         </Box>
