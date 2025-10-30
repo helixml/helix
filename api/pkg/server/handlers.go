@@ -260,6 +260,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		DeploymentID:                           deploymentID,
 		License:                                licenseInfo,
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
+		ProvidersManagementEnabled:             apiServer.Cfg.ProvidersManagementEnabled,
 		MoonlightWebMode:                       moonlightWebMode,
 	}
 

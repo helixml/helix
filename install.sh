@@ -117,6 +117,7 @@ CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
 EXTERNAL_ZED_RUNNER_ID=""
 EXTERNAL_ZED_CONCURRENCY="1"
+PROVIDERS_MANAGEMENT_ENABLED="true"
 
 # Enhanced environment detection
 detect_environment() {
@@ -235,6 +236,8 @@ Options:
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
+  --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
+  --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
   --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
   --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   -y                       Auto approve the installation
@@ -421,6 +424,18 @@ while [[ $# -gt 0 ]]; do
         --hf-token)
             HF_TOKEN="$2"
             shift 2
+            ;;
+        --providers-management-enabled=*)
+            PROVIDERS_MANAGEMENT_ENABLED="${1#*=}"
+            shift
+            ;;
+        --providers-management-enabled)
+            PROVIDERS_MANAGEMENT_ENABLED="$2"
+            shift 2
+            ;;
+        --no-providers-management)
+            PROVIDERS_MANAGEMENT_ENABLED="false"
+            shift
             ;;
         -y)
             AUTO_APPROVE=true
@@ -1335,6 +1350,11 @@ EOF
     # Add embeddings provider configuration
     cat << EOF >> "$ENV_FILE"
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
+EOF
+
+    # Add providers management configuration
+    cat << EOF >> "$ENV_FILE"
+PROVIDERS_MANAGEMENT_ENABLED=$PROVIDERS_MANAGEMENT_ENABLED
 EOF
 
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
