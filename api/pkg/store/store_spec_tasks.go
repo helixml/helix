@@ -12,31 +12,7 @@ import (
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	query := `
-		INSERT INTO spec_tasks (
-			id, project_id, name, description, type, priority, status,
-			original_prompt, requirements_spec, technical_design, implementation_plan,
-			spec_agent, implementation_agent, spec_session_id, implementation_session_id,
-			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
-			estimated_hours, started_at, completed_at,
-			created_by, created_at, updated_at, labels, metadata
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11,
-			$12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21, $22,
-			$23, $24, $25, $26, $27
-		)`
-
-	result := s.gdb.WithContext(ctx).Exec(query,
-		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
-		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
-		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
-		task.BranchName, task.SpecApprovedBy, task.SpecApprovedAt, task.SpecRevisionCount,
-		task.EstimatedHours, task.StartedAt, task.CompletedAt,
-		task.CreatedBy, task.CreatedAt, task.UpdatedAt, task.LabelsDB, task.Metadata,
-	)
+	result := s.gdb.WithContext(ctx).Create(task)
 	if result.Error != nil {
 		return fmt.Errorf("failed to create spec task: %w", result.Error)
 	}
