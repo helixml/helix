@@ -1574,8 +1574,18 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                        // Mount persistent workspace
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+	}
+
+	// Development mode: mount host files for hot-reloading
+	// Production mode: use files baked into helix-sway image
+	if os.Getenv("HELIX_DEV_MODE") == "true" {
+		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		mounts = append(mounts,
+			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+		)
 	}
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
