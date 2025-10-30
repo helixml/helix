@@ -21,7 +21,7 @@ import (
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	wolfClient *wolf.Client
+	wolfClient WolfClientInterface
 	store      store.Store
 	sessions   map[string]*ZedSession
 	mutex      sync.RWMutex
@@ -1676,8 +1676,15 @@ func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bo
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
+// Note: This type-asserts the interface back to the concrete type.
+// Only use this when you need direct access to wolf.Client specific methods.
 func (w *WolfExecutor) GetWolfClient() *wolf.Client {
-	return w.wolfClient
+	if client, ok := w.wolfClient.(*wolf.Client); ok {
+		return client
+	}
+	// This should never happen in production, only in tests with mocks
+	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
+	return nil
 }
 
 // validateDisplayParams validates display configuration parameters
