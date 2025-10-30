@@ -25,7 +25,9 @@ import {
   Save,
   MoreVertical,
   Folder,
-  Plus
+  Plus,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react'
 
 // Material-UI icons
@@ -304,55 +306,86 @@ export const SessionToolbar: FC<{
             {/* Height Controls - Show when RDP viewer is visible */}
             {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
               <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
-                <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
-                  {rdpViewerHeight}px
-                </Typography>
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
-                  disabled={rdpViewerHeight <= 300}
-                  sx={{
-                    fontSize: '0.65rem',
-                    py: 0.125,
-                    px: 0.5,
-                    minWidth: 'auto',
-                  }}
-                >
-                  -100
-                </Button>
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => onRdpViewerHeightChange(rdpViewerHeight + 100)}
-                  sx={{
-                    fontSize: '0.65rem',
-                    py: 0.125,
-                    px: 0.5,
-                    minWidth: 'auto',
-                  }}
-                >
-                  +100
-                </Button>
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => onRdpViewerHeightChange(300)}
-                  sx={{
-                    fontSize: '0.65rem',
-                    py: 0.125,
-                    px: 0.5,
-                    minWidth: 'auto',
-                  }}
-                >
-                  Reset
-                </Button>
+                <Tooltip title="Zoom Out">
+                  <IconButton
+                    size="small"
+                    onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
+                    disabled={rdpViewerHeight <= 300}
+                    sx={{
+                      p: 0.25,
+                      opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
+                    }}
+                  >
+                    <ZoomOut size={16} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Zoom In">
+                  <IconButton
+                    size="small"
+                    onClick={() => onRdpViewerHeightChange(rdpViewerHeight + 100)}
+                    sx={{
+                      p: 0.25,
+                    }}
+                  >
+                    <ZoomIn size={16} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Reset Zoom">
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => onRdpViewerHeightChange(300)}
+                    sx={{
+                      fontSize: '0.65rem',
+                      py: 0.125,
+                      px: 0.5,
+                      minWidth: 'auto',
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </Tooltip>
               </Box>
             )}
 
             {/* Streaming Setup Process - Right aligned */}
             {(isOwner || account.admin) && isExternalAgent && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
+              <Box sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: 0.5,
+                ml: 'auto',
+                mt: -4,
+                '&:hover .warning-notice': {
+                  opacity: 1
+                }
+              }}>
+                {/* 4K@60Hz Requirement Notice - Above both steps */}
+                <Box
+                  className="warning-notice"
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    px: 1,
+                    py: 0.25,
+                    mr: 1,
+                    bgcolor: 'rgba(255, 152, 0, 0.1)',
+                    borderRadius: 0.5,
+                    border: '1px solid',
+                    borderColor: 'warning.main',
+                    opacity: 0.4,
+                    transition: 'opacity 0.2s ease',
+                  }}
+                >
+                  <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'warning.main', lineHeight: 1, whiteSpace: 'nowrap' }}>
+                    ⚠️ Moonlight: Use 4K @ 60Hz (3840x2160 @ 60fps)
+                  </Typography>
+                </Box>
+
+                {/* Steps Container */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {/* Step 1: Download & Pair */}
                 <Box sx={{
                   display: 'flex',
@@ -360,7 +393,6 @@ export const SessionToolbar: FC<{
                   gap: 0.25,
                   px: 1,
                   py: 0.5,
-                  mt: -4,
                   bgcolor: 'action.hover',
                   borderRadius: 0.5,
                   border: '1px solid',
@@ -446,7 +478,6 @@ export const SessionToolbar: FC<{
                     px: 1.5,
                     py: 0.5,
                     mr: 1,
-                    mt: -4,
                     bgcolor: 'rgba(25, 118, 210, 0.08)',
                     borderRadius: 0.5,
                     border: '1px solid',
@@ -488,7 +519,7 @@ export const SessionToolbar: FC<{
                     </Box>
                   </Box>
                 )}
-
+                </Box>
               </Box>
             )}
           </Box>
