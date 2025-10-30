@@ -363,19 +363,235 @@ This is a chicken-and-egg problem for URL-based auto-join.
    # Via API: GET /api/v1/external-agents/{sessionID}
    ```
 
-## Summary
+## Summary - UPDATED WITH FINDINGS
 
-Auto-join is currently **NOT IMPLEMENTED** in the code. The frontend connects to Wolf UI (lobby browser), but doesn't pass lobby context to moonlight-web. To implement auto-join, we need to:
+### Auto-Join WAS Implemented But REMOVED Due to Timing Issue
 
-1. Understand desired UX (which approach to use)
-2. Enhance URL parameters to include lobby context
-3. Modify moonlight-web to call Wolf lobby join API after connection
-4. Handle security (PIN in URL vs tokens)
-5. Test multi-device scenarios
+**Timeline:**
+- **Oct 27, 2025** (commit `46f27524a`): Auto-join implemented in backend
+- **Oct 28, 2025** (commit `97fa15e65`): Auto-join REMOVED - broke input functionality
 
-The "client_id/session_id confusion" likely refers to the difference between:
-- Helix session IDs (external agent sessions)
-- Wolf session IDs (streaming pipeline IDs)
-- moonlight_session_id (connected client IDs)
+**What the implementation did:**
+1. Added `autoJoinWolfLobby()` function in `external_agent_handlers.go` (110 lines)
+2. Called during `createExternalAgent` API handler
+3. Found Wolf UI app ID via `wolf.Client.ListApps()`
+4. Queried `/api/v1/sessions` to find client's `moonlight_session_id`
+5. Called `wolf.Client.JoinLobby()` with lobby ID, session ID, and PIN
 
-These need to be mapped correctly for auto-join to work.
+**Why it was removed:**
+> "Auto-join was called during agent creation, BEFORE user connected. At that point, no Wolf UI session existed yet to join. This broke input functionality."
+
+**The Timing Problem:**
+```
+Current flow:
+1. User creates external agent → createExternalAgent() runs
+2. ❌ autoJoinWolfLobby() tries to find session (DOESN'T EXIST YET)
+3. User clicks "Live Stream" → moonlight-web connects → session created
+4. ❌ Too late - auto-join already failed
+
+Correct flow should be:
+1. User creates external agent → lobby created
+2. User clicks "Live Stream" → moonlight-web connects → session created
+3. ✅ NOW call auto-join (session exists)
+```
+
+### The JoinLobby Infrastructure Still Exists
+
+The removal only deleted the `autoJoinWolfLobby()` function. The underlying infrastructure remains:
+
+**Still in codebase:**
+- ✅ `wolf.Client.JoinLobby()` method (`api/pkg/wolf/client.go:536`)
+- ✅ `JoinLobbyRequest` struct with proper types
+- ✅ Wolf `/api/v1/lobbies/join` API integration
+- ✅ PIN conversion logic (string → `[]int16`)
+
+**What's needed:**
+- Call auto-join at the RIGHT TIME (after user connects)
+- Either:
+  1. New API endpoint triggered by frontend after connection
+  2. Frontend calls directly (requires exposing Wolf client)
+  3. WebSocket message trigger after connection event
+
+### Client ID vs Session ID Clarification
+
+The removed code shows the mapping:
+
+```go
+// From Wolf /api/v1/sessions response
+var sessionsData struct {
+    Sessions []struct {
+        AppID    string `json:"app_id"`
+        ClientID string `json:"client_id"` // NOTE: This is the Moonlight session_id
+        ClientIP string `json:"client_ip"`
+    } `json:"sessions"`
+}
+```
+
+**Key insight:** Wolf's `/api/v1/sessions` returns `client_id` which IS the `moonlight_session_id` needed for `/api/v1/lobbies/join`.
+
+The "confusion" was likely:
+- Helix session IDs (external agent sessions: `"ses_01JBFK..."`)
+- Wolf app/lobby IDs (numeric strings: `"134906179"`)
+- moonlight_session_id (numeric strings from Wolf sessions API)
+
+These need to be mapped correctly, and the timing must be right for auto-join to work.
+
+## Proposed Fix: Deferred Auto-Join API Endpoint
+
+### Approach: Post-Connection Auto-Join
+
+Create a new API endpoint that frontend calls AFTER moonlight-web has connected:
+
+**Endpoint:** `POST /api/v1/external-agents/{sessionID}/auto-join-lobby`
+
+**Flow:**
+1. User clicks "Live Stream" button
+2. Frontend loads moonlight-web iframe with lobby context
+3. moonlight-web connects to Wolf UI → session created
+4. Frontend detects connection complete (iframe load event)
+5. Frontend calls auto-join endpoint
+6. Backend finds moonlight session and calls `JoinLobby()`
+7. User is automatically switched to their lobby
+
+**Implementation:**
+
+```go
+// In external_agent_handlers.go
+
+// autoJoinExternalAgentLobby handles POST /api/v1/external-agents/{sessionID}/auto-join-lobby
+func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWriter, req *http.Request) {
+    user := getRequestUser(req)
+    if user == nil {
+        http.Error(res, "unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    vars := mux.Vars(req)
+    sessionID := vars["sessionID"]
+
+    // Get session
+    session, err := apiServer.Controller.Options.Store.GetSession(req.Context(), sessionID)
+    if err != nil {
+        http.Error(res, "session not found", http.StatusNotFound)
+        return
+    }
+
+    // Authorize user
+    if session.Owner != user.ID && !user.Admin {
+        http.Error(res, "forbidden", http.StatusForbidden)
+        return
+    }
+
+    // Get lobby ID and PIN from session metadata
+    lobbyID := session.Metadata.WolfLobbyID
+    lobbyPIN := session.Metadata.WolfLobbyPIN
+    if lobbyID == "" {
+        http.Error(res, "no lobby associated with this session", http.StatusBadRequest)
+        return
+    }
+
+    // Call the auto-join function (restored from removed commit)
+    err = apiServer.autoJoinWolfLobby(req.Context(), lobbyID, lobbyPIN)
+    if err != nil {
+        log.Error().Err(err).
+            Str("session_id", sessionID).
+            Str("lobby_id", lobbyID).
+            Msg("Failed to auto-join lobby")
+        http.Error(res, fmt.Sprintf("failed to join lobby: %v", err), http.StatusInternalServerError)
+        return
+    }
+
+    log.Info().
+        Str("session_id", sessionID).
+        Str("lobby_id", lobbyID).
+        Msg("✅ Successfully auto-joined lobby")
+
+    res.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(res).Encode(map[string]interface{}{
+        "success":  true,
+        "lobby_id": lobbyID,
+    })
+}
+
+// Restore autoJoinWolfLobby function from commit 46f27524a
+// (same code as before, just called at different time)
+```
+
+**Frontend changes:**
+
+```typescript
+// In MoonlightWebPlayer.tsx
+
+useEffect(() => {
+  const handleLoad = async () => {
+    setIsLoading(false);
+    onConnectionChange?.(true);
+
+    // Auto-join lobby if in lobbies mode
+    if (wolfLobbyId) {
+      console.log('[AUTO-JOIN] Connection established, triggering auto-join');
+      try {
+        const response = await fetch(`/api/v1/external-agents/${sessionId}/auto-join-lobby`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${account.user?.token || ''}`,
+          },
+        });
+
+        if (response.ok) {
+          console.log('[AUTO-JOIN] Successfully auto-joined lobby');
+        } else {
+          console.warn('[AUTO-JOIN] Failed to auto-join lobby:', await response.text());
+        }
+      } catch (err) {
+        console.error('[AUTO-JOIN] Error calling auto-join:', err);
+      }
+    }
+  };
+
+  const iframe = iframeRef.current;
+  if (iframe) {
+    iframe.addEventListener('load', handleLoad);
+    return () => iframe.removeEventListener('load', handleLoad);
+  }
+}, [sessionId, wolfLobbyId, account.user?.token]);
+```
+
+### Advantages of This Approach
+
+1. **Correct timing:** Auto-join happens AFTER session exists
+2. **Minimal frontend changes:** Just one API call after iframe loads
+3. **Reuses existing infrastructure:** `wolf.Client.JoinLobby()` already works
+4. **Graceful degradation:** If auto-join fails, user can still join manually
+5. **Secure:** Uses existing RBAC authorization
+6. **Debugging:** Clear separation of concerns (connection vs auto-join)
+
+### Testing Plan
+
+1. **Verify session exists before auto-join:**
+   ```bash
+   # After clicking "Live Stream", check Wolf sessions
+   docker compose -f docker-compose.dev.yaml exec api \
+     curl --unix-socket /var/run/wolf/wolf.sock \
+     http://localhost/api/v1/sessions | jq '.sessions[] | select(.app_id == "134906179")'
+   ```
+
+2. **Test auto-join API call:**
+   ```bash
+   curl -X POST http://localhost:8080/api/v1/external-agents/ses_xxx/auto-join-lobby \
+     -H "Authorization: Bearer $TOKEN"
+   ```
+
+3. **Verify lobby join in Wolf logs:**
+   ```bash
+   docker compose -f docker-compose.dev.yaml logs --tail 50 -f wolf | grep -i "lobby.*join"
+   ```
+
+### Next Steps
+
+1. Restore `autoJoinWolfLobby()` function (copy from commit 46f27524a)
+2. Add new API route: `POST /api/v1/external-agents/{sessionID}/auto-join-lobby`
+3. Update frontend to call auto-join after iframe loads
+4. Add debugging logs to track timing
+5. Test with dev environment
+6. Deploy to production
