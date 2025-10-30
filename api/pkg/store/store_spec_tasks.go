@@ -56,24 +56,7 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask) error {
 	task.UpdatedAt = time.Now()
 
-	query := `
-		UPDATE spec_tasks SET
-			project_id = $2, name = $3, description = $4, type = $5, priority = $6, status = $7,
-			original_prompt = $8, requirements_spec = $9, technical_design = $10, implementation_plan = $11,
-			spec_agent = $12, implementation_agent = $13, spec_session_id = $14, implementation_session_id = $15,
-			branch_name = $16, spec_approved_by = $17, spec_approved_at = $18, spec_revision_count = $19,
-			estimated_hours = $20, started_at = $21, completed_at = $22,
-			created_by = $23, updated_at = $24, labels = $25, metadata = $26
-		WHERE id = $1`
-
-	result := s.gdb.WithContext(ctx).Exec(query,
-		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
-		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
-		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
-		task.BranchName, task.SpecApprovedBy, task.SpecApprovedAt, task.SpecRevisionCount,
-		task.EstimatedHours, task.StartedAt, task.CompletedAt,
-		task.CreatedBy, task.UpdatedAt, task.LabelsDB, task.Metadata,
-	)
+	result := s.gdb.WithContext(ctx).Save(task)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update spec task: %w", result.Error)

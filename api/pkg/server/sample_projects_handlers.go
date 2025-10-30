@@ -424,23 +424,20 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 			MaxRetries:      3,
 			CreatedAt:       time.Now(),
 			UpdatedAt:       time.Now(),
-			Metadata: func() datatypes.JSON {
-				metadataMap := map[string]interface{}{
-					"project_id":          projectID,
-					"task_type":           taskTemplate.Type,
-					"estimated_hours":     taskTemplate.EstimatedHours,
-					"labels":              taskTemplate.Labels,
-					"acceptance_criteria": taskTemplate.AcceptanceCriteria,
-					"technical_notes":     taskTemplate.TechnicalNotes,
-					"files_to_modify":     taskTemplate.FilesToModify,
-				}
-				metadataBytes, _ := json.Marshal(metadataMap)
-				return datatypes.JSON(metadataBytes)
-			}(),
+			Metadata:        nil, // Will be set after struct initialization
 		}
 
-		// Convert work data to JSON
-		workData := map[string]interface{}{
+		// GORM serializer handles JSON conversion
+		task.Metadata = map[string]interface{}{
+			"project_id":          projectID,
+			"task_type":           taskTemplate.Type,
+			"estimated_hours":     taskTemplate.EstimatedHours,
+			"labels":              taskTemplate.Labels,
+			"acceptance_criteria": taskTemplate.AcceptanceCriteria,
+			"technical_notes":     taskTemplate.TechnicalNotes,
+			"files_to_modify":     taskTemplate.FilesToModify,
+		}
+		task.WorkData = map[string]interface{}{
 			"project_id":          projectID,
 			"github_repo":         forkedRepoURL,
 			"task_type":           taskTemplate.Type,
@@ -449,12 +446,7 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 			"technical_notes":     taskTemplate.TechnicalNotes,
 			"files_to_modify":     taskTemplate.FilesToModify,
 		}
-		workDataJSON, _ := json.Marshal(workData)
-		task.WorkData = workDataJSON
-
-		// Labels
-		labelsJSON, _ := json.Marshal(taskTemplate.Labels)
-		task.Labels = labelsJSON
+		task.Labels = taskTemplate.Labels
 
 		err := s.Store.CreateAgentWorkItem(ctx, task)
 		if err != nil {

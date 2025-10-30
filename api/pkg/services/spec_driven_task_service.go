@@ -417,6 +417,7 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	implementationPrompt := s.buildImplementationPrompt(task)
 
 	// Create Zed agent work item
+	// GORM serializer handles JSON conversion
 	workItem := &types.AgentWorkItem{
 		ID:          fmt.Sprintf("impl_%s", task.ID),
 		Name:        fmt.Sprintf("Implement: %s", task.Name),
@@ -428,18 +429,18 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 		Status:      "pending",
 		AgentType:   "zed",
 		UserID:      task.CreatedBy,
-		WorkData: mustMarshalJSON(map[string]interface{}{
+		WorkData: map[string]interface{}{
 			"task_id":             task.ID,
 			"requirements_spec":   task.RequirementsSpec,
 			"technical_design":    task.TechnicalDesign,
 			"implementation_plan": task.ImplementationPlan,
 			"original_prompt":     task.OriginalPrompt,
-		}),
-		Config: mustMarshalJSON(map[string]interface{}{
+		},
+		Config: map[string]interface{}{
 			"workspace_dir": "/tmp/workspace",
 			"project_path":  task.ProjectID,
-		}),
-		Labels:    mustMarshalJSON([]string{"implementation", "spec-driven", task.Priority}),
+		},
+		Labels:    []string{"implementation", "spec-driven", task.Priority},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}

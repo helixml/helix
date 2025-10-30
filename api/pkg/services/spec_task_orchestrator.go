@@ -412,6 +412,14 @@ func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, 
 	systemPrompt := o.buildImplementationPrompt(task, app)
 
 	// Create session
+	// Extract organization ID from metadata if present
+	orgID := ""
+	if task.Metadata != nil {
+		if id, ok := task.Metadata["organization_id"].(string); ok {
+			orgID = id
+		}
+	}
+
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_impl_%s", task.ID),
 		Owner:          task.CreatedBy,
@@ -420,7 +428,7 @@ func (o *SpecTaskOrchestrator) createImplementationSession(ctx context.Context, 
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
 		ModelName:      app.Config.Helix.Assistants[0].Model,
-		OrganizationID: task.Metadata.String(),
+		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
 			SystemPrompt:    systemPrompt,
 			SpecTaskID:      task.ID,
@@ -750,6 +758,14 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 	// Build system prompt for planning phase
 	systemPrompt := o.buildPlanningPrompt(task, app)
 
+	// Extract organization ID from metadata if present
+	orgID := ""
+	if task.Metadata != nil {
+		if id, ok := task.Metadata["organization_id"].(string); ok {
+			orgID = id
+		}
+	}
+
 	// Create session
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
@@ -759,7 +775,7 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
 		ModelName:      app.Config.Helix.Assistants[0].Model,
-		OrganizationID: task.Metadata.String(), // Extract from metadata if needed
+		OrganizationID: orgID,
 		Metadata: types.SessionMetadata{
 			SystemPrompt:    systemPrompt,
 			SpecTaskID:      task.ID,
