@@ -141,7 +141,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm, c.browserCache))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {

@@ -119,6 +119,19 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
           </RadioGroup>
         </FormControl>
 
+        <TextField
+          fullWidth
+          label="Knowledge name"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setError('');
+          }}
+          error={!!error}
+          helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to the '${name}' folder in this app` : '')}
+          sx={{ mb: 2 }}
+        />
+
         {sourceType === 'web' && (
           <TextField
             fullWidth
@@ -149,20 +162,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
             helperText={error && !plainText.trim() ? 'Text content is required' : ''}
             sx={{ mb: 2 }}
           />
-        )}
-
-        <TextField
-          fullWidth
-          label="Knowledge name"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError('');
-          }}
-          error={!!error}
-          helperText={error || (sourceType === 'filestore' ? `Files will be uploaded to the '${name}' folder in this app` : '')}
-          sx={{ mb: 2 }}
-        />
+        )}        
 
       </DialogContent>
       <DialogActions sx={{ display: 'flex', justifyContent: 'space-between' }}>

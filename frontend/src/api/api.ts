@@ -1543,9 +1543,13 @@ export interface TypesAssistantAzureDevOps {
 }
 
 export interface TypesAssistantBrowser {
+  /** If true, the browser will cache the results of the tool call */
+  cache?: boolean;
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
+  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }
@@ -3681,9 +3685,13 @@ export interface TypesToolAzureDevOpsConfig {
 }
 
 export interface TypesToolBrowserConfig {
+  /** If true, the browser will cache the results of the tool call */
+  cache?: boolean;
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
+  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }

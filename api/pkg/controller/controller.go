@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/dgraph-io/ristretto/v2"
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/config"
@@ -75,6 +76,8 @@ type Controller struct {
 
 	// Memory estimation service for calculating model memory requirements
 	memoryEstimationService *MemoryEstimationService
+
+	browserCache *ristretto.Cache[string, string]
 }
 
 type TriggerStatusKey struct {
@@ -114,6 +117,15 @@ func NewController(
 		return nil, err
 	}
 
+	browserCache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 30, // maximum cost of cache (1GB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create browser cache: %w", err)
+	}
+
 	controller := &Controller{
 		Ctx:             ctx,
 		Options:         options,
@@ -127,6 +139,7 @@ func NewController(
 		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 		triggerStatuses:     make(map[TriggerStatusKey]types.TriggerStatus),
 		triggerStatusesMu:   &sync.RWMutex{},
+		browserCache:        browserCache,
 	}
 
 	// Default provider
