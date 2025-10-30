@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/wolf"
 )
 
 // createExternalAgent handles POST /api/v1/external-agents
@@ -200,8 +202,8 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		}
 	}
 
-	// Note: In lobbies mode, users manually navigate Wolf UI to select their lobby and enter PIN
-	// This is the intended UX - auto-joining would skip the lobby browser interface
+	// Note: Auto-join happens AFTER user connects via moonlight-web
+	// See autoJoinExternalAgentLobby endpoint - called by frontend post-connection
 
 	// Add WebSocket connection info to response
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
@@ -771,5 +773,215 @@ func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.Respon
 
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(response)
+}
+
+// @Summary Auto-join Wolf lobby after connection
+// @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
+// @Tags ExternalAgents
+// @Accept json
+// @Produce json
+// @Param sessionID path string true "Helix Session ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} system.HTTPError
+// @Failure 401 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/external-agents/{sessionID}/auto-join-lobby [post]
+func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	if sessionID == "" {
+		http.Error(res, "session ID is required", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("[AUTO-JOIN] Auto-join lobby request received")
+
+	// Get Helix session
+	session, err := apiServer.Controller.Options.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("[AUTO-JOIN] Session not found")
+		http.Error(res, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Authorize user
+	if session.Owner != user.ID && !user.Admin {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("user_id", user.ID).
+			Str("owner_id", session.Owner).
+			Msg("[AUTO-JOIN] User not authorized to access session")
+		http.Error(res, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get lobby ID and PIN from session metadata
+	lobbyID := session.Metadata.WolfLobbyID
+	lobbyPIN := session.Metadata.WolfLobbyPIN
+
+	if lobbyID == "" {
+		log.Warn().Str("session_id", sessionID).Msg("[AUTO-JOIN] No lobby associated with this session")
+		http.Error(res, "no lobby associated with this session", http.StatusBadRequest)
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Bool("has_pin", lobbyPIN != "").
+		Msg("[AUTO-JOIN] Found lobby credentials, attempting auto-join")
+
+	// Call the auto-join function
+	err = apiServer.autoJoinWolfLobby(req.Context(), lobbyID, lobbyPIN)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Str("lobby_id", lobbyID).
+			Msg("[AUTO-JOIN] Failed to auto-join lobby")
+		http.Error(res, fmt.Sprintf("failed to join lobby: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("lobby_id", lobbyID).
+		Msg("[AUTO-JOIN] ✅ Successfully auto-joined lobby")
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(map[string]interface{}{
+		"success":  true,
+		"lobby_id": lobbyID,
+		"message":  "Successfully auto-joined lobby",
+	})
+}
+
+// autoJoinWolfLobby performs the actual auto-join operation by finding the Wolf UI session and joining the lobby
+// This is a helper function called by autoJoinExternalAgentLobby after the user has connected
+func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, lobbyID string, lobbyPIN string) error {
+	// Get Wolf client from executor
+	type WolfClientProvider interface {
+		GetWolfClient() *wolf.Client
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+	if !ok {
+		return fmt.Errorf("Wolf executor does not provide Wolf client")
+	}
+	wolfClient := provider.GetWolfClient()
+
+	// Get Wolf apps using the existing ListApps method
+	apps, err := wolfClient.ListApps(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list Wolf apps: %w", err)
+	}
+
+	// Find Wolf UI app
+	var wolfUIAppID string
+	for _, app := range apps {
+		if app.Title == "Wolf UI" {
+			wolfUIAppID = app.ID
+			break
+		}
+	}
+	if wolfUIAppID == "" {
+		return fmt.Errorf("Wolf UI app not found in apps list")
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Str("wolf_ui_app_id", wolfUIAppID).
+		Msg("[AUTO-JOIN] Found Wolf UI app, querying sessions to find client")
+
+	// Query Wolf sessions to find the Wolf UI client
+	sessionsResp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+	if err != nil {
+		return fmt.Errorf("failed to query Wolf sessions: %w", err)
+	}
+	defer sessionsResp.Body.Close()
+
+	if sessionsResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(sessionsResp.Body)
+		return fmt.Errorf("Wolf sessions API returned status %d: %s", sessionsResp.StatusCode, string(body))
+	}
+
+	var sessionsData struct {
+		Success  bool `json:"success"`
+		Sessions []struct {
+			AppID    string `json:"app_id"`
+			ClientID string `json:"client_id"` // NOTE: This is the Moonlight session_id (confirmed in reflectors.hpp:165)
+			ClientIP string `json:"client_ip"`
+		} `json:"sessions"`
+	}
+	err = json.NewDecoder(sessionsResp.Body).Decode(&sessionsData)
+	if err != nil {
+		return fmt.Errorf("failed to parse Wolf sessions response: %w", err)
+	}
+
+	// Find the session with Wolf UI app
+	var moonlightSessionID string
+	for _, session := range sessionsData.Sessions {
+		if session.AppID == wolfUIAppID {
+			moonlightSessionID = session.ClientID
+			log.Info().
+				Str("moonlight_session_id", moonlightSessionID).
+				Str("client_ip", session.ClientIP).
+				Msg("[AUTO-JOIN] Found Wolf UI session")
+			break
+		}
+	}
+
+	if moonlightSessionID == "" {
+		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
+	}
+
+	// Convert PIN string to array of int16 for Wolf API
+	var pinDigits []int16
+	if lobbyPIN != "" {
+		for _, char := range lobbyPIN {
+			digit := int16(char - '0')
+			if digit < 0 || digit > 9 {
+				return fmt.Errorf("invalid PIN format: %s", lobbyPIN)
+			}
+			pinDigits = append(pinDigits, digit)
+		}
+	}
+
+	// Call Wolf API to join the lobby using the existing JoinLobby method
+	joinRequest := &wolf.JoinLobbyRequest{
+		LobbyID:            lobbyID,
+		MoonlightSessionID: moonlightSessionID,
+		PIN:                pinDigits,
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Str("moonlight_session_id", moonlightSessionID).
+		Int("pin_length", len(pinDigits)).
+		Msg("[AUTO-JOIN] Calling Wolf API to join lobby")
+
+	err = wolfClient.JoinLobby(ctx, joinRequest)
+	if err != nil {
+		return fmt.Errorf("failed to join lobby: %w", err)
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Str("moonlight_session_id", moonlightSessionID).
+		Msg("[AUTO-JOIN] ✅ Successfully called JoinLobby API")
+
+	return nil
 }
 

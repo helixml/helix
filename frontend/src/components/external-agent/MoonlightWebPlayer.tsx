@@ -95,9 +95,28 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
 
   useEffect(() => {
     // Handle iframe load
-    const handleLoad = () => {
+    const handleLoad = async () => {
       setIsLoading(false);
       onConnectionChange?.(true);
+
+      // Auto-join lobby if in lobbies mode (after connection established)
+      if (wolfLobbyId && sessionId) {
+        console.log('[AUTO-JOIN] Connection established, triggering auto-join for lobby:', wolfLobbyId);
+
+        try {
+          const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
+
+          if (response.status === 200) {
+            console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);
+          } else {
+            console.warn('[AUTO-JOIN] Failed to auto-join lobby. Status:', response.status);
+          }
+        } catch (err: any) {
+          // Log error but don't fail - user can still manually join
+          console.error('[AUTO-JOIN] Error calling auto-join endpoint:', err);
+          console.error('[AUTO-JOIN] User can still manually join lobby via Wolf UI');
+        }
+      }
     };
 
     // Handle iframe errors
