@@ -83,7 +83,7 @@ func (m *SpecTaskMultiSessionManager) CreateImplementationSessions(
 
 	// Create Zed instance if needed
 	zedInstanceID := ""
-	if specTask.ImplementationAgent != "" {
+	if specTask.ImplementationAgent != "" && m.zedIntegrationService != nil {
 		// Check if this is a Zed-based implementation agent
 		app, err := m.store.GetApp(ctx, specTask.ImplementationAgent)
 		if err != nil {
@@ -103,7 +103,7 @@ func (m *SpecTaskMultiSessionManager) CreateImplementationSessions(
 	}
 
 	// Create Zed threads for work sessions if we have a Zed instance
-	if zedInstanceID != "" {
+	if zedInstanceID != "" && m.zedIntegrationService != nil {
 		for _, workSession := range workSessions {
 			_, err = m.zedIntegrationService.CreateZedThreadForWorkSession(ctx, workSession, zedInstanceID)
 			if err != nil {
