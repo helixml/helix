@@ -235,15 +235,12 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             // Use setTimeout to ensure connection is fully established before triggering auto-join
             setTimeout(async () => {
               try {
-                // Get Wolf client_id from stream instance for precise session matching
-                const wolfClientID = streamRef.current?.getWolfClientID();
-                console.log('[AUTO-JOIN] Wolf client_id:', wolfClientID || 'not available');
+                // SECURITY: Backend derives Wolf client_id from Wolf API (no frontend parameter)
+                // This prevents manipulation - backend matches by client_unique_id pattern
+                console.log('[AUTO-JOIN] Triggering secure auto-join (backend derives Wolf client_id)');
 
                 const apiClient = helixApi.getApiClient();
-                const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(
-                  sessionId,
-                  { wolf_client_id: wolfClientID || undefined }
-                );
+                const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
 
                 if (response.status === 200) {
                   console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);

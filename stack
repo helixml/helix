@@ -880,6 +880,10 @@ function build-moonlight-web() {
   fi
 }
 
+# NOTE: This function requires specific branches to be checked out in dependency repositories:
+# - wolf: wolf-ui-working (adds client_unique_id for secure auto-join)
+# - moonlight-web-stream: feature/kickoff (threads Wolf client_id through stack)
+# Verify branches before running: cd ../wolf && git branch --show-current
 function build-and-push-helix-code() {
   echo "🚀 Building and pushing Helix Code components for production deployment"
   echo "========================================================================"
