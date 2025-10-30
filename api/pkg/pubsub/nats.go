@@ -267,9 +267,25 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		return nil, fmt.Errorf("failed to create zed agent stream: %w", err)
 	}
 
+	// Create SCRIPT_RUNNERS stream for script execution (used by tests and GPTScript integration)
+	scriptStream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
+		Name:      "SCRIPT_RUNNERS",
+		Subjects:  []string{"SCRIPT_RUNNERS.*"},
+		Retention: jetstream.WorkQueuePolicy,
+		Discard:   jetstream.DiscardOld,
+		MaxAge:    5 * time.Minute,
+	})
+	if err != nil {
+		if n.embeddedServer != nil {
+			n.embeddedServer.Shutdown()
+		}
+		return nil, fmt.Errorf("failed to create script runner stream: %w", err)
+	}
+
 	// Store streams in map
 	n.stream = stream
 	n.streams["ZED_AGENTS"] = stream
+	n.streams["SCRIPT_RUNNERS"] = scriptStream
 
 	ctx := context.Background()
 	consumerName := "helix-zed-agent-consumer"
@@ -695,22 +711,11 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 	var targetStream jetstream.Stream
 	var err error
 
-	if stream == ZedAgentRunnerStream {
-		// For Zed agents, use the zed stream (similar to how GPTScript uses n.stream)
-		if n.zedStream == nil {
-			js, err := jetstream.New(n.conn)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create jetstream context: %w", err)
-			}
-			n.zedStream, err = js.Stream(ctx, zedAgentStreamName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get zed agents stream: %w", err)
-			}
-		}
-		targetStream = n.zedStream
+	// Get the appropriate stream from the streams map
+	if storedStream, ok := n.streams[stream]; ok {
+		targetStream = storedStream
 	} else {
-		// For GPTScript, use the original stream (n.stream)
-		targetStream = n.stream
+		return nil, fmt.Errorf("stream %s not found", stream)
 	}
 
 	// Check existing consumers - EXACT same logic as GPTScript
