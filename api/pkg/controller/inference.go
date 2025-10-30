@@ -111,7 +111,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
-	if assistant.AgentMode {
+	if assistant.IsAgentMode() {
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
@@ -286,7 +286,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
-	if assistant.AgentMode {
+	if assistant.IsAgentMode() {
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentStream(ctx, &runAgentRequest{

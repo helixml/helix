@@ -2,7 +2,7 @@ api/pkg/skills/test_results/
 .env
 .env.*
 node_modules
-*.sw*
+.*.sw*
 frontend/lib
 gradio/__pycache__
 __pycache__
@@ -18,3 +18,37 @@ build-errors.log
 .DS_Store
 vendor
 */**/out.md
+helix-runner
+zed-build
+helix
+tmp
+zed-config/development_credentials
+
+# Large binary files
+*.deb
+*.ddeb
+*.buildinfo
+*.changes
+*.log
+hyprland-crash-report.txt
+raw-hyprland.deb
+logs/
+Hyprland-*
+*.deb
+sunshine-*
+test-zed-config/
+*.dump
+wolf/config.toml
+wolf/config.toml.v4.old
+moonlight-web-config/data.json
+moonlight-web-config/config.json
+
+# Integration test artifacts
+integration-test/**/integration_*
+integration-test/**/*_sync
+.test_runner_token
+/screenshot-server
+simple-moonlight-server
+test-websocket-sync.sh
+test-screenshot.png
+screencopy-frames/

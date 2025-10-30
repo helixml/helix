@@ -16,9 +16,13 @@ import React, { Dispatch, FC, SetStateAction, useEffect, useState } from 'react'
 
 import useAccount from '../../hooks/useAccount'
 import Window from '../widgets/Window'
+import { AgentTypeSelector } from '../agent'
 
 import {
   ICreateSessionConfig,
+  IAgentType,
+  IExternalAgentConfig,
+  AGENT_TYPE_HELIX_BASIC,
 } from '../../types'
 
 import {
@@ -45,7 +49,8 @@ const CreateSettingsWindow: FC<{
     const [activeSettingsTab, setActiveSettingsTab] = useState(0)
 
     const showLearn = mode == 'finetune'
-    const learnTab = 0
+    const agentTab = 0
+    const learnTab = showLearn ? 1 : 0
 
     const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
       if (event.target.checked) {
@@ -74,6 +79,7 @@ const CreateSettingsWindow: FC<{
           <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
             setActiveSettingsTab(newValue)
           }}>
+            <Tab label="Agent Settings" />
             {
               showLearn && (
                 <Tab label="Finetune & RAG" />
@@ -82,6 +88,25 @@ const CreateSettingsWindow: FC<{
           </Tabs>
         </Box>
         <Box>
+          {
+            activeSettingsTab == agentTab && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>Agent Configuration</Typography>
+                <AgentTypeSelector
+                  value={sessionConfig.agentType}
+                  onChange={(agentType: IAgentType, config?: IExternalAgentConfig) => {
+                    onSetSessionConfig(prevConfig => ({
+                      ...prevConfig,
+                      agentType,
+                      externalAgentConfig: config,
+                    }))
+                  }}
+                  externalAgentConfig={sessionConfig.externalAgentConfig}
+                  showExternalConfig={true}
+                />
+              </Box>
+            )
+          }
           {
             showLearn && activeSettingsTab == learnTab && (
               <Box sx={{ mt: 2 }}>

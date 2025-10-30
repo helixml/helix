@@ -169,8 +169,6 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-		return c.RunGPTScriptAction(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runAPIAction(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:
@@ -320,8 +318,6 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	}
 
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runAPIActionStream(ctx, opts.client, sessionID, interactionID, tool, history, action)
 	case types.ToolTypeZapier:

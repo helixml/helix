@@ -112,9 +112,11 @@ export const useApp = (appId: string) => {
     return {
       name: '',
       description: '',
-      model: account.models[0]?.id || '',
+      model: account.models[0]?.id || 'gpt-4o-mini',
       system_prompt: '',
       type: 'text',
+      agent_mode: false,
+      agent_type: 'helix_basic',
       knowledge: [],
       apis: [],
       zapier: [],
@@ -302,6 +304,16 @@ export const useApp = (appId: string) => {
       updatedApp.config.allowed_domains = updates.allowedDomains
     }
 
+
+    // Agent configuration at app level (defaults)
+    if (updates.default_agent_type !== undefined) {
+      updatedApp.config.helix.default_agent_type = updates.default_agent_type
+    }
+
+    if (updates.external_agent_config !== undefined) {
+      updatedApp.config.helix.external_agent_config = updates.external_agent_config
+    }
+
     /*
       values below here are part of the assistant config
       so we ensure we have at least one assistant before updating
@@ -450,6 +462,11 @@ export const useApp = (appId: string) => {
 
     if (updates.azureDevOpsTool !== undefined) {
       assistants[0].azure_devops = updates.azureDevOpsTool
+    }
+
+    // Agent type configuration at assistant level
+    if (updates.default_agent_type !== undefined) {
+      assistants[0].agent_type = updates.default_agent_type
     }
     
     if (updates.tests !== undefined) {
@@ -967,6 +984,8 @@ export const useApp = (appId: string) => {
     loadApp,
     saveApp,
     saveFlatApp,
+
+
 
     // Knowledge methods
     onUpdateKnowledge,
