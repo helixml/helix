@@ -1,7 +1,7 @@
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
     restart: always
-    entrypoint: bash -c "cd /workspace/helix && go version && GOTOOLCHAIN=local go mod download && tail -f /dev/null"
+    entrypoint: bash -c "cd /workspace/helix && go version && tail -f /dev/null"
     env_file:
         - .env
     environment:
@@ -26,15 +26,19 @@ services:
             context: .
             dockerfile: Dockerfile
             target: api-dev-env
+        networks:
+            default:
+                ipv4_address: 172.19.0.20
         ports:
             - ${API_PORT:-8080}:8080
+            - "3478:3478/udp"  # TURN server for WebRTC NAT traversal
+            - "3478:3478/tcp"  # TURN server TCP transport (firewall fallback)
         restart: always
         env_file:
             - .env
         environment:
             - SERVER_PORT=8080
             - LOG_LEVEL=${LOG_LEVEL:-debug}
-            - APP_URL=${SERVER_URL:-http://localhost:8080}
             - POSTGRES_HOST=postgres
             - POSTGRES_DATABASE=postgres
             - POSTGRES_USER=postgres
@@ -87,12 +91,31 @@ services:
             - RAG_PGVECTOR_PROVIDER=helix
             # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
+            # Wolf integration for external agents
+            - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+            - WOLF_MODE=${WOLF_MODE:-apps}  # "apps" (default) or "lobbies" (multi-user with PIN support)
+            - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
+            - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
+            # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
+            - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
+            - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+            # TURN server configuration for WebRTC
+            - TURN_ENABLED=true
+            - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-api}  # Use 'api' hostname for local relay (auto-detects public IP)
+            - TURN_PORT=3478
+            - TURN_REALM=helix.ai
+            - TURN_USERNAME=helix
+            - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
             - ./api:/app/api
+            - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
             - ${FILESTORE_DATA:-helix-filestore}:/filestore
             - helix-socket:/socket
+            # Bind-mount from host (Wolf creates socket here)
+            - /var/run/wolf:/var/run/wolf:rw
         depends_on:
             - postgres
             - keycloak
@@ -107,6 +130,7 @@ services:
         volumes:
             - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
             - ./scripts/postgres:/docker-entrypoint-initdb.d
+
         environment:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
@@ -118,7 +142,7 @@ services:
         restart: always
         command: ["--access-mode=unrestricted", "--transport=sse"]
         environment:
-            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres            
+            - DATABASE_URI=postgresql://postgres:postgres@postgres:5432/postgres
         ports:
         - 8000:8000
     # postgres 15 with pgvector installed
@@ -221,52 +245,227 @@ services:
             - ./integration-test/data/smoke:/integration-test/data/smoke
         # ports:
         #   - 7317:7317
-    gptscript_runner:
-        build:
-            context: .
-            dockerfile: Dockerfile.gptscript
-        restart: always
-        environment:
-            - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-            - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-            - API_HOST=http://api:8080
-            - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-            - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
-            - CONCURRENCY=20 # number of tasks to run concurrently
-            - MAX_TASKS=0 # max number of tasks to run before exiting. Set to 0 to run forever
-        depends_on:
-            - api
 
-    # Base runner without GPU, fakes GPU by using CPU memory
-    runner:
-        <<: *runner-config
-        profiles: ["runner"]
-        build:
-            context: .
-            dockerfile: Dockerfile.runner
-            args:
-                TAG: 2025-08-13c-small
-                # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
-                DEVELOPMENT_CPU_ONLY: "true"
-        environment:
-            # Passes cpu-only flags to vllm
-            - DEVELOPMENT_CPU_ONLY=true
-            # Prevent toolchain downloads
-            - GOTOOLCHAIN=local
-            # Force vLLM to use CPU
-            - VLLM_DEVICE=cpu
-            - VLLM_LOGGING_LEVEL=DEBUG
+    wolf:
+      image: wolf:helix-fixed
+      # image: ghcr.io/games-on-whales/wolf:wolf-ui
+      networks:
+        default:
+          ipv4_address: 172.19.0.50
+      environment:
+        - NVIDIA_DRIVER_CAPABILITIES=all
+        - NVIDIA_VISIBLE_DEVICES=all
+        # Wolf-UI required environment variables
+        - XDG_RUNTIME_DIR=/tmp/sockets
+        - HOST_APPS_STATE_FOLDER=/etc/wolf
+        - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+        # Debug logging for HTTPS connection issues and UDP/RTP activity
+        - WOLF_LOG_LEVEL=DEBUG
+        # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
+        # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
+        - GST_DEBUG=1
+        # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
+        # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
+        # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
+        - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+        - WOLF_INTERNAL_IP=172.19.0.50
+        # Fix HTTPS SSL certificate paths for proper SSL operation
+        - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+        - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+        # Enable Nvidia zero-copy for better performance with new waylanddisplaysrc
+        # New wolf-ui branch supports direct CUDAMemory output from waylanddisplaysrc
+        - WOLF_USE_ZERO_COPY=TRUE
+        # Internal moonlight-web pairing PIN (secure random, shared via env)
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      volumes:
+        - ./wolf/:/etc/wolf/cfg/
+        # Mount init script into container init directory
+        - ./wolf/init-wolf-config.sh:/etc/cont-init.d/05-init-wolf-config.sh:ro
+        - /tmp/sockets:/tmp/sockets:rw
+        - /var/run/docker.sock:/var/run/docker.sock:rw
+        - /dev/:/dev/:rw
+        - /run/udev:/run/udev:rw
+        # Bind-mount to host so wolf-ui containers can bind-mount it
+        - /var/run/wolf:/var/run/wolf:rw
+      device_cgroup_rules:
+        - 'c 13:* rmw'
+      devices:
+        - /dev/dri
+        - /dev/uinput
+        - /dev/uhid
+      ports:
+        # Moonlight protocol ports
+        - "47984:47984"     # HTTPS
+        - "47989:47989"     # HTTP (pairing, serverinfo)
+        - "48010:48010"     # RTSP
+        - "47415:47415/udp" # Discovery
+        - "47999:47999/udp" # Control
+        - "48100:48100/udp" # Video RTP
+        - "48200:48200/udp" # Audio RTP
+      runtime: nvidia
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - capabilities: [gpu]
+      restart: unless-stopped
 
-    # GPU-enabled runner
+    # Moonlight Web Stream - Browser-based Moonlight streaming
+    moonlight-web:
+      image: helix-moonlight-web:helix-fixed
+      command: bash -c "/app/server/init-moonlight-config.sh"
+      ports:
+        - "8081:8080"  # Web interface
+        - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      networks:
+        - default
+      environment:
+        # Enable trace logging for debugging UDP/streaming issues
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace
+        # Internal pairing PIN (shared with Wolf, secure random in production)
+        - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        # Moonlight credentials for API authentication (must match config.json)
+        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+        # TURN server credentials (must match config.json)
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+        # TURN server public IP (auto-detected if not set, or use --api-host from install.sh)
+        - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        # Note: TURN config is templated in config.json.template with {{TURN_PUBLIC_IP}}
+        # Both moonlight-web and browser clients use the same ICE servers from that config
+        #
+        # IMPORTANT: config.json persists across restarts to avoid unnecessary regeneration.
+        # If your public IP changes and browser input stops working, force a refresh:
+        #   rm moonlight-web-config/config.json && docker compose -f docker-compose.dev.yaml restart moonlight-web
+      volumes:
+        - ./moonlight-web-config:/app/server:rw
+      restart: unless-stopped
+      depends_on:
+        - wolf
+
+    # Zed Agent Task Runner Pool (replaces gptscript runner entirely)
+    # Scale with: docker-compose up --scale zed-runner=5
+    # zed-runner:
+    #     build:
+    #         context: .
+    #         dockerfile: Dockerfile.zed-agent-vnc
+    #         args:
+    #             - BUILD_TYPE=release
+    #     ports:
+    #         - "5901:5901"  # Expose VNC for direct testing
+    #         # Moonlight/Sunshine ports for direct client testing
+    #         #- "47989:47989"  # Moonlight HTTP/HTTPS main port
+    #         #- "47990:47990"  # Sunshine web UI (HTTPS config interface)
+    #         #- "47984:47984"  # Moonlight HTTPS control
+    #         #- "47999:47999"  # Moonlight control port (TCP)
+    #         #- "47999:47999/udp"  # Moonlight control port (UDP)
+    #         #- "48010:48010"  # Moonlight RTSP (TCP)
+    #         #- "48010:48010/udp"  # Moonlight RTSP (UDP)
+    #         #- "47998:47998/udp"  # Moonlight video RTP stream (actual streaming port)
+    #         #- "48000:48000/udp"  # Moonlight audio RTP stream (actual streaming port)
+    #         #- "48100:48100"  # Moonlight video ping/discovery (TCP)
+    #         #- "48100:48100/udp"  # Moonlight video ping/discovery (UDP)
+    #         #- "48200:48200"  # Moonlight audio ping/discovery (TCP)
+    #         #- "48200:48200/udp"  # Moonlight audio ping/discovery (UDP)
+    #     environment:
+    #         # Control plane connection
+    #         - API_HOST=http://api:8080
+    #         - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+    #         - LOG_LEVEL=debug
+
+    #         # Zed runner configuration - one session per container, then exit
+    #         - CONCURRENCY=1
+    #         - MAX_TASKS=0  # 0 means unlimited tasks - stay alive for multiple requests
+    #         - SESSION_TIMEOUT=3600
+
+    #         # Container uses fixed settings since each container is isolated
+    #         - WORKSPACE_DIR=/tmp/workspace
+    #         - WAYLAND_DISPLAY=wayland-0
+    #         - WLR_RENDERER=gles2
+    #         - WLR_BACKENDS=headless
+    #         - WLR_HEADLESS_OUTPUTS=1
+    #         - WLR_NO_HARDWARE_CURSORS=1
+    #         - VNC_PASSWORD=${VNC_PASSWORD:-helix123}
+    #         # Also set RDP_PASSWORD for Helix agent (backwards compatibility)
+    #         - RDP_PASSWORD=${VNC_PASSWORD:-helix123}
+
+    #         # HyprMoon screencopy configuration
+    #         - HYPRMOON_FRAME_SOURCE=screencopy
+    #         - HYPRMOON_WAYLAND_DISPLAY=wayland-1
+    #         - HYPRMOON_DEBUG_SAVE_FRAMES=1
+
+    #         # Wolf-style GPU configuration for container runtime
+    #         - NVIDIA_VISIBLE_DEVICES=all
+    #         - NVIDIA_DRIVER_CAPABILITIES=all
+    #         - WOLF_RENDER_NODE=/dev/dri/renderD128
+    #         - GST_GL_DRM_DEVICE=/dev/dri/renderD128
+    #     volumes:
+    #         # Mount source code for hot reloading during development
+    #         - .:/workspace/helix
+    #         # Persistence for user data in zed environment
+    #         - zed-work:/home/ubuntu/work
+    #         # Go caches for faster development
+    #         - go-pkg-mod:/go/pkg/mod
+    #         - go-build-cache:/root/.cache/go-build
+    #         # Mount Zed launcher scripts for easy iteration
+    #         - ./zed.sh:/usr/local/bin/zed.sh
+    #         - ./zed-vgl.sh:/usr/local/bin/zed-vgl.sh
+    #         - ./zed-wayland.sh:/usr/local/bin/zed-wayland.sh
+    #         # Mount zed-build directory for live binary updates
+    #         - ./zed-build:/zed-build
+    #         # Mount startup script for fast iteration without rebuilds
+    #         - ./start-wayland-vnc.sh:/start-wayland-vnc.sh
+    #         - ./start-ubuntu-session.sh:/start-ubuntu-session.sh
+    #         # Mount Hyprland config for fast iteration
+    #         - ./hypr-config:/home/ubuntu/.config/hypr
+    #         # Mount AGS config from dots-hyprland for fast iteration
+    #         - /home/luke/pm/dots-hyprland/.config/ags:/home/ubuntu/.config/ags
+    #         # Mount screencopy frame captures for debugging/monitoring
+    #         - ./screencopy-frames:/tmp/hyprmoon_frame_dumps
+    #         # Mount Zed config for persistence
+    #         - ./zed-config:/home/ubuntu/.config/zed
+    #     # Add comprehensive GPU access via DRI and NVIDIA devices (Wolf-style)
+    #     devices:
+    #         - "/dev/dri:/dev/dri"
+    #         - "/dev/nvidia0:/dev/nvidia0"
+    #         - "/dev/nvidiactl:/dev/nvidiactl"
+    #         - "/dev/nvidia-modeset:/dev/nvidia-modeset"
+    #         - "/dev/nvidia-uvm:/dev/nvidia-uvm"
+    #         - "/dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools"
+    #     # Enable privileged mode for better GPU access
+    #     privileged: true
+    #     # Explicitly use nvidia runtime for full GPU support
+    #     runtime: nvidia
+    #     # No port mapping needed - RDP proxied over WebSocket connection
+    #     restart: always
+    #     depends_on:
+    #         - api
+    #     deploy:
+    #         # Default to 1 runner, scale with --scale zed-runner=N
+    #         replicas: 1
+    #         resources:
+    #             reservations:
+    #                 devices:
+    #                     - driver: nvidia
+    #                       count: all
+    #                       capabilities: [gpu]
+
+    # GPU-enabled runner (for LLM inference)
     runner_gpu:
         <<: *runner-config
         profiles: ["runner_gpu"]
+        entrypoint: bash -c "cd /workspace/helix && export PATH=/root/go/bin:\$PATH && export HELIX_COMMAND=runner && air --build.bin /helix-runner --build.cmd 'CGO_ENABLED=1 go build -buildvcs=false -tags \"!rocm\" -ldflags \"-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev\" -o /helix-runner ./runner-cmd/helix-runner' --build.stop_on_error true --log.main_only true"
         build:
             context: .
             dockerfile: Dockerfile.runner
             args:
                 TAG: 2025-08-13c-large
         environment:
+            # Runner configuration
+            - API_HOST=http://172.17.0.1:8080
+            - API_TOKEN=oh-hallo-insecure-token
+            - RUNNER_ID=dev-gpu-runner
+            - LOG_LEVEL=debug
+            - HELIX_COMMAND=runner
             # Prevent toolchain downloads
             - GOTOOLCHAIN=local
         deploy:
@@ -320,7 +519,7 @@ services:
         environment:
             - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
             - LOG_LEVEL=INFO
-            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL} # Need to set this to an external VLLM server in development
+            - VLLM_BASE_URL=${RAG_HAYSTACK_EMBEDDINGS_BASE_URL:-} # Need to set this to an external VLLM server in development
             - VLLM_API_KEY=${RAG_HAYSTACK_EMBEDDINGS_API_KEY:-EMPTY}
             - RAG_HAYSTACK_EMBEDDINGS_MODEL=${RAG_HAYSTACK_EMBEDDINGS_MODEL:-MrLight/dse-qwen2-2b-mrl-v1}
             - RAG_HAYSTACK_EMBEDDINGS_DIM=${RAG_HAYSTACK_EMBEDDINGS_DIM:-1536}
@@ -363,10 +562,17 @@ volumes:
     helix-filestore:
     helix-typesense-db:
     helix-socket:
+    wolf-socket:
+    zed-work:
+
     go-pkg-mod: # Go module cache
     go-build-cache: # Go build cache
     go-sdk-cache: # Go toolchain/SDK cache
+    # No persistent volumes for zed workspaces - using tmpfs for clean sessions
 
 networks:
     default:
         name: helix_default
+        ipam:
+            config:
+                - subnet: 172.19.0.0/16

@@ -186,6 +186,7 @@ type AccessGrantRoleBinding struct {
 // there might not be a record for every user
 type UserMeta struct {
 	ID     string     `json:"id"`
+	Slug   string     `json:"slug" gorm:"uniqueIndex"` // URL-friendly username slug for GitHub-style URLs
 	Config UserConfig `json:"config" gorm:"type:json"`
 }
 

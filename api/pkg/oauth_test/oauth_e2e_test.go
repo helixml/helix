@@ -280,7 +280,7 @@ paths:
 	require.NoError(t, err, "Failed to load OAuth providers")
 
 	// Set up the rest of the controller
-	toolsPlanner, err := tools.NewChainStrategy(&cfg, db, nil, mockClient)
+	toolsPlanner, err := tools.NewChainStrategy(&cfg, db, mockClient)
 	require.NoError(t, err, "Failed to create chain strategy")
 	tools.InitChainStrategyOAuth(toolsPlanner, oauthManager, db, db)
 

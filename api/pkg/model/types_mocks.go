@@ -57,6 +57,20 @@ func (mr *MockModelMockRecorder) GetCommand(ctx, sessionFilter, config any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCommand", reflect.TypeOf((*MockModel)(nil).GetCommand), ctx, sessionFilter, config)
 }
 
+// GetConcurrency mocks base method.
+func (m *MockModel) GetConcurrency() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetConcurrency")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetConcurrency indicates an expected call of GetConcurrency.
+func (mr *MockModelMockRecorder) GetConcurrency() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConcurrency", reflect.TypeOf((*MockModel)(nil).GetConcurrency))
+}
+
 // GetContextLength mocks base method.
 func (m *MockModel) GetContextLength() int64 {
 	m.ctrl.T.Helper()
@@ -83,20 +97,6 @@ func (m *MockModel) GetMemoryRequirements(mode types.SessionMode) uint64 {
 func (mr *MockModelMockRecorder) GetMemoryRequirements(mode any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryRequirements", reflect.TypeOf((*MockModel)(nil).GetMemoryRequirements), mode)
-}
-
-// GetNumParallel mocks base method.
-func (m *MockModel) GetNumParallel() int {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNumParallel")
-	ret0, _ := ret[0].(int)
-	return ret0
-}
-
-// GetNumParallel indicates an expected call of GetNumParallel.
-func (mr *MockModelMockRecorder) GetNumParallel() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNumParallel", reflect.TypeOf((*MockModel)(nil).GetNumParallel))
 }
 
 // GetTask mocks base method.

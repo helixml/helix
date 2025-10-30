@@ -138,12 +138,14 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		return openai.ChatCompletionResponse{}, err
 	}
 
-	// Always include usage
-	if request.StreamOptions == nil {
-		request.StreamOptions = &openai.StreamOptions{}
+	// Only set StreamOptions for non-Anthropic providers (OpenAI supports it in non-streaming mode)
+	// Anthropic API enforces that stream_options can only be used when stream=true
+	if !isAnthropicProvider(c.baseURL) {
+		if request.StreamOptions == nil {
+			request.StreamOptions = &openai.StreamOptions{}
+		}
+		request.StreamOptions.IncludeUsage = true
 	}
-
-	request.StreamOptions.IncludeUsage = true
 
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)

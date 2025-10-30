@@ -20,35 +20,43 @@ import { styled } from '@mui/material/styles'
 
 import {
   IAppFlatState,
+  IAgentType,
+  IExternalAgentConfig,
+  AGENT_TYPE_HELIX_BASIC,
+  AGENT_TYPE_HELIX_AGENT,
+  AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
+
+
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
 
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
   // Tool use required, reasoning and tool calling, must be strong model for complex tasks
   reasoning: [
-    'o3-mini', 
-    'o4-mini', 
-    'Qwen/Qwen2.5-72B-Instruct-Turbo', 
-    'Qwen/Qwen3-235B-A22B-fp8-tput',    
+    'o3-mini',
+    'o4-mini',
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
   ],
   // Tool use required, planning next actions using skills
   generation: [
-    'gpt-4o', 
-    'gpt-4o-mini', 
-    'Qwen/Qwen3-235B-A22B-fp8-tput', 
-    'meta-llama/Llama-4-Scout-17B-16E-Instruct', 
+    'gpt-4o',
+    'gpt-4o-mini',
+    'Qwen/Qwen3-235B-A22B-fp8-tput',
+    'meta-llama/Llama-4-Scout-17B-16E-Instruct',
     'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'
   ],
-  // No tool use required but might be useful 
+  // No tool use required but might be useful
   smallReasoning: [
-    'o3-mini', 
-    'o4-mini', 
-    'gpt-4o-mini', 
-    'gpt-4o', 
-    'Qwen/Qwen2.5-72B-Instruct-Turbo',     
-    'Qwen/Qwen2.5-7B-Instruct-Turbo',     
+    'o3-mini',
+    'o4-mini',
+    'gpt-4o-mini',
+    'gpt-4o',
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+    'Qwen/Qwen2.5-7B-Instruct-Turbo',
   ],
   // No tool use required, can be any text generation model
   smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
@@ -81,7 +89,7 @@ const useDebounce = (callback: Function, delay: number) => {
 const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant called Helix. Today is {{ .LocalDate }}, local time is {{ .LocalTime }}.`
 
 // Define default values.
-// If you are updating these, also update 
+// If you are updating these, also update
 // 'func setAppDefaults(apps ...*types.App)' in api/pkg/store/store_apps.go
 const DEFAULT_VALUES = {
   system_prompt: DEFAULT_SYSTEM_PROMPT,
@@ -203,7 +211,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
   const [memory, setMemory] = useState(app.memory || false)
-  const [max_iterations, setMaxIterations] = useState(String(app.max_iterations ?? DEFAULT_VALUES.max_iterations))
+  const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+
+  // Agent type settings
+  const [default_agent_type, setDefaultAgentType] = useState<IAgentType>(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+  const [external_agent_config, setExternalAgentConfig] = useState<IExternalAgentConfig>(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
@@ -214,7 +226,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
-  
+
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
   const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
@@ -223,7 +235,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'none')
   const [temperature, setTemperature] = useState(app.temperature || DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p || 1)
-  
+
   // Track if component has been initialized
   const isInitialized = useRef(false)
 
@@ -236,19 +248,21 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
+      setDefaultAgentType(app.default_agent_type || AGENT_TYPE_HELIX_BASIC)
+      setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
       setReasoningModelProvider(app.reasoning_model_provider || '')
-      
+
       setGenerationModel(app.generation_model || '')
       setGenerationModelProvider(app.generation_model_provider || '')
-      
+
       setSmallReasoningModel(app.small_reasoning_model || '')
       setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
-      
+
       setSmallGenerationModel(app.small_generation_model || '')
       setSmallGenerationModelProvider(app.small_generation_model_provider || '')
-      
+
       setProvider(app.provider || '')
       setContextLimit(app.context_limit || 0)
       setFrequencyPenalty(app.frequency_penalty || 0)
@@ -257,13 +271,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
-      setMaxIterations(String(app.max_iterations ?? DEFAULT_VALUES.max_iterations))
-      
+      setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+
       // Mark as initialized
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
- 
+
   // Create debounced version of the update function
   const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
     const updatedApp: IAppFlatState = {
@@ -271,6 +285,8 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       agent_mode,
+      default_agent_type,
+      external_agent_config,
       reasoning_model,
       reasoning_model_provider,
       reasoning_model_effort,
@@ -290,9 +306,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       temperature: field === 'temperature' ? value as number : temperature,
       top_p: field === 'topP' ? value as number : topP,
       system_prompt: field === 'system_prompt' ? value as string : system_prompt,
-      max_iterations: field === 'maxIterations' ? parseInt(value as string) || 0 : parseInt(max_iterations) || 0
+      max_iterations: field === 'maxIterations' ? value as number : max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }, 300)
 
@@ -308,12 +324,43 @@ const AppSettings: FC<AppSettingsProps> = ({
     } else if (field === 'agent_mode') {
       setAgentMode(value)
     }
-        
+
     // Create updated state and call onUpdate immediately for checkboxes
     const updatedApp: IAppFlatState = {
       ...app,
       global: field === 'global' ? value : global,
       agent_mode: field === 'agent_mode' ? value : agent_mode,
+      default_agent_type,
+      external_agent_config,
+      model,
+      provider,
+      context_limit: contextLimit,
+      frequency_penalty: frequencyPenalty,
+      max_tokens: maxTokens,
+      presence_penalty: presencePenalty,
+      reasoning_effort: reasoningEffort,
+      temperature: temperature,
+      top_p: topP,
+      max_iterations: max_iterations
+    }
+
+    onUpdate(updatedApp)
+  }
+
+  // Handle agent type changes
+  const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
+    setDefaultAgentType(agentType)
+
+    if (config !== undefined) {
+      setExternalAgentConfig(config)
+    }
+
+    const updatedApp: IAppFlatState = {
+      ...app,
+      global,
+      agent_mode,
+      default_agent_type: agentType,
+      external_agent_config: config !== undefined ? config : external_agent_config,
       model,
       provider,
       context_limit: contextLimit,
@@ -323,17 +370,17 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
-      max_iterations: parseInt(max_iterations) || 0
+      system_prompt: system_prompt,
+      max_iterations: max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }
-
 
   const handleModelChange = (provider: string, model: string) => {
     setModel(model)
     setProvider(provider)
-    
+
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
       ...app,
@@ -347,9 +394,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
-      max_iterations: parseInt(max_iterations) || 0
+      max_iterations: max_iterations
     }
-    
+
     onUpdate(updatedApp)
   }
 
@@ -412,8 +459,8 @@ const AppSettings: FC<AppSettingsProps> = ({
         handleAdvancedChangeWithDebounce('system_prompt', value as string)
         break
       case 'max_iterations':
-        setMaxIterations(String(value))
-        handleAdvancedChangeWithDebounce('maxIterations', String(value))
+        setMaxIterations(value as number)
+        handleAdvancedChangeWithDebounce('maxIterations', value as number)
         break
     }
   }
@@ -483,7 +530,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           <ResetLink field="system_prompt" value={system_prompt} onClick={() => handleReset('system_prompt')} />
         </Stack>
         <Typography variant="body2" color="text.secondary">
-          
+
         </Typography>
         <Box sx={{ mb: 3, mt: 1 }}>
           <ResizableTextarea
@@ -494,7 +541,7 @@ const AppSettings: FC<AppSettingsProps> = ({
             }}
             disabled={readOnly}
             placeholder="What does this agent do? How does it behave? What should it avoid doing?"
-            style={{ 
+            style={{
               minHeight: '200px',
               resize: 'vertical'
             }}
@@ -503,32 +550,53 @@ const AppSettings: FC<AppSettingsProps> = ({
             What does this agent do? How does it behave? What should it avoid doing?
           </Typography>
         </Box>
+
+        {/* Agent Type Selection */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" sx={{ mb: 2 }}>Default Agent Type</Typography>
+        <AgentTypeSelector
+          value={default_agent_type}
+          onChange={handleAgentTypeChange}
+          externalAgentConfig={external_agent_config}
+          disabled={readOnly}
+          showExternalConfig={default_agent_type === AGENT_TYPE_ZED_EXTERNAL}
+        />
+
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              Use a more sophisticated reasoning process with separate models for different tasks.
-            </Typography>
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={agent_mode}
-                onChange={(e) => handleCheckboxChange('agent_mode', e.target.checked)}
-                disabled={readOnly}
-              />
-            }
-            label="Agent Mode"
+      {/* Basic Agent Configuration - Model Selection Only */}
+      {default_agent_type === AGENT_TYPE_HELIX_BASIC && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2 }}>Basic Agent Model</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose the model for simple conversational AI (no multi-turn tool use, useful for RAG).
+          </Typography>
+          <AdvancedModelPicker
+            recommendedModels={RECOMMENDED_MODELS.smallGeneration}
+            hint="Choose a fast, efficient model for simple conversations and RAG tasks."
+            selectedProvider={provider}
+            selectedModelId={model}
+            onSelectModel={(provider, modelId) => {
+              setModel(modelId);
+              setProvider(provider);
+              const updatedApp: IAppFlatState = {
+                ...app,
+                model: modelId,
+                provider: provider,
+              };
+              onUpdate(updatedApp);
+            }}
+            currentType="text"
+            displayMode="short"
           />
-        </Stack>
+        </Box>
+      )}
 
-        {agent_mode && (          
+        {/* Multi-Turn Agent Configuration */}
+        {default_agent_type === AGENT_TYPE_HELIX_AGENT && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Multi-Turn Agent Configuration</Typography>
 
-            
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -555,7 +623,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Tooltip 
+                  <Tooltip
                     title={getEffortTooltip(reasoning_model_effort)}
                     placement="top"
                     arrow
@@ -587,10 +655,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                           }),
                         }}
                       >
-                        <Typography 
-                          variant="caption" 
+                        <Typography
+                          variant="caption"
                           component="span"
-                          sx={{ 
+                          sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -621,13 +689,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       { value: 'medium', tooltip: 'Medium reasoning effort - balanced reasoning steps, good balance of speed and thoroughness' },
                       { value: 'high', tooltip: 'High reasoning effort - extensive reasoning steps, most thorough but may be slower' }
                     ].map(({ value, tooltip }) => (
-                      <Tooltip 
+                      <Tooltip
                         key={value}
                         title={tooltip}
                         placement="right"
                         arrow
                       >
-                        <MenuItem 
+                        <MenuItem
                           onClick={() => handleEffortSelect(value, true)}
                           selected={value === reasoning_model_effort}
                         >
@@ -696,7 +764,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Tooltip 
+                  <Tooltip
                     title={getEffortTooltip(small_reasoning_model_effort)}
                     placement="top"
                     arrow
@@ -728,10 +796,10 @@ const AppSettings: FC<AppSettingsProps> = ({
                           }),
                         }}
                       >
-                        <Typography 
-                          variant="caption" 
+                        <Typography
+                          variant="caption"
                           component="span"
-                          sx={{ 
+                          sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -762,13 +830,13 @@ const AppSettings: FC<AppSettingsProps> = ({
                       { value: 'medium', tooltip: 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness' },
                       { value: 'high', tooltip: 'High effort - extensive reasoning steps, most thorough but may be slower' }
                     ].map(({ value, tooltip }) => (
-                      <Tooltip 
+                      <Tooltip
                         key={value}
                         title={tooltip}
                         placement="right"
                         arrow
                       >
-                        <MenuItem 
+                        <MenuItem
                           onClick={() => handleEffortSelect(value, false)}
                           selected={value === small_reasoning_model_effort}
                         >
@@ -830,49 +898,23 @@ const AppSettings: FC<AppSettingsProps> = ({
 
               <TextField
                 sx={{ mt: 1 }}
+                type="number"
                 value={max_iterations}
                 onChange={(e) => {
-                  // const value = parseInt(e.target.value);
-                  // if (isNaN(value)) {
-                  //   return;
-                  // }
-                  setMaxIterations(e.target.value);
-                  handleAdvancedChangeWithDebounce('maxIterations', e.target.value);
+                  const value = parseInt(e.target.value) || DEFAULT_VALUES.max_iterations;
+                  setMaxIterations(value);
+                  handleAdvancedChangeWithDebounce('maxIterations', value);
                 }}
                 fullWidth
                 disabled={readOnly}
+                inputProps={{ min: 1 }}
               />
             </Box>
           </Box>
         )}
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-          <Box flexGrow={1}>
-            <AdvancedModelPicker
-              selectedProvider={provider}
-              selectedModelId={model}
-              onSelectModel={handleModelChange}
-              currentType="text"
-              displayMode="short"
-              disabled={agent_mode}
-            />
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={showAdvanced && !agent_mode}
-                onChange={(e) => setShowAdvanced(e.target.checked)}
-                disabled={readOnly || agent_mode}
-              />
-            }
-            label="Advanced Model Settings"
-          />
-        </Stack>
-      </Box>
-
-      {showAdvanced && !agent_mode && (
+      {showAdvanced && default_agent_type === AGENT_TYPE_HELIX_BASIC && (
         <Box sx={{ mb: 3 }}>
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
@@ -893,7 +935,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                   <MenuItem key={num} value={num}>{num} Message{num > 1 ? 's' : ''}</MenuItem>
                 ))}
               </Select>
-            </FormControl>           
+            </FormControl>
           </Box>
 
           <Box sx={{ mb: 3 }}>
@@ -958,7 +1000,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography gutterBottom>Presence Penalty ({presencePenalty.toFixed(2)})</Typography>
               <ResetLink field="presence_penalty" value={presencePenalty} onClick={() => handleReset('presence_penalty')} />
             </Stack>
-            <Typography variant="body2" color="text.secondary"> 
+            <Typography variant="body2" color="text.secondary">
               Increases the model's likelihood to talk about new topics. Higher values (2) make it more open-minded, while lower values (0) maintain balanced responses.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
@@ -979,14 +1021,14 @@ const AppSettings: FC<AppSettingsProps> = ({
               </Box>
               <Typography variant="caption" sx={{ mr: 3 }}></Typography>
             </Box>
-          </Box> 
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
               <Typography gutterBottom>Top P ({topP.toFixed(2)})</Typography>
               <ResetLink field="top_p" value={topP} onClick={() => handleReset('top_p')} />
             </Stack>
-            <Typography variant="body2" color="text.secondary"> 
+            <Typography variant="body2" color="text.secondary">
               Controls diversity via nucleus sampling. Lower values (near 0) make output more focused, while higher values (near 1) allow more diverse responses.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
@@ -1020,13 +1062,13 @@ const AppSettings: FC<AppSettingsProps> = ({
 
             <TextField
               sx={{ mt: 1 }}
-              type="number"              
+              type="number"
               value={maxTokens}
               onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
               fullWidth
               disabled={readOnly}
             />
-          </Box>          
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
@@ -1036,8 +1078,8 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Typography variant="body2" color="text.secondary">
               Controls the effort on reasoning for reasoning models. Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning in a response.
             </Typography>
-            <FormControl fullWidth sx={{ mt: 1 }}>              
-              <Select              
+            <FormControl fullWidth sx={{ mt: 1 }}>
+              <Select
                 value={reasoningEffort}
                 onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
                 disabled={readOnly}
@@ -1052,6 +1094,25 @@ const AppSettings: FC<AppSettingsProps> = ({
 
           <Divider sx={{ mb: 3, mt: 3 }} />
         </Box>
+      )}
+
+      {isAdmin && (
+        <Tooltip title="Make this app available to all users">
+          <FormGroup>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={global}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                    handleCheckboxChange('global', event.target.checked)
+                  }}
+                // Never disable global checkbox -- required for github apps and normal apps
+                />
+              }
+              label="Global?"
+            />
+          </FormGroup>
+        </Tooltip>
       )}
     </Box>
   )

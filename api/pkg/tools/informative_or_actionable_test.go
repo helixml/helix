@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -25,7 +24,6 @@ func TestActionTestSuite(t *testing.T) {
 type ActionTestSuite struct {
 	suite.Suite
 	ctrl         *gomock.Controller
-	executor     *gptscript.MockExecutor
 	store        *store.MockStore
 	ctx          context.Context
 	strategy     *ChainStrategy
@@ -37,7 +35,6 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	suite.ctrl = gomock.NewController(suite.T())
 
-	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
 	suite.store = store.NewMockStore(suite.ctrl)
 
 	suite.zapierAPIKey = os.Getenv("ZAPIER_API_KEY")
@@ -59,7 +56,7 @@ func (suite *ActionTestSuite) SetupTest() {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
 
-	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, apiClient)
+	strategy, err := NewChainStrategy(&cfg, suite.store, apiClient)
 	suite.NoError(err)
 
 	suite.strategy = strategy

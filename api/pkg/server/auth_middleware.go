@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/helixml/helix/api/pkg/auth"
+	authpkg "github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -37,15 +37,15 @@ type authMiddlewareConfig struct {
 }
 
 type authMiddleware struct {
-	authenticator         auth.AuthenticatorOIDC
-	keycloakAuthenticator auth.Authenticator
+	authenticator         authpkg.AuthenticatorOIDC
+	keycloakAuthenticator authpkg.Authenticator
 	store                 store.Store
 	cfg                   authMiddlewareConfig
 }
 
 func newAuthMiddleware(
-	authenticator auth.AuthenticatorOIDC,
-	keycloakAuthenticator auth.Authenticator,
+	authenticator authpkg.AuthenticatorOIDC,
+	keycloakAuthenticator authpkg.Authenticator,
 	store store.Store,
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
@@ -139,6 +139,8 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	if token == auth.cfg.runnerToken {
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
+			ID:        "runner-system",  // Add a system user ID for runner tokens
+			Type:      types.OwnerTypeUser,
 			Token:     token,
 			TokenType: types.TokenTypeRunner,
 		}, nil
@@ -171,6 +173,17 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			user.AppID = apiKey.AppID.String
 		}
 
+		// Ensure user_meta exists with slug for GitHub-style URLs
+		if user.ID != "" {
+			_, err := auth.store.EnsureUserMeta(ctx, types.UserMeta{
+				ID: user.ID,
+			})
+			if err != nil {
+				log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to ensure user meta")
+				// Don't fail auth if user_meta creation fails - just log the warning
+			}
+		}
+
 		return user, nil
 	}
 
@@ -180,6 +193,18 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 		log.Error().Err(err).Str("token", token).Msg("error validating user token")
 		return nil, err
 	}
+
+	// Ensure user_meta exists with slug for GitHub-style URLs
+	if user != nil && user.ID != "" {
+		_, err := auth.store.EnsureUserMeta(ctx, types.UserMeta{
+			ID: user.ID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("user_id", user.ID).Msg("failed to ensure user meta")
+			// Don't fail auth if user_meta creation fails - just log the warning
+		}
+	}
+
 	return user, nil
 }
 
@@ -191,6 +216,14 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
+			// Check if error is due to server not ready vs invalid token
+			// Return 503 for server errors so frontend doesn't auto-logout during API restart
+			if errors.Is(err, authpkg.ErrProviderNotReady) {
+				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
+				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
@@ -217,6 +250,14 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
+			// Check if error is due to server not ready vs invalid token
+			// Return 503 for server errors so frontend doesn't auto-logout during API restart
+			if errors.Is(err, authpkg.ErrProviderNotReady) {
+				log.Warn().Err(err).Str("path", r.URL.Path).Msg("OIDC provider not ready during auth check")
+				http.Error(w, "Authentication service temporarily unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			log.Debug().Err(err).Str("path", r.URL.Path).Msg("Auth error - returning 401")
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}

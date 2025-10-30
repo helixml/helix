@@ -7,6 +7,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import SettingsIcon from '@mui/icons-material/Settings'
+import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
@@ -57,6 +58,13 @@ const AdminPanelSidebar: FC = () => {
           icon: <DirectionsRunIcon />,
           isActive: currentTab === 'runners',
           onClick: () => handleNavigationClick('runners')
+        },
+        {
+          id: 'agent_sandboxes',
+          label: 'Agent Sandboxes',
+          icon: <DeveloperBoardIcon />,
+          isActive: currentTab === 'agent_sandboxes',
+          onClick: () => handleNavigationClick('agent_sandboxes')
         }
       ]
     },

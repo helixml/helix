@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	ErrInvalidConfig = errors.New("invalid config")
+	ErrInvalidConfig    = errors.New("invalid config")
+	ErrProviderNotReady = errors.New("OIDC provider not ready")
 )
 
 type OIDCClient struct {
@@ -93,7 +94,8 @@ func (c *OIDCClient) getProvider() (*oidc.Provider, error) {
 		log.Trace().Str("provider_url", c.cfg.ProviderURL).Msg("Getting provider")
 		provider, err := oidc.NewProvider(context.Background(), c.cfg.ProviderURL)
 		if err != nil {
-			return nil, err
+			// Wrap error to indicate provider not ready (used to return 503 instead of 401)
+			return nil, fmt.Errorf("%w: %v", ErrProviderNotReady, err)
 		}
 		c.provider = provider
 	}
