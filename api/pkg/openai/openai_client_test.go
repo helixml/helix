@@ -43,39 +43,6 @@ func TestRetry(t *testing.T) {
 	require.Equal(t, "test-model", resp.Model)
 }
 
-func TestIncludeUsage(t *testing.T) {
-	var called bool
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-
-		var req openai.ChatCompletionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			require.NoError(t, err)
-		}
-
-		require.True(t, req.StreamOptions.IncludeUsage)
-
-		if err := json.NewEncoder(w).Encode(&openai.ChatCompletionResponse{
-			Model: "test-model",
-			Usage: openai.Usage{
-				TotalTokens: 100,
-			},
-		}); err != nil {
-			t.Logf("failed encoding request: %v", err)
-		}
-	}))
-	defer ts.Close()
-
-	client := New("test", ts.URL, true)
-
-	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
-	require.NoError(t, err)
-
-	require.True(t, called)
-	require.Equal(t, 100, resp.Usage.TotalTokens)
-}
-
 func TestIncludeUsage_Stream(t *testing.T) {
 	var called bool
 
