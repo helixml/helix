@@ -47,6 +47,13 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
   // Fetch Wolf UI app ID for lobbies mode
   useEffect(() => {
     const fetchAppId = async () => {
+      console.log('[AUTO-JOIN DEBUG] MoonlightWebPlayer URL construction:', {
+        sessionId,
+        wolfLobbyId,
+        isPersonalDevEnvironment,
+        mode: wolfLobbyId ? 'LOBBIES' : 'APPS'
+      });
+
       if (wolfLobbyId) {
         // Lobbies mode: Fetch Wolf UI app ID dynamically from Wolf
         try {
@@ -54,8 +61,20 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
           if (response.ok) {
             const data = await response.json();
             const wolfUIAppID = data.wolf_ui_app_id;
-            setStreamUrl(`/moonlight/stream.html?hostId=0&appId=${wolfUIAppID}`);
-            console.log(`MoonlightWebPlayer: Using Wolf UI app ID ${wolfUIAppID} for lobbies mode`);
+
+            // TODO: Auto-join implementation - pass lobby context to moonlight-web
+            // Current: Only passes hostId and appId (Wolf UI browser)
+            // Needed: lobbyId and lobbyPin for auto-joining
+            // See: design/2025-10-30-lobby-auto-join-investigation.md
+            const url = `/moonlight/stream.html?hostId=0&appId=${wolfUIAppID}`;
+            setStreamUrl(url);
+
+            console.log('[AUTO-JOIN DEBUG] Constructed lobbies mode URL:', {
+              wolfUIAppID,
+              wolfLobbyId,
+              url,
+              note: 'AUTO-JOIN NOT IMPLEMENTED - lobby context not passed to moonlight-web'
+            });
           } else {
             console.warn('MoonlightWebPlayer: Failed to fetch Wolf UI app ID, using default 0');
             setStreamUrl(`/moonlight/stream.html?hostId=0&appId=0`);
@@ -66,6 +85,7 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
         }
       } else {
         // Apps mode: connect directly to specific app
+        console.log('[AUTO-JOIN DEBUG] Apps mode - direct connection to app 1');
         setStreamUrl(`/moonlight/stream.html?hostId=0&appId=1`);
       }
     };
