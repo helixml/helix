@@ -953,13 +953,14 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
 			wolfUISessions = append(wolfUISessions, sessionInfo)
 
-			// Match by client_unique_id pattern (SECURE)
-			if session.ClientUniqueID == expectedUniqueID {
+			// SECURITY: Match by client_unique_id pattern only (no fallback)
+			// Wolf now properly exposes client_unique_id in /api/v1/sessions
+			if session.ClientUniqueID != "" && session.ClientUniqueID == expectedUniqueID {
 				moonlightSessionID = session.ClientID
 				log.Info().
 					Str("matched_client_id", session.ClientID).
 					Str("matched_unique_id", session.ClientUniqueID).
-					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id")
+					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id (secure)")
 			}
 		}
 	}
@@ -969,8 +970,8 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 			Str("expected_unique_id", expectedUniqueID).
 			Strs("available_sessions", wolfUISessions).
 			Int("total_sessions", len(sessionsData.Sessions)).
-			Msg("[AUTO-JOIN] No Wolf UI session found with matching client_unique_id - client may not have connected yet")
-		return fmt.Errorf("Wolf UI session not found for client_unique_id '%s' - client may not have connected yet", expectedUniqueID)
+			Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
+		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
 	}
 
 	// Log all available Wolf UI sessions for debugging
