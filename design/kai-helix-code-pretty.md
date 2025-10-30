@@ -24,7 +24,7 @@ ssh kai@code.helix.ml
 From local:
 
 ```
-ssh -L 8080:localhost:8080 -L 8081:localhost:8081 root@code.helix.ml
+ssh -L 8080:localhost:8080 -L 8081:localhost:8081 kai@dev.code.helix.ml
 ```
 
 ## build stack

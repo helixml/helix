@@ -183,10 +183,19 @@ EOF
     echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
     echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+    echo "# Floating window mouse controls (drag with Super+mouse)" >> $HOME/.config/sway/config
+    echo "floating_modifier \$mod normal" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec ghostty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
+    echo "# Window management keybindings" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+f fullscreen toggle" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+space floating toggle" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Shift+minus move scratchpad" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+minus scratchpad show" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config

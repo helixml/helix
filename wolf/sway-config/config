@@ -11,4 +11,90 @@ output * bg /usr/share/backgrounds/helix-logo.png fill
 # Configure HiDPI scaling for display WL-1
 output WL-1 scale 1.5
 
-# Note: Key bindings are added in startup-app.sh (after $mod is defined)
+# ===================================================================
+# SwayFX Visual Effects (MAXIMUM VISUAL IMPACT)
+# ===================================================================
+
+# Enhanced Blur Effects - High quality with depth
+blur enable
+
+# Maximum quality blur (0-10 range)
+blur_passes 8
+
+# Strong blur effect (0-10 range)
+blur_radius 7
+
+# Subtle texture to prevent banding
+blur_noise 0.03
+
+# Slightly dimmed for depth perception
+blur_brightness 0.95
+
+# Enhanced contrast for clarity
+blur_contrast 1.1
+
+# Richer, more vibrant colors
+blur_saturation 1.1
+
+# Stack blurs for layered depth effect
+blur_xray disable
+
+# Larger radius for modern macOS-like appearance
+corner_radius 12
+
+# Enhanced Window Shadows - Highly visible with depth
+shadows enable
+
+# Shadows on client-side decorations
+shadows_on_csd enable
+
+# Large, soft shadows (0-99 range)
+shadow_blur_radius 10
+
+# Dark shadow, 67% opacity for visibility
+shadow_color #000000AA
+
+# Shadow positioned below windows for depth
+shadow_offset 0 8
+
+# Dimmed shadows for unfocused windows
+shadow_inactive_color #00000055
+
+# Dim Unfocused Windows - Clear visual hierarchy
+# 40% dimming for inactive windows
+default_dim_inactive 0.4
+
+# Subtle dark overlay
+dim_inactive_colors.unfocused #00000066
+
+# Red tint for urgent windows
+dim_inactive_colors.urgent #900000FF
+
+# Remove separator between titlebar and content
+titlebar_separator disable
+
+# Enhanced Waybar Effects - Premium status bar appearance
+layer_effects "waybar" {
+    blur enable
+    blur_xray enable
+    blur_ignore_transparent enable
+    shadows enable
+    corner_radius 10
+}
+
+# ===================================================================
+# Floating Window Configuration (Traditional Desktop Behavior)
+# ===================================================================
+
+# Make all windows float by default (disable auto-tiling)
+# for_window [class=".*"] floating enable
+# for_window [app_id=".*"] floating enable
+
+# Show title bars for click-and-drag without modifier keys
+default_border normal
+
+# Customize title bar appearance to match SwayFX theme
+titlebar_padding 5
+titlebar_border_thickness 2
+
+# Note: Key bindings and floating_modifier are added in startup-app.sh (after $mod is defined)

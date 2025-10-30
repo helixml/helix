@@ -13,6 +13,59 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
 
 # ====================================================================
+# SwayFX Builder Stage (using official SwayFX build system)
+# ====================================================================
+FROM debian:trixie AS swayfx-builder
+
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ENV LANG=C.UTF-8
+
+# Install SwayFX build dependencies (from official Dockerfile)
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+    build-essential cmake cdbs devscripts equivs meson \
+    wayland-protocols libwayland-dev libwayland-bin libwayland-client0 \
+    libdrm-dev libxkbcommon-dev libudev-dev hwdata libseat-dev \
+    libgles-dev libavutil-dev libavcodec-dev libavformat-dev libgbm-dev \
+    xwayland libxcb-composite0-dev libxcb-icccm4-dev libxcb-res0-dev \
+    libxcb-errors-dev libinput-dev libxcb-present-dev libxcb-render-util0-dev \
+    libxcb-xinput-dev glslang-tools glslang-dev libpcre2-dev libjson-c-dev \
+    libgdk-pixbuf-2.0-dev libsystemd-dev scdoc bash-completion \
+    libpango1.0-dev libcairo2-dev libxcb-ewmh-dev libdisplay-info-dev \
+    libliftoff-dev liblcms2-dev libvulkan-dev wget bash git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Set exact versions from SwayFX's compose.yml
+ENV WLROOTSVERSION=0.19.0 \
+    WLROOTSLIBVERSION=0.19 \
+    SWAYFXVERSION=0.5.3 \
+    SCENEFXVERSION=0.4.1 \
+    SCENEFXLIBVERSION=0.4
+
+# Download wlroots, scenefx, and swayfx source
+RUN wget "https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/${WLROOTSVERSION}/wlroots-${WLROOTSVERSION}.tar.gz" && \
+    tar -xf "wlroots-${WLROOTSVERSION}.tar.gz" && rm "wlroots-${WLROOTSVERSION}.tar.gz" && \
+    wget "https://github.com/WillPower3309/swayfx/archive/refs/tags/${SWAYFXVERSION}.tar.gz" && \
+    tar -xf "${SWAYFXVERSION}.tar.gz" && rm "${SWAYFXVERSION}.tar.gz" && \
+    wget "https://github.com/wlrfx/scenefx/archive/refs/tags/${SCENEFXVERSION}.tar.gz" && \
+    tar -xf "${SCENEFXVERSION}.tar.gz" && rm "${SCENEFXVERSION}.tar.gz"
+
+# Build wlroots → scenefx → swayfx in order (using official build script logic)
+RUN meson setup --prefix /opt "wlroots-${WLROOTSVERSION}/build/" "wlroots-${WLROOTSVERSION}" && \
+    ninja -C "wlroots-${WLROOTSVERSION}/build/" && \
+    ninja -C "wlroots-${WLROOTSVERSION}/build/" install && \
+    PKG_CONFIG_PATH="/opt/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH}" \
+    meson setup --prefix /opt --cmake-prefix-path /opt "scenefx-${SCENEFXVERSION}/build/" "scenefx-${SCENEFXVERSION}" && \
+    ninja -C "scenefx-${SCENEFXVERSION}/build/" && \
+    ninja -C "scenefx-${SCENEFXVERSION}/build/" install && \
+    PKG_CONFIG_PATH="/opt/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH}" \
+    meson setup --prefix /opt --cmake-prefix-path /opt "swayfx-${SWAYFXVERSION}/build/" "swayfx-${SWAYFXVERSION}" && \
+    ninja -C "swayfx-${SWAYFXVERSION}/build/" && \
+    ninja -C "swayfx-${SWAYFXVERSION}/build/" install
+
+# ====================================================================
 # Sway Personal Dev Environment
 # ====================================================================
 FROM ghcr.io/games-on-whales/base-app:edge
@@ -81,6 +134,16 @@ RUN apt-get update && apt-get install -y \
 # Download and set Helix logo as background
 RUN mkdir -p /usr/share/backgrounds && \
     wget -O /usr/share/backgrounds/helix-logo.png https://helix.ml/assets/helix-logo.png
+
+# Copy SwayFX from builder stage (replaces standard Sway with visual effects version)
+COPY --from=swayfx-builder /opt/bin/sway /usr/bin/sway
+COPY --from=swayfx-builder /opt/bin/swaymsg /usr/bin/swaymsg
+COPY --from=swayfx-builder /opt/bin/swaybar /usr/bin/swaybar
+COPY --from=swayfx-builder /opt/bin/swaynag /usr/bin/swaynag
+COPY --from=swayfx-builder /opt/lib/x86_64-linux-gnu/ /usr/local/lib/x86_64-linux-gnu/
+
+# Configure dynamic linker to find SwayFX libraries
+RUN echo "/usr/local/lib/x86_64-linux-gnu" >> /etc/ld.so.conf.d/swayfx.conf && ldconfig
 
 # Copy Sway custom configuration (placed in image, GOW will set up proper user directories at runtime)
 RUN mkdir -p /cfg/sway
