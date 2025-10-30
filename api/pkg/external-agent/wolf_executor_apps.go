@@ -44,15 +44,22 @@ type AppWolfExecutor struct {
 
 // NewAppWolfExecutor creates a new app-based Wolf executor
 func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) *AppWolfExecutor {
-	// CRITICAL: Validate HELIX_HOST_HOME is set - required for Wolf container mounts
+	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
+	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
+	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
 	helixHostHome := os.Getenv("HELIX_HOST_HOME")
-	if helixHostHome == "" {
-		log.Fatal().Msg("HELIX_HOST_HOME environment variable is required but not set. This variable must point to the Helix installation directory (e.g., /opt/HelixML or $HOME/HelixML). Please set it in your .env file.")
+
+	if devMode && helixHostHome == "" {
+		log.Fatal().Msg("HELIX_DEV_MODE is enabled but HELIX_HOST_HOME is not set. This variable must point to the Helix installation directory (e.g., /opt/HelixML or $HOME/HelixML) for dev bind-mounts. Please set it in your .env file.")
 	}
 
-	log.Info().
-		Str("helix_host_home", helixHostHome).
-		Msg("Wolf executor (apps mode) initialized with HELIX_HOST_HOME")
+	if devMode {
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("Wolf executor (apps mode) initialized with HELIX_HOST_HOME (dev mode)")
+	} else {
+		log.Info().Msg("Wolf executor (apps mode) initialized (production mode - using files baked into image)")
+	}
 
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
