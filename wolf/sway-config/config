@@ -1,6 +1,42 @@
 # Helix Personal Dev Environment custom Sway configuration
 # This gets included EARLY by GOW base config (before $mod is defined)
 # Therefore: NO bindsym commands here! Add those to startup-app.sh instead.
+#
+# ===================================================================
+# TESTING INSTRUCTIONS - SwayFX DRM Device Conflict Resolution
+# ===================================================================
+#
+# This config has been hardened to prevent DRM device conflicts that cause:
+# "legacy_drm_handle_device: Assertion `wl->drm_render_name == NULL' failed"
+#
+# To test configuration changes:
+#
+# 1. Rebuild Sway image after modifying this file:
+#    ./stack build-sway
+#
+# 2. Restart Wolf to pick up new image:
+#    docker compose -f docker-compose.dev.yaml down wolf
+#    docker compose -f docker-compose.dev.yaml up -d wolf
+#
+# 3. Create a new PDE or External Agent session (existing containers won't update)
+#
+# 4. Check logs for diagnostics:
+#    docker compose -f docker-compose.dev.yaml logs wolf | tail -50
+#
+# 5. Look for:
+#    - "=== DRM Device Diagnostics ===" showing available devices
+#    - Sway startup messages
+#    - If crash: Error handler message + container stays alive
+#
+# 6. If container crashes anyway, check Wolf logs for assertion details:
+#    docker compose -f docker-compose.dev.yaml logs wolf | grep -A5 -B5 "Assertion"
+#
+# TROUBLESHOOTING:
+# - If multiple renderD* devices appear: GPU conflict, check docker-compose.dev.yaml
+# - If "ERROR: Sway compositor crashed": Check which config option you re-enabled
+# - Container now stays alive after crashes for `docker exec` debugging
+#
+# ===================================================================
 
 # Disable Xwayland - force native Wayland for all apps (fixes Zed input issues with NVIDIA)
 xwayland disable
@@ -13,6 +49,22 @@ output WL-1 scale 1.5
 
 # ===================================================================
 # SwayFX Visual Effects (MAXIMUM VISUAL IMPACT)
+# ===================================================================
+#
+# IMPORTANT: Not all SwayFX features work in containerized/GPU-passthrough environments!
+#
+# SAFE features (tested working):
+#   - Global blur effects (blur enable, blur_passes, blur_radius, etc.)
+#   - Shadow effects (shadows enable, shadow_blur_radius, etc.)
+#   - Corner radius (corner_radius)
+#   - Dim inactive windows (default_dim_inactive)
+#
+# RISKY features (cause DRM device conflicts):
+#   - layer_effects with blur_xray (creates separate GPU context)
+#   - Output-specific configurations for non-existent displays (output WL-1)
+#   - Multiple blur contexts (global + layer-specific)
+#
+# If Sway crashes with "wl->drm_render_name == NULL", disable layer_effects first.
 # ===================================================================
 
 # Enhanced Blur Effects - High quality with depth
@@ -74,13 +126,21 @@ dim_inactive_colors.urgent #900000FF
 titlebar_separator disable
 
 # Enhanced Waybar Effects - Premium status bar appearance
-layer_effects "waybar" {
-    blur enable
-    blur_xray enable
-    blur_ignore_transparent enable
-    shadows enable
-    corner_radius 10
-}
+# DISABLED: layer_effects with blur_xray creates a SEPARATE GPU rendering context
+# This causes Sway to initialize a second DRM device, triggering:
+# "legacy_drm_handle_device: Assertion `wl->drm_render_name == NULL' failed"
+#
+# The blur_xray option is specifically problematic as it creates an independent
+# render pipeline for the layer. Even without blur_xray, having layer-specific
+# blur alongside global blur can cause DRM conflicts in containerized environments.
+#
+# layer_effects "waybar" {
+#     blur enable
+#     blur_xray enable
+#     blur_ignore_transparent enable
+#     shadows enable
+#     corner_radius 10
+# }
 
 # ===================================================================
 # Floating Window Configuration (Traditional Desktop Behavior)
@@ -91,10 +151,10 @@ layer_effects "waybar" {
 # for_window [app_id=".*"] floating enable
 
 # Show title bars for click-and-drag without modifier keys
-default_border normal
+# default_border normal
 
 # Customize title bar appearance to match SwayFX theme
-titlebar_padding 5
-titlebar_border_thickness 2
+# titlebar_padding 5
+# titlebar_border_thickness 2
 
 # Note: Key bindings and floating_modifier are added in startup-app.sh (after $mod is defined)

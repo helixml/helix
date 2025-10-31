@@ -1,5 +1,30 @@
 #!/bin/bash
 # GOW base-app startup script for Helix Personal Dev Environment
+#
+# ===================================================================
+# TESTING INSTRUCTIONS - Sway Startup Error Handling
+# ===================================================================
+#
+# This script has been hardened to prevent container crashes when Sway fails.
+#
+# Features:
+# 1. DRM device diagnostics logged before Sway starts
+# 2. Error handler catches Sway crashes
+# 3. Container stays alive for debugging if Sway fails
+#
+# When Sway crashes, you'll see:
+# - "ERROR: Sway compositor crashed or failed!" message
+# - Diagnostic hints about common causes
+# - Container stays running (tail -f /dev/null)
+#
+# To debug a crashed container:
+#   docker ps  # Find container ID
+#   docker exec -it <container-id> /bin/bash
+#   ls -la /dev/dri/  # Check DRM devices
+#   cat $HOME/.config/sway/config  # Review Sway config
+#
+# ===================================================================
+
 set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
@@ -183,20 +208,20 @@ EOF
     echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
     echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Floating window mouse controls (drag with Super+mouse)" >> $HOME/.config/sway/config
-    echo "floating_modifier \$mod normal" >> $HOME/.config/sway/config
-    echo "" >> $HOME/.config/sway/config
+    # echo "# Floating window mouse controls (drag with Super+mouse)" >> $HOME/.config/sway/config
+    # echo "floating_modifier \$mod normal" >> $HOME/.config/sway/config
+    # echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec ghostty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
-    echo "# Window management keybindings" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+f fullscreen toggle" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+space floating toggle" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+Shift+minus move scratchpad" >> $HOME/.config/sway/config
-    echo "bindsym \$mod+minus scratchpad show" >> $HOME/.config/sway/config
-    echo "" >> $HOME/.config/sway/config
+    # echo "# Window management keybindings" >> $HOME/.config/sway/config
+    # echo "bindsym \$mod+f fullscreen toggle" >> $HOME/.config/sway/config
+    # echo "bindsym \$mod+Shift+space floating toggle" >> $HOME/.config/sway/config
+    # echo "bindsym \$mod+Shift+minus move scratchpad" >> $HOME/.config/sway/config
+    # echo "bindsym \$mod+minus scratchpad show" >> $HOME/.config/sway/config
+    # echo "" >> $HOME/.config/sway/config
     echo "# Start screenshot server and settings-sync daemon after Sway is ready (wayland-1 available)" >> $HOME/.config/sway/config
     echo "exec WAYLAND_DISPLAY=wayland-1 /usr/local/bin/screenshot-server > /tmp/screenshot-server.log 2>&1" >> $HOME/.config/sway/config
     # Pass required environment variables to settings-sync-daemon
@@ -212,8 +237,54 @@ EOF
     #   echo -n " && killall sway" >> $HOME/.config/sway/config
     # fi
 
-    # Start sway
-    dbus-run-session -- sway --unsupported-gpu
+    # ================================================================
+    # Diagnostics: Log DRM devices before starting Sway
+    # ================================================================
+    echo "=== DRM Device Diagnostics ==="
+    echo "Available DRM devices:"
+    ls -la /dev/dri/ 2>&1 || echo "No /dev/dri/ directory found"
+
+    echo ""
+    echo "NVIDIA devices:"
+    ls -la /dev/nvidia* 2>&1 || echo "No NVIDIA devices found"
+
+    echo ""
+    echo "Environment variables:"
+    echo "  NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES"
+    echo "  NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES"
+    echo "=============================="
+    echo ""
+
+    # ================================================================
+    # Start sway with error handling
+    # ================================================================
+    echo "Starting Sway compositor..."
+
+    # Set up error handler to prevent container crash
+    handle_sway_error() {
+      echo ""
+      echo "=========================================="
+      echo "ERROR: Sway compositor crashed or failed!"
+      echo "=========================================="
+      echo ""
+      echo "This usually indicates a GPU/DRM device conflict."
+      echo "Check the error messages above for details."
+      echo ""
+      echo "Common causes:"
+      echo "  1. Multiple DRM devices detected (check DRM diagnostics above)"
+      echo "  2. SwayFX layer_effects with blur_xray enabled"
+      echo "  3. Output configuration for non-existent displays"
+      echo ""
+      echo "Container will stay alive for log inspection..."
+      echo "To access: docker exec -it <container> /bin/bash"
+      echo ""
+
+      # Keep container alive for debugging
+      tail -f /dev/null
+    }
+
+    # Run Sway - if it crashes, run error handler
+    dbus-run-session -- sway --unsupported-gpu || handle_sway_error
   else
     echo "[exec] Starting: $@"
     exec $@
