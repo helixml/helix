@@ -1753,6 +1753,16 @@ definitions:
     - GitRepositoryTypeSpecTask
     - GitRepositoryTypeSample
     - GitRepositoryTypeTemplate
+  services.GitRepositoryUpdateRequest:
+    properties:
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+    type: object
   services.HandoffResult:
     properties:
       branch_name:
@@ -8318,6 +8328,30 @@ paths:
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}:
+    delete:
+      description: Delete a git repository and its metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete git repository
+      tags:
+      - git-repositories
     get:
       description: Get information about a specific git repository
       parameters:
@@ -8344,6 +8378,46 @@ paths:
       security:
       - BearerAuth: []
       summary: Get git repository
+      tags:
+      - git-repositories
+    put:
+      consumes:
+      - application/json
+      description: Update an existing git repository's metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository update request
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/services.GitRepositoryUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update git repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/clone-command:

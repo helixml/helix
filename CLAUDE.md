@@ -340,6 +340,38 @@ environment.configured_tools && environment.configured_tools.length > 0
 
 This file must be kept up to date with any critical lessons learned during development.
 
+## Frontend UX Guidelines
+
+**CRITICAL: NEVER USE HTML5 NUMBER INPUT BOXES**
+
+- **NEVER use `type="number"`** on TextField or input elements
+- Number inputs with spinner buttons have terrible UX
+- **ALWAYS use regular text inputs** for numeric values
+- Parse values with `parseInt()` or `parseFloat()` in onChange handlers
+
+**Example:**
+```typescript
+// ❌ WRONG: Creates spinner buttons with poor UX
+<TextField
+  type="number"
+  value={limit}
+  onChange={(e) => setLimit(parseInt(e.target.value))}
+  inputProps={{ min: 1, max: 20 }}
+/>
+
+// ✅ CORRECT: Regular text input, parse on change
+<TextField
+  value={limit}
+  onChange={(e) => setLimit(parseInt(e.target.value) || 0)}
+/>
+```
+
+**Why this matters:**
+- HTML5 number input spinner buttons are difficult to use
+- Users prefer typing numbers directly without UI interference
+- Spinner buttons take up space and provide minimal value
+- Text inputs with parseInt/parseFloat provide better UX
+
 ## Wolf Streaming Platform Operations and Debugging
 
 ### CRITICAL: Wolf App Management and Persistence

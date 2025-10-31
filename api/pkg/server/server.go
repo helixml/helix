@@ -307,6 +307,7 @@ func NewServer(
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
+			externalAgentExecutor,      // Wolf executor for launching external agents
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -891,10 +892,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.getBoardSettings).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.updateBoardSettings).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/specs", apiServer.getTaskSpecs).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 
 	// Multi-session spec-driven task routes
@@ -939,6 +944,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.updateGitRepository).Methods(http.MethodPut)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.deleteGitRepository).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
 
 	// Spec-driven task routes

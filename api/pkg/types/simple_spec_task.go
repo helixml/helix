@@ -62,6 +62,7 @@ type SpecTask struct {
 	CreatedBy string                 `json:"created_by"`
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
+	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
 	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
@@ -110,13 +111,15 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Status    string `json:"status,omitempty"`
-	UserID    string `json:"user_id,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Priority  string `json:"priority,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	UserID          string `json:"user_id,omitempty"`
+	Type            string `json:"type,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Offset          int    `json:"offset,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"` // If true, include both archived and non-archived
+	ArchivedOnly    bool   `json:"archived_only,omitempty"`    // If true, show only archived tasks
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask

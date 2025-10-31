@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -146,6 +147,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.Project{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
 		&types.SpecTaskZedThread{},
@@ -235,6 +237,12 @@ func (s *PostgresStore) autoMigrate() error {
 
 	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	// Ensure default project exists for spec tasks
+	if err := s.ensureDefaultProject(context.Background()); err != nil {
+		log.Err(err).Msg("failed to ensure default project exists")
+		return err
 	}
 
 	return nil
@@ -505,6 +513,66 @@ func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Projec
 		return nil, fmt.Errorf("error creating project: %w", err)
 	}
 	return project, nil
+}
+
+// GetProject gets a project by ID
+func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting project: %w", err)
+	}
+	return &project, nil
+}
+
+// UpdateProject updates an existing project
+func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Project) error {
+	err := s.gdb.WithContext(ctx).Save(project).Error
+	if err != nil {
+		return fmt.Errorf("error updating project: %w", err)
+	}
+	return nil
+}
+
+// ensureDefaultProject ensures that the default project exists for spec tasks
+// This project is used as a singleton board for all spec tasks until multi-project support is fully implemented
+func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", "default").First(&project).Error
+
+	if err == gorm.ErrRecordNotFound {
+		// Create default project with board settings
+		defaultProject := &types.Project{
+			ID:             "default",
+			Name:           "Default Project",
+			Description:    "Default project for spec-driven tasks",
+			Status:         "active",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+			Metadata: datatypes.JSON([]byte(`{
+				"board_settings": {
+					"wip_limits": {
+						"planning": 3,
+						"review": 2,
+						"implementation": 5
+					}
+				}
+			}`)),
+		}
+
+		err = s.gdb.WithContext(ctx).Create(defaultProject).Error
+		if err != nil {
+			return fmt.Errorf("failed to create default project: %w", err)
+		}
+
+		log.Info().Msg("Created default project for spec tasks")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check for default project: %w", err)
+	}
+
+	// Project exists, nothing to do
+	return nil
 }
 
 // GetDB returns the underlying GORM database connection for testing purposes

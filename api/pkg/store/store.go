@@ -478,6 +478,8 @@ type Store interface {
 
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
+	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	UpdateProject(ctx context.Context, project *types.Project) error
 
 	// Personal Dev Environment methods
 	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)

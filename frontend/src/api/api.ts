@@ -1065,6 +1065,12 @@ export enum ServicesGitRepositoryType {
   GitRepositoryTypeTemplate = "template",
 }
 
+export interface ServicesGitRepositoryUpdateRequest {
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
+}
+
 export interface ServicesHandoffResult {
   branch_name?: string;
   estimated_completion?: string;
@@ -5431,6 +5437,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a git repository and its metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDelete
+     * @summary Delete git repository
+     * @request DELETE:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get information about a specific git repository
      *
      * @tags git-repositories
@@ -5444,6 +5467,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing git repository's metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesUpdate
+     * @summary Update git repository
+     * @request PUT:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesUpdate: (id: string, repository: ServicesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "PUT",
+        body: repository,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

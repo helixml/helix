@@ -136,7 +136,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'spec-tasks',
     path: routePrefix + '/spec-tasks',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
       title: 'SpecTasks',
     },
