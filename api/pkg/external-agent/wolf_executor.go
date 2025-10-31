@@ -21,11 +21,10 @@ import (
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	wolfClient    *wolf.Client
-	healthMonitor *wolf.HealthMonitor
-	store         store.Store
-	sessions      map[string]*ZedSession
-	mutex         sync.RWMutex
+	wolfClient WolfClientInterface
+	store      store.Store
+	sessions   map[string]*ZedSession
+	mutex      sync.RWMutex
 
 	// Zed configuration
 	zedImage      string
@@ -102,10 +101,24 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build standard mounts (common to all Sway apps)
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", os.Getenv("HELIX_HOST_HOME")),
-		fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", os.Getenv("HELIX_HOST_HOME")),
 		"/var/run/docker.sock:/var/run/docker.sock",
+	}
+
+	// Development mode: mount host files for hot-reloading
+	// Production mode: use files baked into helix-sway image
+	if os.Getenv("HELIX_DEV_MODE") == "true" {
+		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+
+		mounts = append(mounts,
+			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+		)
+	} else {
+		log.Debug().Msg("Production mode - using files baked into helix-sway image")
 	}
 
 	// Add SSH keys mount if user has SSH keys
@@ -156,12 +169,12 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 }
 
 // NewWolfExecutor creates a Wolf executor based on WOLF_MODE environment variable
-// WOLF_MODE=apps (default) - simpler, more reliable apps-based approach
-// WOLF_MODE=lobbies - feature-rich lobbies with keepalive and PINs
+// WOLF_MODE=lobbies (default) - lobbies persist naturally, no keepalive needed
+// WOLF_MODE=apps - requires keepalive sessions to prevent stale buffer crashes
 func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) Executor {
 	wolfMode := os.Getenv("WOLF_MODE")
 	if wolfMode == "" {
-		wolfMode = "apps" // Default to simpler, more stable apps model
+		wolfMode = "lobbies" // Default to lobbies - simpler, no keepalive needed
 	}
 
 	log.Info().Str("wolf_mode", wolfMode).Msg("Initializing Wolf executor")
@@ -179,6 +192,23 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
 func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
+	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
+	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
+	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
+	helixHostHome := os.Getenv("HELIX_HOST_HOME")
+
+	if devMode && helixHostHome == "" {
+		log.Fatal().Msg("HELIX_DEV_MODE is enabled but HELIX_HOST_HOME is not set. This variable must point to the Helix installation directory (e.g., /opt/HelixML or $HOME/HelixML) for dev bind-mounts. Please set it in your .env file.")
+	}
+
+	if devMode {
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("Wolf executor initialized with HELIX_HOST_HOME (dev mode)")
+	} else {
+		log.Info().Msg("Wolf executor initialized (production mode - using files baked into image)")
+	}
+
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &WolfExecutor{
@@ -191,21 +221,11 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
 	}
 
-	// Create health monitor for Wolf restarts (no keepalive reconciliation in lobbies mode)
-	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
-		// After Wolf restarts, reconcile lobbies
-		log.Info().Msg("Wolf restarted, reconciling lobbies")
-		executor.reconcileLobbies(ctx)
-	})
-
-	// Lobbies mode doesn't need keepalive reconciliation
-	// Lobbies persist naturally without the keepalive hack
+	// Lobbies mode doesn't need health monitoring or reconciliation
+	// Lobbies persist naturally across Wolf restarts
 
 	// Start idle external agent cleanup loop (30min timeout)
 	go executor.idleExternalAgentCleanupLoop(context.Background())
-
-	// Start Wolf health monitoring
-	executor.healthMonitor.Start(context.Background())
 
 	return executor
 }
@@ -274,13 +294,6 @@ func (w *WolfExecutor) reconcileKeepaliveSessions(ctx context.Context) {
 		// Start new keepalive goroutine
 		go w.startKeepaliveSession(ctx, sessionID, session.WolfLobbyID, "")
 	}
-}
-
-// reconcileLobbies checks lobbies after Wolf restarts (lobbies persist naturally, no keepalive needed)
-func (w *WolfExecutor) reconcileLobbies(ctx context.Context) {
-	// In lobbies mode, lobbies persist naturally without keepalive
-	// This is just a placeholder for future lobby reconciliation logic if needed
-	log.Info().Msg("Lobbies reconciliation completed (lobbies persist without keepalive)")
 }
 
 // StartZedAgent implements the Executor interface for external agent sessions
@@ -1561,8 +1574,18 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
 	mounts := []string{
-		fmt.Sprintf("%s:/home/retro/work", workspaceDir),                        // Mount persistent workspace
-		fmt.Sprintf("%s/zed-build:/zed-build:ro", os.Getenv("HELIX_HOST_HOME")), // Mount Zed directory to survive inode changes
+		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+	}
+
+	// Development mode: mount host files for hot-reloading
+	// Production mode: use files baked into helix-sway image
+	if os.Getenv("HELIX_DEV_MODE") == "true" {
+		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		mounts = append(mounts,
+			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+		)
 	}
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
@@ -1653,8 +1676,15 @@ func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bo
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
+// Note: This type-asserts the interface back to the concrete type.
+// Only use this when you need direct access to wolf.Client specific methods.
 func (w *WolfExecutor) GetWolfClient() *wolf.Client {
-	return w.wolfClient
+	if client, ok := w.wolfClient.(*wolf.Client); ok {
+		return client
+	}
+	// This should never happen in production, only in tests with mocks
+	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
+	return nil
 }
 
 // validateDisplayParams validates display configuration parameters

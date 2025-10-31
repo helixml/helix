@@ -927,7 +927,7 @@ export interface ServerWolfLobbyInfo {
 }
 
 export interface ServerWolfLobbyMemory {
-  client_count?: string;
+  client_count?: number;
   lobby_id?: string;
   lobby_name?: string;
   memory_bytes?: number;
@@ -1543,9 +1543,13 @@ export interface TypesAssistantAzureDevOps {
 }
 
 export interface TypesAssistantBrowser {
+  /** If true, the browser will cache the results of the tool call */
+  cache?: boolean;
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
+  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }
@@ -3681,9 +3685,13 @@ export interface TypesToolAzureDevOpsConfig {
 }
 
 export interface TypesToolBrowserConfig {
+  /** If true, the browser will cache the results of the tool call */
+  cache?: boolean;
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will not be used to open URLs, it will be a simple GET request */
+  no_browser?: boolean;
   /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
   process_output?: boolean;
 }
@@ -5103,6 +5111,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/dashboard/agent`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsAutoJoinLobbyCreate
+     * @summary Auto-join Wolf lobby after connection
+     * @request POST:/api/v1/external-agents/{sessionID}/auto-join-lobby
+     * @secure
+     */
+    v1ExternalAgentsAutoJoinLobbyCreate: (sessionId: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/auto-join-lobby`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -8277,6 +8304,22 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the Wolf UI app ID for lobbies mode streaming
+     *
+     * @tags Wolf
+     * @name V1WolfUiAppIdList
+     * @summary Get Wolf UI app ID
+     * @request GET:/api/v1/wolf/ui-app-id
+     */
+    v1WolfUiAppIdList: (params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/wolf/ui-app-id`,
+        method: "GET",
+        format: "json",
         ...params,
       }),
 

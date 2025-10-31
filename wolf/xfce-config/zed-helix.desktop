@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Zed Editor (Helix Agent)
-Comment=Zed editor connected to Helix controlplane
-Exec=/usr/local/bin/start-zed-helix.sh
-Icon=text-editor
-StartupNotify=true
-Categories=Development;TextEditor;
-Hidden=false

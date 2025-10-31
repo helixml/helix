@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useCallback, useRef } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Switch from '@mui/material/Switch'
@@ -41,12 +41,32 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
   const [nickname, setNickname] = useState<string>(crispTrigger?.nickname || '')
   const [showToken, setShowToken] = useState<boolean>(false)
   const [setupDialogOpen, setSetupDialogOpen] = useState<boolean>(false)
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // If crisp is configured, we need to get the status of the bot
   const { data: crispStatus, isLoading: isLoadingCrispStatus } = useGetAppTriggerStatus(appId, 'crisp', {
     enabled: hasCrispTrigger,
     refetchInterval: 1500
   })
+
+  // Debounced update function
+  const debouncedUpdate = useCallback((triggers: TypesTrigger[]) => {
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current)
+    }
+    debounceTimeoutRef.current = setTimeout(() => {
+      onUpdate(triggers)
+    }, 500)
+  }, [onUpdate])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Update state when triggers change
   useEffect(() => {
@@ -71,7 +91,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
             nickname: currentCrispTrigger.nickname || ''
           } 
         }]
-        onUpdate(newTriggers)
+        debouncedUpdate(newTriggers)
       } else {
         // Create a default Crisp trigger
         const newTriggers = [...triggers.filter(t => !t.crisp), { 
@@ -82,7 +102,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
             nickname: ''
           } 
         }]
-        onUpdate(newTriggers)
+        debouncedUpdate(newTriggers)
       }
     } else {
       // Keep the Crisp trigger but set enabled to false, preserving configuration
@@ -96,11 +116,11 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
             nickname: currentCrispTrigger.nickname || ''
           } 
         }]
-        onUpdate(updatedTriggers)
+        debouncedUpdate(updatedTriggers)
       } else {
         // Fallback: remove Crisp trigger if none exists
         const removedTriggers = triggers.filter(t => !t.crisp)
-        onUpdate(removedTriggers)
+        debouncedUpdate(removedTriggers)
       }
     }
   }
@@ -130,7 +150,7 @@ const TriggerCrisp: FC<TriggerCrispProps> = ({
         nickname: nicknameValue
       } 
     }]
-    onUpdate(newTriggers)
+    debouncedUpdate(newTriggers)
   }
 
   return (

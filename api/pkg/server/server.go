@@ -181,6 +181,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     cfg.OIDC.Audience,
 			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -203,6 +204,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     "account",
 			Scopes:       []string{"openid", "profile", "email"},
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
@@ -671,6 +673,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/keepalive", apiServer.getExternalAgentKeepaliveStatus).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
 
 	// Personal dev environment routes
 	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")

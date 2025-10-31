@@ -376,7 +376,13 @@ func TestDesignDocsWorktree_RealGitOperations(t *testing.T) {
 	require.NoError(t, err)
 	_, err = worktree.Add(".")
 	require.NoError(t, err)
-	_, err = worktree.Commit("Initial", &git.CommitOptions{})
+
+	signature := &object.Signature{
+		Name:  "Test Agent",
+		Email: "test@helix.ml",
+		When:  time.Now(),
+	}
+	_, err = worktree.Commit("Initial", &git.CommitOptions{Author: signature})
 	require.NoError(t, err)
 
 	// Use real DesignDocsWorktreeManager
@@ -441,7 +447,13 @@ func TestMultiPhaseWorkflow_GitBranches(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("# Project"), 0644))
 	_, err = worktree.Add(".")
 	require.NoError(t, err)
-	_, err = worktree.Commit("Initial commit", &git.CommitOptions{})
+
+	signature := &object.Signature{
+		Name:  "Test Agent",
+		Email: "test@helix.ml",
+		When:  time.Now(),
+	}
+	_, err = worktree.Commit("Initial commit", &git.CommitOptions{Author: signature})
 	require.NoError(t, err)
 
 	// PLANNING: Create helix-design-docs branch

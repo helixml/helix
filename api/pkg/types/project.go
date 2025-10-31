@@ -13,11 +13,10 @@ type Project struct {
 	Description    string         `json:"description"`
 	UserID         string         `json:"user_id" gorm:"index"`
 	OrganizationID string         `json:"organization_id" gorm:"index"`
-	GitHubRepoURL  string         `json:"github_repo_url"`
-	DefaultBranch  string         `json:"default_branch"`
-	Technologies   []string       `json:"technologies" gorm:"-"`
-	TechnologiesDB datatypes.JSON `json:"-" gorm:"column:technologies"`
-	Status         string         `json:"status"` // "active", "archived", "completed"
+	GitHubRepoURL string   `json:"github_repo_url"`
+	DefaultBranch string   `json:"default_branch"`
+	Technologies  []string `json:"technologies" gorm:"type:jsonb;serializer:json"`
+	Status        string   `json:"status"` // "active", "archived", "completed"
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	Metadata       datatypes.JSON `json:"metadata,omitempty"`
@@ -35,15 +34,12 @@ type ProjectTask struct {
 	AssignedAgent        string         `json:"assigned_agent,omitempty"`
 	SessionID            string         `json:"session_id,omitempty"`
 	BranchName           string         `json:"branch_name,omitempty"`
-	EstimatedHours       int            `json:"estimated_hours,omitempty"`
-	ActualHours          int            `json:"actual_hours,omitempty"`
-	Labels               []string       `json:"labels" gorm:"-"`
-	LabelsDB             datatypes.JSON `json:"-" gorm:"column:labels"`
-	AcceptanceCriteria   []string       `json:"acceptance_criteria" gorm:"-"`
-	AcceptanceCriteriaDB datatypes.JSON `json:"-" gorm:"column:acceptance_criteria"`
-	TechnicalNotes       string         `json:"technical_notes,omitempty"`
-	FilesToModify        []string       `json:"files_to_modify" gorm:"-"`
-	FilesToModifyDB      datatypes.JSON `json:"-" gorm:"column:files_to_modify"`
+	EstimatedHours     int      `json:"estimated_hours,omitempty"`
+	ActualHours        int      `json:"actual_hours,omitempty"`
+	Labels             []string `json:"labels" gorm:"type:jsonb;serializer:json"`
+	AcceptanceCriteria []string `json:"acceptance_criteria" gorm:"type:jsonb;serializer:json"`
+	TechnicalNotes     string   `json:"technical_notes,omitempty"`
+	FilesToModify      []string `json:"files_to_modify" gorm:"type:jsonb;serializer:json"`
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
 	CreatedBy            string         `json:"created_by"`
@@ -75,13 +71,11 @@ type ProjectTaskPullRequest struct {
 
 // ProjectTaskAgentProgress tracks agent progress on a task
 type ProjectTaskAgentProgress struct {
-	CompletedSteps   []string       `json:"completed_steps" gorm:"-"`
-	CompletedStepsDB datatypes.JSON `json:"-" gorm:"column:completed_steps"`
-	CurrentStep      string         `json:"current_step,omitempty"`
-	Blockers         []string       `json:"blockers" gorm:"-"`
-	BlockersDB       datatypes.JSON `json:"-" gorm:"column:blockers"`
-	ProgressPercent  int            `json:"progress_percent,omitempty"`
-	LastUpdateAt     *time.Time     `json:"last_update_at,omitempty"`
+	CompletedSteps  []string   `json:"completed_steps" gorm:"type:jsonb;serializer:json"`
+	CurrentStep     string     `json:"current_step,omitempty"`
+	Blockers        []string   `json:"blockers" gorm:"type:jsonb;serializer:json"`
+	ProgressPercent int        `json:"progress_percent,omitempty"`
+	LastUpdateAt    *time.Time `json:"last_update_at,omitempty"`
 }
 
 // ProjectStats represents project statistics

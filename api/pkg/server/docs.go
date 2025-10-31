@@ -1667,6 +1667,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/external-agents/{sessionID}/auto-join-lobby": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Auto-join Wolf lobby after connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Helix Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/external-agents/{sessionID}/keepalive": {
             "get": {
                 "security": [
@@ -8017,6 +8085,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/wolf/ui-app-id": {
+            "get": {
+                "description": "Get the Wolf UI app ID for lobbies mode streaming",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Wolf"
+                ],
+                "summary": "Get Wolf UI app ID",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/work-sessions/{sessionId}": {
             "get": {
                 "security": [
@@ -10983,7 +11080,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "client_count": {
-                    "type": "string"
+                    "type": "integer"
                 },
                 "lobby_id": {
                     "type": "string"
@@ -12755,11 +12852,19 @@ const docTemplate = `{
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
+                "cache": {
+                    "description": "If true, the browser will cache the results of the tool call",
+                    "type": "boolean"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
+                    "type": "boolean"
+                },
+                "no_browser": {
+                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {
@@ -17983,11 +18088,19 @@ const docTemplate = `{
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
+                "cache": {
+                    "description": "If true, the browser will cache the results of the tool call",
+                    "type": "boolean"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
+                    "type": "boolean"
+                },
+                "no_browser": {
+                    "description": "If true, the browser will not be used to open URLs, it will be a simple GET request",
                     "type": "boolean"
                 },
                 "process_output": {

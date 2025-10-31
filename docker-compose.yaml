@@ -53,6 +53,7 @@ services:
       # Wolf integration for Helix Code (External Agents / PDEs)
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
       - ZED_IMAGE=${ZED_IMAGE:-registry.helixml.tech/helix/zed-agent:latest}
+      - HELIX_HOST_HOME=${HELIX_HOST_HOME}
       # Moonlight Web credentials (must match moonlight-web config.json)
       - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
       # TURN server configuration for WebRTC (Helix Code)
@@ -268,8 +269,8 @@ services:
       # SSL certificate paths
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      # Performance optimization
-      - WOLF_USE_ZERO_COPY=FALSE
+      # GPU zero-copy optimization (required for lobbies mode format consistency)
+      - WOLF_USE_ZERO_COPY=TRUE
       # Internal moonlight-web pairing PIN (secure random, shared via env)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
     volumes:
@@ -309,6 +310,7 @@ services:
   moonlight-web:
     profiles: [code]
     image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
+    command: bash -c "/app/server/init-moonlight-config.sh"
     ports:
       - "8081:8080"  # Web interface
       - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
@@ -319,6 +321,10 @@ services:
       - RUST_LOG=moonlight_common=info,moonlight_web=info
       # Internal pairing PIN (shared with Wolf, secure random in production)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      # Moonlight credentials for API authentication (must match config.json)
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      # TURN server credentials (must match config.json)
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
     volumes:
       - ./moonlight-web-config:/app/server:rw
     restart: unless-stopped

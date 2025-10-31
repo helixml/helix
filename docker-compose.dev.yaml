@@ -96,6 +96,7 @@ services:
             - WOLF_MODE=${WOLF_MODE:-apps}  # "apps" (default) or "lobbies" (multi-user with PIN support)
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
+            - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
             # Moonlight-web architecture mode: "single" (keepalive/join, session-persistence) or "multi" (streamers API, broadcasting)
             - MOONLIGHT_WEB_MODE=${MOONLIGHT_WEB_MODE:-single}
             - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
@@ -323,6 +324,10 @@ services:
         - RUST_LOG=moonlight_common=trace,moonlight_web=trace
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        # Moonlight credentials for API authentication (must match config.json)
+        - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix}
+        # TURN server credentials (must match config.json)
+        - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         # TURN server public IP (auto-detected if not set, or use --api-host from install.sh)
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
         # Note: TURN config is templated in config.json.template with {{TURN_PUBLIC_IP}}

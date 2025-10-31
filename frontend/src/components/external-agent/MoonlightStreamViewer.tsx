@@ -227,6 +227,33 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setIsConnecting(false);
           setStatus('Streaming active');
           onConnectionChange?.(true);
+
+          // Auto-join lobby if in lobbies mode (after connection established)
+          if (wolfLobbyId && sessionId) {
+            console.log('[AUTO-JOIN] Connection established, triggering auto-join for lobby:', wolfLobbyId);
+
+            // Use setTimeout to ensure connection is fully established before triggering auto-join
+            setTimeout(async () => {
+              try {
+                // SECURITY: Backend derives Wolf client_id from Wolf API (no frontend parameter)
+                // This prevents manipulation - backend matches by client_unique_id pattern
+                console.log('[AUTO-JOIN] Triggering secure auto-join (backend derives Wolf client_id)');
+
+                const apiClient = helixApi.getApiClient();
+                const response = await apiClient.v1ExternalAgentsAutoJoinLobbyCreate(sessionId);
+
+                if (response.status === 200) {
+                  console.log('[AUTO-JOIN] ✅ Successfully auto-joined lobby:', response.data);
+                } else {
+                  console.warn('[AUTO-JOIN] Failed to auto-join lobby. Status:', response.status);
+                }
+              } catch (err: any) {
+                // Log error but don't fail - user can still manually join
+                console.error('[AUTO-JOIN] Error calling auto-join endpoint:', err);
+                console.error('[AUTO-JOIN] User can still manually join lobby via Wolf UI');
+              }
+            }, 1000); // Wait 1 second after connection complete
+          }
         } else if (data.type === 'error') {
           setError(data.message);
           setIsConnecting(false);

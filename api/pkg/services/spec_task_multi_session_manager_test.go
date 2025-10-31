@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/controller"
@@ -62,19 +63,9 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) 
 
 	// Mock store expectations
 	mockStore.EXPECT().GetSpecTask(ctx, specTaskID).Return(specTask, nil)
-	mockStore.EXPECT().GetApp(ctx, "test-zed-agent").Return(&types.App{
-		Config: types.AppConfig{
-			Helix: types.AppHelixConfig{
-				Name: "Test Zed Agent",
-				Assistants: []types.AssistantConfig{
-					{AgentType: "zed"},
-				},
-			},
-		},
-	}, nil)
 
-	// Expect workspace config update
-	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
+	// Note: GetApp and UpdateSpecTask (for workspace config) are only called when
+	// zedIntegrationService is not nil. Since it's nil in this test, these aren't called.
 
 	// Expect implementation sessions creation
 	expectedWorkSessions := []*types.SpecTaskWorkSession{
@@ -99,20 +90,19 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) 
 	mockStore.EXPECT().CreateImplementationSessions(ctx, specTaskID, config).
 		Return(expectedWorkSessions, nil)
 
-	// Expect Zed thread creation for each work session
-	for _, ws := range expectedWorkSessions {
-		mockStore.EXPECT().CreateSpecTaskZedThread(ctx, gomock.Any()).
-			DoAndReturn(func(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
-				assert.Equal(t, ws.ID, zedThread.WorkSessionID)
-				assert.Equal(t, specTaskID, zedThread.SpecTaskID)
-				assert.NotEmpty(t, zedThread.ZedThreadID)
-				return nil
-			})
-	}
+	// Note: Since zedIntegrationService is nil in this test, Zed-related operations
+	// (CreateZedInstance, CreateZedThread) are skipped by the nil checks in the code.
+	// This is intentional for testing the core session creation flow without Zed.
 
-	// Expect updated spec task with Zed instance
-	mockStore.EXPECT().UpdateSpecTaskZedInstance(ctx, specTaskID, gomock.Any()).Return(nil)
+	// Expect spec task status update (always happens)
 	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).Return(nil)
+
+	// Session context service will try to get Zed threads for each work session
+	// Since we didn't create Zed threads (zedIntegrationService is nil), these return errors
+	for range expectedWorkSessions {
+		mockStore.EXPECT().GetSpecTaskZedThreadByWorkSession(ctx, gomock.Any()).
+			Return(nil, fmt.Errorf("not found")).AnyTimes()
+	}
 
 	// Expect final overview call
 	expectedOverview := &types.SpecTaskMultiSessionOverviewResponse{
@@ -195,12 +185,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 	mockStore.EXPECT().SpawnWorkSession(ctx, parentSessionID, config).
 		Return(spawnedWorkSession, nil)
 	mockStore.EXPECT().GetSpecTask(ctx, specTaskID).Return(specTask, nil)
-	mockStore.EXPECT().CreateSpecTaskZedThread(ctx, gomock.Any()).
-		DoAndReturn(func(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
-			assert.Equal(t, spawnedWorkSession.ID, zedThread.WorkSessionID)
-			assert.Equal(t, specTaskID, zedThread.SpecTaskID)
-			return nil
-		})
+	// Note: CreateSpecTaskZedThread is NOT called because zedIntegrationService is nil in test setup
 
 	// Mock detail response
 	_ = &types.SpecTaskWorkSessionDetailResponse{
@@ -215,7 +200,7 @@ func TestSpecTaskMultiSessionManager_SpawnWorkSession(t *testing.T) {
 	mockStore.EXPECT().GetSession(ctx, "spawned-helix-session").
 		Return(&types.Session{ID: "spawned-helix-session"}, nil)
 	mockStore.EXPECT().GetSpecTaskZedThreadByWorkSession(ctx, spawnedWorkSession.ID).
-		Return(&types.SpecTaskZedThread{ID: "zed-thread-123"}, nil)
+		Return(&types.SpecTaskZedThread{ID: "zed-thread-123"}, nil).Times(2)
 	mockStore.EXPECT().ListSpecTaskImplementationTasks(ctx, specTaskID).
 		Return([]*types.SpecTaskImplementationTask{}, nil)
 	mockStore.EXPECT().ListSpecTaskWorkSessions(ctx, specTaskID).

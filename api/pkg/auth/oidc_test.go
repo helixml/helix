@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 )
@@ -22,6 +24,8 @@ import (
 type OIDCSuite struct {
 	suite.Suite
 	mockOIDCServer       *MockOIDCServer
+	mockStore            *store.MockStore
+	ctrl                 *gomock.Controller
 	client               *OIDCClient
 	ctx                  context.Context
 	testToken            string
@@ -33,8 +37,11 @@ func TestOIDCSuite(t *testing.T) {
 }
 
 func (s *OIDCSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
 	s.ctx = context.Background()
+
 	s.mockOIDCServer = NewMockOIDCServer()
+	s.mockStore = store.NewMockStore(s.ctrl)
 
 	client, err := NewOIDCClient(s.ctx, OIDCConfig{
 		ProviderURL:  s.mockOIDCServer.URL(),
@@ -42,9 +49,16 @@ func (s *OIDCSuite) SetupTest() {
 		ClientSecret: "REPLACE_ME",
 		RedirectURL:  "http://localhost:8080/callback",
 		Audience:     "test-aud",
+		Store:        s.mockStore,
 	})
 	s.NoError(err)
 	s.client = client
+
+	s.mockStore.EXPECT().GetUser(gomock.Any(), gomock.Any()).Return(&types.User{
+		ID:       "test-user-id",
+		Email:    "test@example.com",
+		FullName: "Test User",
+	}, nil).AnyTimes()
 
 	// Generate a valid access token
 	s.testToken = s.generateToken("test-aud")

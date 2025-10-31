@@ -3,6 +3,7 @@ package external_agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,8 +31,7 @@ type WebSocketConnectionChecker interface {
 // AppWolfExecutor implements the Executor interface using Wolf Apps API (stable branch)
 // This is the simpler, more reliable approach without lobbies
 type AppWolfExecutor struct {
-	wolfClient        *wolf.Client
-	healthMonitor     *wolf.HealthMonitor
+	wolfClient        WolfClientInterface
 	store             store.Store
 	sessions          map[string]*ZedSession
 	mutex             sync.RWMutex
@@ -44,11 +44,28 @@ type AppWolfExecutor struct {
 
 // NewAppWolfExecutor creates a new app-based Wolf executor
 func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) *AppWolfExecutor {
+	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
+	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
+	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
+	helixHostHome := os.Getenv("HELIX_HOST_HOME")
+
+	if devMode && helixHostHome == "" {
+		log.Fatal().Msg("HELIX_DEV_MODE is enabled but HELIX_HOST_HOME is not set. This variable must point to the Helix installation directory (e.g., /opt/HelixML or $HOME/HelixML) for dev bind-mounts. Please set it in your .env file.")
+	}
+
+	if devMode {
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("Wolf executor (apps mode) initialized with HELIX_HOST_HOME (dev mode)")
+	} else {
+		log.Info().Msg("Wolf executor (apps mode) initialized (production mode - using files baked into image)")
+	}
+
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
 	executor := &AppWolfExecutor{
-		wolfClient: wolfClient,
-		wsChecker:  wsChecker,
+		wolfClient:        wolfClient,
+		wsChecker:         wsChecker,
 		store:             store,
 		sessions:          make(map[string]*ZedSession),
 		zedImage:          zedImage,
@@ -57,14 +74,9 @@ func NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken str
 		workspaceBasePath: "/opt/helix/filestore/workspaces",
 	}
 
-	// Create health monitor for Wolf crashes
-	executor.healthMonitor = wolf.NewHealthMonitor(wolfClient, func(ctx context.Context) {
-		log.Info().Msg("Wolf restarted, apps will need to be re-added")
-		// Apps-based model: apps are lost on Wolf restart, need to be recreated
-		// Reconciliation will handle this
-	})
-
-	executor.healthMonitor.Start(context.Background())
+	// Apps-based model: apps are lost on Wolf restart
+	// We don't auto-restart Wolf - let Docker/systemd handle container crashes
+	// Apps will need to be manually recreated if Wolf restarts
 
 	return executor
 }
@@ -159,19 +171,13 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 		Str("session_id", agent.SessionID).
 		Msg("Wolf app created successfully for external agent (apps mode)")
 
-	// Wait for app to appear in internal API first
-	apps, err := w.wolfClient.ListApps(ctx)
-	if err == nil {
-		found := false
-		for _, app := range apps {
-			if app.ID == wolfAppID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			time.Sleep(2 * time.Second) // Brief wait if not immediately available
-		}
+	// Wait for Wolf app to be available in Moonlight API before proceeding
+	// For external agents, the title uses getShortID(sessionID)
+	err = w.waitForWolfAppInMoonlightAPI(ctx, wolfAppID, fmt.Sprintf("Agent %s", getShortID(agent.SessionID)), 15*time.Second)
+	if err != nil {
+		// If app doesn't become available, remove it and fail
+		w.wolfClient.RemoveApp(ctx, wolfAppID)
+		return nil, fmt.Errorf("Wolf app not available in Moonlight API after external agent creation: %w", err)
 	}
 
 	// Auto-pair Wolf with moonlight-web before creating session
@@ -187,11 +193,14 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 
 	// Attempt pairing using MOONLIGHT_INTERNAL_PAIRING_PIN
 	// Wolf will auto-accept when it receives the PIN
-	if err := ensureWolfPaired(ctx, w.wolfClient, moonlightWebURL, credentials); err != nil {
-		log.Warn().
-			Err(err).
-			Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
-		// Don't fail here - pairing might already be done manually
+	// Type-assert the interface to concrete type for pairing function
+	if wolfClient, ok := w.wolfClient.(*wolf.Client); ok {
+		if err := ensureWolfPaired(ctx, wolfClient, moonlightWebURL, credentials); err != nil {
+			log.Warn().
+				Err(err).
+				Msg("Auto-pairing failed - Wolf may not be paired with moonlight-web")
+			// Don't fail here - pairing might already be done manually
+		}
 	}
 
 	log.Info().
@@ -904,8 +913,16 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 	return nil
 }
 
+// GetWolfClient returns the Wolf client for direct access to Wolf API
+// Note: This type-asserts the interface back to the concrete type.
+// Only use this when you need direct access to wolf.Client specific methods.
 func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
-	return w.wolfClient
+	if client, ok := w.wolfClient.(*wolf.Client); ok {
+		return client
+	}
+	// This should never happen in production, only in tests with mocks
+	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
+	return nil
 }
 
 // waitForZedConnection waits for the Zed instance to connect via WebSocket
@@ -1003,9 +1020,16 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 		}
 
 		// App in internal API - now ACTUALLY verify it's in Moonlight HTTPS API
-		// Query Wolf's HTTP server on port 47989 (what moonlight-web uses)
-		httpClient := &http.Client{Timeout: 2 * time.Second}
-		req, err := http.NewRequestWithContext(ctx, "GET", "http://wolf:47989/applist?uniqueid=helix&uuid=test", nil)
+		// Query Wolf's HTTPS server on port 47984 (what moonlight-web actually uses)
+		// Use HTTP client that accepts self-signed certs (Wolf uses self-signed)
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		httpClient := &http.Client{
+			Timeout:   2 * time.Second,
+			Transport: tr,
+		}
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://wolf:47984/applist?uniqueid=helix&uuid=test", nil)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to create HTTP request")
 			time.Sleep(checkInterval)
@@ -1018,7 +1042,7 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 				Err(err).
 				Str("wolf_app_id", wolfAppID).
 				Dur("elapsed", time.Since(startTime)).
-				Msg("Failed to query Wolf Moonlight HTTP API, will retry")
+				Msg("Failed to query Wolf Moonlight HTTPS API, will retry")
 			time.Sleep(checkInterval)
 			continue
 		}
@@ -1053,9 +1077,9 @@ func (w *AppWolfExecutor) waitForWolfAppInMoonlightAPI(ctx context.Context, wolf
 			Str("wolf_app_id", wolfAppID).
 			Dur("elapsed", time.Since(startTime)).
 			Int("internal_apps", len(apps)).
-			Int("http_apps", appCount).
-			Str("http_response_preview", preview).
-			Msg("Wolf app in internal API but NOT yet in Moonlight HTTP API, waiting...")
+			Int("https_apps", appCount).
+			Str("https_response_preview", preview).
+			Msg("Wolf app in internal API but NOT yet in Moonlight HTTPS API, waiting...")
 
 		time.Sleep(checkInterval)
 	}
@@ -1152,14 +1176,20 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 
 	// Development mode: bind-mount Zed build and startup scripts from host
 	// Production mode: these are baked into the ZED_IMAGE
-	helixHostHome := os.Getenv("HELIX_HOST_HOME")
-	if helixHostHome != "" {
+	if os.Getenv("HELIX_DEV_MODE") == "true" {
+		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+
 		mounts = append(mounts,
 			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
 			fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
 			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
 			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 		)
+	} else {
+		log.Debug().Msg("Production mode - using files baked into helix-sway image")
 	}
 
 	// Add SSH keys if available

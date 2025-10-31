@@ -186,6 +186,13 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 		return nil, err
 	}
 
+	// Always include usage
+	if request.StreamOptions == nil {
+		request.StreamOptions = &openai.StreamOptions{}
+	}
+
+	request.StreamOptions.IncludeUsage = true
+
 	// Trim trailing whitespace from message content to prevent API errors
 	request = trimMessageContent(request)
 

@@ -2,7 +2,6 @@ package agent_work_queue
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -125,10 +124,7 @@ func (t *AgentWorkQueueTrigger) createWorkItemFromPayload(triggerConfig *types.T
 		priority = int(payloadPriority)
 	}
 
-	// Create work data JSON
-	workDataJSON, _ := json.Marshal(payload)
-
-	// Create the work item
+	// Create the work item (GORM serializer handles JSON conversion for WorkData)
 	workItem := &types.AgentWorkItem{
 		ID:              fmt.Sprintf("work-%d", time.Now().UnixNano()),
 		TriggerConfigID: triggerConfig.ID,
@@ -143,7 +139,7 @@ func (t *AgentWorkQueueTrigger) createWorkItemFromPayload(triggerConfig *types.T
 		UserID:          triggerConfig.Owner,
 		AppID:           triggerConfig.AppID,
 		OrganizationID:  triggerConfig.OrganizationID,
-		WorkData:        workDataJSON,
+		WorkData:        payload,
 		MaxRetries:      trigger.MaxRetries,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),

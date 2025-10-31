@@ -12,31 +12,7 @@ import (
 
 // CreateSpecTask creates a new spec-driven task
 func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	query := `
-		INSERT INTO spec_tasks (
-			id, project_id, name, description, type, priority, status,
-			original_prompt, requirements_spec, technical_design, implementation_plan,
-			spec_agent, implementation_agent, spec_session_id, implementation_session_id,
-			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
-			estimated_hours, started_at, completed_at,
-			created_by, created_at, updated_at, labels, metadata
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9, $10, $11,
-			$12, $13, $14, $15,
-			$16, $17, $18, $19,
-			$20, $21, $22,
-			$23, $24, $25, $26, $27
-		)`
-
-	result := s.gdb.WithContext(ctx).Exec(query,
-		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
-		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
-		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
-		task.BranchName, task.SpecApprovedBy, task.SpecApprovedAt, task.SpecRevisionCount,
-		task.EstimatedHours, task.StartedAt, task.CompletedAt,
-		task.CreatedBy, task.CreatedAt, task.UpdatedAt, task.LabelsDB, task.Metadata,
-	)
+	result := s.gdb.WithContext(ctx).Create(task)
 	if result.Error != nil {
 		return fmt.Errorf("failed to create spec task: %w", result.Error)
 	}
@@ -80,24 +56,7 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask) error {
 	task.UpdatedAt = time.Now()
 
-	query := `
-		UPDATE spec_tasks SET
-			project_id = $2, name = $3, description = $4, type = $5, priority = $6, status = $7,
-			original_prompt = $8, requirements_spec = $9, technical_design = $10, implementation_plan = $11,
-			spec_agent = $12, implementation_agent = $13, spec_session_id = $14, implementation_session_id = $15,
-			branch_name = $16, spec_approved_by = $17, spec_approved_at = $18, spec_revision_count = $19,
-			estimated_hours = $20, started_at = $21, completed_at = $22,
-			created_by = $23, updated_at = $24, labels = $25, metadata = $26
-		WHERE id = $1`
-
-	result := s.gdb.WithContext(ctx).Exec(query,
-		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
-		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
-		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
-		task.BranchName, task.SpecApprovedBy, task.SpecApprovedAt, task.SpecRevisionCount,
-		task.EstimatedHours, task.StartedAt, task.CompletedAt,
-		task.CreatedBy, task.UpdatedAt, task.LabelsDB, task.Metadata,
-	)
+	result := s.gdb.WithContext(ctx).Save(task)
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to update spec task: %w", result.Error)
