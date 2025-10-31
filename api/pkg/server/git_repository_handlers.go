@@ -85,6 +85,73 @@ func (apiServer *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(repository)
 }
 
+// updateGitRepository updates an existing git repository
+// @Summary Update git repository
+// @Description Update an existing git repository's metadata
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param repository body services.GitRepositoryUpdateRequest true "Repository update request"
+// @Success 200 {object} services.GitRepository
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var request services.GitRepositoryUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	repository, err := apiServer.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to update git repository")
+		http.Error(w, fmt.Sprintf("Failed to update repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(repository)
+}
+
+// deleteGitRepository deletes a git repository
+// @Summary Delete git repository
+// @Description Delete a git repository and its metadata
+// @Tags git-repositories
+// @Param id path string true "Repository ID"
+// @Success 204 "No Content"
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to delete git repository")
+		http.Error(w, fmt.Sprintf("Failed to delete repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // listGitRepositories lists all repositories, optionally filtered by owner
 // @Summary List git repositories
 // @Description List all git repositories, optionally filtered by owner and type
@@ -373,12 +440,6 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getSampleTypes(w http.ResponseWriter, r *http.Request) {
 	sampleTypes := []SampleType{
-		{
-			ID:          "empty",
-			Name:        "Empty Repository",
-			Description: "An empty project repository ready for any technology stack",
-			TechStack:   []string{"any", "blank-slate", "custom"},
-		},
 		{
 			ID:          "nodejs-todo",
 			Name:        "Node.js Todo App",

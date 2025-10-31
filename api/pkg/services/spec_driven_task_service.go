@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -22,6 +23,7 @@ import (
 type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
+	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
 	helixAgentID             string                       // ID of Helix agent for spec generation
 	zedAgentPool             []string                     // Pool of available Zed agents
 	testMode                 bool                         // If true, skip async operations for testing
@@ -40,13 +42,15 @@ func NewSpecDrivenTaskService(
 	helixAgentID string,
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
+	externalAgentExecutor external_agent.Executor,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
-		store:        store,
-		controller:   controller,
-		helixAgentID: helixAgentID,
-		zedAgentPool: zedAgentPool,
-		testMode:     false,
+		store:                 store,
+		controller:            controller,
+		externalAgentExecutor: externalAgentExecutor,
+		helixAgentID:          helixAgentID,
+		zedAgentPool:          zedAgentPool,
+		testMode:              false,
 	}
 
 	// Initialize Zed integration service
@@ -127,18 +131,26 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *CreateTaskRequest) (*types.SpecTask, error) {
+	// Determine which agent to use for spec generation
+	specAgent := s.helixAgentID
+	if req.AppID != "" {
+		specAgent = req.AppID
+	}
+
 	task := &types.SpecTask{
-		ID:             generateTaskID(),
-		ProjectID:      req.ProjectID,
-		Name:           generateTaskNameFromPrompt(req.Prompt),
-		Description:    req.Prompt,
-		Type:           req.Type,
-		Priority:       req.Priority,
-		Status:         types.TaskStatusBacklog,
-		OriginalPrompt: req.Prompt,
-		CreatedBy:      req.UserID,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:                  generateTaskID(),
+		ProjectID:           req.ProjectID,
+		Name:                generateTaskNameFromPrompt(req.Prompt),
+		Description:         req.Prompt,
+		Type:                req.Type,
+		Priority:            req.Priority,
+		Status:              types.TaskStatusBacklog,
+		OriginalPrompt:      req.Prompt,
+		CreatedBy:           req.UserID,
+		SpecAgent:           specAgent, // Set the spec agent from request or default
+		PrimaryRepositoryID: req.GitRepositoryID,
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 
 	// Store the task
@@ -147,24 +159,29 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
-	// Immediately start spec generation (unless in test mode)
-	if !s.testMode {
-		go s.startSpecGeneration(context.Background(), task)
-	}
+	// DO NOT auto-start spec generation
+	// Tasks should start in backlog and wait for explicit user action to start planning
+	// This allows WIP limits to be enforced on the planning column
 
 	return task, nil
 }
 
-// startSpecGeneration kicks off spec generation with a Helix agent
-func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *types.SpecTask) {
+// StartSpecGeneration kicks off spec generation with a Helix agent
+// This is now a public method that can be called explicitly to start planning
+func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
+	// Ensure SpecAgent is set (fallback for tasks created before this field existed)
+	if task.SpecAgent == "" {
+		task.SpecAgent = s.helixAgentID
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
 		Str("original_prompt", task.OriginalPrompt).
+		Str("spec_agent", task.SpecAgent).
 		Msg("Starting spec generation")
 
-	// Update task status
+	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
 	task.Status = types.TaskStatusSpecGeneration
-	task.SpecAgent = s.helixAgentID
 	task.UpdatedAt = time.Now()
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -193,7 +210,7 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		Provider:       "anthropic",          // Use Claude for spec generation
 		ModelName:      "external_agent",     // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      "",
+		ParentApp:      task.SpecAgent,       // Use the spec agent (now guaranteed to be set)
 		OrganizationID: "",
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
@@ -243,10 +260,29 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
+	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
+	// Create ZedAgent struct with session info for Wolf executor
+	zedAgent := &types.ZedAgent{
+		SessionID:   session.ID,
+		UserID:      task.CreatedBy,
+		Input:       "Initialize Zed development environment for spec generation",
+		ProjectPath: "workspace", // Use relative path
+	}
+
+	// Start the Zed agent via Wolf executor (not NATS)
+	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		return
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
-		// Str("session_id", session.ID).
-		Msg("Spec generation agent started")
+		Str("session_id", session.ID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("container_name", agentResp.ContainerName).
+		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent
@@ -697,9 +733,11 @@ func convertPriorityToInt(priority string) int {
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID string `json:"project_id"`
-	Prompt    string `json:"prompt"`
-	Type      string `json:"type"`
-	Priority  string `json:"priority"`
-	UserID    string `json:"user_id"`
+	ProjectID       string `json:"project_id"`
+	Prompt          string `json:"prompt"`
+	Type            string `json:"type"`
+	Priority        string `json:"priority"`
+	UserID          string `json:"user_id"`
+	AppID           string `json:"app_id"`            // Optional: Helix agent to use for spec generation
+	GitRepositoryID string `json:"git_repository_id"` // Optional: Primary git repository for this task
 }
