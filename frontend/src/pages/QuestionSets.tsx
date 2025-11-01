@@ -1,10 +1,13 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import Button from '@mui/material/Button'
+import AddIcon from '@mui/icons-material/Add'
 
 import Page from '../components/system/Page'
 import QuestionSetsTable from '../components/questionSets/QuestionSetsTable'
+import QuestionSetDialog from '../components/questionSets/QuestionSetDialog'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import { useListQuestionSets, useDeleteQuestionSet } from '../services/questionSetsService'
@@ -17,6 +20,8 @@ const QuestionSets: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
   const [deletingQuestionSet, setDeletingQuestionSet] = useState<TypesQuestionSet | undefined>()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingQuestionSetId, setEditingQuestionSetId] = useState<string | undefined>()
 
   const orgId = account.organizationTools.organization?.id || ''
 
@@ -29,9 +34,41 @@ const QuestionSets: FC = () => {
 
   const deleteQuestionSetMutation = useDeleteQuestionSet()
 
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const questionSetIdParam = urlParams.get('questionSetId')
+    
+    if (questionSetIdParam) {
+      setEditingQuestionSetId(questionSetIdParam)
+      setDialogOpen(true)
+    }
+  }, [])
+
   const handleEditQuestionSet = (questionSet: TypesQuestionSet) => {
-    // TODO: Implement edit dialog/navigation
-    console.log('Edit question set:', questionSet)
+    if (questionSet.id) {
+      setEditingQuestionSetId(questionSet.id)
+      setDialogOpen(true)
+      const url = new URL(window.location.href)
+      url.searchParams.set('questionSetId', questionSet.id)
+      window.history.replaceState({}, '', url.toString())
+    }
+  }
+
+  const handleCreateQuestionSet = () => {
+    setEditingQuestionSetId(undefined)
+    setDialogOpen(true)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('questionSetId')
+    window.history.replaceState({}, '', url.toString())
+  }
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false)
+    setEditingQuestionSetId(undefined)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('questionSetId')
+    window.history.replaceState({}, '', url.toString())
+    refetch()
   }
 
   const handleDeleteQuestionSet = (questionSet: TypesQuestionSet) => {
@@ -85,10 +122,28 @@ const QuestionSets: FC = () => {
     <Page
       breadcrumbTitle="Question Sets"
       orgBreadcrumbs={true}
+      topbarContent={(
+        <div>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={handleCreateQuestionSet}
+          >
+            New
+          </Button>
+        </div>
+      )}
     >
       <Container maxWidth="xl" sx={{ mb: 4 }}>
         {renderContent()}
       </Container>
+
+      <QuestionSetDialog
+        open={dialogOpen}
+        onClose={handleCloseDialog}
+        questionSetId={editingQuestionSetId}
+      />
 
       {deletingQuestionSet && (
         <DeleteConfirmWindow
