@@ -26,6 +26,7 @@ import SpecTasksPage from './pages/SpecTasksPage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import Fleet from './pages/Fleet'
+import QuestionSets from './pages/QuestionSets'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -111,6 +112,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <GitRepoDetail />
+    ),
+  }, {
+    name: namePrefix + 'qa',
+    path: routePrefix + '/qa',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Q&A',
+    },
+    render: () => (
+      <QuestionSets />
     ),
   },
   {
