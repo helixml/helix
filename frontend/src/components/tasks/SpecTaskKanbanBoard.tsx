@@ -630,20 +630,20 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         agent_type: agentType,
         work_data: {
           task_id: taskId,
-          project_id: 'default',
+          project_id: projectId || 'default',
           action: 'generate_specs'
         }
       });
-      
+
       if (response && response.data) {
         console.log('Agent session started:', response.data);
-        
+
         // Don't update task status from frontend - let backend handle this
         // The backend should update task status based on agent progress
         // Reload tasks immediately to show the session was created
         try {
           const refreshResponse = await api.get('/api/v1/spec-tasks', {
-            params: { project_id: 'default' }
+            params: { project_id: projectId || 'default' }
           });
           
           const tasksData = refreshResponse.data || refreshResponse;
@@ -818,7 +818,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const response = await api.post('/api/v1/spec-tasks/from-prompt', {
         name: newTaskName,
         description: newTaskDescription,
-        project_id: 'default',
+        project_id: projectId || 'default',
       });
 
       if (response.data) {
@@ -879,7 +879,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // Refresh tasks
       const response = await api.get('/api/v1/spec-tasks', {
         params: {
-          project_id: 'default',
+          project_id: projectId || 'default',
           archived_only: showArchived
         }
       });
@@ -946,7 +946,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
         const response = await api.getApiClient().v1SpecTasksList({
-          project_id: 'default'
+          project_id: projectId || 'default'
         });
 
         const tasksData = response.data || response;

@@ -53,6 +53,13 @@ const ProjectSettings: FC = () => {
   const [startupScript, setStartupScript] = useState('')
   const [startingExploratorySession, setStartingExploratorySession] = useState(false)
 
+  // Board settings state
+  const [wipLimits, setWipLimits] = useState({
+    planning: 3,
+    review: 2,
+    implementation: 5,
+  })
+
   useEffect(() => {
     if (project) {
       setName(project.name || '')
@@ -61,13 +68,39 @@ const ProjectSettings: FC = () => {
     }
   }, [project])
 
+  // Load board settings on mount
+  useEffect(() => {
+    const loadBoardSettings = async () => {
+      try {
+        const response = await api.get('/api/v1/spec-tasks/board-settings');
+        if (response.data && response.data.wip_limits) {
+          setWipLimits({
+            planning: response.data.wip_limits.planning || 3,
+            review: response.data.wip_limits.review || 2,
+            implementation: response.data.wip_limits.implementation || 5,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load board settings:', error);
+      }
+    };
+    loadBoardSettings();
+  }, [])
+
   const handleSave = async () => {
     try {
+      // Save project basic settings
       await updateProjectMutation.mutateAsync({
         name,
         description,
         startup_script: startupScript,
       })
+
+      // Save board settings
+      await api.put('/api/v1/spec-tasks/board-settings', {
+        wip_limits: wipLimits,
+      })
+
       snackbar.success('Project settings saved')
     } catch (err) {
       snackbar.error('Failed to save project settings')
@@ -270,6 +303,40 @@ npm run db:migrate`}
                 ))}
               </List>
             )}
+          </Paper>
+
+          {/* Board Settings */}
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Kanban Board Settings
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Configure work-in-progress (WIP) limits for the Kanban board columns.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Planning Column Limit"
+                fullWidth
+                value={wipLimits.planning}
+                onChange={(e) => setWipLimits({ ...wipLimits, planning: parseInt(e.target.value) || 0 })}
+                helperText="Maximum tasks allowed in Planning column"
+              />
+              <TextField
+                label="Review Column Limit"
+                fullWidth
+                value={wipLimits.review}
+                onChange={(e) => setWipLimits({ ...wipLimits, review: parseInt(e.target.value) || 0 })}
+                helperText="Maximum tasks allowed in Review column"
+              />
+              <TextField
+                label="Implementation Column Limit"
+                fullWidth
+                value={wipLimits.implementation}
+                onChange={(e) => setWipLimits({ ...wipLimits, implementation: parseInt(e.target.value) || 0 })}
+                helperText="Maximum tasks allowed in Implementation column"
+              />
+            </Box>
           </Paper>
 
           {/* Members & Access Control */}
