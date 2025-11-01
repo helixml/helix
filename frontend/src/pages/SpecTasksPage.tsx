@@ -23,7 +23,6 @@ import {
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
-  Settings as SettingsIcon,
 } from '@mui/icons-material';
 
 import Page from '../components/system/Page';
@@ -78,9 +77,7 @@ const SpecTasksPage: FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Settings dialog state
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [settingsLoading, setSettingsLoading] = useState(false);
+  // Board WIP limits (loaded from backend, edited in Project Settings)
   const [wipLimits, setWipLimits] = useState({
     planning: 3,
     review: 2,
@@ -149,6 +146,20 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, apps.apps]);
 
+  // Auto-select first repository when dialog opens
+  useEffect(() => {
+    if (createDialogOpen && !repositoriesLoading) {
+      if (existingRepositories.length > 0 && !selectedExistingRepo) {
+        // Auto-select first existing repository
+        setSelectedExistingRepo(existingRepositories[0]?.id || '');
+        setRepoTabValue(0); // Switch to existing repo tab
+      } else if (existingRepositories.length === 0) {
+        // No existing repos, default to "Create New" tab
+        setRepoTabValue(1);
+      }
+    }
+  }, [createDialogOpen, existingRepositories, repositoriesLoading]);
+
   // Load board settings on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -195,35 +206,6 @@ const SpecTasksPage: FC = () => {
       return false;
     }
     return true;
-  };
-
-  // Handle settings dialog
-  const handleOpenSettings = () => {
-    setSettingsDialogOpen(true);
-  };
-
-  const handleCloseSettings = () => {
-    setSettingsDialogOpen(false);
-  };
-
-  const handleSaveSettings = async () => {
-    try {
-      setSettingsLoading(true);
-      await api.put('/api/v1/spec-tasks/board-settings', {
-        wip_limits: wipLimits,
-      });
-      snackbar.success('Board settings saved successfully');
-      setSettingsDialogOpen(false);
-
-      // Refresh the kanban board to apply new limits
-      setRefreshing(true);
-      setTimeout(() => setRefreshing(false), 1000);
-    } catch (error) {
-      console.error('Failed to save board settings:', error);
-      snackbar.error('Failed to save settings. Please try again.');
-    } finally {
-      setSettingsLoading(false);
-    }
   };
 
   // Handle task creation - SIMPLIFIED
@@ -276,14 +258,16 @@ const SpecTasksPage: FC = () => {
         }
       }
 
-      // Handle repository attachment
+      // Handle repository attachment - MANDATORY
       let repositoryId: string | undefined;
 
       if (repoTabValue === 0) {
         // Use existing repository
-        if (selectedExistingRepo) {
-          repositoryId = selectedExistingRepo;
+        if (!selectedExistingRepo) {
+          snackbar.error('Please select a repository');
+          return;
         }
+        repositoryId = selectedExistingRepo;
       } else if (repoTabValue === 1) {
         // Create new repository
         if (!newRepoName.trim()) {
@@ -440,14 +424,6 @@ const SpecTasksPage: FC = () => {
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0 }}>
           <Button
             variant="outlined"
-            startIcon={<SettingsIcon />}
-            onClick={handleOpenSettings}
-            sx={{ flexShrink: 0 }}
-          >
-            Settings
-          </Button>
-          <Button
-            variant="outlined"
             startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
             onClick={() => {
               setRefreshing(true);
@@ -462,13 +438,16 @@ const SpecTasksPage: FC = () => {
       }
     >
       <Box sx={{ width: '100%', maxWidth: '100%', height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'hidden', px: 3, boxSizing: 'border-box' }}>
-        {/* Introduction */}
+        {/* Project Header */}
         <Box sx={{ flexShrink: 0, mb: 2, minWidth: 0 }}>
-          <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
+          <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
+            {project ? project.name : 'Project'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, mb: 1 }}>
             Spec Work for Agents
           </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Add tasks for your agents to do, verify their informed plans, then supervise them executing them. Jump in when they need help or guidance
+          <Typography variant="body2" color="text.secondary">
+            Add tasks for your agents to do, verify their informed plans, then supervise them executing them. Jump in when they need help or guidance.
           </Typography>
         </Box>
 
@@ -532,7 +511,7 @@ Examples:
             {/* Repository Selection - Tabs layout */}
             <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
               <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
-                Repository
+                Repository <span style={{ color: 'red' }}>*</span>
               </Typography>
 
               <Tabs
@@ -553,12 +532,12 @@ Examples:
               {/* Tab Panel 0: Existing Repository */}
               {repoTabValue === 0 && (
                 <Box sx={{ pt: 1 }}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Repository</InputLabel>
+                  <FormControl fullWidth required>
+                    <InputLabel>Select Repository *</InputLabel>
                     <Select
                       value={selectedExistingRepo}
                       onChange={(e) => setSelectedExistingRepo(e.target.value)}
-                      label="Select Repository"
+                      label="Select Repository *"
                       disabled={repositoriesLoading}
                     >
                       {existingRepositories.map((repo: any) => (
@@ -570,8 +549,13 @@ Examples:
                   </FormControl>
 
                   {!repositoriesLoading && existingRepositories.length === 0 && (
+                    <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                      No existing repositories found. Please create a new one in the "Create New" tab.
+                    </Typography>
+                  )}
+                  {!repositoriesLoading && existingRepositories.length > 0 && (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                      No existing repositories found. Create a new one in the other tab.
+                      Required: Select which repository this task will work on.
                     </Typography>
                   )}
                 </Box>
@@ -634,7 +618,7 @@ Examples:
                     />
 
                     <Typography variant="caption" color="text.secondary">
-                      The repository will be created when you create the SpecTask.
+                      The repository will be created when you create the SpecTask. <strong>Required.</strong>
                     </Typography>
                   </Stack>
                 </Box>
@@ -682,7 +666,13 @@ Examples:
           <Button
             onClick={handleCreateTask}
             variant="contained"
-            disabled={!taskPrompt.trim() || createSampleRepoMutation.isPending || createGitRepoMutation.isPending}
+            disabled={
+              !taskPrompt.trim() ||
+              createSampleRepoMutation.isPending ||
+              createGitRepoMutation.isPending ||
+              (repoTabValue === 0 && !selectedExistingRepo) ||
+              (repoTabValue === 1 && !newRepoName.trim())
+            }
             startIcon={createSampleRepoMutation.isPending || createGitRepoMutation.isPending ? <CircularProgress size={16} /> : <AddIcon />}
           >
             {createSampleRepoMutation.isPending || createGitRepoMutation.isPending ? 'Creating...' : 'Create Task'}
@@ -690,66 +680,6 @@ Examples:
         </DialogActions>
       </Dialog>
 
-      {/* Board Settings Dialog */}
-      <Dialog open={settingsDialogOpen} onClose={handleCloseSettings} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SettingsIcon />
-            Board Settings
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={3} sx={{ mt: 2 }}>
-            <Typography variant="body1" color="text.secondary">
-              Configure work-in-progress (WIP) limits for each column in the Kanban board.
-              These limits help maintain flow and prevent overloading.
-            </Typography>
-
-            <TextField
-              label="Planning Limit"
-              fullWidth
-              value={wipLimits.planning}
-              onChange={(e) => setWipLimits({ ...wipLimits, planning: parseInt(e.target.value) || 0 })}
-              helperText="Maximum number of tasks allowed in the Planning column"
-            />
-
-            <TextField
-              label="Review Limit"
-              fullWidth
-              value={wipLimits.review}
-              onChange={(e) => setWipLimits({ ...wipLimits, review: parseInt(e.target.value) || 0 })}
-              helperText="Maximum number of tasks allowed in the Review column"
-            />
-
-            <TextField
-              label="Implementation Limit"
-              fullWidth
-              value={wipLimits.implementation}
-              onChange={(e) => setWipLimits({ ...wipLimits, implementation: parseInt(e.target.value) || 0 })}
-              helperText="Maximum number of tasks allowed in the Implementation column"
-            />
-
-            <Alert severity="info">
-              <Typography variant="body2">
-                <strong>Note:</strong> Backlog and Completed columns do not have WIP limits.
-              </Typography>
-            </Alert>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseSettings} disabled={settingsLoading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSaveSettings}
-            variant="contained"
-            disabled={settingsLoading}
-            startIcon={settingsLoading ? <CircularProgress size={16} /> : undefined}
-          >
-            {settingsLoading ? 'Saving...' : 'Save Settings'}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Page>
   );
 };
