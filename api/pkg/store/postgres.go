@@ -163,6 +163,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},
+		&types.QuestionSet{},
 	)
 	if err != nil {
 		return err
