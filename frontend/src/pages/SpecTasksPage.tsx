@@ -56,6 +56,9 @@ const SpecTasksPage: FC = () => {
   const router = useRouter();
   const apps = useApps();
 
+  // Get project ID from URL if in project context
+  const projectId = router.params.id as string | undefined;
+
   // State for view management
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -450,6 +453,7 @@ const SpecTasksPage: FC = () => {
         <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
           <SpecTaskKanbanBoard
             userId={account.user?.id}
+            projectId={projectId}
             onCreateTask={() => setCreateDialogOpen(true)}
             refreshTrigger={refreshTrigger}
             wipLimits={wipLimits}
