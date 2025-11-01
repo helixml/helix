@@ -25,6 +25,10 @@ func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuer
 		q = q.Where("parent_session = ?", query.ParentSession)
 	}
 
+	if query.QuestionSetID != "" {
+		q = q.Where("question_set_id", query.QuestionSetID)
+	}
+
 	if query.OrganizationID != "" {
 		q = q.Where("organization_id = ?", query.OrganizationID)
 	} else {

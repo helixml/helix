@@ -4617,6 +4617,76 @@
                 }
             }
         },
+        "/api/v1/question-sets/{id}/execute": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Execute a question set, this is a blocking operation and will return a response for each question in the question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Execute a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request to execute a question set",
+                        "name": "executeQuestionSetRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sample-projects": {
             "get": {
                 "security": [
@@ -5181,6 +5251,12 @@
                         "type": "string",
                         "description": "Organization slug or ID",
                         "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "question_set_id",
                         "in": "query"
                     },
                     {
@@ -13825,6 +13901,28 @@
                 "EffectDeny"
             ]
         },
+        "types.ExecuteQuestionSetRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ExecuteQuestionSetResponse": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                }
+            }
+        },
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
@@ -14483,6 +14581,10 @@
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
+                },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
+                    "type": "string"
                 },
                 "rag_results": {
                     "type": "array",
@@ -16072,6 +16174,35 @@
                 }
             }
         },
+        "types.QuestionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Interaction ID",
+                    "type": "string"
+                },
+                "question": {
+                    "description": "Original question",
+                    "type": "string"
+                },
+                "question_id": {
+                    "description": "ID of the question",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Response",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Session ID",
+                    "type": "string"
+                }
+            }
+        },
         "types.QuestionSet": {
             "type": "object",
             "properties": {
@@ -16811,6 +16942,10 @@
                 },
                 "provider": {
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
                     "type": "string"
                 },
                 "trigger": {
@@ -18726,18 +18861,18 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

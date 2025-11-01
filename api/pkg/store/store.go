@@ -27,6 +27,7 @@ type ListSessionsQuery struct {
 	Page           int             `json:"page"`
 	PerPage        int             `json:"per_page"`
 	Search         string          `json:"search"`
+	QuestionSetID  string          `json:"question_set_id"`
 }
 
 type ListAPIKeysQuery struct {

@@ -110,6 +110,7 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Param   page            query    int     false  "Page number"
 // @Param   page_size       query    int     false  "Page size"
 // @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   question_set_id query    string  false  "Question set ID"
 // @Param   search          query    string  false  "Search sessions by name"
 // @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
@@ -119,7 +120,8 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	user := getRequestUser(req)
 
 	query := store.ListSessionsQuery{
-		Search: req.URL.Query().Get("search"),
+		Search:        req.URL.Query().Get("search"),
+		QuestionSetID: req.URL.Query().Get("question_set_id"),
 	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
