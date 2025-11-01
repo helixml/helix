@@ -148,6 +148,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Transaction{},
 		&types.TopUp{},
 		&types.Project{},
+		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
 		&types.SpecTaskZedThread{},
@@ -530,6 +531,82 @@ func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Projec
 	err := s.gdb.WithContext(ctx).Save(project).Error
 	if err != nil {
 		return fmt.Errorf("error updating project: %w", err)
+	}
+	return nil
+}
+
+// ListProjects lists all projects for a given user
+func (s *PostgresStore) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+	var projects []*types.Project
+	err := s.gdb.WithContext(ctx).Where("user_id = ?", userID).Order("created_at DESC").Find(&projects).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing projects: %w", err)
+	}
+	return projects, nil
+}
+
+// DeleteProject deletes a project by ID
+func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.Project{}, "id = ?", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error deleting project: %w", err)
+	}
+	return nil
+}
+
+// GetProjectRepositories gets all repositories attached to a project
+func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*DBGitRepository, error) {
+	var repos []*DBGitRepository
+	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&repos).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting project repositories: %w", err)
+	}
+	return repos, nil
+}
+
+// SetProjectPrimaryRepository sets the primary repository for a project
+func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&types.Project{}).Where("id = ?", projectID).Update("default_repo_id", repoID).Error
+	if err != nil {
+		return fmt.Errorf("error setting project primary repository: %w", err)
+	}
+	return nil
+}
+
+// CreateSampleProject creates a new sample project
+func (s *PostgresStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	err := s.gdb.WithContext(ctx).Create(sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating sample project: %w", err)
+	}
+	return sample, nil
+}
+
+// GetSampleProject gets a sample project by ID
+func (s *PostgresStore) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) {
+	var sample types.SampleProject
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting sample project: %w", err)
+	}
+	return &sample, nil
+}
+
+// ListSampleProjects lists all available sample projects
+func (s *PostgresStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
+	var samples []*types.SampleProject
+	err := s.gdb.WithContext(ctx).Order("created_at DESC").Find(&samples).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing sample projects: %w", err)
+	}
+	return samples, nil
+}
+
+// DeleteSampleProject deletes a sample project by ID
+func (s *PostgresStore) DeleteSampleProject(ctx context.Context, id string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.SampleProject{}, "id = ?", id).Error
+	if err != nil {
+		return fmt.Errorf("error deleting sample project: %w", err)
 	}
 	return nil
 }

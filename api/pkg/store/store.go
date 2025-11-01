@@ -396,6 +396,13 @@ type Store interface {
 	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
 	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
 
+	// git repositories
+	CreateGitRepository(ctx context.Context, repo *GitRepository) error
+	GetGitRepository(ctx context.Context, id string) (*GitRepository, error)
+	UpdateGitRepository(ctx context.Context, repo *GitRepository) error
+	DeleteGitRepository(ctx context.Context, id string) error
+	ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error)
+
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
 	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)
@@ -479,7 +486,17 @@ type Store interface {
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
+	DeleteProject(ctx context.Context, projectID string) error
+	GetProjectRepositories(ctx context.Context, projectID string) ([]*DBGitRepository, error)
+	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
+
+	// Sample Project methods
+	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
+	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)
+	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
+	DeleteSampleProject(ctx context.Context, id string) error
 
 	// Personal Dev Environment methods
 	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
