@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -70,6 +71,7 @@ type SwayWolfAppConfig struct {
 	SessionID         string   // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
+	StartupScript     string   // Optional project startup script to run before Zed starts
 	DisplayWidth      int
 	DisplayHeight     int
 	DisplayFPS        int
@@ -93,6 +95,11 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"HELIX_API_URL=http://api:8080",
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
+	}
+
+	// Add project startup script if provided
+	if config.StartupScript != "" {
+		env = append(env, fmt.Sprintf("HELIX_PROJECT_STARTUP_SCRIPT=%s", config.StartupScript))
 	}
 
 	// Add any extra environment variables
@@ -311,15 +318,56 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Use session ID as environment name for consistency
 	wolfAppID := w.generateWolfAppID(agent.UserID, agent.SessionID)
 
-	// Determine workspace directory - use session-specific path
+	// Determine workspace directory - use task-scoped for SpecTasks, session-scoped otherwise
 	workspaceDir := agent.WorkDir
 	if workspaceDir == "" {
-		workspaceDir = filepath.Join(w.workspaceBasePath, "external-agents", agent.SessionID)
+		if agent.SpecTaskID != "" {
+			// SpecTask agents share workspace across planning and implementation
+			workspaceDir = filepath.Join(w.workspaceBasePath, "spec-tasks", agent.SpecTaskID)
+			log.Info().
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("workspace_dir", workspaceDir).
+				Msg("Using task-scoped workspace for SpecTask agent")
+		} else {
+			// Regular external agents use session-scoped workspace
+			workspaceDir = filepath.Join(w.workspaceBasePath, "external-agents", agent.SessionID)
+		}
 	}
 
 	// Create workspace directory if it doesn't exist
 	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Load project startup script if this is a SpecTask
+	projectStartupScript := ""
+	if agent.SpecTaskID != "" {
+		// Load the SpecTask to get project ID
+		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
+		if err != nil {
+			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get SpecTask for startup script, continuing without it")
+		} else if specTask.ProjectID != "" {
+			// Load the project to get startup script
+			project, err := w.store.GetProject(ctx, specTask.ProjectID)
+			if err != nil {
+				log.Warn().Err(err).Str("project_id", specTask.ProjectID).Msg("Failed to get Project for startup script, continuing without it")
+			} else if project.StartupScript != "" {
+				projectStartupScript = project.StartupScript
+				log.Info().
+					Str("project_id", project.ID).
+					Str("spec_task_id", agent.SpecTaskID).
+					Msg("Loaded project startup script for agent")
+			}
+		}
+	}
+
+	// Clone git repositories if specified (for SpecTasks with repository context)
+	if len(agent.RepositoryIDs) > 0 {
+		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to setup git repositories")
+			return nil, fmt.Errorf("failed to setup git repositories: %w", err)
+		}
 	}
 
 	log.Info().
@@ -415,6 +463,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			SessionID:         agent.SessionID,
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          extraEnv,
+			StartupScript:     projectStartupScript, // Project startup script from database
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
@@ -432,6 +481,29 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("session_id", agent.SessionID).
 		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
+
+	// Update Helix session metadata with lobby ID and PIN so frontend can display them
+	if helixSessionID != "" {
+		helixSession, err := w.store.GetSession(ctx, helixSessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to get Helix session for lobby metadata update")
+		} else {
+			// Update session metadata with Wolf lobby information
+			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
+			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+
+			_, err = w.store.UpdateSession(ctx, *helixSession)
+			if err != nil {
+				log.Error().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to update Helix session with lobby metadata")
+			} else {
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("lobby_id", lobbyResp.LobbyID).
+					Str("lobby_pin", lobbyPINString).
+					Msg("Updated Helix session metadata with Wolf lobby ID and PIN")
+			}
+		}
+	}
 
 	// Track session with lobby ID
 	session := &ZedSession{
@@ -2138,4 +2210,163 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("terminated_count", len(idleAgents)).
 		Msg("Completed idle external agent cleanup")
+}
+
+// setupGitRepositories clones git repositories and sets up design docs worktree for SpecTask agents
+func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir string, repositoryIDs []string, primaryRepositoryID string) error {
+	log.Info().
+		Str("workspace_dir", workspaceDir).
+		Strs("repository_ids", repositoryIDs).
+		Str("primary_repository_id", primaryRepositoryID).
+		Msg("Setting up git repositories for external agent")
+
+	// Clone each repository
+	for _, repoID := range repositoryIDs {
+		if repoID == "" {
+			continue // Skip empty repository IDs
+		}
+
+		// Get repository details from database
+		repo, err := w.store.GetGitRepository(ctx, repoID)
+		if err != nil {
+			log.Error().Err(err).Str("repository_id", repoID).Msg("Failed to get repository details")
+			return fmt.Errorf("failed to get repository %s: %w", repoID, err)
+		}
+
+		// Determine clone directory - use repository name
+		cloneDir := filepath.Join(workspaceDir, repo.Name)
+
+		// Check if repository already exists
+		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Repository already cloned, skipping")
+
+			// For primary repository, ensure design docs worktree exists
+			if repoID == primaryRepositoryID {
+				err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to setup design docs worktree for existing repo")
+					// Continue - not fatal
+				}
+			}
+			continue
+		}
+
+		log.Info().
+			Str("repository_id", repoID).
+			Str("repository_url", repo.CloneURL).
+			Str("clone_dir", cloneDir).
+			Msg("Cloning git repository")
+
+		// Clone the repository
+		// Use git clone with --bare for the main repo, then set up worktrees
+		cloneCmd := fmt.Sprintf("git clone %s %s", repo.CloneURL, cloneDir)
+		output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("output", output).
+				Str("repository_id", repoID).
+				Msg("Failed to clone repository")
+			return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
+		}
+
+		log.Info().
+			Str("repository_id", repoID).
+			Str("clone_dir", cloneDir).
+			Msg("Successfully cloned git repository")
+
+		// For primary repository, set up design docs worktree
+		if repoID == primaryRepositoryID {
+			err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to setup design docs worktree")
+				return fmt.Errorf("failed to setup design docs worktree: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// setupDesignDocsWorktree creates a git worktree for design documents on helix-design-docs branch
+func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error {
+	worktreePath := filepath.Join(repoPath, ".git-worktrees", "helix-design-docs")
+
+	// Check if worktree already exists
+	if _, err := os.Stat(worktreePath); err == nil {
+		log.Info().
+			Str("worktree_path", worktreePath).
+			Msg("Design docs worktree already exists, skipping")
+		return nil
+	}
+
+	log.Info().
+		Str("repo_path", repoPath).
+		Str("worktree_path", worktreePath).
+		Msg("Setting up design docs git worktree")
+
+	ctx := context.Background()
+
+	// Check if helix-design-docs branch exists remotely
+	checkBranchCmd := "git ls-remote --heads origin helix-design-docs"
+	output, err := execCommand(ctx, repoPath, "bash", "-c", checkBranchCmd)
+	branchExists := err == nil && output != ""
+
+	if !branchExists {
+		// Create orphan branch for design docs (forward-only, no shared history)
+		log.Info().
+			Str("repo_name", repoName).
+			Msg("Creating new helix-design-docs orphan branch")
+
+		createBranchCmd := `
+			git checkout --orphan helix-design-docs && \
+			git rm -rf . && \
+			echo "# Helix Design Documents" > README.md && \
+			echo "" >> README.md && \
+			echo "This branch contains design documents generated by Helix agents." >> README.md && \
+			echo "Documents are organized by task in tasks/ directory." >> README.md && \
+			mkdir -p tasks && \
+			git add README.md && \
+			git commit -m "Initialize helix-design-docs branch" && \
+			git push -u origin helix-design-docs && \
+			git checkout main
+		`
+		_, err := execCommand(ctx, repoPath, "bash", "-c", createBranchCmd)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create helix-design-docs branch")
+			return fmt.Errorf("failed to create helix-design-docs branch: %w", err)
+		}
+
+		log.Info().Msg("Successfully created helix-design-docs branch")
+	}
+
+	// Create worktree directory
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+		return fmt.Errorf("failed to create worktree parent directory: %w", err)
+	}
+
+	// Add worktree
+	addWorktreeCmd := fmt.Sprintf("git worktree add %s helix-design-docs", worktreePath)
+	_, err = execCommand(ctx, repoPath, "bash", "-c", addWorktreeCmd)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to add git worktree")
+		return fmt.Errorf("failed to add git worktree: %w", err)
+	}
+
+	log.Info().
+		Str("worktree_path", worktreePath).
+		Msg("Successfully set up design docs git worktree")
+
+	return nil
+}
+
+// execCommand executes a command in the specified directory and returns output
+func execCommand(ctx context.Context, dir string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
