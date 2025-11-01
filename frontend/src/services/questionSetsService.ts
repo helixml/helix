@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesQuestionSet } from '../api/api';
+import { TypesQuestionSet, TypesExecuteQuestionSetRequest } from '../api/api';
 
 export const questionSetQueryKey = (id: string) => [
   "question-set",
@@ -101,6 +101,19 @@ export function useDeleteQuestionSet() {
     onSuccess: (_, id) => {
       queryClient.removeQueries({ queryKey: questionSetQueryKey(id) })
       queryClient.invalidateQueries({ queryKey: questionSetsListQueryKey() })
+    }
+  });
+}
+
+export function useExecuteQuestionSet() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useMutation({
+    mutationFn: async (data: { id: string; request: TypesExecuteQuestionSetRequest }) => {
+      const { id, request } = data;
+      const result = await apiClient.v1QuestionSetsExecuteCreate(id, request)
+      return result.data
     }
   });
 }
