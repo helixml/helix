@@ -96,6 +96,13 @@ type ListTriggerExecutionsQuery struct {
 	Limit     int
 }
 
+type ListQuestionSetExecutionsQuery struct {
+	QuestionSetID string
+	AppID         string
+	Offset        int
+	Limit         int
+}
+
 type ListUsersQuery struct {
 	TokenType types.TokenType `json:"token_type"`
 	Admin     bool            `json:"admin"`
@@ -512,6 +519,11 @@ type Store interface {
 	UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
 	ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error)
 	DeleteQuestionSet(ctx context.Context, id string) error
+
+	CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error)
+	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 }
 
 type EmbeddingsStore interface {

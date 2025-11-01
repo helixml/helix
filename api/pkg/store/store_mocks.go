@@ -536,6 +536,21 @@ func (mr *MockStoreMockRecorder) CreateQuestionSet(ctx, questionSet any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateQuestionSet", reflect.TypeOf((*MockStore)(nil).CreateQuestionSet), ctx, questionSet)
 }
 
+// CreateQuestionSetExecution mocks base method.
+func (m *MockStore) CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateQuestionSetExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateQuestionSetExecution indicates an expected call of CreateQuestionSetExecution.
+func (mr *MockStoreMockRecorder) CreateQuestionSetExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).CreateQuestionSetExecution), ctx, execution)
+}
+
 // CreateRole mocks base method.
 func (m *MockStore) CreateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
 	m.ctrl.T.Helper()
@@ -2037,6 +2052,21 @@ func (mr *MockStoreMockRecorder) GetQuestionSet(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQuestionSet", reflect.TypeOf((*MockStore)(nil).GetQuestionSet), ctx, id)
 }
 
+// GetQuestionSetExecution mocks base method.
+func (m *MockStore) GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetQuestionSetExecution", ctx, id)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetQuestionSetExecution indicates an expected call of GetQuestionSetExecution.
+func (mr *MockStoreMockRecorder) GetQuestionSetExecution(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).GetQuestionSetExecution), ctx, id)
+}
+
 // GetRecentCompletions mocks base method.
 func (m *MockStore) GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error) {
 	m.ctrl.T.Helper()
@@ -2865,6 +2895,21 @@ func (mr *MockStoreMockRecorder) ListProviderEndpoints(ctx, q any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpoints", reflect.TypeOf((*MockStore)(nil).ListProviderEndpoints), ctx, q)
 }
 
+// ListQuestionSetExecutions mocks base method.
+func (m *MockStore) ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListQuestionSetExecutions", ctx, q)
+	ret0, _ := ret[0].([]*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListQuestionSetExecutions indicates an expected call of ListQuestionSetExecutions.
+func (mr *MockStoreMockRecorder) ListQuestionSetExecutions(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListQuestionSetExecutions", reflect.TypeOf((*MockStore)(nil).ListQuestionSetExecutions), ctx, q)
+}
+
 // ListQuestionSets mocks base method.
 func (m *MockStore) ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error) {
 	m.ctrl.T.Helper()
@@ -3632,6 +3677,21 @@ func (m *MockStore) UpdateQuestionSet(ctx context.Context, questionSet *types.Qu
 func (mr *MockStoreMockRecorder) UpdateQuestionSet(ctx, questionSet any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateQuestionSet", reflect.TypeOf((*MockStore)(nil).UpdateQuestionSet), ctx, questionSet)
+}
+
+// UpdateQuestionSetExecution mocks base method.
+func (m *MockStore) UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateQuestionSetExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateQuestionSetExecution indicates an expected call of UpdateQuestionSetExecution.
+func (mr *MockStoreMockRecorder) UpdateQuestionSetExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).UpdateQuestionSetExecution), ctx, execution)
 }
 
 // UpdateRole mocks base method.
