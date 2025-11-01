@@ -13,12 +13,14 @@ import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import { useListQuestionSets, useDeleteQuestionSet } from '../services/questionSetsService'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
+import useApps from '../hooks/useApps'
 
 import { TypesQuestionSet } from '../api/api'
 
 const QuestionSets: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
+  const apps = useApps()
   const [deletingQuestionSet, setDeletingQuestionSet] = useState<TypesQuestionSet | undefined>()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingQuestionSetId, setEditingQuestionSetId] = useState<string | undefined>()
@@ -33,6 +35,14 @@ const QuestionSets: FC = () => {
   )
 
   const deleteQuestionSetMutation = useDeleteQuestionSet()
+
+  useEffect(() => {
+    if(account.user) {
+      apps.loadApps()
+    }
+  }, [
+    account,apps.loadApps,
+  ])
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -143,6 +153,7 @@ const QuestionSets: FC = () => {
         open={dialogOpen}
         onClose={handleCloseDialog}
         questionSetId={editingQuestionSetId}
+        apps={apps.apps}
       />
 
       {deletingQuestionSet && (

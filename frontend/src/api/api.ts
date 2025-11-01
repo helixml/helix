@@ -1864,7 +1864,7 @@ export interface TypesExecuteQuestionSetRequest {
 }
 
 export interface TypesExecuteQuestionSetResponse {
-  questions?: TypesQuestionResponse[];
+  results?: TypesQuestionResponse[];
 }
 
 export interface TypesExternalAgentConfig {
@@ -2800,6 +2800,25 @@ export interface TypesQuestionSet {
   updated?: string;
   /** Creator of the question set */
   user_id?: string;
+}
+
+export interface TypesQuestionSetExecution {
+  app_id?: string;
+  created?: string;
+  duration_ms?: number;
+  error?: string;
+  id?: string;
+  question_set_id?: string;
+  results?: TypesQuestionResponse[];
+  status?: TypesQuestionSetExecutionStatus;
+  updated?: string;
+}
+
+export enum TypesQuestionSetExecutionStatus {
+  QuestionSetExecutionStatusPending = "pending",
+  QuestionSetExecutionStatusRunning = "running",
+  QuestionSetExecutionStatusSuccess = "success",
+  QuestionSetExecutionStatusError = "error",
 }
 
 export interface TypesRAGSettings {
@@ -6724,23 +6743,50 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Execute a question set, this is a blocking operation and will return a response for each question in the question set
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecuteCreate
+     * @name V1QuestionSetsExecutionsCreate
      * @summary Execute a question set
-     * @request POST:/api/v1/question-sets/{id}/execute
+     * @request POST:/api/v1/question-sets/{id}/executions
      * @secure
      */
-    v1QuestionSetsExecuteCreate: (
+    v1QuestionSetsExecutionsCreate: (
       id: string,
       executeQuestionSetRequest: TypesExecuteQuestionSetRequest,
       params: RequestParams = {},
     ) =>
       this.request<TypesExecuteQuestionSetResponse, SystemHTTPError>({
-        path: `/api/v1/question-sets/${id}/execute`,
+        path: `/api/v1/question-sets/${id}/executions`,
         method: "POST",
         body: executeQuestionSetRequest,
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List executions for the question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsExecutionsDetail
+     * @summary List question set executions
+     * @request GET:/api/v1/question-sets/{question_set_id}/executions
+     * @secure
+     */
+    v1QuestionSetsExecutionsDetail: (
+      questionSetId: string,
+      query?: {
+        /** Offset */
+        offset?: number;
+        /** Limit */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionSetExecution[], any>({
+        path: `/api/v1/question-sets/${questionSetId}/executions`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
