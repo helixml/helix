@@ -339,25 +339,32 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	// Load project startup script if this is a SpecTask
+	// Load project startup script - either from SpecTask's project or direct ProjectID (exploratory sessions)
 	projectStartupScript := ""
+	projectIDToLoad := agent.ProjectID // Direct project ID for exploratory sessions
+
 	if agent.SpecTaskID != "" {
 		// Load the SpecTask to get project ID
 		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
 		if err != nil {
 			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get SpecTask for startup script, continuing without it")
 		} else if specTask.ProjectID != "" {
-			// Load the project to get startup script
-			project, err := w.store.GetProject(ctx, specTask.ProjectID)
-			if err != nil {
-				log.Warn().Err(err).Str("project_id", specTask.ProjectID).Msg("Failed to get Project for startup script, continuing without it")
-			} else if project.StartupScript != "" {
-				projectStartupScript = project.StartupScript
-				log.Info().
-					Str("project_id", project.ID).
-					Str("spec_task_id", agent.SpecTaskID).
-					Msg("Loaded project startup script for agent")
-			}
+			projectIDToLoad = specTask.ProjectID
+		}
+	}
+
+	// Load project and startup script if we have a project ID
+	if projectIDToLoad != "" {
+		project, err := w.store.GetProject(ctx, projectIDToLoad)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", projectIDToLoad).Msg("Failed to get Project for startup script, continuing without it")
+		} else if project.StartupScript != "" {
+			projectStartupScript = project.StartupScript
+			log.Info().
+				Str("project_id", project.ID).
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("direct_project_id", agent.ProjectID).
+				Msg("Loaded project startup script for agent")
 		}
 	}
 

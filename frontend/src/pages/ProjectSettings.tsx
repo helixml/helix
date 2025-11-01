@@ -20,10 +20,12 @@ import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import CodeIcon from '@mui/icons-material/Code'
+import ExploreIcon from '@mui/icons-material/Explore'
 
 import Page from '../components/system/Page'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
+import useApi from '../hooks/useApi'
 import {
   useGetProject,
   useUpdateProject,
@@ -32,8 +34,9 @@ import {
 } from '../services'
 
 const ProjectSettings: FC = () => {
-  const { params } = useRouter()
+  const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
+  const api = useApi()
   const projectId = params.id as string
 
   const { data: project, isLoading, error } = useGetProject(projectId)
@@ -44,6 +47,7 @@ const ProjectSettings: FC = () => {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
+  const [startingExploratorySession, setStartingExploratorySession] = useState(false)
 
   useEffect(() => {
     if (project) {
@@ -72,6 +76,21 @@ const ProjectSettings: FC = () => {
       snackbar.success('Primary repository updated')
     } catch (err) {
       snackbar.error('Failed to update primary repository')
+    }
+  }
+
+  const handleStartExploratorySession = async () => {
+    try {
+      setStartingExploratorySession(true)
+      const response = await api.post(`/api/v1/projects/${projectId}/exploratory-session`)
+      const session = response.data
+      snackbar.success('Exploratory session started')
+      // Navigate to the session
+      navigate(`/session/${session.id}`)
+    } catch (err) {
+      snackbar.error('Failed to start exploratory session')
+    } finally {
+      setStartingExploratorySession(false)
     }
   }
 
@@ -104,15 +123,26 @@ const ProjectSettings: FC = () => {
       breadcrumbTitle="Project Settings"
       orgBreadcrumbs={true}
       topbarContent={(
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<SaveIcon />}
-          onClick={handleSave}
-          disabled={updateProjectMutation.isPending}
-        >
-          {updateProjectMutation.isPending ? 'Saving...' : 'Save Changes'}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<ExploreIcon />}
+            onClick={handleStartExploratorySession}
+            disabled={startingExploratorySession}
+          >
+            {startingExploratorySession ? 'Starting...' : 'Explore Project'}
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            disabled={updateProjectMutation.isPending}
+          >
+            {updateProjectMutation.isPending ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </Box>
       )}
     >
       <Container maxWidth="md">
