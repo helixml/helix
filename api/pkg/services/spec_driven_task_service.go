@@ -17,6 +17,9 @@ import (
 	"gorm.io/datatypes"
 )
 
+// RequestMappingRegistrar is a function type for registering request-to-session mappings
+type RequestMappingRegistrar func(requestID, sessionID string)
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
@@ -24,6 +27,7 @@ type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
 	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
+	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
 	helixAgentID             string                       // ID of Helix agent for spec generation
 	zedAgentPool             []string                     // Pool of available Zed agents
 	testMode                 bool                         // If true, skip async operations for testing
@@ -43,14 +47,16 @@ func NewSpecDrivenTaskService(
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
 	externalAgentExecutor external_agent.Executor,
+	registerRequestMapping RequestMappingRegistrar,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
-		store:                 store,
-		controller:            controller,
-		externalAgentExecutor: externalAgentExecutor,
-		helixAgentID:          helixAgentID,
-		zedAgentPool:          zedAgentPool,
-		testMode:              false,
+		store:                  store,
+		controller:             controller,
+		externalAgentExecutor:  externalAgentExecutor,
+		RegisterRequestMapping: registerRequestMapping,
+		helixAgentID:           helixAgentID,
+		zedAgentPool:           zedAgentPool,
+		testMode:               false,
 	}
 
 	// Initialize Zed integration service
@@ -192,10 +198,11 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 
 	// Create Zed external agent session for spec generation
 	// Planning agent needs git access to commit design docs to helix-design-docs branch
-	systemPrompt := s.buildSpecGenerationPrompt(task)
+	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
+	planningPrompt := s.buildSpecGenerationPrompt(task)
 
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: systemPrompt,
+		SystemPrompt: "", // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
 		Stream:       false,
 	}
@@ -239,7 +246,18 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Create initial interaction with the original prompt
+	// Generate request_id for initial message and register the mapping
+	// This allows the WebSocket handler to find and send the initial message to Zed
+	requestID := system.GenerateRequestID()
+	if s.RegisterRequestMapping != nil {
+		s.RegisterRequestMapping(requestID, session.ID)
+	}
+
+	// Create initial interaction combining planning instructions with user's request
+	// The planning prompt tells Zed how to create design documents
+	// The user's prompt is what they want designed
+	fullMessage := planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
 		Created:       time.Now(),
@@ -248,8 +266,8 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:     session.ID,
 		UserID:        task.CreatedBy,
 		Mode:          types.SessionModeInference,
-		SystemPrompt:  systemPrompt,
-		PromptMessage: task.OriginalPrompt,
+		SystemPrompt:  "", // Don't override agent's system prompt
+		PromptMessage: fullMessage,
 		State:         types.InteractionStateWaiting,
 	}
 
@@ -261,12 +279,49 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
+	// Get all project repositories (not just the task's primary)
+	projectRepos, err := s.store.GetProjectRepositories(ctx, task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories, falling back to task primary repo only")
+		projectRepos = nil
+	}
+
+	// Build list of all repository IDs to clone
+	repositoryIDs := []string{}
+	if len(projectRepos) > 0 {
+		// Use all project repositories
+		for _, repo := range projectRepos {
+			if repo.ID != "" {
+				repositoryIDs = append(repositoryIDs, repo.ID)
+			}
+		}
+	} else if task.PrimaryRepositoryID != "" {
+		// Fallback to task-level primary repository if no project repos
+		repositoryIDs = []string{task.PrimaryRepositoryID}
+	}
+
+	// Determine primary repository (task-level override or project default)
+	primaryRepoID := task.PrimaryRepositoryID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		// Get project's default repo if task doesn't specify one
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err == nil && project.DefaultRepoID != "" {
+			primaryRepoID = project.DefaultRepoID
+		} else if len(projectRepos) > 0 {
+			// Use first project repo as fallback
+			primaryRepoID = projectRepos[0].ID
+		}
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
-		SessionID:   session.ID,
-		UserID:      task.CreatedBy,
-		Input:       "Initialize Zed development environment for spec generation",
-		ProjectPath: "workspace", // Use relative path
+		SessionID:           session.ID,
+		UserID:              task.CreatedBy,
+		Input:               "Initialize Zed development environment for spec generation",
+		ProjectPath:         "workspace", // Use relative path
+		SpecTaskID:          task.ID,                      // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,                // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,                // ALL project repos to checkout
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
