@@ -1858,6 +1858,15 @@ export enum TypesEffect {
   EffectDeny = "deny",
 }
 
+export interface TypesExecuteQuestionSetRequest {
+  app_id?: string;
+  question_set_id?: string;
+}
+
+export interface TypesExecuteQuestionSetResponse {
+  questions?: TypesQuestionResponse[];
+}
+
 export interface TypesExternalAgentConfig {
   /** Whether to auto-connect RDP viewer */
   auto_connect_rdp?: boolean;
@@ -2124,6 +2133,8 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
+  /** The question set this session belongs to, if any */
+  question_set_id?: string;
   rag_results?: TypesSessionRAGResult[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
@@ -2763,6 +2774,21 @@ export interface TypesQuestion {
   updated?: string;
 }
 
+export interface TypesQuestionResponse {
+  /** Error */
+  error?: string;
+  /** Interaction ID */
+  interaction_id?: string;
+  /** Original question */
+  question?: string;
+  /** ID of the question */
+  question_id?: string;
+  /** Response */
+  response?: string;
+  /** Session ID */
+  session_id?: string;
+}
+
 export interface TypesQuestionSet {
   created?: string;
   description?: string;
@@ -3070,6 +3096,8 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  /** The question set this session belongs to, if any */
+  question_set_id?: string;
   trigger?: string;
   /** e.g. text, image */
   type?: TypesSessionType;
@@ -3836,11 +3864,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -6693,6 +6721,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Execute a question set, this is a blocking operation and will return a response for each question in the question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsExecuteCreate
+     * @summary Execute a question set
+     * @request POST:/api/v1/question-sets/{id}/execute
+     * @secure
+     */
+    v1QuestionSetsExecuteCreate: (
+      id: string,
+      executeQuestionSetRequest: TypesExecuteQuestionSetRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesExecuteQuestionSetResponse, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}/execute`,
+        method: "POST",
+        body: executeQuestionSetRequest,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get a list of all available sample projects that users can fork and use
      *
      * @tags sample-projects
@@ -6987,6 +7039,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         page_size?: number;
         /** Organization slug or ID */
         org_id?: string;
+        /** Question set ID */
+        question_set_id?: string;
         /** Search sessions by name */
         search?: string;
       },
