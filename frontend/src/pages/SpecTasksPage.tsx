@@ -59,6 +59,16 @@ const SpecTasksPage: FC = () => {
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
 
+  // Redirect to projects list if no project selected (new architecture: must select project first)
+  // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
+  useEffect(() => {
+    const isCreatingNew = router.params.new === 'true';
+    if (!projectId && !isCreatingNew) {
+      console.log('No project ID in route - redirecting to projects list');
+      account.orgNavigate('projects');
+    }
+  }, [projectId, router.params.new, account]);
+
   // State for view management
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
