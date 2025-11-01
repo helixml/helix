@@ -909,8 +909,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sample-projects-v2/{id}/instantiate", system.Wrapper(apiServer.instantiateSampleProject)).Methods(http.MethodPost)
 
 	// Admin sample project management routes
-	adminRouter.HandleFunc("/sample-projects/{id}", system.Wrapper(apiServer.createSampleProject)).Methods(http.MethodPost)
-	adminRouter.HandleFunc("/sample-projects/{id}", system.Wrapper(apiServer.deleteSampleProject)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/admin/sample-projects", system.Wrapper(apiServer.createSampleProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/admin/sample-projects/{id}", system.Wrapper(apiServer.deleteSampleProject)).Methods(http.MethodDelete)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)

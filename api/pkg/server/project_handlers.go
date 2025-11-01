@@ -269,6 +269,28 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError404("project not found")
 	}
 
+	// Check if project has any tasks (prevent orphaning tasks)
+	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
+		ProjectID: projectID,
+		Limit:     1, // Just need to know if any exist
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to check project tasks")
+		return nil, system.NewHTTPError500("failed to check project tasks")
+	}
+
+	if len(tasks) > 0 {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Int("task_count", len(tasks)).
+			Msg("cannot delete project with existing tasks")
+		return nil, system.NewHTTPError400("cannot delete project with existing tasks. Please delete or archive all tasks first.")
+	}
+
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {
 		log.Error().
@@ -373,6 +395,34 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 			Str("project_id", projectID).
 			Msg("user not authorized to set project primary repository")
 		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Verify the repository exists and belongs to this project
+	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get project repositories")
+		return nil, system.NewHTTPError500("failed to verify repository")
+	}
+
+	// Check if the repository is in the project's repository list
+	repoFound := false
+	for _, repo := range projectRepos {
+		if repo.ID == repoID {
+			repoFound = true
+			break
+		}
+	}
+
+	if !repoFound {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("repo_id", repoID).
+			Msg("repository not found in project")
+		return nil, system.NewHTTPError400("repository not attached to this project")
 	}
 
 	err = s.Store.SetProjectPrimaryRepository(r.Context(), projectID, repoID)

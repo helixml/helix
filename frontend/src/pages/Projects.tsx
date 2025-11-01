@@ -79,7 +79,7 @@ const Projects: FC = () => {
 
       // Navigate to the new project
       if (result) {
-        navigate(`/projects/${result.id}/specs`)
+        account.orgNavigate('project-specs', { id: result.id })
       }
     } catch (err) {
       snackbar.error('Failed to create project')
@@ -87,12 +87,12 @@ const Projects: FC = () => {
   }
 
   const handleViewProject = (project: TypesProject) => {
-    navigate(`/projects/${project.id}/specs`)
+    account.orgNavigate('project-specs', { id: project.id })
   }
 
   const handleProjectSettings = () => {
     if (selectedProject) {
-      navigate(`/projects/${selectedProject.id}/settings`)
+      account.orgNavigate('project-settings', { id: selectedProject.id })
     }
     handleMenuClose()
   }
@@ -217,7 +217,7 @@ const Projects: FC = () => {
                         startIcon={<SettingsIcon />}
                         onClick={(e) => {
                           e.stopPropagation()
-                          navigate(`/projects/${project.id}/settings`)
+                          account.orgNavigate('project-settings', { id: project.id })
                         }}
                       >
                         Settings

@@ -611,7 +611,7 @@ const Home: FC = () => {
                       projects.slice(0, 6).map((project) => (
                         <Grid item key={project.id}>
                           <Box
-                            onClick={() => account.orgNavigate(`projects/${project.id}/specs`)}
+                            onClick={() => account.orgNavigate('project-specs', { id: project.id })}
                             sx={{
                               cursor: 'pointer',
                               display: 'flex',

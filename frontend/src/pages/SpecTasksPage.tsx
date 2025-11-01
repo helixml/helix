@@ -354,7 +354,7 @@ const SpecTasksPage: FC = () => {
       const createTaskRequest: ServicesCreateTaskRequest = {
         prompt: taskPrompt, // Just the raw user input!
         priority: taskPriority,
-        project_id: account.organizationTools.organization?.id || 'default',
+        project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
         git_repository_id: repositoryId, // Attach repository if selected/created
       };

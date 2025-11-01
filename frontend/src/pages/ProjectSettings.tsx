@@ -23,6 +23,7 @@ import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
 
 import Page from '../components/system/Page'
+import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -34,6 +35,7 @@ import {
 } from '../services'
 
 const ProjectSettings: FC = () => {
+  const account = useAccount()
   const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
   const api = useApi()
@@ -86,7 +88,7 @@ const ProjectSettings: FC = () => {
       const session = response.data
       snackbar.success('Exploratory session started')
       // Navigate to the session
-      navigate(`/session/${session.id}`)
+      account.orgNavigate('session', { session_id: session.id })
     } catch (err) {
       snackbar.error('Failed to start exploratory session')
     } finally {
