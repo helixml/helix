@@ -308,6 +308,7 @@ func NewServer(
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
 			externalAgentExecutor,      // Wolf executor for launching external agents
+			nil,                        // Will set callback after apiServer is constructed
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -340,6 +341,9 @@ func NewServer(
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
 	}
+
+	// Set the request mapping callback for SpecDrivenTaskService
+	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 
 	// Initialize Zed Planning Service
 	apiServer.zedPlanningService = services.NewZedPlanningService(
@@ -888,6 +892,24 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OAuth routes
 	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
+
+	// Project routes
+	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.listProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/repositories", system.Wrapper(apiServer.getProjectRepositories)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/primary", system.Wrapper(apiServer.setProjectPrimaryRepository)).Methods(http.MethodPut)
+
+	// Sample project routes
+	authRouter.HandleFunc("/sample-projects-v2", system.Wrapper(apiServer.listSampleProjectsV2)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects-v2/{id}", system.Wrapper(apiServer.getSampleProjectByID)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects-v2/{id}/instantiate", system.Wrapper(apiServer.instantiateSampleProject)).Methods(http.MethodPost)
+
+	// Admin sample project management routes
+	adminRouter.HandleFunc("/sample-projects/{id}", system.Wrapper(apiServer.createSampleProject)).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/sample-projects/{id}", system.Wrapper(apiServer.deleteSampleProject)).Methods(http.MethodDelete)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
