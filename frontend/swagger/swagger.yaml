@@ -3218,7 +3218,7 @@ definitions:
     type: object
   types.ExecuteQuestionSetResponse:
     properties:
-      questions:
+      results:
         items:
           $ref: '#/definitions/types.QuestionResponse'
         type: array
@@ -4831,6 +4831,41 @@ definitions:
         description: Creator of the question set
         type: string
     type: object
+  types.QuestionSetExecution:
+    properties:
+      app_id:
+        type: string
+      created:
+        type: string
+      duration_ms:
+        type: integer
+      error:
+        type: string
+      id:
+        type: string
+      question_set_id:
+        type: string
+      results:
+        items:
+          $ref: '#/definitions/types.QuestionResponse'
+        type: array
+      status:
+        $ref: '#/definitions/types.QuestionSetExecutionStatus'
+      updated:
+        type: string
+    type: object
+  types.QuestionSetExecutionStatus:
+    enum:
+    - pending
+    - running
+    - success
+    - error
+    type: string
+    x-enum-varnames:
+    - QuestionSetExecutionStatusPending
+    - QuestionSetExecutionStatusRunning
+    - QuestionSetExecutionStatusSuccess
+    - QuestionSetExecutionStatusError
   types.RAGSettings:
     properties:
       chunk_overflow:
@@ -9883,7 +9918,7 @@ paths:
       summary: Update a question set
       tags:
       - question-sets
-  /api/v1/question-sets/{id}/execute:
+  /api/v1/question-sets/{id}/executions:
     post:
       consumes:
       - application/json
@@ -9927,6 +9962,35 @@ paths:
       security:
       - BearerAuth: []
       summary: Execute a question set
+      tags:
+      - question-sets
+  /api/v1/question-sets/{question_set_id}/executions:
+    get:
+      description: List executions for the question set
+      parameters:
+      - description: Question set ID
+        in: path
+        name: question_set_id
+        required: true
+        type: string
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.QuestionSetExecution'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List question set executions
       tags:
       - question-sets
   /api/v1/sample-projects:

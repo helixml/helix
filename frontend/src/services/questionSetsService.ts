@@ -13,6 +13,11 @@ export const questionSetsListQueryKey = (orgId?: string) => [
   ...(orgId ? [orgId] : [])
 ];
 
+export const questionSetExecutionsQueryKey = (questionSetId: string) => [
+  "question-set-executions",
+  questionSetId
+];
+
 export function useListQuestionSets(orgId?: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -112,9 +117,27 @@ export function useExecuteQuestionSet() {
   return useMutation({
     mutationFn: async (data: { id: string; request: TypesExecuteQuestionSetRequest }) => {
       const { id, request } = data;
-      const result = await apiClient.v1QuestionSetsExecuteCreate(id, request)
+      const result = await apiClient.v1QuestionSetsExecutionsCreate(id, request)
       return result.data
     }
+  });
+}
+
+export function useListQuestionSetExecutions(questionSetId: string, options?: { offset?: number, limit?: number, enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: questionSetExecutionsQueryKey(questionSetId),
+    queryFn: async () => {
+      const result = await apiClient.v1QuestionSetsExecutionsDetail(
+        questionSetId,
+        { offset: options?.offset ?? 0, limit: options?.limit ?? 100 }
+      )
+      return result.data
+    },
+    enabled: (options?.enabled ?? true) && !!questionSetId,
+    refetchInterval: 3000,
   });
 }
 

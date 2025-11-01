@@ -60,6 +60,7 @@ export const SessionsSidebar: FC<{
   } = useListSessions(
     orgId, 
     undefined, 
+    undefined,
     currentPage,
     PAGE_SIZE,
     {
