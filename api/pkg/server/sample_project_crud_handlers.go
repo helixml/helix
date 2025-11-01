@@ -183,7 +183,7 @@ func (s *HelixAPIServer) instantiateSampleProject(_ http.ResponseWriter, r *http
 // @Failure 401 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
 // @Security BearerAuth
-// @Router /api/v1/admin/sample-projects [post]
+// @Router /api/v1/sample-projects [post]
 func (s *HelixAPIServer) createSampleProject(_ http.ResponseWriter, r *http.Request) (*types.SampleProject, *system.HTTPError) {
 	user := getRequestUser(r)
 
