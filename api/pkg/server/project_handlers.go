@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -391,4 +393,126 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 		Msg("project primary repository set successfully")
 
 	return map[string]string{"message": "primary repository set successfully"}, nil
+}
+
+// startExploratorySession godoc
+// @Summary Start exploratory session
+// @Description Start an exploratory agent session for a project without a specific task
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} types.Session
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/exploratory-session [post]
+func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.Request) (*types.Session, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Check if user has access to the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to get project for exploratory session")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	if project.UserID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("user not authorized to start exploratory session")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Create a new session for the exploratory agent
+	sessionMetadata := types.SessionMetadata{
+		Stream:    true,
+		AgentType: "zed_external",
+		SpecTaskID: "", // No task for exploratory
+	}
+
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("Explore: %s", project.Name),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		ParentSession:  "",
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "anthropic",
+		ModelName:      "external_agent",
+		LoraDir:        "",
+		Owner:          user.ID,
+		OwnerType:      types.OwnerTypeUser,
+		Metadata:       sessionMetadata,
+	}
+
+	createdSession, err := s.Store.CreateSession(r.Context(), *session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to create exploratory session")
+		return nil, system.NewHTTPError500("failed to create session")
+	}
+
+	// Get all project repositories
+	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for exploratory session")
+		projectRepos = nil
+	}
+
+	// Build list of repository IDs
+	repositoryIDs := []string{}
+	for _, repo := range projectRepos {
+		if repo.ID != "" {
+			repositoryIDs = append(repositoryIDs, repo.ID)
+		}
+	}
+
+	// Determine primary repository
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		primaryRepoID = projectRepos[0].ID
+	}
+
+	// Create ZedAgent for exploratory session
+	zedAgent := &types.ZedAgent{
+		SessionID:           createdSession.ID,
+		UserID:              user.ID,
+		Input:               fmt.Sprintf("Explore the %s project", project.Name),
+		ProjectPath:         "workspace",
+		SpecTaskID:          "", // No task - exploratory mode
+		ProjectID:           projectID, // For loading project repos and startup script
+		PrimaryRepositoryID: primaryRepoID,
+		RepositoryIDs:       repositoryIDs,
+	}
+
+	// Start the Zed agent via Wolf executor
+	agentResp, err := s.externalAgentExecutor.StartZedAgent(r.Context(), zedAgent)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", createdSession.ID).
+			Str("project_id", projectID).
+			Msg("Failed to launch exploratory agent")
+		return nil, system.NewHTTPError500("failed to start exploratory agent")
+	}
+
+	log.Info().
+		Str("session_id", createdSession.ID).
+		Str("project_id", projectID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Msg("Exploratory session created successfully")
+
+	return createdSession, nil
 }
