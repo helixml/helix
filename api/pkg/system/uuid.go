@@ -37,6 +37,7 @@ const (
 	TransactionPrefix          = "txn_"
 	TopUpPrefix                = "top_"
 	MemoryPrefix               = "mem_"
+	QuestionSetPrefix          = "qs_"
 )
 
 func GenerateUUID() string {
@@ -164,4 +165,8 @@ func GenerateTopUpID() string {
 
 func GenerateMemoryID() string {
 	return fmt.Sprintf("%s%s", MemoryPrefix, newID())
+}
+
+func GenerateQuestionSetID() string {
+	return fmt.Sprintf("%s%s", QuestionSetPrefix, newID())
 }
