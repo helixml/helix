@@ -4621,7 +4621,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/question-sets/{id}/execute": {
+        "/api/v1/question-sets/{id}/executions": {
             "post": {
                 "security": [
                     {
@@ -4686,6 +4686,52 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{question_set_id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List executions for the question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question set executions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "question_set_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSetExecution"
+                            }
                         }
                     }
                 }
@@ -13919,7 +13965,7 @@ const docTemplate = `{
         "types.ExecuteQuestionSetResponse": {
             "type": "object",
             "properties": {
-                "questions": {
+                "results": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.QuestionResponse"
@@ -16240,6 +16286,56 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.QuestionSetExecution": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                },
+                "status": {
+                    "$ref": "#/definitions/types.QuestionSetExecutionStatus"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSetExecutionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "success",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "QuestionSetExecutionStatusPending",
+                "QuestionSetExecutionStatusRunning",
+                "QuestionSetExecutionStatusSuccess",
+                "QuestionSetExecutionStatusError"
+            ]
         },
         "types.RAGSettings": {
             "type": "object",
