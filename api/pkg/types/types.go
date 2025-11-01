@@ -73,6 +73,8 @@ type Interaction struct {
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
+
+	QuestionSetID string `json:"question_set_id"` // The question set this session belongs to, if any
 }
 
 type FeedbackRequest struct {
@@ -708,6 +710,8 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+
+	QuestionSetID string `json:"question_set_id"` // The question set this session belongs to, if any
 
 	Trigger string `json:"trigger"`
 }
@@ -2589,4 +2593,24 @@ type Question struct {
 type ListQuestionSetsRequest struct {
 	UserID         string
 	OrganizationID string
+}
+
+type ExecuteQuestionSetRequest struct {
+	QuestionSetID string `json:"question_set_id"`
+	AppID         string `json:"app_id"`
+}
+
+// ExecuteQuestionSetResponse contains the response to each question in the question set
+// Each response is a unique session where users can drill down into the response and ask follow-up questions
+type ExecuteQuestionSetResponse struct {
+	Questions []QuestionResponse `json:"questions"`
+}
+
+type QuestionResponse struct {
+	QuestionID    string `json:"question_id"`    // ID of the question
+	Question      string `json:"question"`       // Original question
+	SessionID     string `json:"session_id"`     // Session ID
+	InteractionID string `json:"interaction_id"` // Interaction ID
+	Response      string `json:"response"`       // Response
+	Error         string `json:"error"`          // Error
 }
