@@ -353,21 +353,6 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
       >
         <Button
           variant="outlined"
-          onClick={handleClose}
-          disabled={isSubmitting}
-          sx={{
-            color: '#A0AEC0',
-            borderColor: '#2D3748',
-            '&:hover': {
-              borderColor: '#4A5568',
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-            },
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="outlined"
           onClick={handleSave}
           color="secondary"
           disabled={
@@ -377,18 +362,6 @@ const QuestionSetDialog: React.FC<QuestionSetDialogProps> = ({ open, onClose, qu
             questions.filter((q) => q.question.trim()).length === 0
           }
           startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
-          sx={{
-            borderColor: '#2D3748',
-            color: '#A0AEC0',
-            '&:hover': {
-              borderColor: '#4A5568',
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-            },
-            '&.Mui-disabled': {
-              borderColor: '#2D3748',
-              color: '#4A5568',
-            },
-          }}
         >
           {isSubmitting ? 'Saving...' : questionSetId ? 'Save' : 'Create'}
         </Button>
