@@ -2756,6 +2756,26 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeTeam = "team",
 }
 
+export interface TypesQuestion {
+  created?: string;
+  id?: string;
+  question?: string;
+  updated?: string;
+}
+
+export interface TypesQuestionSet {
+  created?: string;
+  description?: string;
+  id?: string;
+  name?: string;
+  /** The organization this session belongs to, if any */
+  organization_id?: string;
+  questions?: TypesQuestion[];
+  updated?: string;
+  /** Creator of the question set */
+  user_id?: string;
+}
+
 export interface TypesRAGSettings {
   /** the amount of overlap between chunks - will default to 32 bytes */
   chunk_overflow?: number;
@@ -3816,11 +3836,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -3858,10 +3878,12 @@ export interface TypesUser {
   /** if the token is associated with an app */
   app_id?: string;
   created_at?: string;
+  deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
   full_name?: string;
   id?: string;
+  sb?: boolean;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -6567,6 +6589,106 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/providers`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List question sets for the current user or organization
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsList
+     * @summary List question sets
+     * @request GET:/api/v1/question-sets
+     * @secure
+     */
+    v1QuestionSetsList: (
+      query?: {
+        /** Organization ID or slug */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionSet[], SystemHTTPError>({
+        path: `/api/v1/question-sets`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsCreate
+     * @summary Create a new question set
+     * @request POST:/api/v1/question-sets
+     * @secure
+     */
+    v1QuestionSetsCreate: (questionSet: TypesQuestionSet, params: RequestParams = {}) =>
+      this.request<TypesQuestionSet, SystemHTTPError>({
+        path: `/api/v1/question-sets`,
+        method: "POST",
+        body: questionSet,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsDelete
+     * @summary Delete a question set
+     * @request DELETE:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a question set by ID
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsDetail
+     * @summary Get a question set by ID
+     * @request GET:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionSet, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update a question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsUpdate
+     * @summary Update a question set
+     * @request PUT:/api/v1/question-sets/{id}
+     * @secure
+     */
+    v1QuestionSetsUpdate: (id: string, questionSet: TypesQuestionSet, params: RequestParams = {}) =>
+      this.request<TypesQuestionSet, SystemHTTPError>({
+        path: `/api/v1/question-sets/${id}`,
+        method: "PUT",
+        body: questionSet,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 

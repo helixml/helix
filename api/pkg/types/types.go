@@ -364,8 +364,8 @@ type SessionMetadata struct {
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
 	// Video settings for external agent sessions (Phase 3.5)
-	AgentVideoWidth      int `json:"agent_video_width,omitempty"`       // Streaming resolution width (default: 2560)
-	AgentVideoHeight     int `json:"agent_video_height,omitempty"`      // Streaming resolution height (default: 1600)
+	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
+	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
 	AgentVideoRefreshRate int `json:"agent_video_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
@@ -434,14 +434,14 @@ type SessionChatRequest struct {
 
 // ExternalAgentConfig holds configuration for external agents like Zed
 type ExternalAgentConfig struct {
-	WorkspaceDir      string   `json:"workspace_dir,omitempty"`        // Custom working directory
-	ProjectPath       string   `json:"project_path,omitempty"`         // Relative path for the project directory
-	EnvVars           []string `json:"env_vars,omitempty"`             // Environment variables in KEY=VALUE format
-	AutoConnectRDP    bool     `json:"auto_connect_rdp,omitempty"`     // Whether to auto-connect RDP viewer
+	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
+	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
+	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
+	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
 	// Video settings for streaming (Phase 3.5) - matches PDE display settings
-	DisplayWidth      int      `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight     int      `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
-	DisplayRefreshRate int     `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 }
 
 // Validate checks if the external agent configuration is secure and valid
@@ -831,7 +831,7 @@ type StripeUser struct {
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
-	Slug   string     `json:"slug"`   // User slug for GitHub-style URLs
+	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
 	Config UserConfig `json:"config"`
 }
 
@@ -1832,8 +1832,8 @@ type ZedAgent struct {
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
 	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
-	DisplayWidth      int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
-	DisplayHeight     int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
 	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 }
 
@@ -2511,14 +2511,14 @@ type TriggerExecution struct {
 
 // PersonalDevEnvironment represents a persistent personal development environment
 type PersonalDevEnvironment struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-	UserID    string    `json:"user_id" gorm:"index"`
-	AppID     string    `json:"app_id"` // Helix App ID for configuration (MCP servers, tools, etc.)
-	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
-	WolfLobbyID string  `json:"wolf_lobby_id" gorm:"index"` // NEW: Wolf lobby ID for auto-start
-	WolfLobbyPIN string `json:"wolf_lobby_pin"` // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
+	ID           string    `json:"id" gorm:"primaryKey"`
+	Created      time.Time `json:"created"`
+	Updated      time.Time `json:"updated"`
+	UserID       string    `json:"user_id" gorm:"index"`
+	AppID        string    `json:"app_id"`                                            // Helix App ID for configuration (MCP servers, tools, etc.)
+	WolfAppID    string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
+	WolfLobbyID  string    `json:"wolf_lobby_id" gorm:"index"`                        // NEW: Wolf lobby ID for auto-start
+	WolfLobbyPIN string    `json:"wolf_lobby_pin"`                                    // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
 
 	// User-facing configuration
 	EnvironmentName string `json:"environment_name"`
@@ -2563,4 +2563,30 @@ type Memory struct {
 type ListMemoryRequest struct {
 	UserID string
 	AppID  string
+}
+
+// QuestionSet contains a set of questions that can be used to evaluate an agent's performance
+// or analyze documents. Users can create their own, share within organization, etc.
+type QuestionSet struct {
+	ID             string     `json:"id"`
+	Created        time.Time  `json:"created"`
+	Updated        time.Time  `json:"updated"`
+	UserID         string     `json:"user_id"`         // Creator of the question set
+	OrganizationID string     `json:"organization_id"` // The organization this session belongs to, if any
+	Name           string     `json:"name"`
+	Description    string     `json:"description"`
+	Questions      []Question `json:"questions" gorm:"type:jsonb;serializer:json"`
+}
+
+// Question - question that will be asked to the agent/model
+type Question struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	Question string    `json:"question"`
+}
+
+type ListQuestionSetsRequest struct {
+	UserID         string
+	OrganizationID string
 }
