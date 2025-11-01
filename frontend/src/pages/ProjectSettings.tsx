@@ -21,6 +21,8 @@ import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
+import PeopleIcon from '@mui/icons-material/People'
+import AddIcon from '@mui/icons-material/Add'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
@@ -98,7 +100,7 @@ const ProjectSettings: FC = () => {
 
   if (isLoading) {
     return (
-      <Page breadcrumbTitle="Project Settings" orgBreadcrumbs={true}>
+      <Page breadcrumbTitle="Loading..." orgBreadcrumbs={true}>
         <Container maxWidth="md">
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
             <CircularProgress />
@@ -120,9 +122,24 @@ const ProjectSettings: FC = () => {
     )
   }
 
+  const breadcrumbs = [
+    {
+      title: 'Projects',
+      routeName: 'projects',
+    },
+    {
+      title: project.name,
+      routeName: 'project-specs',
+      params: { id: projectId },
+    },
+    {
+      title: 'Settings',
+    },
+  ]
+
   return (
     <Page
-      breadcrumbTitle="Project Settings"
+      breadcrumbs={breadcrumbs}
       orgBreadcrumbs={true}
       topbarContent={(
         <Box sx={{ display: 'flex', gap: 2 }}>
@@ -253,6 +270,34 @@ npm run db:migrate`}
                 ))}
               </List>
             )}
+          </Paper>
+
+          {/* Members & Access Control */}
+          <Paper sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <PeopleIcon sx={{ mr: 1 }} />
+              <Typography variant="h6">
+                Members & Access
+              </Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Manage who has access to this project and their roles.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+
+            {/* TODO: Implement RBAC using existing framework */}
+            <Box sx={{ textAlign: 'center', py: 6, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
+              <PeopleIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2, opacity: 0.5 }} />
+              <Typography variant="body1" color="text.secondary" gutterBottom>
+                Project Members & Roles
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                RBAC implementation coming soon
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                Will use existing Helix RBAC framework with project-scoped permissions
+              </Typography>
+            </Box>
           </Paper>
         </Box>
       </Container>

@@ -38,6 +38,7 @@ import useApps from '../hooks/useApps';
 import { useSampleTypes } from '../hooks/useSampleTypes';
 import { useSpecTasks } from '../hooks/useSpecTasks';
 import { useGitRepositories, useCreateGitRepository, useCreateSampleRepository } from '../services/gitRepositoryService';
+import { useGetProject } from '../services';
 import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
 import {
   SampleType,
@@ -58,6 +59,9 @@ const SpecTasksPage: FC = () => {
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
+
+  // Fetch project data for breadcrumbs and title
+  const { data: project } = useGetProject(projectId || '', !!projectId);
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -420,7 +424,16 @@ const SpecTasksPage: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="SpecTasks"
+      breadcrumbs={project ? [
+        {
+          title: 'Projects',
+          routeName: 'projects',
+        },
+        {
+          title: project.name,
+        },
+      ] : undefined}
+      breadcrumbTitle={project ? undefined : "SpecTasks"}
       orgBreadcrumbs={true}
       showDrawerButton={false}
       topbarContent={
