@@ -57,6 +57,8 @@ import { useTheme } from '@mui/material/styles';
 
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
+import useRouter from '../../hooks/useRouter';
+import ScreenshotViewer from '../external-agent/ScreenshotViewer';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -72,6 +74,86 @@ import gitRepositoryService, {
   getBusinessTaskDescription,
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
+
+// Wrapper for ScreenshotViewer with custom overlay for Kanban cards
+const LiveAgentScreenshot: React.FC<{
+  sessionId: string;
+  onNavigate: () => void;
+}> = ({ sessionId, onNavigate }) => {
+  return (
+    <Box
+      sx={{
+        mt: 1,
+        mb: 1,
+        cursor: 'pointer',
+        position: 'relative',
+        borderRadius: 1,
+        overflow: 'hidden',
+        border: '1px solid',
+        borderColor: 'divider',
+        minHeight: 80,
+        '&:hover': {
+          borderColor: 'primary.main',
+          boxShadow: 2,
+        },
+        transition: 'all 0.2s',
+        // Hide "Loading desktop..." text that might flicker during refresh
+        '& > div > div': {
+          '&:has(> p)': {
+            display: 'none !important',
+          },
+        },
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onNavigate();
+      }}
+    >
+      <Box sx={{ position: 'relative', height: 150 }}>
+        <ScreenshotViewer
+          sessionId={sessionId}
+          autoRefresh={true}
+          refreshInterval={3000}
+          enableStreaming={false}
+        />
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+          color: 'white',
+          p: 0.5,
+          px: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          pointerEvents: 'none',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <ViewIcon fontSize="small" />
+          <Typography variant="caption" sx={{ fontWeight: 500 }}>
+            Planning Agent
+          </Typography>
+        </Box>
+        <Chip
+          size="small"
+          label="LIVE"
+          sx={{
+            backgroundColor: 'error.main',
+            color: 'white',
+            height: 18,
+            fontSize: '0.65rem',
+            fontWeight: 600,
+          }}
+        />
+      </Box>
+    </Box>
+  );
+};
 
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
@@ -102,6 +184,7 @@ interface KanbanColumn {
 
 interface SpecTaskKanbanBoardProps {
   userId?: string;
+  projectId?: string; // Filter tasks by project ID
   onCreateTask?: () => void;
   refreshTrigger?: number;
   wipLimits?: {
@@ -120,6 +203,8 @@ const DroppableColumn: React.FC<{
   theme: any;
   repositories: any[];
 }> = ({ column, columns, onStartPlanning, onArchiveTask, theme, repositories }): JSX.Element => {
+  const router = useRouter();
+
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
@@ -175,7 +260,7 @@ const DroppableColumn: React.FC<{
 
             {/* Repository and session chips */}
             {(task.primary_repository_id || (task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: task.phase === 'backlog' ? 1 : 0 }}>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
                 {task.primary_repository_id && repositories && (() => {
                   const repo = repositories.find((r: any) => r.id === task.primary_repository_id);
                   return repo ? (
@@ -205,6 +290,14 @@ const DroppableColumn: React.FC<{
                   />
                 )}
               </Box>
+            )}
+
+            {/* Live screenshot widget for active planning sessions */}
+            {task.spec_session_id && (
+              <LiveAgentScreenshot
+                sessionId={task.spec_session_id}
+                onNavigate={() => router.navigate('session', { session_id: task.spec_session_id })}
+              />
             )}
 
             {/* Show "Start Planning" button only for backlog tasks */}
@@ -295,6 +388,7 @@ const DroppableColumn: React.FC<{
 
 const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   userId,
+  projectId,
   onCreateTask,
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
@@ -394,7 +488,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         setLoading(true);
         const response = await api.get('/api/v1/spec-tasks', {
           params: {
-            project_id: 'default',
+            project_id: projectId || 'default',
             archived_only: showArchived
           }
         });
@@ -444,7 +538,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     };
 
     loadTasks();
-  }, [account.user?.id, showArchived, refreshTrigger]);
+  }, [account.user?.id, projectId, showArchived, refreshTrigger]);
 
   // Set up polling for real-time updates
   useEffect(() => {
@@ -458,14 +552,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             archived_only: showArchived
           }
         });
-        
+
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-        
+
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
           let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-            
+
           if (task.status === 'spec_generation') {
             phase = 'planning';
             planningStatus = 'active';
@@ -482,7 +576,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             phase = 'completed';
             planningStatus = 'completed';
           }
-            
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -497,10 +591,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       } catch (err) {
         console.error('Failed to poll tasks:', err);
       }
-    }, 10000);
+    }, 3000); // Faster polling: 3 seconds instead of 10 for responsive updates
 
     return () => clearInterval(interval);
-  }, [account.user?.id, showArchived]);
+  }, [account.user?.id, projectId, showArchived]);
 
   // Update sample types when data loads
   useEffect(() => {
@@ -848,46 +942,68 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // Call the start-planning endpoint which actually starts spec generation
       await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id!);
 
-      // Refresh tasks to show updated status
-      const response = await api.getApiClient().v1SpecTasksList({
-        project_id: 'default'
-      });
+      // Aggressive polling after starting planning to catch spec_session_id update
+      // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
+      const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
+        const response = await api.getApiClient().v1SpecTasksList({
+          project_id: 'default'
+        });
 
-      const tasksData = response.data || response;
-      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+        const tasksData = response.data || response;
+        const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
 
-      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-        let phase: SpecTaskPhase = 'backlog';
-        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+          let phase: SpecTaskPhase = 'backlog';
+          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
 
-        if (t.status === 'spec_generation') {
-          phase = 'planning';
-          planningStatus = 'active';
-        } else if (t.status === 'spec_review') {
-          phase = 'review';
-          planningStatus = 'pending_review';
-        } else if (t.status === 'spec_approved') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'implementing') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'completed') {
-          phase = 'completed';
-          planningStatus = 'completed';
+          if (t.status === 'spec_generation') {
+            phase = 'planning';
+            planningStatus = 'active';
+          } else if (t.status === 'spec_review') {
+            phase = 'review';
+            planningStatus = 'pending_review';
+          } else if (t.status === 'spec_approved') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'implementing') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'completed') {
+            phase = 'completed';
+            planningStatus = 'completed';
+          }
+
+          return {
+            ...t,
+            hasSpecs: t.status !== 'backlog',
+            phase,
+            planningStatus,
+            activeSessionsCount: 0,
+            completedSessionsCount: 0,
+          };
+        });
+
+        setTasks(enhancedTasks);
+
+        // Check if the task has spec_session_id now
+        const updatedTask = specTasks.find(t => t.id === task.id);
+        if (updatedTask?.spec_session_id) {
+          console.log('✅ Session ID populated:', updatedTask.spec_session_id);
+          return; // Session ID found, stop polling
         }
 
-        return {
-          ...t,
-          hasSpecs: t.status !== 'backlog',
-          phase,
-          planningStatus,
-          activeSessionsCount: 0,
-          completedSessionsCount: 0,
-        };
-      });
+        // If session ID not found and we haven't exhausted retries, poll again
+        if (retryCount < maxRetries) {
+          const delay = retryCount < 3 ? 1000 : 2000; // 1s for first 3 retries, 2s after
+          console.log(`⏳ Polling for session ID (attempt ${retryCount + 1}/${maxRetries}), waiting ${delay}ms...`);
+          setTimeout(() => pollForSessionId(retryCount + 1, maxRetries), delay);
+        } else {
+          console.warn('⚠️ Session ID not populated after max retries');
+        }
+      };
 
-      setTasks(enhancedTasks);
+      // Start aggressive polling
+      await pollForSessionId();
     } catch (err) {
       console.error('Failed to start planning:', err);
       setError('Failed to start planning. Please try again.');

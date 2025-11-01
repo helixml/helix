@@ -23,6 +23,8 @@ import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
+import Projects from './pages/Projects'
+import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import Fleet from './pages/Fleet'
@@ -142,6 +144,39 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'projects',
+    path: routePrefix + '/projects',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Projects',
+    },
+    render: () => (
+      <Projects />
+    ),
+  }, {
+    name: namePrefix + 'project-specs',
+    path: routePrefix + '/projects/:id/specs',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Tasks',
+    },
+    render: () => (
+      <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'project-settings',
+    path: routePrefix + '/projects/:id/settings',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Settings',
+    },
+    render: () => (
+      <ProjectSettings />
     ),
   }, {
     name: namePrefix + 'app',

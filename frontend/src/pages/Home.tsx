@@ -32,6 +32,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApps from '../hooks/useApps'
 import { useStreaming } from '../contexts/streaming'
 import { useListUserCronTriggers } from '../services/appService'
+import { useListProjects } from '../services'
 import { generateCronShortSummary } from '../utils/cronUtils'
 import { invalidateSessionsQuery } from '../services/sessionService'
 import { useQueryClient } from '@tanstack/react-query'
@@ -119,6 +120,8 @@ const Home: FC = () => {
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
   )
+
+  const { data: projects = [] } = useListProjects()
 
   useEffect(() => {
     apps.loadApps()
@@ -548,6 +551,114 @@ const Home: FC = () => {
                     </Box>
                   </Row>
                 )}
+                {/* Projects Section */}
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                    mt: 3,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      color: '#fff',
+                      fontSize: '1.1rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                      },
+                    }}
+                    onClick={() => account.orgNavigate('projects')}
+                  >
+                    Projects
+                  </Typography>
+                </Row>
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                  }}
+                >
+                  <Grid container spacing={1} justifyContent="left">
+                    {projects.length === 0 ? (
+                      <Grid item xs={12}>
+                        <Box
+                          onClick={() => account.orgNavigate('projects')}
+                          sx={{
+                            cursor: 'pointer',
+                            p: 2,
+                            border: '1px dashed rgba(255, 255, 255, 0.3)',
+                            borderRadius: 1,
+                            textAlign: 'center',
+                            '&:hover': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                            },
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                            Create your first project
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    ) : (
+                      projects.slice(0, 6).map((project) => (
+                        <Grid item key={project.id}>
+                          <Box
+                            onClick={() => account.orgNavigate(`projects/${project.id}/specs`)}
+                            sx={{
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'flex-start',
+                              justifyContent: 'center',
+                              p: 1.5,
+                              minWidth: 120,
+                              maxWidth: 160,
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              borderRadius: 1,
+                              backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                              '&:hover': {
+                                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                                borderColor: 'rgba(255, 255, 255, 0.4)',
+                              },
+                            }}
+                          >
+                            <Typography sx={{
+                              color: '#fff',
+                              fontSize: '0.9rem',
+                              fontWeight: 500,
+                              mb: 0.5,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              width: '100%',
+                            }}>
+                              {project.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{
+                              color: 'rgba(255, 255, 255, 0.5)',
+                              fontSize: '0.75rem',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              width: '100%',
+                            }}>
+                              {project.status || 'active'}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))
+                    )}
+                  </Grid>
+                </Row>
+
                 {/* Tasks Section */}
                 <Row
                   sx={{
