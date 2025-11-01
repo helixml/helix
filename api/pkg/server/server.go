@@ -593,7 +593,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.getQuestionSet)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.updateQuestionSet)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.deleteQuestionSet)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/question-sets/{id}/execute", system.Wrapper(apiServer.executeQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.executeQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.listQuestionSetExecutions)).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods(http.MethodPost)

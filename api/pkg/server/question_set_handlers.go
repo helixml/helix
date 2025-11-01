@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -263,6 +264,72 @@ func (s *HelixAPIServer) listQuestionSets(_ http.ResponseWriter, req *http.Reque
 	return questionSets, nil
 }
 
+// listQuestionSetExecutions godoc
+// @Summary List question set executions
+// @Description List executions for the question set
+// @Tags    question-sets
+// @Success 200 {array} types.QuestionSetExecution
+// @Param question_set_id path string true "Question set ID"
+// @Param offset query int false "Offset"
+// @Param limit query int false "Limit"
+// @Router /api/v1/question-sets/{question_set_id}/executions [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listQuestionSetExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.QuestionSetExecution, *system.HTTPError) {
+	ctx := r.Context()
+
+	vars := mux.Vars(r)
+	questionSetID := vars["id"]
+
+	user := getRequestUser(r)
+
+	if questionSetID == "" {
+		return nil, system.NewHTTPError400("question set id is required")
+	}
+
+	// Load question set to verify it exists and for authorization
+	questionSet, err := s.Store.GetQuestionSet(ctx, questionSetID)
+	if err != nil {
+		return nil, system.NewHTTPError404("Question set not found")
+	}
+
+	if !s.canAccessQuestionSet(ctx, user, questionSet) {
+		return nil, system.NewHTTPError403("you are not allowed to access this question set")
+	}
+
+	offsetStr := r.URL.Query().Get("offset")
+	limitStr := r.URL.Query().Get("limit")
+
+	var (
+		offset int
+		limit  int
+	)
+
+	if offsetStr != "" {
+		offset, err = strconv.Atoi(offsetStr)
+		if err != nil {
+			return nil, system.NewHTTPError400("Invalid offset")
+		}
+	}
+
+	if limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil {
+			return nil, system.NewHTTPError400("Invalid limit")
+		}
+	}
+
+	executions, err := s.Store.ListQuestionSetExecutions(ctx, &store.ListQuestionSetExecutionsQuery{
+		QuestionSetID: questionSetID,
+		Offset:        offset,
+		Limit:         limit,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return executions, nil
+}
+
 // executeQuestionSet godoc
 // @Summary Execute a question set
 // @Description Execute a question set, this is a blocking operation and will return a response for each question in the question set
@@ -276,7 +343,7 @@ func (s *HelixAPIServer) listQuestionSets(_ http.ResponseWriter, req *http.Reque
 // @Failure 403 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
-// @Router /api/v1/question-sets/{id}/execute [post]
+// @Router /api/v1/question-sets/{id}/executions [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) executeQuestionSet(_ http.ResponseWriter, req *http.Request) (*types.ExecuteQuestionSetResponse, *system.HTTPError) {
 	ctx := req.Context()
@@ -318,8 +385,27 @@ func (s *HelixAPIServer) executeQuestionSet(_ http.ResponseWriter, req *http.Req
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get app: %s", err))
 	}
 
+	startTime := time.Now()
+	execution := &types.QuestionSetExecution{
+		QuestionSetID: questionSet.ID,
+		AppID:         execReq.AppID,
+		Status:        types.QuestionSetExecutionStatusRunning,
+	}
+
+	createdExecution, err := s.Store.CreateQuestionSetExecution(ctx, execution)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create question set execution: %s", err))
+	}
+
 	if len(questionSet.Questions) == 0 {
-		return &types.ExecuteQuestionSetResponse{Questions: []types.QuestionResponse{}}, nil
+		createdExecution.Status = types.QuestionSetExecutionStatusSuccess
+		createdExecution.Results = []types.QuestionResponse{}
+		createdExecution.DurationMs = time.Since(startTime).Milliseconds()
+		_, updateErr := s.Store.UpdateQuestionSetExecution(ctx, createdExecution)
+		if updateErr != nil {
+			log.Error().Err(updateErr).Msg("failed to update question set execution")
+		}
+		return &types.ExecuteQuestionSetResponse{Results: []types.QuestionResponse{}}, nil
 	}
 
 	responses := make([]types.QuestionResponse, len(questionSet.Questions))
@@ -412,5 +498,33 @@ func (s *HelixAPIServer) executeQuestionSet(_ http.ResponseWriter, req *http.Req
 
 	p.Wait()
 
-	return &types.ExecuteQuestionSetResponse{Questions: responses}, nil
+	createdExecution.Status = types.QuestionSetExecutionStatusSuccess
+	createdExecution.Results = responses
+	createdExecution.DurationMs = time.Since(startTime).Milliseconds()
+
+	hasError := false
+	for _, resp := range responses {
+		if resp.Error != "" {
+			hasError = true
+			break
+		}
+	}
+
+	if hasError {
+		createdExecution.Status = types.QuestionSetExecutionStatusError
+		errMsgs := []string{}
+		for _, resp := range responses {
+			if resp.Error != "" {
+				errMsgs = append(errMsgs, fmt.Sprintf("Question %s: %s", resp.QuestionID, resp.Error))
+			}
+		}
+		createdExecution.Error = fmt.Sprintf("Errors in %d question(s): %s", len(errMsgs), errMsgs[0])
+	}
+
+	_, err = s.Store.UpdateQuestionSetExecution(ctx, createdExecution)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to update question set execution")
+	}
+
+	return &types.ExecuteQuestionSetResponse{Results: responses}, nil
 }
