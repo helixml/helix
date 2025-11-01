@@ -70,14 +70,33 @@ func (s *PostgresStore) EnsureUserMeta(ctx context.Context, user types.UserMeta)
 		return s.CreateUserMeta(ctx, user)
 	}
 
-	// Ensure existing user has a slug
+	// Ensure existing user has a slug, or regenerate if it looks like a UUID
+	shouldRegenerateSlug := false
 	if existing.Slug == "" {
-		existing.Slug = s.generateUserSlug(ctx, existing.ID)
-		log.Info().
-			Str("user_id", existing.ID).
-			Str("generated_slug", existing.Slug).
-			Msg("updating user_meta with generated slug")
-		return s.UpdateUserMeta(ctx, *existing)
+		shouldRegenerateSlug = true
+	} else {
+		// Check if the slug looks like a UUID (contains hyphens and is 36 chars, or is the user ID)
+		// This catches cases where the slug was generated from the user ID before FullName was available
+		if len(existing.Slug) == 36 && strings.Count(existing.Slug, "-") == 4 {
+			shouldRegenerateSlug = true
+		} else if existing.Slug == strings.ToLower(existing.ID) || existing.Slug == strings.ReplaceAll(strings.ToLower(existing.ID), "-", "") {
+			shouldRegenerateSlug = true
+		}
+	}
+
+	if shouldRegenerateSlug {
+		oldSlug := existing.Slug
+		newSlug := s.generateUserSlug(ctx, existing.ID)
+		// Only update if the new slug is different (to avoid unnecessary DB writes)
+		if newSlug != oldSlug {
+			existing.Slug = newSlug
+			log.Info().
+				Str("user_id", existing.ID).
+				Str("old_slug", oldSlug).
+				Str("new_slug", newSlug).
+				Msg("regenerating user_meta slug with proper name")
+			return s.UpdateUserMeta(ctx, *existing)
+		}
 	}
 
 	// Merge any new config values from the parameter
@@ -358,9 +377,9 @@ func (s *PostgresStore) generateUserSlug(ctx context.Context, userID string) str
 	baseSlug := slug
 	counter := 1
 	for {
-		// Check if slug conflicts with existing user slug
+		// Check if slug conflicts with existing user slug (but not this user's own slug)
 		var existingUser types.UserMeta
-		userErr := s.gdb.WithContext(ctx).Where("slug = ?", slug).First(&existingUser).Error
+		userErr := s.gdb.WithContext(ctx).Where("slug = ? AND id != ?", slug, userID).First(&existingUser).Error
 
 		// Check if slug conflicts with organization name
 		var existingOrg types.Organization

@@ -993,7 +993,8 @@ type ServerConfigForFrontend struct {
 	DeploymentID                           string               `json:"deployment_id"`
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	MoonlightWebMode                       string               `json:"moonlight_web_mode"` // "single" or "multi" - determines streaming architecture
+	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1831,6 +1832,11 @@ type ZedAgent struct {
 	// Multi-session support
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// SpecTask support (for task-scoped workspace and repository checkout)
+	SpecTaskID         string   `json:"spec_task_id,omitempty"`          // SpecTask ID for workspace scoping
+	ProjectID          string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
+	RepositoryIDs      []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
+	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
 	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
 	DisplayWidth      int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
 	DisplayHeight     int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)

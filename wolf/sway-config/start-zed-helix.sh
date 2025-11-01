@@ -76,6 +76,40 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     echo "Configured git user.email: $GIT_USER_EMAIL"
 fi
 
+# Execute project startup script if provided
+if [ -n "$HELIX_PROJECT_STARTUP_SCRIPT" ]; then
+    echo "========================================="
+    echo "Running project startup script..."
+    echo "========================================="
+
+    # Write startup script to temp file
+    STARTUP_SCRIPT_FILE="$WORK_DIR/.helix-startup.sh"
+    echo "$HELIX_PROJECT_STARTUP_SCRIPT" > "$STARTUP_SCRIPT_FILE"
+    chmod +x "$STARTUP_SCRIPT_FILE"
+
+    # Execute startup script with timeout (5 minutes max)
+    if timeout 300 bash "$STARTUP_SCRIPT_FILE"; then
+        echo "========================================="
+        echo "✅ Project startup script completed successfully"
+        echo "========================================="
+    else
+        EXIT_CODE=$?
+        if [ $EXIT_CODE -eq 124 ]; then
+            echo "========================================="
+            echo "⚠️ Project startup script timed out after 5 minutes"
+            echo "========================================="
+        else
+            echo "========================================="
+            echo "⚠️ Project startup script failed with exit code $EXIT_CODE"
+            echo "Continuing anyway..."
+            echo "========================================="
+        fi
+    fi
+
+    # Clean up script file
+    rm -f "$STARTUP_SCRIPT_FILE"
+fi
+
 # Wait for settings-sync-daemon to create configuration
 # Check for agent.default_model which is critical for Zed to work
 echo "Waiting for Zed configuration to be initialized..."

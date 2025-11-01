@@ -138,9 +138,23 @@ func (c *InternalHelixServer) BillingEnabled() bool {
 }
 
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {
-	model, err := c.store.GetModel(context.Background(), req.Request.Model)
-	if err != nil {
-		return fmt.Errorf("error getting model: %w", err)
+	// External agents don't use traditional LLM models - they launch containers instead
+	// So we skip model lookup for external_agent model name
+	var model *types.Model
+	if req.Request.Model == "external_agent" {
+		// Create a dummy model for external agents - not actually used for inference
+		model = &types.Model{
+			ID:   "external_agent",
+			Name: "External Agent",
+			Type: types.ModelTypeChat,
+		}
+	} else {
+		// Normal model lookup for traditional LLM requests
+		var err error
+		model, err = c.store.GetModel(context.Background(), req.Request.Model)
+		if err != nil {
+			return fmt.Errorf("error getting model: %w", err)
+		}
 	}
 
 	work, err := scheduler.NewLLMWorkload(req, model)

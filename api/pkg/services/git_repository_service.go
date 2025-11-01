@@ -81,6 +81,13 @@ type GitRepositoryCreateRequest struct {
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// GitRepositoryUpdateRequest represents a request to update a repository
+type GitRepositoryUpdateRequest struct {
+	Name        string                 `json:"name,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // Conversion helpers between services.GitRepository and store.GitRepository
 
 // toStoreGitRepository converts services.GitRepository to store.GitRepository
@@ -187,6 +194,17 @@ func (s *GitRepositoryService) CreateRepository(
 	ctx context.Context,
 	request *GitRepositoryCreateRequest,
 ) (*GitRepository, error) {
+	// Check for duplicate repository name for this owner
+	existingRepos, err := s.ListRepositories(ctx, request.OwnerID)
+	if err == nil {
+		// Only fail if we can successfully check for duplicates
+		for _, repo := range existingRepos {
+			if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
+				return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
+			}
+		}
+	}
+
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
 
@@ -219,7 +237,7 @@ func (s *GitRepositoryService) CreateRepository(
 	}
 
 	// Initialize git repository
-	err := s.initializeGitRepository(repoPath, defaultBranch, request.InitialFiles)
+	err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 	}
@@ -267,6 +285,78 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	return gitRepo, nil
+}
+
+// UpdateRepository updates an existing repository's metadata
+func (s *GitRepositoryService) UpdateRepository(
+	ctx context.Context,
+	repoID string,
+	request *GitRepositoryUpdateRequest,
+) (*GitRepository, error) {
+	// Get existing repository
+	existing, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	// Update fields if provided
+	if request.Name != "" {
+		existing.Name = request.Name
+	}
+	if request.Description != "" {
+		existing.Description = request.Description
+	}
+	if request.Metadata != nil {
+		// Merge metadata
+		if existing.Metadata == nil {
+			existing.Metadata = make(map[string]interface{})
+		}
+		for k, v := range request.Metadata {
+			existing.Metadata[k] = v
+		}
+	}
+
+	existing.UpdatedAt = time.Now()
+
+	// Update in store
+	err = s.storeRepositoryMetadata(ctx, existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Str("name", existing.Name).
+		Msg("updated git repository")
+
+	return existing, nil
+}
+
+// DeleteRepository deletes a repository
+func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID string) error {
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+	// Delete repository directory
+	if err := os.RemoveAll(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+		// Continue to delete metadata even if filesystem deletion fails
+	}
+
+	// Delete from database if store supports it
+	if postgresStore, ok := s.store.(interface {
+		DeleteGitRepository(ctx context.Context, id string) error
+	}); ok {
+		err := postgresStore.DeleteGitRepository(ctx, repoID)
+		if err != nil {
+			return fmt.Errorf("failed to delete repository metadata: %w", err)
+		}
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Msg("deleted git repository")
+
+	return nil
 }
 
 // ListRepositories lists all repositories
@@ -424,6 +514,7 @@ func (s *GitRepositoryService) generateCloneURL(repoID string) string {
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
 	defaultBranch string,
+	repoName string,
 	initialFiles map[string]string,
 ) error {
 	// Create repository directory
@@ -436,6 +527,13 @@ func (s *GitRepositoryService) initializeGitRepository(
 	repo, err := git.PlainInit(repoPath, false)
 	if err != nil {
 		return fmt.Errorf("failed to initialize git repository: %w", err)
+	}
+
+	// Ensure we have at least one file to commit (can't create empty commits)
+	if len(initialFiles) == 0 {
+		initialFiles = map[string]string{
+			"README.md": fmt.Sprintf("# %s\n", repoName),
+		}
 	}
 
 	// Write initial files

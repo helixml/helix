@@ -371,10 +371,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View spec tasks kanban board",
-        isActive: isActive('spec-tasks'),
-        onClick: () => orgNavigateTo('spec-tasks'),
-        label: "Specs",
+        tooltip: "View projects",
+        isActive: isActive('projects') || isActive('project-specs') || isActive('project-settings'),
+        onClick: () => orgNavigateTo('projects'),
+        label: "Projects",
       },
       {
         icon: <Activity size={NAV_BUTTON_SIZE} />,

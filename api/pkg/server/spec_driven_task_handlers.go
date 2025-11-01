@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -109,6 +110,7 @@ func (s *HelixAPIServer) getTask(w http.ResponseWriter, r *http.Request) {
 // @Param   project_id query string false "Filter by project ID"
 // @Param   status query string false "Filter by status"
 // @Param   user_id query string false "Filter by user ID"
+// @Param   include_archived query bool false "Include archived tasks" default(false)
 // @Param   limit query int false "Limit number of results" default(50)
 // @Param   offset query int false "Offset for pagination" default(0)
 // @Success 200 {array} types.SpecTask
@@ -119,11 +121,13 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	filters := &types.SpecTaskFilters{
-		ProjectID: query.Get("project_id"),
-		Status:    query.Get("status"),
-		UserID:    query.Get("user_id"),
-		Limit:     parseIntQuery(query.Get("limit"), 50),
-		Offset:    parseIntQuery(query.Get("offset"), 0),
+		ProjectID:       query.Get("project_id"),
+		Status:          query.Get("status"),
+		UserID:          query.Get("user_id"),
+		Limit:           parseIntQuery(query.Get("limit"), 50),
+		Offset:          parseIntQuery(query.Get("offset"), 0),
+		IncludeArchived: query.Get("include_archived") == "true",
+		ArchivedOnly:    query.Get("archived_only") == "true",
 	}
 
 	tasks, err := s.Store.ListSpecTasks(ctx, filters)
@@ -325,6 +329,60 @@ func parseIntQuery(value string, defaultValue int) int {
 	return result
 }
 
+// startPlanning godoc
+// @Summary Start planning for a SpecTask
+// @Description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param taskId path string true "SpecTask ID"
+// @Success 200 {object} types.SpecTask
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/{taskId}/start-planning [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) startPlanning(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	taskID := vars["taskId"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the task
+	task, err := s.Store.GetSpecTask(ctx, taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask")
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify task is in backlog status
+	if task.Status != types.TaskStatusBacklog {
+		http.Error(w, fmt.Sprintf("task is not in backlog status (current: %s)", task.Status), http.StatusBadRequest)
+		return
+	}
+
+	// Start spec generation
+	go s.specDrivenTaskService.StartSpecGeneration(context.Background(), task)
+
+	// Return updated task (status will be updated asynchronously)
+	task.Status = types.TaskStatusSpecGeneration
+	task.UpdatedAt = time.Now()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(task)
+}
+
 // updateSpecTask handles PUT /api/v1/spec-tasks/{taskId}
 // @Summary Update SpecTask
 // @Description Update SpecTask status, priority, or other fields
@@ -383,6 +441,66 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+// archiveSpecTask godoc
+// @Summary Archive or unarchive a spec task
+// @Description Archive a spec task to hide it from the main view, or unarchive to restore it
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param taskId path string true "Task ID"
+// @Param archived body bool true "Archive status (true to archive, false to unarchive)"
+// @Success 200 {object} types.SpecTask
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/{taskId}/archive [patch]
+// @Security BearerAuth
+func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID := vars["taskId"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Archived bool `json:"archived"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Error().Err(err).Msg("Failed to decode archive request")
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing task
+	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for archiving")
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	// Update archived status
+	task.Archived = req.Archived
+
+	// Update in store
+	err = s.Store.UpdateSpecTask(r.Context(), task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to archive SpecTask")
+		http.Error(w, fmt.Sprintf("failed to archive SpecTask: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	action := "archived"
+	if !req.Archived {
+		action = "unarchived"
+	}
+	log.Info().Str("task_id", taskID).Bool("archived", req.Archived).Msgf("SpecTask %s", action)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
@@ -492,4 +610,155 @@ type PhaseProgress struct {
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 	RevisionCount int        `json:"revision_count,omitempty"`
+}
+
+// BoardSettings represents the Kanban board settings for a project
+type BoardSettings struct {
+	WIPLimits map[string]int `json:"wip_limits"`
+}
+
+// getBoardSettings godoc
+// @Summary Get board settings for spec tasks
+// @Description Get the Kanban board settings (WIP limits) for the default project
+// @Tags spec-driven-tasks
+// @Produce json
+// @Success 200 {object} BoardSettings
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/board-settings [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Get default project
+	project, err := s.Store.GetProject(ctx, "default")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get default project")
+		http.Error(w, "failed to get board settings", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse metadata to extract board settings
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
+		log.Error().Err(err).Msg("Failed to parse project metadata")
+		http.Error(w, "failed to parse board settings", http.StatusInternalServerError)
+		return
+	}
+
+	boardSettingsData, ok := metadata["board_settings"].(map[string]interface{})
+	if !ok {
+		// Return default settings if not found
+		boardSettings := BoardSettings{
+			WIPLimits: map[string]int{
+				"planning":       3,
+				"review":         2,
+				"implementation": 5,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(boardSettings)
+		return
+	}
+
+	wipLimitsData, ok := boardSettingsData["wip_limits"].(map[string]interface{})
+	if !ok {
+		log.Error().Msg("Invalid wip_limits format in metadata")
+		http.Error(w, "invalid board settings format", http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to map[string]int
+	wipLimits := make(map[string]int)
+	for k, v := range wipLimitsData {
+		if limit, ok := v.(float64); ok {
+			wipLimits[k] = int(limit)
+		}
+	}
+
+	boardSettings := BoardSettings{
+		WIPLimits: wipLimits,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(boardSettings)
+}
+
+// updateBoardSettings godoc
+// @Summary Update board settings for spec tasks
+// @Description Update the Kanban board settings (WIP limits) for the default project
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param request body BoardSettings true "Board settings"
+// @Success 200 {object} BoardSettings
+// @Failure 400 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/board-settings [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var settings BoardSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		log.Error().Err(err).Msg("Failed to decode board settings")
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get default project
+	project, err := s.Store.GetProject(ctx, "default")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get default project")
+		http.Error(w, "failed to update board settings", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse existing metadata
+	var metadata map[string]interface{}
+	if len(project.Metadata) > 0 {
+		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
+			log.Error().Err(err).Msg("Failed to parse project metadata")
+			http.Error(w, "failed to parse existing settings", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		metadata = make(map[string]interface{})
+	}
+
+	// Update board settings in metadata
+	metadata["board_settings"] = map[string]interface{}{
+		"wip_limits": settings.WIPLimits,
+	}
+
+	// Marshal back to JSON
+	newMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal metadata")
+		http.Error(w, "failed to save settings", http.StatusInternalServerError)
+		return
+	}
+
+	// Update project
+	project.Metadata = newMetadata
+	project.UpdatedAt = time.Now()
+
+	err = s.Store.UpdateProject(ctx, project)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to save project")
+		http.Error(w, "failed to save board settings", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Interface("wip_limits", settings.WIPLimits).
+		Msg("Updated board settings")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(settings)
 }

@@ -68,6 +68,53 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	user := getRequestUser(r)
 
+	// If providers management is disabled and user is not admin, only return global providers
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		// Return only global providers
+		globalProviderEndpoints, err := s.providerManager.ListProviders(ctx, "")
+		if err != nil {
+			log.Err(err).Msg("error listing providers")
+			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var providerEndpoints []*types.ProviderEndpoint
+		for _, provider := range globalProviderEndpoints {
+			var baseURL string
+			switch provider {
+			case types.ProviderOpenAI:
+				baseURL = s.Cfg.Providers.OpenAI.BaseURL
+			case types.ProviderTogetherAI:
+				baseURL = s.Cfg.Providers.TogetherAI.BaseURL
+			case types.ProviderVLLM:
+				baseURL = s.Cfg.Providers.VLLM.BaseURL
+			case types.ProviderHelix:
+				baseURL = "internal"
+			}
+
+			providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
+				ID:             "-",
+				Name:           string(provider),
+				Description:    "",
+				BaseURL:        baseURL,
+				EndpointType:   types.ProviderEndpointTypeGlobal,
+				Owner:          string(types.OwnerTypeSystem),
+				APIKey:         "",
+				BillingEnabled: s.Cfg.Stripe.BillingEnabled,
+			})
+		}
+
+		// Set default
+		for idx := range providerEndpoints {
+			if providerEndpoints[idx].Name == s.Cfg.Inference.Provider {
+				providerEndpoints[idx].Default = true
+			}
+		}
+
+		writeResponse(rw, providerEndpoints, http.StatusOK)
+		return
+	}
+
 	if orgID != "" {
 		// Check if user has access to view teams
 		_, err := s.authorizeOrgMember(r.Context(), user, orgID)
@@ -305,6 +352,12 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 
 	isAdmin := s.isAdmin(r)
 
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !isAdmin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
+
 	if !isAdmin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
 		return
@@ -393,6 +446,12 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 	ctx := r.Context()
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
 
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		http.Error(rw, "Custom user providers are not enabled", http.StatusForbidden)
@@ -501,6 +560,12 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 	user := getRequestUser(r)
 	endpointID := mux.Vars(r)["id"]
 
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		http.Error(rw, "Providers management is not enabled", http.StatusForbidden)
+		return
+	}
+
 	// Get existing endpoint
 	existingEndpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{ID: endpointID})
 	if err != nil {
@@ -562,6 +627,12 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
 
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)
@@ -627,6 +698,12 @@ func (s *HelixAPIServer) getProviderDailyUsage(rw http.ResponseWriter, r *http.R
 func (s *HelixAPIServer) getProviderUsersDailyUsage(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)
+
+	// Check if providers management is enabled
+	if !s.Cfg.ProvidersManagementEnabled && !user.Admin {
+		writeErrResponse(rw, errors.New("providers management is not enabled"), http.StatusForbidden)
+		return
+	}
 
 	if !user.Admin && !s.Cfg.Providers.EnableCustomUserProviders {
 		writeErrResponse(rw, errors.New("custom user providers are not enabled"), http.StatusForbidden)

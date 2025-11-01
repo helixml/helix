@@ -286,24 +286,17 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			UpdatedAt:      time.Now(),
 		}
 
-		// Convert labels to JSON for storage
-		if len(taskPrompt.Labels) > 0 {
-			labelsJSON, _ := json.Marshal(taskPrompt.Labels)
-			task.LabelsDB = labelsJSON
-			task.Labels = taskPrompt.Labels
-		}
+		// Store labels directly (GORM serializer handles JSON conversion)
+		task.Labels = taskPrompt.Labels
 
-		// Store context and constraints in metadata
-		metadata := map[string]interface{}{
+		// Store context and constraints in metadata (GORM serializer handles JSON conversion)
+		task.Metadata = map[string]interface{}{
 			"project_id":     projectID,
 			"github_repo":    forkedRepoURL,
 			"context":        taskPrompt.Context,
 			"constraints":    taskPrompt.Constraints,
 			"sample_project": sampleProject.ID,
-			"technologies":   sampleProject.Technologies,
 		}
-		metadataJSON, _ := json.Marshal(metadata)
-		task.Metadata = metadataJSON
 
 		// Store the task (assuming we have a spec tasks store method)
 		err := s.Store.CreateSpecTask(ctx, task)

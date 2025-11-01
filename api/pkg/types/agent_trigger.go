@@ -97,22 +97,22 @@ type AgentWorkItem struct {
 	Status            string         `json:"status"`     // "pending", "assigned", "in_progress", "completed", "failed", "cancelled"
 	AgentType         string         `json:"agent_type"` // Required agent type
 	AssignedSessionID string         `json:"assigned_session_id,omitempty" gorm:"index"`
-	UserID            string         `json:"user_id" gorm:"index"`
-	AppID             string         `json:"app_id" gorm:"index"`
-	OrganizationID    string         `json:"organization_id" gorm:"index"`
-	WorkData          datatypes.JSON `json:"work_data"` // Work-specific data
-	Config            datatypes.JSON `json:"config"`    // Agent configuration
-	Labels            datatypes.JSON `json:"labels"`    // Labels/tags for filtering
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	ScheduledFor      *time.Time     `json:"scheduled_for,omitempty"` // When to start this work
-	StartedAt         *time.Time     `json:"started_at,omitempty"`
-	CompletedAt       *time.Time     `json:"completed_at,omitempty"`
-	DeadlineAt        *time.Time     `json:"deadline_at,omitempty"`
-	MaxRetries        int            `json:"max_retries"`
-	RetryCount        int            `json:"retry_count"`
-	LastError         string         `json:"last_error,omitempty"`
-	Metadata          datatypes.JSON `json:"metadata,omitempty"`
+	UserID            string                 `json:"user_id" gorm:"index"`
+	AppID             string                 `json:"app_id" gorm:"index"`
+	OrganizationID    string                 `json:"organization_id" gorm:"index"`
+	WorkData          map[string]interface{} `json:"work_data" gorm:"type:jsonb;serializer:json"` // Work-specific data
+	Config            map[string]interface{} `json:"config" gorm:"type:jsonb;serializer:json"`    // Agent configuration
+	Labels            []string               `json:"labels" gorm:"type:jsonb;serializer:json"`    // Labels/tags for filtering
+	CreatedAt         time.Time              `json:"created_at"`
+	UpdatedAt         time.Time              `json:"updated_at"`
+	ScheduledFor      *time.Time             `json:"scheduled_for,omitempty"` // When to start this work
+	StartedAt         *time.Time             `json:"started_at,omitempty"`
+	CompletedAt       *time.Time             `json:"completed_at,omitempty"`
+	DeadlineAt        *time.Time             `json:"deadline_at,omitempty"`
+	MaxRetries        int                    `json:"max_retries"`
+	RetryCount        int                    `json:"retry_count"`
+	LastError         string                 `json:"last_error,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 }
 
 // AgentSessionStatus represents enhanced status for agent sessions

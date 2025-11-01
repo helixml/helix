@@ -529,6 +529,10 @@ export interface ServerApprovalWithHandoffRequest {
   project_path?: string;
 }
 
+export interface ServerBoardSettings {
+  wip_limits?: Record<string, number>;
+}
+
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
@@ -986,6 +990,10 @@ export enum ServicesCoordinationEventType {
 }
 
 export interface ServicesCreateTaskRequest {
+  /** Optional: Helix agent to use for spec generation */
+  app_id?: string;
+  /** Optional: Primary git repository for this task */
+  git_repository_id?: string;
   priority?: string;
   project_id?: string;
   prompt?: string;
@@ -1057,6 +1065,12 @@ export enum ServicesGitRepositoryType {
   GitRepositoryTypeSpecTask = "spec_task",
   GitRepositoryTypeSample = "sample",
   GitRepositoryTypeTemplate = "template",
+}
+
+export interface ServicesGitRepositoryUpdateRequest {
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
 }
 
 export interface ServicesHandoffResult {
@@ -1168,6 +1182,39 @@ export interface SqlNullString {
   string?: string;
   /** Valid is true if String is not NULL */
   valid?: boolean;
+}
+
+export interface StoreDBGitRepository {
+  /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
+  cloneURL?: string;
+  createdAt?: string;
+  /** Reference to stored credentials (SSH key, OAuth token, etc.) */
+  credentialRef?: string;
+  defaultBranch?: string;
+  description?: string;
+  /** External platform's repository ID */
+  externalRepoID?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  externalType?: string;
+  /** Full URL to external repo (e.g., https://github.com/org/repo) */
+  externalURL?: string;
+  id?: string;
+  /** External repository fields */
+  isExternal?: boolean;
+  /** Code intelligence fields */
+  koditIndexing?: boolean;
+  lastActivity?: string;
+  /** Local filesystem path for Helix-hosted repos (empty for external) */
+  localPath?: string;
+  /** Stores Metadata as JSON */
+  metadataJSON?: string;
+  name?: string;
+  ownerID?: string;
+  projectID?: string;
+  repoType?: string;
+  specTaskID?: string;
+  status?: string;
+  updatedAt?: string;
 }
 
 export enum StripeSubscriptionStatus {
@@ -1328,16 +1375,16 @@ export interface TypesAgentWorkItem {
   assigned_session_id?: string;
   completed_at?: string;
   /** Agent configuration */
-  config?: number[];
+  config?: Record<string, any>;
   created_at?: string;
   deadline_at?: string;
   description?: string;
   id?: string;
   /** Labels/tags for filtering */
-  labels?: number[];
+  labels?: string[];
   last_error?: string;
   max_retries?: number;
-  metadata?: number[];
+  metadata?: Record<string, any>;
   name?: string;
   organization_id?: string;
   /** Lower = higher priority */
@@ -1359,7 +1406,7 @@ export interface TypesAgentWorkItem {
   updated_at?: string;
   user_id?: string;
   /** Work-specific data */
-  work_data?: number[];
+  work_data?: Record<string, any>;
 }
 
 export interface TypesAgentWorkItemCreateRequest {
@@ -2706,6 +2753,47 @@ export interface TypesPricing {
   web_search?: string;
 }
 
+export interface TypesProject {
+  created_at?: string;
+  default_branch?: string;
+  /** Project-level repository management */
+  default_repo_id?: string;
+  description?: string;
+  github_repo_url?: string;
+  id?: string;
+  metadata?: number[];
+  name?: string;
+  organization_id?: string;
+  /** Per-project startup script */
+  startup_script?: string;
+  /** "active", "archived", "completed" */
+  status?: string;
+  technologies?: string[];
+  updated_at?: string;
+  user_id?: string;
+}
+
+export interface TypesProjectCreateRequest {
+  default_branch?: string;
+  default_repo_id?: string;
+  description?: string;
+  github_repo_url?: string;
+  name?: string;
+  startup_script?: string;
+  technologies?: string[];
+}
+
+export interface TypesProjectUpdateRequest {
+  default_branch?: string;
+  default_repo_id?: string;
+  description?: string;
+  github_repo_url?: string;
+  name?: string;
+  startup_script?: string;
+  status?: string;
+  technologies?: string[];
+}
+
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
@@ -2921,6 +3009,32 @@ export interface TypesSSHKeyResponse {
   public_key?: string;
 }
 
+export interface TypesSampleProject {
+  /** 'web', 'mobile', 'api', 'ml', etc. */
+  category?: string;
+  created_at?: string;
+  description?: string;
+  /** 'beginner', 'intermediate', 'advanced' */
+  difficulty?: string;
+  id?: string;
+  name?: string;
+  repository_url?: string;
+  /** Array of {title, description, priority, type} */
+  sample_tasks?: number[];
+  startup_script?: string;
+  thumbnail_url?: string;
+}
+
+export interface TypesSampleProjectInstantiateRequest {
+  /** Optional custom name for the instantiated project */
+  project_name?: string;
+}
+
+export interface TypesSampleProjectInstantiateResponse {
+  message?: string;
+  project_id?: string;
+}
+
 export interface TypesSchedulingDecision {
   available_runners?: string[];
   created?: string;
@@ -2998,6 +3112,8 @@ export interface TypesServerConfigForFrontend {
   /** "single" or "multi" - determines streaming architecture */
   moonlight_web_mode?: string;
   organizations_create_enabled_for_non_admins?: boolean;
+  /** Controls if users can add their own AI provider API keys */
+  providers_management_enabled?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -3279,6 +3395,8 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
+  /** Archive to hide from main view */
+  archived?: boolean;
   /** Git repository attachments (multiple repos can be attached) */
   attached_repositories?: number[];
   branch_name?: string;
@@ -3299,7 +3417,7 @@ export interface TypesSpecTask {
   implementation_plan?: string;
   implementation_session_id?: string;
   labels?: string[];
-  metadata?: number[];
+  metadata?: Record<string, any>;
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
@@ -3858,10 +3976,12 @@ export interface TypesUser {
   /** if the token is associated with an app */
   app_id?: string;
   created_at?: string;
+  deactivated?: boolean;
   deleted_at?: GormDeletedAt;
   email?: string;
   full_name?: string;
   id?: string;
+  sb?: boolean;
   /** the actual token used and its type */
   token?: string;
   /** none, runner. keycloak, api_key */
@@ -4163,6 +4283,45 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new sample project template (admin only)
+     *
+     * @tags SampleProjects
+     * @name V1AdminSampleProjectsCreate
+     * @summary Create sample project (Admin)
+     * @request POST:/api/v1/admin/sample-projects
+     * @secure
+     */
+    v1AdminSampleProjectsCreate: (request: TypesSampleProject, params: RequestParams = {}) =>
+      this.request<TypesSampleProject, SystemHTTPError>({
+        path: `/api/v1/admin/sample-projects`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a sample project template (admin only)
+     *
+     * @tags SampleProjects
+     * @name V1AdminSampleProjectsDelete
+     * @summary Delete sample project (Admin)
+     * @request DELETE:/api/v1/admin/sample-projects/{id}
+     * @secure
+     */
+    v1AdminSampleProjectsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/admin/sample-projects/${id}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -5419,6 +5578,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a git repository and its metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDelete
+     * @summary Delete git repository
+     * @request DELETE:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get information about a specific git repository
      *
      * @tags git-repositories
@@ -5432,6 +5608,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing git repository's metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesUpdate
+     * @summary Update git repository
+     * @request PUT:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesUpdate: (id: string, repository: ServicesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "PUT",
+        body: repository,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -6427,6 +6623,160 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get all projects for the current user
+     *
+     * @tags Projects
+     * @name V1ProjectsList
+     * @summary List projects
+     * @request GET:/api/v1/projects
+     * @secure
+     */
+    v1ProjectsList: (params: RequestParams = {}) =>
+      this.request<TypesProject[], SystemHTTPError>({
+        path: `/api/v1/projects`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new project
+     *
+     * @tags Projects
+     * @name V1ProjectsCreate
+     * @summary Create project
+     * @request POST:/api/v1/projects
+     * @secure
+     */
+    v1ProjectsCreate: (request: TypesProjectCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete a project by ID
+     *
+     * @tags Projects
+     * @name V1ProjectsDelete
+     * @summary Delete project
+     * @request DELETE:/api/v1/projects/{id}
+     * @secure
+     */
+    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "DELETE",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a project by ID
+     *
+     * @tags Projects
+     * @name V1ProjectsDetail
+     * @summary Get project
+     * @request GET:/api/v1/projects/{id}
+     * @secure
+     */
+    v1ProjectsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing project
+     *
+     * @tags Projects
+     * @name V1ProjectsUpdate
+     * @summary Update project
+     * @request PUT:/api/v1/projects/{id}
+     * @secure
+     */
+    v1ProjectsUpdate: (id: string, request: TypesProjectUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start an exploratory agent session for a project without a specific task
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionCreate
+     * @summary Start exploratory session
+     * @request POST:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all repositories attached to a project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesDetail
+     * @summary Get project repositories
+     * @request GET:/api/v1/projects/{id}/repositories
+     * @secure
+     */
+    v1ProjectsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<StoreDBGitRepository[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the primary repository for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesPrimaryUpdate
+     * @summary Set project primary repository
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/primary
+     * @secure
+     */
+    v1ProjectsRepositoriesPrimaryUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/primary`,
+        method: "PUT",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1ProviderEndpointsList
@@ -6584,6 +6934,68 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sample-projects`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get all available sample projects
+     *
+     * @tags SampleProjects
+     * @name V1SampleProjectsV2List
+     * @summary List sample projects
+     * @request GET:/api/v1/sample-projects-v2
+     * @secure
+     */
+    v1SampleProjectsV2List: (params: RequestParams = {}) =>
+      this.request<TypesSampleProject[], SystemHTTPError>({
+        path: `/api/v1/sample-projects-v2`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a sample project by ID
+     *
+     * @tags SampleProjects
+     * @name V1SampleProjectsV2Detail
+     * @summary Get sample project
+     * @request GET:/api/v1/sample-projects-v2/{id}
+     * @secure
+     */
+    v1SampleProjectsV2Detail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSampleProject, SystemHTTPError>({
+        path: `/api/v1/sample-projects-v2/${id}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new project from a sample project template
+     *
+     * @tags SampleProjects
+     * @name V1SampleProjectsV2InstantiateCreate
+     * @summary Instantiate sample project
+     * @request POST:/api/v1/sample-projects-v2/{id}/instantiate
+     * @secure
+     */
+    v1SampleProjectsV2InstantiateCreate: (
+      id: string,
+      request: TypesSampleProjectInstantiateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSampleProjectInstantiateResponse, SystemHTTPError>({
+        path: `/api/v1/sample-projects-v2/${id}/instantiate`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
@@ -7243,6 +7655,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Filter by user ID */
         user_id?: string;
         /**
+         * Include archived tasks
+         * @default false
+         */
+        include_archived?: boolean;
+        /**
          * Limit number of results
          * @default 50
          */
@@ -7423,6 +7840,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/approve-with-handoff`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksArchivePartialUpdate
+     * @summary Archive or unarchive a spec task
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
+     * @secure
+     */
+    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/archive`,
+        method: "PATCH",
+        body: archived,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -7691,6 +8128,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksStartPlanningCreate
+     * @summary Start planning for a SpecTask
+     * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
+     * @secure
+     */
+    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/start-planning`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all work sessions associated with a specific SpecTask
      *
      * @tags spec-driven-tasks
@@ -7767,6 +8223,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/zed-threads`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<ServerBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (request: ServerBoardSettings, params: RequestParams = {}) =>
+      this.request<ServerBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

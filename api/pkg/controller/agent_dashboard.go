@@ -5,12 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"encoding/json"
-
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"gorm.io/datatypes"
 )
 
 // GetAgentDashboardData returns comprehensive dashboard data including agent sessions and work items
@@ -137,33 +134,7 @@ func (c *Controller) UpdateAgentSessionStatus(ctx context.Context, sessionID, st
 
 // CreateWorkItem creates a new work item in the agent scheduler
 func (c *Controller) CreateWorkItem(ctx context.Context, req *CreateWorkItemRequest) (*types.AgentWorkItem, error) {
-	// Convert map[string]interface{} to datatypes.JSON
-	var workData, config, metadata datatypes.JSON
-
-	if req.WorkData != nil {
-		workDataBytes, err := json.Marshal(req.WorkData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal work data: %w", err)
-		}
-		workData = datatypes.JSON(workDataBytes)
-	}
-
-	if req.Config != nil {
-		configBytes, err := json.Marshal(req.Config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal config: %w", err)
-		}
-		config = datatypes.JSON(configBytes)
-	}
-
-	if req.Metadata != nil {
-		metadataBytes, err := json.Marshal(req.Metadata)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
-		}
-		metadata = datatypes.JSON(metadataBytes)
-	}
-
+	// GORM serializer handles JSON conversion
 	workItem := &types.AgentWorkItem{
 		ID:          fmt.Sprintf("work-%d", time.Now().UnixNano()),
 		Name:        req.Name,
@@ -175,12 +146,12 @@ func (c *Controller) CreateWorkItem(ctx context.Context, req *CreateWorkItemRequ
 		AgentType:   req.AgentType,
 		UserID:      req.UserID,
 		AppID:       req.AppID,
-		WorkData:    workData,
-		Config:      config,
+		WorkData:    req.WorkData,
+		Config:      req.Config,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		MaxRetries:  3,
-		Metadata:    metadata,
+		Metadata:    req.Metadata,
 	}
 
 	if err := c.Options.Store.CreateAgentWorkItem(ctx, workItem); err != nil {

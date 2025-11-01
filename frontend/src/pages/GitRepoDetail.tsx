@@ -20,7 +20,7 @@ import {
   FormControlLabel,
   Switch,
 } from '@mui/material'
-import { GitBranch, Copy, ExternalLink, ArrowLeft, Edit, Brain, Link, Trash2 } from 'lucide-react'
+import { GitBranch, Copy, ExternalLink, ArrowLeft, Edit, Brain, Link, Trash2, Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -165,7 +165,12 @@ const GitRepoDetail: FC = () => {
               <GitBranch size={32} color="#656d76" />
               <Box>
                 <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span style={{ color: '#0969da' }}>{ownerSlug}</span>
+                  <span
+                    style={{ color: '#0969da', cursor: 'pointer' }}
+                    onClick={() => navigate('git-repos')}
+                  >
+                    {ownerSlug}
+                  </span>
                   <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
                   <span style={{ fontWeight: 600 }}>{repository.name}</span>
                 </Typography>
@@ -221,6 +226,19 @@ const GitRepoDetail: FC = () => {
         </Box>
 
         <Divider sx={{ mb: 3 }} />
+
+        {/* New Spec Task Button */}
+        <Box sx={{ mb: 3 }}>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<Plus size={16} />}
+            onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repoId })}
+            sx={{ textTransform: 'none' }}
+          >
+            New Spec Task
+          </Button>
+        </Box>
 
         {/* Clone instructions */}
         <Card sx={{ mb: 3 }}>

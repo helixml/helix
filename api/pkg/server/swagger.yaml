@@ -808,6 +808,13 @@ definitions:
       project_path:
         type: string
     type: object
+  server.BoardSettings:
+    properties:
+      wip_limits:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
   server.CloneCommandResponse:
     properties:
       clone_command:
@@ -1599,6 +1606,12 @@ definitions:
     - CoordinationEventTypeSpawn
   services.CreateTaskRequest:
     properties:
+      app_id:
+        description: 'Optional: Helix agent to use for spec generation'
+        type: string
+      git_repository_id:
+        description: 'Optional: Primary git repository for this task'
+        type: string
       priority:
         type: string
       project_id:
@@ -1743,6 +1756,16 @@ definitions:
     - GitRepositoryTypeSpecTask
     - GitRepositoryTypeSample
     - GitRepositoryTypeTemplate
+  services.GitRepositoryUpdateRequest:
+    properties:
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+    type: object
   services.HandoffResult:
     properties:
       branch_name:
@@ -1970,6 +1993,60 @@ definitions:
       valid:
         description: Valid is true if String is not NULL
         type: boolean
+    type: object
+  store.DBGitRepository:
+    properties:
+      cloneURL:
+        description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
+        type: string
+      createdAt:
+        type: string
+      credentialRef:
+        description: Reference to stored credentials (SSH key, OAuth token, etc.)
+        type: string
+      defaultBranch:
+        type: string
+      description:
+        type: string
+      externalRepoID:
+        description: External platform's repository ID
+        type: string
+      externalType:
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
+        type: string
+      externalURL:
+        description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      id:
+        type: string
+      isExternal:
+        description: External repository fields
+        type: boolean
+      koditIndexing:
+        description: Code intelligence fields
+        type: boolean
+      lastActivity:
+        type: string
+      localPath:
+        description: Local filesystem path for Helix-hosted repos (empty for external)
+        type: string
+      metadataJSON:
+        description: Stores Metadata as JSON
+        type: string
+      name:
+        type: string
+      ownerID:
+        type: string
+      projectID:
+        type: string
+      repoType:
+        type: string
+      specTaskID:
+        type: string
+      status:
+        type: string
+      updatedAt:
+        type: string
     type: object
   stripe.SubscriptionStatus:
     enum:
@@ -2295,10 +2372,9 @@ definitions:
       completed_at:
         type: string
       config:
+        additionalProperties: true
         description: Agent configuration
-        items:
-          type: integer
-        type: array
+        type: object
       created_at:
         type: string
       deadline_at:
@@ -2310,16 +2386,15 @@ definitions:
       labels:
         description: Labels/tags for filtering
         items:
-          type: integer
+          type: string
         type: array
       last_error:
         type: string
       max_retries:
         type: integer
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       organization_id:
@@ -2355,10 +2430,9 @@ definitions:
       user_id:
         type: string
       work_data:
+        additionalProperties: true
         description: Work-specific data
-        items:
-          type: integer
-        type: array
+        type: object
     type: object
   types.AgentWorkItemCreateRequest:
     properties:
@@ -4666,6 +4740,84 @@ definitions:
       web_search:
         type: string
     type: object
+  types.Project:
+    properties:
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      default_repo_id:
+        description: Project-level repository management
+        type: string
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      id:
+        type: string
+      metadata:
+        items:
+          type: integer
+        type: array
+      name:
+        type: string
+      organization_id:
+        type: string
+      startup_script:
+        description: Per-project startup script
+        type: string
+      status:
+        description: '"active", "archived", "completed"'
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.ProjectCreateRequest:
+    properties:
+      default_branch:
+        type: string
+      default_repo_id:
+        type: string
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      name:
+        type: string
+      startup_script:
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
+  types.ProjectUpdateRequest:
+    properties:
+      default_branch:
+        type: string
+      default_repo_id:
+        type: string
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      name:
+        type: string
+      startup_script:
+        type: string
+      status:
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
   types.Provider:
     enum:
     - openai
@@ -5052,6 +5204,47 @@ definitions:
       public_key:
         type: string
     type: object
+  types.SampleProject:
+    properties:
+      category:
+        description: '''web'', ''mobile'', ''api'', ''ml'', etc.'
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      difficulty:
+        description: '''beginner'', ''intermediate'', ''advanced'''
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      repository_url:
+        type: string
+      sample_tasks:
+        description: Array of {title, description, priority, type}
+        items:
+          type: integer
+        type: array
+      startup_script:
+        type: string
+      thumbnail_url:
+        type: string
+    type: object
+  types.SampleProjectInstantiateRequest:
+    properties:
+      project_name:
+        description: Optional custom name for the instantiated project
+        type: string
+    type: object
+  types.SampleProjectInstantiateResponse:
+    properties:
+      message:
+        type: string
+      project_id:
+        type: string
+    type: object
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -5198,6 +5391,9 @@ definitions:
         description: '"single" or "multi" - determines streaming architecture'
         type: string
       organizations_create_enabled_for_non_admins:
+        type: boolean
+      providers_management_enabled:
+        description: Controls if users can add their own AI provider API keys
         type: boolean
       rudderstack_data_plane_url:
         type: string
@@ -5660,6 +5856,9 @@ definitions:
     type: object
   types.SpecTask:
     properties:
+      archived:
+        description: Archive to hide from main view
+        type: boolean
       attached_repositories:
         description: Git repository attachments (multiple repos can be attached)
         items:
@@ -5700,9 +5899,8 @@ definitions:
           type: string
         type: array
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       original_prompt:
@@ -6679,6 +6877,8 @@ definitions:
         type: string
       created_at:
         type: string
+      deactivated:
+        type: boolean
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
@@ -6687,6 +6887,8 @@ definitions:
         type: string
       id:
         type: string
+      sb:
+        type: boolean
       token:
         description: the actual token used and its type
         type: string
@@ -6959,6 +7161,79 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
+  /api/v1/admin/sample-projects:
+    post:
+      consumes:
+      - application/json
+      description: Create a new sample project template (admin only)
+      parameters:
+      - description: Sample project data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SampleProject'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SampleProject'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create sample project (Admin)
+      tags:
+      - SampleProjects
+  /api/v1/admin/sample-projects/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a sample project template (admin only)
+      parameters:
+      - description: Sample Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete sample project (Admin)
+      tags:
+      - SampleProjects
   /api/v1/agents/fleet:
     get:
       description: Get agent fleet data including active sessions, work queue, and
@@ -8302,6 +8577,30 @@ paths:
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}:
+    delete:
+      description: Delete a git repository and its metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete git repository
+      tags:
+      - git-repositories
     get:
       description: Get information about a specific git repository
       parameters:
@@ -8328,6 +8627,46 @@ paths:
       security:
       - BearerAuth: []
       summary: Get git repository
+      tags:
+      - git-repositories
+    put:
+      consumes:
+      - application/json
+      description: Update an existing git repository's metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository update request
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/services.GitRepositoryUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update git repository
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/clone-command:
@@ -9482,6 +9821,298 @@ paths:
       summary: Stop a personal development environment
       tags:
       - PersonalDevEnvironments
+  /api/v1/projects:
+    get:
+      consumes:
+      - application/json
+      description: Get all projects for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Project'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List projects
+      tags:
+      - Projects
+    post:
+      consumes:
+      - application/json
+      description: Create a new project
+      parameters:
+      - description: Project creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create project
+      tags:
+      - Projects
+  /api/v1/projects/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a project by ID
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete project
+      tags:
+      - Projects
+    get:
+      consumes:
+      - application/json
+      description: Get a project by ID
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project
+      tags:
+      - Projects
+    put:
+      consumes:
+      - application/json
+      description: Update an existing project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Project update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update project
+      tags:
+      - Projects
+  /api/v1/projects/{id}/exploratory-session:
+    post:
+      consumes:
+      - application/json
+      description: Start an exploratory agent session for a project without a specific
+        task
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Start exploratory session
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories:
+    get:
+      consumes:
+      - application/json
+      description: Get all repositories attached to a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/store.DBGitRepository'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project repositories
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/primary:
+    put:
+      consumes:
+      - application/json
+      description: Set the primary repository for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set project primary repository
+      tags:
+      - Projects
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -9646,6 +10277,101 @@ paths:
       summary: List available sample projects
       tags:
       - sample-projects
+  /api/v1/sample-projects-v2:
+    get:
+      consumes:
+      - application/json
+      description: Get all available sample projects
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.SampleProject'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List sample projects
+      tags:
+      - SampleProjects
+  /api/v1/sample-projects-v2/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a sample project by ID
+      parameters:
+      - description: Sample Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SampleProject'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get sample project
+      tags:
+      - SampleProjects
+  /api/v1/sample-projects-v2/{id}/instantiate:
+    post:
+      consumes:
+      - application/json
+      description: Create a new project from a sample project template
+      parameters:
+      - description: Sample Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Instantiate request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SampleProjectInstantiateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SampleProjectInstantiateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Instantiate sample project
+      tags:
+      - SampleProjects
   /api/v1/sample-projects/{project_id}:
     get:
       description: Get details of a specific sample project by ID
@@ -10468,6 +11194,11 @@ paths:
         in: query
         name: user_id
         type: string
+      - default: false
+        description: Include archived tasks
+        in: query
+        name: include_archived
+        type: boolean
       - default: 50
         description: Limit number of results
         in: query
@@ -10790,6 +11521,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Approve specs and execute document handoff
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/archive:
+    patch:
+      consumes:
+      - application/json
+      description: Archive a spec task to hide it from the main view, or unarchive
+        to restore it
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Archive status (true to archive, false to unarchive)
+        in: body
+        name: archived
+        required: true
+        schema:
+          type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/commit-progress:
@@ -11224,6 +11997,43 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/start-planning:
+    post:
+      consumes:
+      - application/json
+      description: Explicitly start spec generation (planning phase) for a backlog
+        task. This transitions the task to planning status and starts a spec generation
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Start planning for a SpecTask
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/work-sessions:
     get:
       description: Get all work sessions associated with a specific SpecTask
@@ -11351,6 +12161,56 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
+  /api/v1/spec-tasks/board-settings:
+    get:
+      description: Get the Kanban board settings (WIP limits) for the default project
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BoardSettings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get board settings for spec tasks
+      tags:
+      - spec-driven-tasks
+    put:
+      consumes:
+      - application/json
+      description: Update the Kanban board settings (WIP limits) for the default project
+      parameters:
+      - description: Board settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.BoardSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.BoardSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update board settings for spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:

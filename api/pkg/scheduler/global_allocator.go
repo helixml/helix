@@ -71,6 +71,26 @@ func (ga *GlobalAllocator) PlanAllocation(work *Workload) (*AllocationPlan, erro
 		return nil, fmt.Errorf("invalid workload or model")
 	}
 
+	// External agents don't need GPU allocation - they run in containers
+	// Return a dummy allocation plan to satisfy the interface
+	if work.model.ID == "external_agent" {
+		return &AllocationPlan{
+			RunnerID:            "", // No runner needed
+			GPUs:                []int{},
+			GPUCount:            0,
+			IsMultiGPU:          false,
+			TotalMemoryRequired: 0,
+			MemoryPerGPU:        0,
+			Cost:                0,
+			RequiresEviction:    false,
+			EvictionsNeeded:     nil,
+			TensorParallelSize:  1,
+			Runtime:             types.Runtime("external"),
+			IsValid:             true,
+			ValidationError:     nil,
+		}, nil
+	}
+
 	// Calculate memory requirement for this workload
 	memoryRequirement, err := ga.calculateMemoryRequirement(work)
 	if err != nil {
@@ -126,6 +146,16 @@ func (ga *GlobalAllocator) ExecuteAllocationPlan(plan *AllocationPlan, work *Wor
 		Ints("gpus", plan.GPUs).
 		Int("evictions_needed", len(plan.EvictionsNeeded)).
 		Msg("🚀 GLOBAL: Executing allocation plan")
+
+	// External agents don't need GPU allocation - create simple slot and return
+	if work.model.ID == "external_agent" {
+		slot := NewSlot("", work, nil, nil, nil)
+		log.Info().
+			Str("slot_id", slot.ID.String()).
+			Str("model", work.ModelName().String()).
+			Msg("🎯 GLOBAL: Successfully created external agent slot (no GPU allocation)")
+		return slot, nil
+	}
 
 	// Step 1: Perform evictions if needed
 	if len(plan.EvictionsNeeded) > 0 {
@@ -841,17 +871,20 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 	}
 
 	// Phase 2: Validate plan before execution
-	if err := ga.validateAllocationPlan(plan); err != nil {
-		log.Error().
-			Err(err).
-			Str("model", work.ModelName().String()).
-			Str("runner_id", plan.RunnerID).
-			Ints("gpus", plan.GPUs).
-			Msg("🌍 GLOBAL: Allocation plan validation failed")
+	// Skip validation for external agents - they don't use GPU runners
+	if work.model.ID != "external_agent" {
+		if err := ga.validateAllocationPlan(plan); err != nil {
+			log.Error().
+				Err(err).
+				Str("model", work.ModelName().String()).
+				Str("runner_id", plan.RunnerID).
+				Ints("gpus", plan.GPUs).
+				Msg("🌍 GLOBAL: Allocation plan validation failed")
 
-		// Log failed global decision
-		ga.logGlobalDecision(work, []*AllocationPlan{plan}, plan, beforeState, nil, time.Since(startTime).Milliseconds(), false, fmt.Sprintf("Allocation plan validation failed: %v", err))
-		return nil, fmt.Errorf("allocation plan validation failed: %w", err)
+			// Log failed global decision
+			ga.logGlobalDecision(work, []*AllocationPlan{plan}, plan, beforeState, nil, time.Since(startTime).Milliseconds(), false, fmt.Sprintf("Allocation plan validation failed: %v", err))
+			return nil, fmt.Errorf("allocation plan validation failed: %w", err)
+		}
 	}
 
 	// Phase 3: Execute plan

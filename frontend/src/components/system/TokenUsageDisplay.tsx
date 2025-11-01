@@ -8,12 +8,14 @@ import InfoIcon from '@mui/icons-material/Info'
 import UpgradeIcon from '@mui/icons-material/Upgrade'
 import KeyIcon from '@mui/icons-material/Key'
 import useRouter from '../../hooks/useRouter'
+import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useGetUserTokenUsage } from '../../services/userService'
 import { useListProviders } from '../../services/providersService'
 
-const TokenUsageDisplay: React.FC = () => {  
+const TokenUsageDisplay: React.FC = () => {
   const router = useRouter()
+  const account = useAccount()
   const lightTheme = useLightTheme()
   const { data: tokenUsage, isLoading: loading, error } = useGetUserTokenUsage()
 
@@ -41,8 +43,8 @@ const TokenUsageDisplay: React.FC = () => {
   }
 
   const handleAddProviders = () => {
-    // Navigate to the user providers page
-    router.navigate('user-providers')
+    // Navigate to the providers page
+    router.navigate('providers')
   }
 
   // If loading, error, no data, or quotas not enabled, don't render
@@ -87,8 +89,11 @@ const TokenUsageDisplay: React.FC = () => {
         <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, fontWeight: 'bold' }}>
           {tierName} Plan - Monthly Tokens
         </Typography>
-        <Tooltip 
-          title={`You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month using Helix providers. Add your own LLM API keys to avoid running out of tokens.`}
+        <Tooltip
+          title={account.serverConfig.providers_management_enabled
+            ? `You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month using Helix providers. Add your own LLM API keys to avoid running out of tokens.`
+            : `You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month using Helix providers.`
+          }
           placement="top"
         >
           <InfoIcon sx={{ fontSize: 14, ml: 0.5, color: lightTheme.textColorFaded }} />
@@ -131,9 +136,13 @@ const TokenUsageDisplay: React.FC = () => {
             whiteSpace: 'normal'
           }}
         >
-          {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100 
-            ? 'Limit reached! Upgrade or add your own LLM API keys to continue.' 
-            : 'Approaching limit. Consider upgrading or adding your own LLM API keys.'
+          {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100
+            ? (account.serverConfig.providers_management_enabled
+                ? 'Limit reached! Upgrade or add your own LLM API keys to continue.'
+                : 'Limit reached! Upgrade to continue.')
+            : (account.serverConfig.providers_management_enabled
+                ? 'Approaching limit. Consider upgrading or adding your own LLM API keys.'
+                : 'Approaching limit. Consider upgrading.')
           }
         </Typography>
       )}
@@ -159,26 +168,28 @@ const TokenUsageDisplay: React.FC = () => {
           >
             Upgrade to Pro
           </Button>
-          <Button
-            onClick={handleAddProviders}
-            size="small"
-            variant="outlined"
-            startIcon={<KeyIcon />}
-            sx={{
-              width: '100%',
-              borderColor: '#00E5FF',
-              color: '#00E5FF',
-              fontSize: '0.7rem',
-              fontWeight: 'bold',
-              textTransform: 'none',
-              '&:hover': {
-                borderColor: '#00B8CC',
-                backgroundColor: 'rgba(0, 229, 255, 0.1)',
-              },
-            }}
-          >
-            Add my own API Keys
-          </Button>
+          {account.serverConfig.providers_management_enabled && (
+            <Button
+              onClick={handleAddProviders}
+              size="small"
+              variant="outlined"
+              startIcon={<KeyIcon />}
+              sx={{
+                width: '100%',
+                borderColor: '#00E5FF',
+                color: '#00E5FF',
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                textTransform: 'none',
+                '&:hover': {
+                  borderColor: '#00B8CC',
+                  backgroundColor: 'rgba(0, 229, 255, 0.1)',
+                },
+              }}
+            >
+              Add my own API Keys
+            </Button>
+          )}
         </Box>
       )}
 

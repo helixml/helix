@@ -108,6 +108,8 @@ controlplane:
   admin:
     userSource: "env"
     userIds: "all"
+  # AI Providers management - controls if users can add their own AI provider API keys
+  providersManagementEnabled: true
   sidecar:
     enabled: false
     name: sidecar

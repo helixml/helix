@@ -567,29 +567,31 @@ const NewAgent: FC = () => {
                   </Box>
                 )}
                 
-                <Typography 
-                  variant="body2" 
-                  color="text.secondary" 
-                  sx={{ mt: 2 }}
-                >
-                  Enable more providers{' '}
+                {account.serverConfig.providers_management_enabled && (
                   <Typography
-                    component="span"
                     variant="body2"
-                    onClick={() => account.orgNavigate('user-providers')}
-                    sx={{ 
-                      color: 'primary.main',
-                      cursor: 'pointer',
-                      textDecoration: 'underline',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                        opacity: 0.8
-                      }
-                    }}
+                    color="text.secondary"
+                    sx={{ mt: 2 }}
                   >
-                    here
+                    Enable more providers{' '}
+                    <Typography
+                      component="span"
+                      variant="body2"
+                      onClick={() => account.orgNavigate('providers')}
+                      sx={{
+                        color: 'primary.main',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                          opacity: 0.8
+                        }
+                      }}
+                    >
+                      here
+                    </Typography>
                   </Typography>
-                </Typography>
+                )}
               </Grid>
 
               {/* Knowledge Section */}
