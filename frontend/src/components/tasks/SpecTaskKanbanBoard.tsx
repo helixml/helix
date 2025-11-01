@@ -548,7 +548,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       try {
         const response = await api.get('/api/v1/spec-tasks', {
           params: {
-            project_id: 'default',
+            project_id: projectId || 'default',
             archived_only: showArchived
           }
         });
