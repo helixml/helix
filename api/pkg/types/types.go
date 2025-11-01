@@ -2603,7 +2603,7 @@ type ExecuteQuestionSetRequest struct {
 // ExecuteQuestionSetResponse contains the response to each question in the question set
 // Each response is a unique session where users can drill down into the response and ask follow-up questions
 type ExecuteQuestionSetResponse struct {
-	Questions []QuestionResponse `json:"questions"`
+	Results []QuestionResponse `json:"results"`
 }
 
 type QuestionResponse struct {
@@ -2613,4 +2613,25 @@ type QuestionResponse struct {
 	InteractionID string `json:"interaction_id"` // Interaction ID
 	Response      string `json:"response"`       // Response
 	Error         string `json:"error"`          // Error
+}
+
+type QuestionSetExecutionStatus string
+
+const (
+	QuestionSetExecutionStatusPending QuestionSetExecutionStatus = "pending"
+	QuestionSetExecutionStatusRunning QuestionSetExecutionStatus = "running"
+	QuestionSetExecutionStatusSuccess QuestionSetExecutionStatus = "success"
+	QuestionSetExecutionStatusError   QuestionSetExecutionStatus = "error"
+)
+
+type QuestionSetExecution struct {
+	ID            string                     `json:"id"`
+	Created       time.Time                  `json:"created"`
+	Updated       time.Time                  `json:"updated"`
+	QuestionSetID string                     `json:"question_set_id"`
+	AppID         string                     `json:"app_id"`
+	DurationMs    int64                      `json:"duration_ms"`
+	Status        QuestionSetExecutionStatus `json:"status"`
+	Error         string                     `json:"error"`
+	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
 }
