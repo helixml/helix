@@ -4759,6 +4759,40 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.Question:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      question:
+        type: string
+      updated:
+        type: string
+    type: object
+  types.QuestionSet:
+    properties:
+      created:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      organization_id:
+        description: The organization this session belongs to, if any
+        type: string
+      questions:
+        items:
+          $ref: '#/definitions/types.Question'
+        type: array
+      updated:
+        type: string
+      user_id:
+        description: Creator of the question set
+        type: string
+    type: object
   types.RAGSettings:
     properties:
       chunk_overflow:
@@ -6610,18 +6644,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -6679,6 +6713,8 @@ definitions:
         type: string
       created_at:
         type: string
+      deactivated:
+        type: boolean
       deleted_at:
         $ref: '#/definitions/gorm.DeletedAt'
       email:
@@ -6687,6 +6723,8 @@ definitions:
         type: string
       id:
         type: string
+      sb:
+        type: boolean
       token:
         description: the actual token used and its type
         type: string
@@ -9630,6 +9668,180 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/question-sets:
+    get:
+      description: List question sets for the current user or organization
+      parameters:
+      - description: Organization ID or slug
+        in: query
+        name: org_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.QuestionSet'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List question sets
+      tags:
+      - question-sets
+    post:
+      consumes:
+      - application/json
+      description: Create a new question set
+      parameters:
+      - description: Question set to create
+        in: body
+        name: questionSet
+        required: true
+        schema:
+          $ref: '#/definitions/types.QuestionSet'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.QuestionSet'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create a new question set
+      tags:
+      - question-sets
+  /api/v1/question-sets/{id}:
+    delete:
+      description: Delete a question set
+      parameters:
+      - description: Question set ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete a question set
+      tags:
+      - question-sets
+    get:
+      description: Get a question set by ID
+      parameters:
+      - description: Question set ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionSet'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get a question set by ID
+      tags:
+      - question-sets
+    put:
+      consumes:
+      - application/json
+      description: Update a question set
+      parameters:
+      - description: Question set ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Question set to update
+        in: body
+        name: questionSet
+        required: true
+        schema:
+          $ref: '#/definitions/types.QuestionSet'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.QuestionSet'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update a question set
+      tags:
+      - question-sets
   /api/v1/sample-projects:
     get:
       description: Get a list of all available sample projects that users can fork
