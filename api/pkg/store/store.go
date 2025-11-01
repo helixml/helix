@@ -504,6 +504,13 @@ type Store interface {
 	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
 	DeleteMemory(ctx context.Context, memory *types.Memory) error
 	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
+
+	// Question set methods
+	CreateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	GetQuestionSet(ctx context.Context, id string) (*types.QuestionSet, error)
+	UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error)
+	DeleteQuestionSet(ctx context.Context, id string) error
 }
 
 type EmbeddingsStore interface {
