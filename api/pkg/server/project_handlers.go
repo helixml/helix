@@ -656,19 +656,6 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 	return map[string]string{"message": "repository detached successfully"}, nil
 }
 
-// startExploratorySession godoc
-// @Summary Start exploratory session
-// @Description Start an exploratory agent session for a project without a specific task
-// @Tags Projects
-// @Accept json
-// @Produce json
-// @Param id path string true "Project ID"
-// @Success 200 {object} types.Session
-// @Failure 401 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security BearerAuth
-// @Router /api/v1/projects/{id}/exploratory-session [post]
 // getProjectExploratorySession godoc
 // @Summary Get project exploratory session
 // @Description Get the active exploratory session for a project (returns null if none exists)

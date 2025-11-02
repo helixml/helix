@@ -6787,20 +6787,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Start an exploratory agent session for a project without a specific task Get the active exploratory session for a project (returns null if none exists)
+     * @description Get the active exploratory session for a project (returns null if none exists)
      *
-     * @tags Projects, Projects
+     * @tags Projects
      * @name V1ProjectsExploratorySessionDetail
      * @summary Get project exploratory session
      * @request GET:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
-    v1ProjectsExploratorySessionDetail: (id: string, id: string, params: RequestParams = {}) =>
+    v1ProjectsExploratorySessionDetail: (id: string, params: RequestParams = {}) =>
       this.request<TypesSession, SystemHTTPError>({
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "GET",
         secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
