@@ -5311,6 +5311,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Question set execution ID",
+                        "name": "question_set_execution_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Search sessions by name",
                         "name": "search",
                         "in": "query"
