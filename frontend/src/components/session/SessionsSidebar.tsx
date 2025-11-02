@@ -7,10 +7,15 @@ import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
+import Collapse from '@mui/material/Collapse'
+import IconButton from '@mui/material/IconButton'
+import Box from '@mui/material/Box'
+import ExpandMore from '@mui/icons-material/ExpandMore'
+import ExpandLess from '@mui/icons-material/ExpandLess'
 
 import ImageIcon from '@mui/icons-material/Image'
 
-import { MessageCircle } from 'lucide-react'
+import { MessageCircle, MessageCircleQuestionMark } from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -49,6 +54,7 @@ export const SessionsSidebar: FC<{
   const [allSessions, setAllSessions] = useState<TypesSessionSummary[]>([])
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
+  const [expandedExecutionIds, setExpandedExecutionIds] = useState<Set<string>>(new Set())
 
   const orgId = router.params.org_id
 
@@ -158,7 +164,94 @@ export const SessionsSidebar: FC<{
     })
   }
 
-  const renderSessionGroup = (sessions: (TypesSessionSummary)[], title: string, isFirst: boolean = false) => {
+  const groupSessionsByExecutionId = (sessions: TypesSessionSummary[]) => {
+    const grouped = new Map<string, TypesSessionSummary[]>()
+    const standalone: TypesSessionSummary[] = []
+
+    sessions.forEach(session => {
+      const executionId = session.question_set_execution_id
+      if (executionId) {
+        if (!grouped.has(executionId)) {
+          grouped.set(executionId, [])
+        }
+        grouped.get(executionId)!.push(session)
+      } else {
+        standalone.push(session)
+      }
+    })
+
+    return { grouped, standalone }
+  }
+
+  const toggleExecutionGroup = (executionId: string) => {
+    setExpandedExecutionIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(executionId)) {
+        newSet.delete(executionId)
+      } else {
+        newSet.add(executionId)
+      }
+      return newSet
+    })
+  }
+
+  const renderSession = (session: TypesSessionSummary, showIcon: boolean = true) => {
+    const sessionId = session.session_id
+    const isActive = sessionId === params["session_id"]
+    return (
+      <ListItem
+        sx={{
+          borderRadius: '20px',
+          cursor: 'pointer',
+          width: '100%',
+          padding: 0,
+        }}
+        key={sessionId}
+        onClick={() => {
+          account.orgNavigate('session', {session_id: sessionId})
+          onOpenSession()
+        }}
+      >
+        <ListItemButton
+          selected={isActive}
+          sx={{
+            borderRadius: '4px',
+            backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+            cursor: 'pointer',
+            width: '100%',
+            mr: -2,
+            '&:hover': {
+              '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
+              '.MuiListItemIcon-root': { color: '#fff' },
+            },
+          }}
+        >
+          {showIcon && (
+            <ListItemIcon
+              sx={{color:'red'}}
+            >
+              {getSessionIcon(session)}
+            </ListItemIcon>
+          )}
+          {!showIcon && <ListItemIcon sx={{ width: 24 }} />}
+          <ListItemText
+            sx={{marginLeft: showIcon ? "-15px" : "-15px"}}
+            primaryTypographyProps={{
+              fontSize: 'small',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: isActive ? '#fff' : lightTheme.textColorFaded,
+            }}
+            primary={session.name}
+            id={sessionId}
+          />
+        </ListItemButton>
+      </ListItem>
+    )
+  }
+
+  const renderSessionGroup = (sessions: (TypesSessionSummary)[], title: string, isFirst: boolean = false, showIcons: boolean = true) => {
     if (sessions.length === 0) return null
 
     return (
@@ -176,63 +269,198 @@ export const SessionsSidebar: FC<{
             {title}
           </Typography>
         </ListItem>
-        {sessions.map((session) => {
-          const sessionId = session.session_id
-          const isActive = sessionId === params["session_id"]
-          return (
-            <ListItem
-              sx={{
-                borderRadius: '20px',
-                cursor: 'pointer',
-                width: '100%',
-                padding: 0,
-              }}
-              key={sessionId}
-              onClick={() => {
-                account.orgNavigate('session', {session_id: sessionId})
-                onOpenSession()
-              }}
-            >
-              <ListItemButton
-                selected={isActive}
-                sx={{
-                  borderRadius: '4px',
-                  backgroundColor: isActive ? '#1a1a2f' : 'transparent',
-                  cursor: 'pointer',
-                  width: '100%',
-                  mr: -2,
-                  '&:hover': {
-                    '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
-                    '.MuiListItemIcon-root': { color: '#fff' },
-                  },
-                }}
-              >
-                <ListItemIcon
-                  sx={{color:'red'}}
-                >
-                  {getSessionIcon(session)}
-                </ListItemIcon>
-                <ListItemText
-                  sx={{marginLeft: "-15px"}}
-                  primaryTypographyProps={{
-                    fontSize: 'small',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: isActive ? '#fff' : lightTheme.textColorFaded,
-                  }}
-                  primary={session.name}
-                  id={sessionId}
-                />
-              </ListItemButton>
-            </ListItem>
-          )
-        })}
+        {sessions.map((session) => renderSession(session, showIcons))}
       </Fragment>
     )
   }
 
-  const groupedSessions = groupSessionsByTime(allSessions || [])
+  const getExecutionGroupEarliestDate = (sessions: TypesSessionSummary[]) => {
+    if (sessions.length === 0) return new Date(0)
+    return new Date(Math.min(...sessions.map(s => new Date(s.created || 0).getTime())))
+  }
+
+  const renderExecutionGroupHeader = (executionId: string, sessions: TypesSessionSummary[]) => {
+    const isExpanded = expandedExecutionIds.has(executionId)
+    const sessionId = sessions[0]?.session_id
+    const isActive = sessionId === params["session_id"]
+    const groupName = sessions[0]?.name || `Question Set (${sessions.length} session${sessions.length !== 1 ? 's' : ''})`
+
+    return (
+      <ListItem
+        sx={{
+          borderRadius: '20px',
+          cursor: 'pointer',
+          width: '100%',
+          padding: 0,
+        }}
+        key={`header-${executionId}`}
+        onClick={() => toggleExecutionGroup(executionId)}
+      >
+        <ListItemButton
+          selected={isActive}
+          sx={{
+            borderRadius: '4px',
+            backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+            cursor: 'pointer',
+            width: '100%',
+            mr: -2,
+            '&:hover': {
+              '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
+              '.MuiListItemIcon-root': { color: '#fff' },
+            },
+          }}
+        >
+          <ListItemIcon
+            sx={{color:'red'}}
+          >
+            <Tooltip title="Question Set" arrow>
+              <MessageCircleQuestionMark size={22} color="#8f8f8f" />
+            </Tooltip>
+          </ListItemIcon>
+          <ListItemText
+            sx={{marginLeft: "-15px", flex: 1}}
+            primaryTypographyProps={{
+              fontSize: 'small',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: isActive ? '#fff' : lightTheme.textColorFaded,
+            }}
+            primary={groupName}
+            id={`header-${executionId}`}
+          />
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleExecutionGroup(executionId)
+            }}
+            sx={{
+              color: lightTheme.textColorFaded,
+              padding: '4px',
+              marginLeft: '4px',
+            }}
+          >
+            {isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+          </IconButton>
+        </ListItemButton>
+      </ListItem>
+    )
+  }
+
+  const renderExecutionGroup = (executionId: string, sessions: TypesSessionSummary[]) => {
+    const isExpanded = expandedExecutionIds.has(executionId)
+
+    return (
+      <Fragment key={executionId}>
+        {renderExecutionGroupHeader(executionId, sessions)}
+        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+          <Box
+            sx={{
+              borderLeft: '1px solid',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              marginLeft: '24px',
+              paddingLeft: '8px',
+            }}
+          >
+            {sessions.map((session) => renderSession(session, false))}
+          </Box>
+        </Collapse>
+      </Fragment>
+    )
+  }
+
+  const { grouped: executionGroups, standalone } = groupSessionsByExecutionId(allSessions || [])
+
+  type MixedItem = 
+    | { type: 'execution'; executionId: string; sessions: TypesSessionSummary[] }
+    | { type: 'session'; session: TypesSessionSummary }
+
+  const createMixedList = (): MixedItem[] => {
+    const items: MixedItem[] = []
+    
+    Array.from(executionGroups.entries()).forEach(([executionId, sessions]) => {
+      items.push({ type: 'execution', executionId, sessions })
+    })
+    
+    standalone.forEach(session => {
+      items.push({ type: 'session', session })
+    })
+    
+    return items.sort((a, b) => {
+      const getDate = (item: MixedItem): Date => {
+        if (item.type === 'execution') {
+          return getExecutionGroupEarliestDate(item.sessions)
+        }
+        return new Date(item.session.created || 0)
+      }
+      return getDate(b).getTime() - getDate(a).getTime()
+    })
+  }
+
+  const groupMixedItemsByTime = (items: MixedItem[]) => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const sevenDaysAgo = new Date(today)
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const thirtyDaysAgo = new Date(today)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+    return items.reduce((acc, item) => {
+      const itemDate = item.type === 'execution' 
+        ? getExecutionGroupEarliestDate(item.sessions)
+        : new Date(item.session.created || '')
+      
+      if (itemDate >= today) {
+        acc.today.push(item)
+      } else if (itemDate >= sevenDaysAgo) {
+        acc.last7Days.push(item)
+      } else if (itemDate >= thirtyDaysAgo) {
+        acc.last30Days.push(item)
+      } else {
+        acc.older.push(item)
+      }
+      return acc
+    }, {
+      today: [] as MixedItem[],
+      last7Days: [] as MixedItem[],
+      last30Days: [] as MixedItem[],
+      older: [] as MixedItem[],
+    })
+  }
+
+  const renderMixedItem = (item: MixedItem) => {
+    if (item.type === 'execution') {
+      return renderExecutionGroup(item.executionId, item.sessions)
+    }
+    return renderSession(item.session)
+  }
+
+  const renderMixedGroup = (items: MixedItem[], title: string, isFirst: boolean = false) => {
+    if (items.length === 0) return null
+
+    return (
+      <Fragment key={title}>
+        <ListItem sx={{ pt: isFirst ? 0 : 2 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{
+              color: lightTheme.textColorFaded,
+              fontSize: '0.8em',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+            }}
+          >
+            {title}
+          </Typography>
+        </ListItem>
+        {items.map((item) => renderMixedItem(item))}
+      </Fragment>
+    )
+  }
+
+  const mixedList = createMixedList()
+  const groupedMixedItems = groupMixedItemsByTime(mixedList)
 
   // Show loading state for initial load
   if (isLoadingSessions && currentPage === 0) {
@@ -290,15 +518,15 @@ export const SessionsSidebar: FC<{
         sx={{
           py: 1,
           px: 2,
-          minHeight: 'fit-content', // Allow natural content height
-          overflow: 'visible', // Let content contribute to parent height
-          width: '100%', // Ensure it doesn't exceed container width
+          minHeight: 'fit-content',
+          overflow: 'visible',
+          width: '100%',
         }}
       >
-        {renderSessionGroup(groupedSessions.today, "Today", true)}
-        {renderSessionGroup(groupedSessions.last7Days, "Last 7 days")}
-        {renderSessionGroup(groupedSessions.last30Days, "Last 30 days")}
-        {renderSessionGroup(groupedSessions.older, "Older")}
+        {renderMixedGroup(groupedMixedItems.today, "Today", true)}
+        {renderMixedGroup(groupedMixedItems.last7Days, "Last 7 days")}
+        {renderMixedGroup(groupedMixedItems.last30Days, "Last 30 days")}
+        {renderMixedGroup(groupedMixedItems.older, "Older")}
       </List>
       {
         totalCount > 0 && totalCount > PAGE_SIZE && (

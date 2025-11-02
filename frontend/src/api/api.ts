@@ -3115,6 +3115,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  question_set_execution_id?: string;
   /** The question set this session belongs to, if any */
   question_set_id?: string;
   trigger?: string;
@@ -3262,6 +3263,8 @@ export interface TypesSessionSummary {
   organization_id?: string;
   owner?: string;
   priority?: boolean;
+  question_set_execution_id?: string;
+  question_set_id?: string;
   session_id?: string;
   /** this is either the prompt or the summary of the training data */
   summary?: string;

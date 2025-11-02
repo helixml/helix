@@ -17044,6 +17044,9 @@ const docTemplate = `{
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
                 "question_set_id": {
                     "description": "The question set this session belongs to, if any",
                     "type": "string"
@@ -17400,6 +17403,12 @@ const docTemplate = `{
                 },
                 "priority": {
                     "type": "boolean"
+                },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"

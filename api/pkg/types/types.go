@@ -711,7 +711,8 @@ type Session struct {
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 
-	QuestionSetID string `json:"question_set_id"` // The question set this session belongs to, if any
+	QuestionSetID          string `json:"question_set_id"` // The question set this session belongs to, if any
+	QuestionSetExecutionID string `json:"question_set_execution_id"`
 
 	Trigger string `json:"trigger"`
 }
@@ -1017,6 +1018,9 @@ type SessionSummary struct {
 	Priority       bool   `json:"priority"`
 	AppID          string `json:"app_id,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
+
+	QuestionSetID          string `json:"question_set_id"`
+	QuestionSetExecutionID string `json:"question_set_execution_id"`
 }
 
 type WorkloadSummary struct {
