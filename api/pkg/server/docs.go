@@ -103,63 +103,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/admin/sample-projects": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new sample project template (admin only)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Create sample project (Admin)",
-                "parameters": [
-                    {
-                        "description": "Sample project data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/sample-projects/{id}": {
             "delete": {
                 "security": [
@@ -5041,6 +4984,61 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new sample project template (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SampleProjects"
+                ],
+                "summary": "Create sample project (Admin)",
+                "parameters": [
+                    {
+                        "description": "Sample project data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SampleProject"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SampleProject"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/sample-projects-v2": {
@@ -6029,6 +6027,38 @@ const docTemplate = `{
                     "sessions"
                 ],
                 "summary": "Get Wolf connection info for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Restarts the external agent container for a session that has been stopped",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Resume a paused external agent session",
                 "parameters": [
                     {
                         "type": "string",
@@ -16805,6 +16835,10 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "internal_repo_path": {
+                    "description": "Internal project Git repository (stores project config, tasks, design docs)",
+                    "type": "string"
+                },
                 "metadata": {
                     "type": "array",
                     "items": {
@@ -17122,7 +17156,9 @@ const docTemplate = `{
                 "Knowledge",
                 "User",
                 "*",
-                "Dataset"
+                "Dataset",
+                "Project",
+                "GitRepository"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -17135,7 +17171,9 @@ const docTemplate = `{
                 "ResourceKnowledge",
                 "ResourceUser",
                 "ResourceAny",
-                "ResourceTypeDataset"
+                "ResourceTypeDataset",
+                "ResourceProject",
+                "ResourceGitRepository"
             ]
         },
         "types.ResponseFormat": {

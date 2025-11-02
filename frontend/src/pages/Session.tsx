@@ -55,6 +55,72 @@ import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay
 import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
 import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
+import PlayArrow from '@mui/icons-material/PlayArrow'
+import CircularProgress from '@mui/material/CircularProgress'
+
+// Resume button component for external agent sessions
+const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const [wolfState, setWolfState] = React.useState<string>('loading');
+  const [isResuming, setIsResuming] = React.useState(false);
+
+  // Fetch Wolf app state
+  React.useEffect(() => {
+    const fetchState = async () => {
+      try {
+        const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
+        if (response.data) {
+          setWolfState(response.data.state || 'absent');
+        }
+      } catch (err) {
+        console.error('Failed to fetch Wolf state:', err);
+      }
+    };
+
+    fetchState();
+    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [sessionId, api]);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      snackbar.success('External agent resumed successfully');
+      // Poll state again immediately
+      const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
+      if (response.data) {
+        setWolfState(response.data.state || 'absent');
+      }
+    } catch (error: any) {
+      console.error('Failed to resume agent:', error);
+      snackbar.error(error?.message || 'Failed to resume agent');
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  // Only show Resume button when agent is paused (absent or stopped)
+  const showResumeButton = wolfState === 'absent' || (wolfState !== 'running' && wolfState !== 'resumable' && wolfState !== 'loading');
+
+  if (!showResumeButton) {
+    return null;
+  }
+
+  return (
+    <Button
+      variant="outlined"
+      size="small"
+      startIcon={isResuming ? <CircularProgress size={16} /> : <PlayArrow />}
+      onClick={handleResume}
+      disabled={isResuming}
+      sx={{ width: 'fit-content' }}
+    >
+      {isResuming ? 'Resuming...' : 'Resume Desktop'}
+    </Button>
+  );
+};
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -1370,11 +1436,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               />
               {/* Show desktop state for external agent sessions */}
               {isExternalAgent && (
-                <Box sx={{ px: 2, pt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Desktop State:
-                  </Typography>
-                  <WolfAppStateIndicator sessionId={sessionID} />
+                <Box sx={{ px: 2, pt: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Desktop State:
+                    </Typography>
+                    <WolfAppStateIndicator sessionId={sessionID} />
+                  </Box>
+                  <ResumeAgentButton sessionId={sessionID} />
                 </Box>
               )}
             </Box>

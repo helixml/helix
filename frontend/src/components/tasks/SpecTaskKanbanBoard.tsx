@@ -80,6 +80,33 @@ const LiveAgentScreenshot: React.FC<{
   sessionId: string;
   onNavigate: () => void;
 }> = ({ sessionId, onNavigate }) => {
+  const api = useApi();
+  const [wolfState, setWolfState] = React.useState<string>('loading');
+  const [hasWebsocket, setHasWebsocket] = React.useState<boolean>(false);
+
+  // Fetch Wolf app state
+  React.useEffect(() => {
+    const fetchState = async () => {
+      try {
+        const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
+        if (response.data) {
+          setWolfState(response.data.state || 'absent');
+          setHasWebsocket(response.data.has_websocket || false);
+        }
+      } catch (err) {
+        console.error('Failed to fetch Wolf state:', err);
+      }
+    };
+
+    fetchState();
+    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [sessionId, api]);
+
+  // Determine if agent is running
+  const isRunning = wolfState === 'running' || wolfState === 'resumable';
+  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+
   return (
     <Box
       sx={{
@@ -115,7 +142,29 @@ const LiveAgentScreenshot: React.FC<{
           autoRefresh={true}
           refreshInterval={3000}
           enableStreaming={false}
+          showToolbar={false}
         />
+        {/* Paused overlay */}
+        {isPaused && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
+              Desktop Paused
+            </Typography>
+          </Box>
+        )}
       </Box>
       <Box
         sx={{
@@ -141,9 +190,9 @@ const LiveAgentScreenshot: React.FC<{
         </Box>
         <Chip
           size="small"
-          label="LIVE"
+          label={isPaused ? 'PAUSED' : 'LIVE'}
           sx={{
-            backgroundColor: 'error.main',
+            backgroundColor: isPaused ? 'grey.600' : 'error.main',
             color: 'white',
             height: 18,
             fontSize: '0.65rem',

@@ -15,6 +15,7 @@ interface ScreenshotViewerProps {
   autoRefresh?: boolean;
   refreshInterval?: number; // in milliseconds
   enableStreaming?: boolean; // Enable streaming mode toggle
+  showToolbar?: boolean; // Show refresh/fullscreen buttons
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -29,6 +30,7 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   autoRefresh = true,
   refreshInterval = 1000, // Default 1 second
   enableStreaming = true, // Enable streaming by default
+  showToolbar = true, // Show toolbar by default
 }) => {
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -272,35 +274,37 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       )}
 
       {/* Toolbar */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          zIndex: 1000,
-          backgroundColor: 'rgba(0,0,0,0.7)',
-          borderRadius: 1,
-          display: 'flex',
-          gap: 1,
-        }}
-      >
-        <IconButton
-          size="small"
-          onClick={fetchScreenshot}
-          sx={{ color: 'white' }}
-          title="Refresh Screenshot"
+      {showToolbar && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1000,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            borderRadius: 1,
+            display: 'flex',
+            gap: 1,
+          }}
         >
-          <Refresh fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={toggleFullscreen}
-          sx={{ color: 'white' }}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-        >
-          {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
-        </IconButton>
-      </Box>
+          <IconButton
+            size="small"
+            onClick={fetchScreenshot}
+            sx={{ color: 'white' }}
+            title="Refresh Screenshot"
+          >
+            <Refresh fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={toggleFullscreen}
+            sx={{ color: 'white' }}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+          </IconButton>
+        </Box>
+      )}
 
       {/* Status Chip */}
       {lastRefresh && (

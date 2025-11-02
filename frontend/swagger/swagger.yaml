@@ -4755,6 +4755,10 @@ definitions:
         type: string
       id:
         type: string
+      internal_repo_path:
+        description: Internal project Git repository (stores project config, tasks,
+          design docs)
+        type: string
       metadata:
         items:
           type: integer
@@ -4983,6 +4987,8 @@ definitions:
     - User
     - '*'
     - Dataset
+    - Project
+    - GitRepository
     type: string
     x-enum-varnames:
     - ResourceTeam
@@ -4996,6 +5002,8 @@ definitions:
     - ResourceUser
     - ResourceAny
     - ResourceTypeDataset
+    - ResourceProject
+    - ResourceGitRepository
   types.ResponseFormat:
     properties:
       schema:
@@ -7161,42 +7169,6 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
-  /api/v1/admin/sample-projects:
-    post:
-      consumes:
-      - application/json
-      description: Create a new sample project template (admin only)
-      parameters:
-      - description: Sample project data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SampleProject'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SampleProject'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Create sample project (Admin)
-      tags:
-      - SampleProjects
   /api/v1/admin/sample-projects/{id}:
     delete:
       consumes:
@@ -10277,6 +10249,41 @@ paths:
       summary: List available sample projects
       tags:
       - sample-projects
+    post:
+      consumes:
+      - application/json
+      description: Create a new sample project template (admin only)
+      parameters:
+      - description: Sample project data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SampleProject'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SampleProject'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create sample project (Admin)
+      tags:
+      - SampleProjects
   /api/v1/sample-projects-v2:
     get:
       consumes:
@@ -10892,6 +10899,27 @@ paths:
       security:
       - BearerAuth: []
       summary: Get Wolf connection info for a session
+      tags:
+      - sessions
+  /api/v1/sessions/{id}/resume:
+    post:
+      description: Restarts the external agent container for a session that has been
+        stopped
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused external agent session
       tags:
       - sessions
   /api/v1/sessions/{id}/step-info:
