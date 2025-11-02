@@ -27,10 +27,10 @@ import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import Fleet from './pages/Fleet'
 import QuestionSets from './pages/QuestionSets'
+import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
-// import QuestionSetResults from './pages/QuestionSetResults'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -184,15 +184,15 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <Session />
     ),
-  },{
-    name: namePrefix + 'question-set-results',
+  },  {
+    name: namePrefix + 'qa-results',
     path: routePrefix + '/qa-results/:execution_id',
     meta: {
       drawer: true,
       topbar: false,
     },
     render: () => (
-      <Session />
+      <QuestionSetResults />
     ),
   }]
 }
