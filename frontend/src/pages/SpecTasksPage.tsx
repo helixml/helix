@@ -443,11 +443,8 @@ const SpecTasksPage: FC = () => {
           <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
             {project ? project.name : 'Project'}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, mb: 1 }}>
-            Spec Work for Agents
-          </Typography>
           <Typography variant="body2" color="text.secondary">
-            Add tasks for your agents to do, verify their informed plans, then supervise them executing them. Jump in when they need help or guidance.
+            Spec Work for Agents: Create tasks, review plans, supervise execution, and provide guidance.
           </Typography>
         </Box>
 
