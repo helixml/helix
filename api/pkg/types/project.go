@@ -21,6 +21,9 @@ type Project struct {
 	// Project-level repository management
 	DefaultRepoID  string `json:"default_repo_id" gorm:"type:varchar(255)"` // Primary repository for the project
 
+	// Internal project Git repository (stores project config, tasks, design docs)
+	InternalRepoPath string `json:"internal_repo_path" gorm:"type:varchar(500)"` // Path to internal git repo in filestore
+
 	// Per-project startup script
 	StartupScript  string `json:"startup_script" gorm:"type:text"` // Bash script to run when agent starts
 

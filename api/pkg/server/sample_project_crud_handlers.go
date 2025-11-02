@@ -120,6 +120,56 @@ func (s *HelixAPIServer) instantiateSampleProject(_ http.ResponseWriter, r *http
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Clone sample repository into project's internal repo (if sample has a repo URL)
+	if sample.RepositoryURL != "" && sample.RepositoryURL != "https://github.com/helixml/sample-todo-app" {
+		// Only clone if it's a real URL (not our placeholder URLs)
+		internalRepoPath, err := s.projectInternalRepoService.CloneSampleProject(r.Context(), created, sample.RepositoryURL)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", created.ID).
+				Str("sample_url", sample.RepositoryURL).
+				Msg("failed to clone sample repository, will create empty internal repo instead")
+
+			// Fallback: create empty internal repo with template
+			internalRepoPath, err = s.projectInternalRepoService.InitializeProjectRepo(r.Context(), created)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to initialize internal repository")
+			}
+		}
+
+		if internalRepoPath != "" {
+			// Update project with internal repo path
+			created.InternalRepoPath = internalRepoPath
+			if err := s.Store.UpdateProject(r.Context(), created); err != nil {
+				log.Error().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to update project with internal repo path")
+			}
+		}
+	} else {
+		// No real sample URL, create empty internal repo
+		internalRepoPath, err := s.projectInternalRepoService.InitializeProjectRepo(r.Context(), created)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", created.ID).
+				Msg("failed to initialize internal repository")
+		} else {
+			created.InternalRepoPath = internalRepoPath
+			if err := s.Store.UpdateProject(r.Context(), created); err != nil {
+				log.Error().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to update project with internal repo path")
+			}
+		}
+	}
+
 	// Parse sample tasks and create spec tasks
 	var sampleTasks []types.SampleProjectTask
 	if sample.SampleTasks != nil {

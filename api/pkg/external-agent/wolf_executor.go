@@ -71,6 +71,7 @@ type SwayWolfAppConfig struct {
 	SessionID         string   // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
+	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
 	StartupScript     string   // Optional project startup script to run before Zed starts
 	DisplayWidth      int
 	DisplayHeight     int
@@ -139,6 +140,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 			Str("ssh_key_dir", sshKeyDir).
 			Msg("Mounting SSH keys for git access")
 	}
+
+	// Add extra mounts (e.g., internal project repo)
+	mounts = append(mounts, config.ExtraMounts...)
 
 	// Standard Docker configuration (same for all Sway apps)
 	baseCreateJSON := fmt.Sprintf(`{
@@ -353,18 +357,30 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		}
 	}
 
-	// Load project and startup script if we have a project ID
+	// Load project and internal repo if we have a project ID
+	var projectInternalRepoPath string
 	if projectIDToLoad != "" {
 		project, err := w.store.GetProject(ctx, projectIDToLoad)
 		if err != nil {
 			log.Warn().Err(err).Str("project_id", projectIDToLoad).Msg("Failed to get Project for startup script, continuing without it")
-		} else if project.StartupScript != "" {
-			projectStartupScript = project.StartupScript
-			log.Info().
-				Str("project_id", project.ID).
-				Str("spec_task_id", agent.SpecTaskID).
-				Str("direct_project_id", agent.ProjectID).
-				Msg("Loaded project startup script for agent")
+		} else {
+			if project.StartupScript != "" {
+				projectStartupScript = project.StartupScript
+				log.Info().
+					Str("project_id", project.ID).
+					Str("spec_task_id", agent.SpecTaskID).
+					Str("direct_project_id", agent.ProjectID).
+					Msg("Loaded project startup script for agent")
+			}
+
+			// Store internal repo path for mounting
+			if project.InternalRepoPath != "" {
+				projectInternalRepoPath = project.InternalRepoPath
+				log.Info().
+					Str("project_id", project.ID).
+					Str("internal_repo_path", project.InternalRepoPath).
+					Msg("Will mount internal project repository in agent workspace")
+			}
 		}
 	}
 
@@ -440,6 +456,17 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
+	// Build extra mounts for internal project repo
+	extraMounts := []string{}
+	if projectInternalRepoPath != "" {
+		// Mount internal repo at /home/retro/work/.helix-project (read-only)
+		internalRepoMount := fmt.Sprintf("%s:/home/retro/work/.helix-project:ro", projectInternalRepoPath)
+		extraMounts = append(extraMounts, internalRepoMount)
+		log.Info().
+			Str("internal_repo_path", projectInternalRepoPath).
+			Msg("Mounting internal project repository in agent workspace")
+	}
+
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
@@ -470,6 +497,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			SessionID:         agent.SessionID,
 			WorkspaceDir:      workspaceDir,
 			ExtraEnv:          extraEnv,
+			ExtraMounts:       extraMounts,        // Mount internal project repo
 			StartupScript:     projectStartupScript, // Project startup script from database
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,

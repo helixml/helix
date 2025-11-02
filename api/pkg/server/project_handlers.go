@@ -130,6 +130,31 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// Initialize internal Git repository for the project
+	internalRepoPath, err := s.projectInternalRepoService.InitializeProjectRepo(r.Context(), created)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", created.ID).
+			Msg("failed to initialize internal project repository")
+		// Continue anyway - project exists in DB, repo can be created later
+	} else {
+		// Update project with internal repo path
+		created.InternalRepoPath = internalRepoPath
+		err = s.Store.UpdateProject(r.Context(), created)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", created.ID).
+				Msg("failed to update project with internal repo path")
+		} else {
+			log.Info().
+				Str("project_id", created.ID).
+				Str("internal_repo_path", internalRepoPath).
+				Msg("Internal project repository initialized and linked")
+		}
+	}
+
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", created.ID).
@@ -221,6 +246,27 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 			Str("project_id", projectID).
 			Msg("failed to update project")
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Sync changes to internal Git repo
+	if project.InternalRepoPath != "" {
+		// Update project.json in repo
+		if err := s.projectInternalRepoService.UpdateProjectConfig(project); err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", projectID).
+				Msg("failed to update project config in internal repo (continuing)")
+		}
+
+		// If startup script was updated, sync to git
+		if req.StartupScript != nil {
+			if err := s.projectInternalRepoService.SaveStartupScript(projectID, project.InternalRepoPath, *req.StartupScript); err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", projectID).
+					Msg("failed to save startup script to internal repo (continuing)")
+			}
+		}
 	}
 
 	log.Info().

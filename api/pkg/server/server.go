@@ -127,6 +127,7 @@ type HelixAPIServer struct {
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
 	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
+	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
 }
 
@@ -341,6 +342,13 @@ func NewServer(
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
 	}
+
+	// Initialize Project Internal Repo Service
+	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
+	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
+	log.Info().
+		Str("projects_base_path", projectsBasePath).
+		Msg("Initialized project internal repository service")
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
