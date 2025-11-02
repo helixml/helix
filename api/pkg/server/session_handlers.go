@@ -1723,3 +1723,161 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(connectionInfo)
 }
+
+// resumeSession godoc
+// @Summary Resume a paused external agent session
+// @Description Restarts the external agent container for a session that has been stopped
+// @Tags    sessions
+// @Success 200 {object} map[string]interface{}
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id}/resume [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := mux.Vars(req)["id"]
+
+	log.Info().
+		Str("session_id", id).
+		Str("user_id", user.ID).
+		Msg("Resume session request")
+
+	// Get the session to check if it's an external agent session
+	session, err := s.Controller.Options.Store.GetSession(ctx, id)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to get session for resume")
+		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	// Check if user owns this session
+	if session.Owner != user.ID {
+		log.Warn().
+			Str("session_id", id).
+			Str("user_id", user.ID).
+			Str("owner_id", session.Owner).
+			Msg("User not authorized to resume session")
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		log.Warn().
+			Str("session_id", id).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Session is not an external agent session - cannot resume")
+		http.Error(rw, "only external agent sessions can be resumed", http.StatusBadRequest)
+		return
+	}
+
+	if s.externalAgentExecutor == nil {
+		http.Error(rw, "external agent executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create a new ZedAgent request to restart the agent
+	// We need to get the spec task ID if this was a spec task session
+	specTaskID := session.Metadata.SpecTaskID
+
+	// Build the ZedAgent config for resume
+	agent := &types.ZedAgent{
+		SessionID:       id,
+		UserID:          user.ID,
+		HelixSessionID:  id, // This session already exists
+		Input:           "Resume session",
+		ProjectPath:     "workspace",
+		SpecTaskID:      specTaskID,
+		WorkDir:         fmt.Sprintf("/tmp/zed-workspaces/%s", id),
+	}
+
+	// If this is a spec task session, load the spec task to get repository info
+	if specTaskID != "" {
+		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Msg("Failed to load spec task for resume, continuing without repository info")
+		} else {
+			// Load project repositories
+			if specTask.ProjectID != "" {
+				projectRepos, err := s.Controller.Options.Store.GetProjectRepositories(ctx, specTask.ProjectID)
+				if err == nil && len(projectRepos) > 0 {
+					agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+					for _, repo := range projectRepos {
+						if repo.ID != "" {
+							agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+						}
+					}
+
+					// Set primary repository
+					agent.PrimaryRepositoryID = specTask.PrimaryRepositoryID
+					if agent.PrimaryRepositoryID == "" {
+						// Fall back to project's default repo
+						project, err := s.Controller.Options.Store.GetProject(ctx, specTask.ProjectID)
+						if err == nil && project.DefaultRepoID != "" {
+							agent.PrimaryRepositoryID = project.DefaultRepoID
+						}
+					}
+				}
+			}
+
+			// Set project ID for loading startup script
+			agent.ProjectID = specTask.ProjectID
+		}
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("spec_task_id", specTaskID).
+		Msg("Resuming external agent session")
+
+	// Start the external agent (this will create a new Wolf lobby)
+	response, err := s.externalAgentExecutor.StartZedAgent(ctx, agent)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to resume external agent")
+		http.Error(rw, fmt.Sprintf("failed to resume agent: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Update session metadata with new Wolf lobby info
+	session.Metadata.WolfLobbyID = response.WolfLobbyID
+	session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to update session metadata with new lobby info")
+		// Don't fail the request - the agent is running
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("wolf_lobby_id", response.WolfLobbyID).
+		Msg("External agent session resumed successfully")
+
+	// Return success response
+	result := map[string]interface{}{
+		"session_id":     id,
+		"status":         "resumed",
+		"wolf_lobby_id":  response.WolfLobbyID,
+		"wolf_lobby_pin": response.WolfLobbyPIN,
+		"screenshot_url": response.ScreenshotURL,
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(result)
+}

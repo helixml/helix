@@ -2761,6 +2761,8 @@ export interface TypesProject {
   description?: string;
   github_repo_url?: string;
   id?: string;
+  /** Internal project Git repository (stores project config, tasks, design docs) */
+  internal_repo_path?: string;
   metadata?: number[];
   name?: string;
   organization_id?: string;
@@ -2890,6 +2892,8 @@ export enum TypesResource {
   ResourceUser = "User",
   ResourceAny = "*",
   ResourceTypeDataset = "Dataset",
+  ResourceProject = "Project",
+  ResourceGitRepository = "GitRepository",
 }
 
 export interface TypesResponseFormat {
@@ -4283,26 +4287,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Create a new sample project template (admin only)
-     *
-     * @tags SampleProjects
-     * @name V1AdminSampleProjectsCreate
-     * @summary Create sample project (Admin)
-     * @request POST:/api/v1/admin/sample-projects
-     * @secure
-     */
-    v1AdminSampleProjectsCreate: (request: TypesSampleProject, params: RequestParams = {}) =>
-      this.request<TypesSampleProject, SystemHTTPError>({
-        path: `/api/v1/admin/sample-projects`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
         ...params,
       }),
 
@@ -6938,6 +6922,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create a new sample project template (admin only)
+     *
+     * @tags SampleProjects
+     * @name V1SampleProjectsCreate
+     * @summary Create sample project (Admin)
+     * @request POST:/api/v1/sample-projects
+     * @secure
+     */
+    v1SampleProjectsCreate: (request: TypesSampleProject, params: RequestParams = {}) =>
+      this.request<TypesSampleProject, SystemHTTPError>({
+        path: `/api/v1/sample-projects`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all available sample projects
      *
      * @tags SampleProjects
@@ -7429,6 +7433,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, any>, any>({
         path: `/api/v1/sessions/${id}/rdp-connection`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Restarts the external agent container for a session that has been stopped
+     *
+     * @tags sessions
+     * @name V1SessionsResumeCreate
+     * @summary Resume a paused external agent session
+     * @request POST:/api/v1/sessions/{id}/resume
+     * @secure
+     */
+    v1SessionsResumeCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/sessions/${id}/resume`,
+        method: "POST",
         secure: true,
         ...params,
       }),
