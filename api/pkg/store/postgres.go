@@ -573,6 +573,24 @@ func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, project
 	return nil
 }
 
+// AttachRepositoryToProject attaches a repository to a project
+func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&DBGitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error attaching repository to project: %w", err)
+	}
+	return nil
+}
+
+// DetachRepositoryFromProject detaches a repository from its project
+func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&DBGitRepository{}).Where("id = ?", repoID).Update("project_id", "").Error
+	if err != nil {
+		return fmt.Errorf("error detaching repository from project: %w", err)
+	}
+	return nil
+}
+
 // CreateSampleProject creates a new sample project
 func (s *PostgresStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
 	err := s.gdb.WithContext(ctx).Create(sample).Error

@@ -2424,6 +2424,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a git repository (repository owners can list access grants)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "List repository access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to a repository to a user (repository owners can grant access)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "Grant access to a repository to a user",
+                "parameters": [
+                    {
+                        "description": "Request body with user reference and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/clone-command": {
             "get": {
                 "security": [
@@ -4539,24 +4595,145 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/projects/{id}/exploratory-session": {
+        "/api/v1/projects/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a project (project owners and org owners can list access grants)",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Start an exploratory agent session for a project without a specific task",
+                "description": "Grant access to a project to a team or organization member (project owners and org owners can grant access)",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Grant access to a project to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/exploratory-session": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start an exploratory agent session for a project without a specific task\nGet the active exploratory session for a project (returns null if none exists)",
                 "consumes": [
                     "application/json"
                 ],
+                "produces": [
+                    "application/json",
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects",
+                    "Projects"
+                ],
+                "summary": "Get project exploratory session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
+                    "204": {
+                        "description": "No exploratory session exists"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start or return existing exploratory session for a project",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Projects"
                 ],
-                "summary": "Start exploratory session",
+                "summary": "Start project exploratory session",
                 "parameters": [
                     {
                         "type": "string",
@@ -4628,6 +4805,136 @@ const docTemplate = `{
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/store.DBGitRepository"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/attach": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Attach an existing repository to a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Attach repository to project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/detach": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Detach a repository from its project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Detach repository from project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
                             }
                         }
                     },
@@ -12427,6 +12734,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "owner_id": {
                     "type": "string"
                 },
@@ -12467,6 +12777,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID - required for access control",
                     "type": "string"
                 },
                 "owner_id": {
@@ -12927,6 +13241,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organizationID": {
+                    "description": "Organization ID - will be backfilled for existing repos",
                     "type": "string"
                 },
                 "ownerID": {
@@ -18055,6 +18373,10 @@ const docTemplate = `{
                 "priority": {
                     "type": "boolean"
                 },
+                "project_id": {
+                    "description": "ID of associated Project (for exploratory sessions)",
+                    "type": "string"
+                },
                 "rag_enabled": {
                     "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
                     "type": "boolean"
@@ -18069,7 +18391,7 @@ const docTemplate = `{
                     }
                 },
                 "session_role": {
-                    "description": "\"planning\", \"implementation\", \"coordination\"",
+                    "description": "\"planning\", \"implementation\", \"coordination\", \"exploratory\"",
                     "type": "string"
                 },
                 "spec_task_id": {

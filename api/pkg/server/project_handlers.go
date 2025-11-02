@@ -491,11 +491,238 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 	return map[string]string{"message": "primary repository set successfully"}, nil
 }
 
+// attachRepositoryToProject godoc
+// @Summary Attach repository to project
+// @Description Attach an existing repository to a project
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param repo_id path string true "Repository ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/repositories/{repo_id}/attach [put]
+func (s *HelixAPIServer) attachRepositoryToProject(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+	repoID := vars["repo_id"]
+
+	// Check if user has access to the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to get project for attaching repository")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	if project.UserID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("user not authorized to attach repository to project")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Verify the repository exists and user has access to it
+	repo, err := s.Store.GetGitRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("repo_id", repoID).
+			Msg("failed to get repository for attachment")
+		return nil, system.NewHTTPError404("repository not found")
+	}
+
+	// Check if user owns the repository
+	if repo.OwnerID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("repo_id", repoID).
+			Str("repo_owner_id", repo.OwnerID).
+			Msg("user not authorized to attach this repository")
+		return nil, system.NewHTTPError404("repository not found")
+	}
+
+	err = s.Store.AttachRepositoryToProject(r.Context(), projectID, repoID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("repo_id", repoID).
+			Msg("failed to attach repository to project")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("project_id", projectID).
+		Str("repo_id", repoID).
+		Msg("repository attached to project successfully")
+
+	return map[string]string{"message": "repository attached successfully"}, nil
+}
+
+// detachRepositoryFromProject godoc
+// @Summary Detach repository from project
+// @Description Detach a repository from its project
+// @Tags Projects
+// @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Param repo_id path string true "Repository ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/repositories/{repo_id}/detach [put]
+func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+	repoID := vars["repo_id"]
+
+	// Check if user has access to the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to get project for detaching repository")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	if project.UserID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("user not authorized to detach repository from project")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Verify the repository is attached to this project
+	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get project repositories")
+		return nil, system.NewHTTPError500("failed to verify repository")
+	}
+
+	repoFound := false
+	for _, repo := range projectRepos {
+		if repo.ID == repoID {
+			repoFound = true
+			break
+		}
+	}
+
+	if !repoFound {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("repo_id", repoID).
+			Msg("repository not attached to this project")
+		return nil, system.NewHTTPError400("repository not attached to this project")
+	}
+
+	err = s.Store.DetachRepositoryFromProject(r.Context(), repoID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Str("repo_id", repoID).
+			Msg("failed to detach repository from project")
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("project_id", projectID).
+		Str("repo_id", repoID).
+		Msg("repository detached from project successfully")
+
+	return map[string]string{"message": "repository detached successfully"}, nil
+}
+
 // startExploratorySession godoc
 // @Summary Start exploratory session
 // @Description Start an exploratory agent session for a project without a specific task
 // @Tags Projects
 // @Accept json
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} types.Session
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/exploratory-session [post]
+// getProjectExploratorySession godoc
+// @Summary Get project exploratory session
+// @Description Get the active exploratory session for a project (returns null if none exists)
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} types.Session
+// @Success 204 "No exploratory session exists"
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/exploratory-session [get]
+func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *http.Request) (*types.Session, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Check if user has access to the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to get project for exploratory session check")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	if project.UserID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("user not authorized to view exploratory session")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Get exploratory session
+	session, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get exploratory session")
+		return nil, system.NewHTTPError500("failed to get exploratory session")
+	}
+
+	// Return nil session if not found (frontend will handle null response)
+	return session, nil
+}
+
+// startExploratorySession godoc
+// @Summary Start project exploratory session
+// @Description Start or return existing exploratory session for a project
+// @Tags Projects
 // @Produce json
 // @Param id path string true "Project ID"
 // @Success 200 {object} types.Session
@@ -527,11 +754,22 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError404("project not found")
 	}
 
+	// Check if an active exploratory session already exists for this project
+	existingSession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
+	if err == nil && existingSession != nil {
+		log.Info().
+			Str("session_id", existingSession.ID).
+			Str("project_id", projectID).
+			Msg("returning existing exploratory session for project")
+		return existingSession, nil
+	}
+
 	// Create a new session for the exploratory agent
 	sessionMetadata := types.SessionMetadata{
-		Stream:    true,
-		AgentType: "zed_external",
-		SpecTaskID: "", // No task for exploratory
+		Stream:      true,
+		AgentType:   "zed_external",
+		ProjectID:   projectID,
+		SessionRole: "exploratory",
 	}
 
 	session := &types.Session{

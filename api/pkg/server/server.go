@@ -910,7 +910,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/projects/{id}/repositories", system.Wrapper(apiServer.getProjectRepositories)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/primary", system.Wrapper(apiServer.setProjectPrimaryRepository)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/attach", system.Wrapper(apiServer.attachRepositoryToProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/detach", system.Wrapper(apiServer.detachRepositoryFromProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.getProjectExploratorySession)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
+
+	// Project access grant routes
+	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
 
 	// Sample project routes
 	authRouter.HandleFunc("/sample-projects-v2", system.Wrapper(apiServer.listSampleProjectsV2)).Methods(http.MethodGet)
@@ -979,6 +987,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.updateGitRepository).Methods(http.MethodPut)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.deleteGitRepository).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+
+	// Git repository access grant routes
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
