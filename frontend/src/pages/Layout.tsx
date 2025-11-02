@@ -257,12 +257,17 @@ const Layout: FC<{
                 height: '100%',
                 '& .MuiDrawer-paper': {
                   backgroundColor: lightTheme.backgroundColor,
-                  position: 'relative',
+                  // For mobile (temporary), let MUI handle positioning (fixed)
+                  // For desktop (permanent), use relative positioning
+                  position: isBigScreen ? 'relative' : undefined,
                   whiteSpace: 'nowrap',
                   width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
                   overflowX: 'hidden', // Prevent horizontal scrolling
-                  height: userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%',
+                  // Mobile gets full height, desktop respects user menu
+                  height: isBigScreen
+                    ? (userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%')
+                    : '100vh',
                   overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
