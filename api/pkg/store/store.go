@@ -20,14 +20,15 @@ type OwnerQuery struct {
 }
 
 type ListSessionsQuery struct {
-	Owner          string          `json:"owner"`
-	OwnerType      types.OwnerType `json:"owner_type"`
-	ParentSession  string          `json:"parent_session"`
-	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
-	Page           int             `json:"page"`
-	PerPage        int             `json:"per_page"`
-	Search         string          `json:"search"`
-	QuestionSetID  string          `json:"question_set_id"`
+	Owner                  string          `json:"owner"`
+	OwnerType              types.OwnerType `json:"owner_type"`
+	ParentSession          string          `json:"parent_session"`
+	OrganizationID         string          `json:"organization_id"` // The organization this session belongs to, if any
+	Page                   int             `json:"page"`
+	PerPage                int             `json:"per_page"`
+	Search                 string          `json:"search"`
+	QuestionSetID          string          `json:"question_set_id"`
+	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 }
 
 type ListAPIKeysQuery struct {

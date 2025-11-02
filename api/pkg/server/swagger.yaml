@@ -10356,6 +10356,10 @@ paths:
         in: query
         name: question_set_id
         type: string
+      - description: Question set execution ID
+        in: query
+        name: question_set_execution_id
+        type: string
       - description: Search sessions by name
         in: query
         name: search
