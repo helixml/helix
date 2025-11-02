@@ -259,7 +259,7 @@ export const SessionsSidebar: FC<{
   const renderExecutionGroupHeader = (executionId: string, sessions: TypesSessionSummary[]) => {
     const isExpanded = expandedExecutionIds.has(executionId)
     const sessionId = sessions[0]?.session_id
-    const isActive = sessionId === params["session_id"]
+    const isActive = params["execution_id"] === executionId
     const groupName = sessions[0]?.name || `Question Set (${sessions.length} session${sessions.length !== 1 ? 's' : ''})`
 
     return (
@@ -271,7 +271,10 @@ export const SessionsSidebar: FC<{
           padding: 0,
         }}
         key={`header-${executionId}`}
-        onClick={() => toggleExecutionGroup(executionId)}
+        onClick={() => {
+          account.orgNavigate('qa-results', {execution_id: executionId})
+          onOpenSession()
+        }}
       >
         <ListItemButton
           selected={isActive}
