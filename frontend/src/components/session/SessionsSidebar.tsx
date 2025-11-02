@@ -233,9 +233,9 @@ export const SessionsSidebar: FC<{
               {getSessionIcon(session)}
             </ListItemIcon>
           )}
-          {!showIcon && <ListItemIcon sx={{ width: 24 }} />}
+          
           <ListItemText
-            sx={{marginLeft: showIcon ? "-15px" : "-15px"}}
+            sx={{marginLeft: showIcon ? "-15px" : "5px"}}
             primaryTypographyProps={{
               fontSize: 'small',
               overflow: 'hidden',
@@ -248,29 +248,6 @@ export const SessionsSidebar: FC<{
           />
         </ListItemButton>
       </ListItem>
-    )
-  }
-
-  const renderSessionGroup = (sessions: (TypesSessionSummary)[], title: string, isFirst: boolean = false, showIcons: boolean = true) => {
-    if (sessions.length === 0) return null
-
-    return (
-      <Fragment key={title}>
-        <ListItem sx={{ pt: isFirst ? 0 : 2 }}>
-          <Typography
-            variant="subtitle2"
-            sx={{
-              color: lightTheme.textColorFaded,
-              fontSize: '0.8em',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            {title}
-          </Typography>
-        </ListItem>
-        {sessions.map((session) => renderSession(session, showIcons))}
-      </Fragment>
     )
   }
 
