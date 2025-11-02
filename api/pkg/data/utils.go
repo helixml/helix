@@ -41,17 +41,19 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	}
 
 	return &types.SessionSummary{
-		SessionID:      session.ID,
-		Name:           session.Name,
-		Type:           session.Type,
-		ModelName:      session.ModelName,
-		Owner:          session.Owner,
-		Created:        session.Created,
-		Updated:        session.Updated,
-		Summary:        prompt,
-		Priority:       session.Metadata.Priority,
-		AppID:          session.ParentApp,
-		OrganizationID: session.OrganizationID,
+		SessionID:              session.ID,
+		Name:                   session.Name,
+		Type:                   session.Type,
+		ModelName:              session.ModelName,
+		Owner:                  session.Owner,
+		Created:                session.Created,
+		Updated:                session.Updated,
+		Summary:                prompt,
+		Priority:               session.Metadata.Priority,
+		AppID:                  session.ParentApp,
+		OrganizationID:         session.OrganizationID,
+		QuestionSetID:          session.QuestionSetID,
+		QuestionSetExecutionID: session.QuestionSetExecutionID,
 	}, nil
 }
 
