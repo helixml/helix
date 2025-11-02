@@ -58,14 +58,11 @@ import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
 
-// Resume button component for external agent sessions
-const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
+// Hook to track Wolf app state for external agent sessions
+const useWolfAppState = (sessionId: string) => {
   const api = useApi();
-  const snackbar = useSnackbar();
   const [wolfState, setWolfState] = React.useState<string>('loading');
-  const [isResuming, setIsResuming] = React.useState(false);
 
-  // Fetch Wolf app state
   React.useEffect(() => {
     const fetchState = async () => {
       try {
@@ -83,16 +80,24 @@ const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     return () => clearInterval(interval);
   }, [sessionId, api]);
 
+  const isRunning = wolfState === 'running' || wolfState === 'resumable';
+  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+
+  return { wolfState, isRunning, isPaused };
+};
+
+// Resume button component for external agent sessions
+const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const { wolfState, isPaused } = useWolfAppState(sessionId);
+  const [isResuming, setIsResuming] = React.useState(false);
+
   const handleResume = async () => {
     setIsResuming(true);
     try {
       await api.post(`/api/v1/sessions/${sessionId}/resume`);
       snackbar.success('External agent resumed successfully');
-      // Poll state again immediately
-      const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
-      if (response.data) {
-        setWolfState(response.data.state || 'absent');
-      }
     } catch (error: any) {
       console.error('Failed to resume agent:', error);
       snackbar.error(error?.message || 'Failed to resume agent');
@@ -101,10 +106,7 @@ const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     }
   };
 
-  // Only show Resume button when agent is paused (absent or stopped)
-  const showResumeButton = wolfState === 'absent' || (wolfState !== 'running' && wolfState !== 'resumable' && wolfState !== 'loading');
-
-  if (!showResumeButton) {
+  if (!isPaused) {
     return null;
   }
 
@@ -119,6 +121,58 @@ const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     >
       {isResuming ? 'Resuming...' : 'Resume Desktop'}
     </Button>
+  );
+};
+
+// Desktop viewer for external agent sessions - shows live screenshot or paused state
+const ExternalAgentDesktopViewer: React.FC<{
+  sessionId: string;
+  wolfLobbyId?: string;
+  height: number;
+}> = ({ sessionId, wolfLobbyId, height }) => {
+  const { isRunning, isPaused } = useWolfAppState(sessionId);
+
+  if (isPaused) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+        }}
+      >
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
+          Desktop Paused
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{
+      height: height,
+      border: '1px solid',
+      borderColor: 'divider',
+      borderRadius: 1,
+      overflow: 'hidden'
+    }}>
+      <ScreenshotViewer
+        sessionId={sessionId}
+        isRunner={false}
+        wolfLobbyId={wolfLobbyId}
+        enableStreaming={true}
+        onError={(error) => {
+          console.error('Screenshot viewer error:', error);
+        }}
+        height={height}
+      />
+    </Box>
   );
 };
 
@@ -1469,24 +1523,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
-              <Box sx={{
-                height: rdpViewerHeight,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 1,
-                overflow: 'hidden'
-              }}>
-                <ScreenshotViewer
-                  sessionId={sessionID}
-                  isRunner={false}
-                  wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
-                  enableStreaming={true}
-                  onError={(error) => {
-                    console.error('Screenshot viewer error:', error);
-                  }}
-                  height={rdpViewerHeight}
-                />
-              </Box>
+              <ExternalAgentDesktopViewer
+                sessionId={sessionID}
+                wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
+                height={rdpViewerHeight}
+              />
             </Box>
           )}
 
