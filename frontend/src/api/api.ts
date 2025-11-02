@@ -1034,6 +1034,7 @@ export interface ServicesGitRepository {
   local_path?: string;
   metadata?: Record<string, any>;
   name?: string;
+  organization_id?: string;
   owner_id?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
@@ -1048,6 +1049,8 @@ export interface ServicesGitRepositoryCreateRequest {
   initial_files?: Record<string, string>;
   metadata?: Record<string, any>;
   name?: string;
+  /** Organization ID - required for access control */
+  organization_id?: string;
   owner_id?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
@@ -1209,6 +1212,8 @@ export interface StoreDBGitRepository {
   /** Stores Metadata as JSON */
   metadataJSON?: string;
   name?: string;
+  /** Organization ID - will be backfilled for existing repos */
+  organizationID?: string;
   ownerID?: string;
   projectID?: string;
   repoType?: string;
@@ -3252,6 +3257,8 @@ export interface TypesSessionMetadata {
   /** NEW: SpecTask phase (planning, implementation) */
   phase?: string;
   priority?: boolean;
+  /** ID of associated Project (for exploratory sessions) */
+  project_id?: string;
   /**
    * these settings control which features of a session we want to use
    * even if we have a Lora file and RAG indexed prepared
@@ -3262,7 +3269,7 @@ export interface TypesSessionMetadata {
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
   session_rag_results?: TypesSessionRAGResult[];
-  /** "planning", "implementation", "coordination" */
+  /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
   /** Multi-session SpecTask context */
   spec_task_id?: string;
@@ -5617,6 +5624,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List access grants for a git repository (repository owners can list access grants)
+     *
+     * @tags gitrepositories
+     * @name V1GitRepositoriesAccessGrantsDetail
+     * @summary List repository access grants
+     * @request GET:/api/v1/git/repositories/{id}/access-grants
+     * @secure
+     */
+    v1GitRepositoriesAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant[], any>({
+        path: `/api/v1/git/repositories/${id}/access-grants`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Grant access to a repository to a user (repository owners can grant access)
+     *
+     * @tags gitrepositories
+     * @name V1GitRepositoriesAccessGrantsCreate
+     * @summary Grant access to a repository to a user
+     * @request POST:/api/v1/git/repositories/{id}/access-grants
+     * @secure
+     */
+    v1GitRepositoriesAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAccessGrant, any>({
+        path: `/api/v1/git/repositories/${id}/access-grants`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description Get the git clone command for a repository with authentication
      *
      * @tags git-repositories
@@ -6704,11 +6751,66 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Start an exploratory agent session for a project without a specific task
+     * @description List access grants for a project (project owners and org owners can list access grants)
+     *
+     * @tags projects
+     * @name V1ProjectsAccessGrantsDetail
+     * @summary List project access grants
+     * @request GET:/api/v1/projects/{id}/access-grants
+     * @secure
+     */
+    v1ProjectsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant[], any>({
+        path: `/api/v1/projects/${id}/access-grants`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Grant access to a project to a team or organization member (project owners and org owners can grant access)
+     *
+     * @tags projects
+     * @name V1ProjectsAccessGrantsCreate
+     * @summary Grant access to a project to a team or organization member
+     * @request POST:/api/v1/projects/{id}/access-grants
+     * @secure
+     */
+    v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant, any>({
+        path: `/api/v1/projects/${id}/access-grants`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Start an exploratory agent session for a project without a specific task Get the active exploratory session for a project (returns null if none exists)
+     *
+     * @tags Projects, Projects
+     * @name V1ProjectsExploratorySessionDetail
+     * @summary Get project exploratory session
+     * @request GET:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDetail: (id: string, id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start or return existing exploratory session for a project
      *
      * @tags Projects
      * @name V1ProjectsExploratorySessionCreate
-     * @summary Start exploratory session
+     * @summary Start project exploratory session
      * @request POST:/api/v1/projects/{id}/exploratory-session
      * @secure
      */
@@ -6717,7 +6819,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/projects/${id}/exploratory-session`,
         method: "POST",
         secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -6735,6 +6836,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<StoreDBGitRepository[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories`,
         method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Attach an existing repository to a project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesAttachUpdate
+     * @summary Attach repository to project
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/attach
+     * @secure
+     */
+    v1ProjectsRepositoriesAttachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/attach`,
+        method: "PUT",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Detach a repository from its project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesDetachUpdate
+     * @summary Detach repository from project
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/detach
+     * @secure
+     */
+    v1ProjectsRepositoriesDetachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/detach`,
+        method: "PUT",
         secure: true,
         type: ContentType.Json,
         format: "json",

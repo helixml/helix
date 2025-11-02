@@ -15,6 +15,15 @@ import {
   ListItemSecondaryAction,
   IconButton,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  CircularProgress,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -23,8 +32,13 @@ import CodeIcon from '@mui/icons-material/Code'
 import ExploreIcon from '@mui/icons-material/Explore'
 import PeopleIcon from '@mui/icons-material/People'
 import AddIcon from '@mui/icons-material/Add'
+import WarningIcon from '@mui/icons-material/Warning'
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
+import DeleteIcon from '@mui/icons-material/Delete'
+import LinkIcon from '@mui/icons-material/Link'
 
 import Page from '../components/system/Page'
+import AccessManagement from '../components/app/AccessManagement'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -34,7 +48,16 @@ import {
   useUpdateProject,
   useGetProjectRepositories,
   useSetProjectPrimaryRepository,
+  useAttachRepositoryToProject,
+  useDetachRepositoryFromProject,
+  useDeleteProject,
 } from '../services'
+import { useGitRepositories } from '../services/gitRepositoryService'
+import {
+  useListProjectAccessGrants,
+  useCreateProjectAccessGrant,
+  useDeleteProjectAccessGrant,
+} from '../services/projectAccessGrantService'
 
 const ProjectSettings: FC = () => {
   const account = useAccount()
@@ -47,11 +70,31 @@ const ProjectSettings: FC = () => {
   const { data: repositories = [] } = useGetProjectRepositories(projectId)
   const updateProjectMutation = useUpdateProject(projectId)
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId)
+  const attachRepoMutation = useAttachRepositoryToProject(projectId)
+  const detachRepoMutation = useDetachRepositoryFromProject(projectId)
+  const deleteProjectMutation = useDeleteProject()
+
+  // Get current org/user ID for fetching all user repositories
+  const currentOrg = account.organizationTools.organization
+  const ownerId = currentOrg?.id || account.user?.id || ''
+  const { data: allUserRepositories = [] } = useGitRepositories(ownerId)
+
+  // Access grants for RBAC
+  const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListProjectAccessGrants(projectId, !!project?.organization_id)
+  const createAccessGrantMutation = useCreateProjectAccessGrant(projectId)
+  const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
   const [startingExploratorySession, setStartingExploratorySession] = useState(false)
+  const [existingExploratorySession, setExistingExploratorySession] = useState<any>(null)
+  const [checkingExploratorySession, setCheckingExploratorySession] = useState(false)
+  const [testStartupScriptDialogOpen, setTestStartupScriptDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
+  const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false)
+  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('')
 
   // Board settings state
   const [wipLimits, setWipLimits] = useState({
@@ -116,6 +159,31 @@ const ProjectSettings: FC = () => {
     }
   }
 
+  const handleAttachRepository = async () => {
+    if (!selectedRepoToAttach) {
+      snackbar.error('Please select a repository')
+      return
+    }
+
+    try {
+      await attachRepoMutation.mutateAsync(selectedRepoToAttach)
+      snackbar.success('Repository attached successfully')
+      setAttachRepoDialogOpen(false)
+      setSelectedRepoToAttach('')
+    } catch (err) {
+      snackbar.error('Failed to attach repository')
+    }
+  }
+
+  const handleDetachRepository = async (repoId: string) => {
+    try {
+      await detachRepoMutation.mutateAsync(repoId)
+      snackbar.success('Repository detached successfully')
+    } catch (err) {
+      snackbar.error('Failed to detach repository')
+    }
+  }
+
   const handleStartExploratorySession = async () => {
     try {
       setStartingExploratorySession(true)
@@ -128,6 +196,84 @@ const ProjectSettings: FC = () => {
       snackbar.error('Failed to start exploratory session')
     } finally {
       setStartingExploratorySession(false)
+    }
+  }
+
+  const handleTestStartupScript = async () => {
+    // Check if an exploratory session already exists
+    setCheckingExploratorySession(true)
+    try {
+      const response = await api.get(`/api/v1/projects/${projectId}/exploratory-session`)
+      if (response.data) {
+        setExistingExploratorySession(response.data)
+      } else {
+        setExistingExploratorySession(null)
+      }
+    } catch (err: any) {
+      // 204 means no session exists, which is fine
+      if (err?.response?.status === 204) {
+        setExistingExploratorySession(null)
+      } else {
+        console.error('Failed to check for exploratory session:', err)
+      }
+    } finally {
+      setCheckingExploratorySession(false)
+    }
+    setTestStartupScriptDialogOpen(true)
+  }
+
+  const handleConfirmTestStartupScript = async () => {
+    setTestStartupScriptDialogOpen(false)
+
+    // If session already exists, just navigate to it
+    if (existingExploratorySession) {
+      account.orgNavigate('session', { session_id: existingExploratorySession.id })
+      return
+    }
+
+    // Otherwise start a new session
+    await handleStartExploratorySession()
+  }
+
+  const handleDeleteProject = async () => {
+    if (deleteConfirmName !== project?.name) {
+      snackbar.error('Project name does not match')
+      return
+    }
+
+    try {
+      await deleteProjectMutation.mutateAsync(projectId)
+      snackbar.success('Project deleted successfully')
+      setDeleteDialogOpen(false)
+      // Navigate back to projects list
+      account.orgNavigate('projects')
+    } catch (err) {
+      snackbar.error('Failed to delete project')
+    }
+  }
+
+  const handleCreateAccessGrant = async (request: any) => {
+    try {
+      const result = await createAccessGrantMutation.mutateAsync(request)
+      if (result) {
+        snackbar.success('Access grant created successfully')
+        return result
+      }
+      return null
+    } catch (err) {
+      snackbar.error('Failed to create access grant')
+      return null
+    }
+  }
+
+  const handleDeleteAccessGrant = async (grantId: string) => {
+    try {
+      await deleteAccessGrantMutation.mutateAsync(grantId)
+      snackbar.success('Access grant removed successfully')
+      return true
+    } catch (err) {
+      snackbar.error('Failed to remove access grant')
+      return false
     }
   }
 
@@ -175,7 +321,7 @@ const ProjectSettings: FC = () => {
       breadcrumbs={breadcrumbs}
       orgBreadcrumbs={true}
       topbarContent={(
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', width: '100%' }}>
           <Button
             variant="outlined"
             color="secondary"
@@ -258,20 +404,43 @@ npm run db:migrate`}
                 },
               }}
             />
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={<ExploreIcon />}
+                onClick={handleTestStartupScript}
+                disabled={startingExploratorySession}
+              >
+                Test Startup Script
+              </Button>
+            </Box>
           </Paper>
 
           {/* Repositories */}
           <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Repositories
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Repositories attached to this project. The primary repository is opened by default when agents start.
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Repositories
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Repositories attached to this project. The primary repository is opened by default when agents start.
+                </Typography>
+              </Box>
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={() => setAttachRepoDialogOpen(true)}
+                size="small"
+              >
+                Attach Repository
+              </Button>
+            </Box>
             <Divider sx={{ mb: 2 }} />
             {repositories.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                No repositories attached to this project yet
+                No repositories attached to this project yet. Click "Attach Repository" to add one.
               </Typography>
             ) : (
               <List>
@@ -282,22 +451,32 @@ npm run db:migrate`}
                       secondary={repo.clone_url}
                     />
                     <ListItemSecondaryAction>
-                      {project.default_repo_id === repo.id ? (
-                        <Chip
-                          icon={<StarIcon />}
-                          label="Primary"
-                          color="primary"
-                          size="small"
-                        />
-                      ) : (
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        {project.default_repo_id === repo.id ? (
+                          <Chip
+                            icon={<StarIcon />}
+                            label="Primary"
+                            color="primary"
+                            size="small"
+                          />
+                        ) : (
+                          <IconButton
+                            onClick={() => handleSetPrimaryRepo(repo.id)}
+                            disabled={setPrimaryRepoMutation.isPending}
+                            title="Set as primary"
+                          >
+                            <StarBorderIcon />
+                          </IconButton>
+                        )}
                         <IconButton
-                          edge="end"
-                          onClick={() => handleSetPrimaryRepo(repo.id)}
-                          disabled={setPrimaryRepoMutation.isPending}
+                          onClick={() => handleDetachRepository(repo.id)}
+                          disabled={detachRepoMutation.isPending}
+                          title="Detach from project"
+                          color="error"
                         >
-                          <StarBorderIcon />
+                          <DeleteIcon />
                         </IconButton>
-                      )}
+                      </Box>
                     </ListItemSecondaryAction>
                   </ListItem>
                 ))}
@@ -352,22 +531,244 @@ npm run db:migrate`}
             </Typography>
             <Divider sx={{ mb: 3 }} />
 
-            {/* TODO: Implement RBAC using existing framework */}
-            <Box sx={{ textAlign: 'center', py: 6, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
-              <PeopleIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2, opacity: 0.5 }} />
-              <Typography variant="body1" color="text.secondary" gutterBottom>
-                Project Members & Roles
+            {project?.organization_id ? (
+              <AccessManagement
+                appId={projectId}
+                accessGrants={accessGrants}
+                isLoading={accessGrantsLoading}
+                isReadOnly={project.user_id !== account.user?.id && !account.user?.admin}
+                onCreateGrant={handleCreateAccessGrant}
+                onDeleteGrant={handleDeleteAccessGrant}
+              />
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  This project is not part of an organization. Only the owner can access it.
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+
+          {/* Danger Zone */}
+          <Paper sx={{ p: 3, mb: 3, border: '2px solid', borderColor: 'error.main' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <WarningIcon sx={{ mr: 1, color: 'error.main' }} />
+              <Typography variant="h6" color="error">
+                Danger Zone
+              </Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Irreversible and destructive actions.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+
+            <Box sx={{
+              p: 2,
+              backgroundColor: 'rgba(211, 47, 47, 0.05)',
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'error.light'
+            }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                Delete Project
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                RBAC implementation coming soon
+                Once you delete a project, there is no going back. This will permanently delete the project, all its tasks, and associated data.
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                Will use existing Helix RBAC framework with project-scoped permissions
-              </Typography>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteForeverIcon />}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                Delete This Project
+              </Button>
             </Box>
           </Paper>
         </Box>
       </Container>
+
+      {/* Test Startup Script Confirmation Dialog */}
+      <Dialog
+        open={testStartupScriptDialogOpen}
+        onClose={() => setTestStartupScriptDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ExploreIcon color="primary" />
+            <span>Test Startup Script</span>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            This will create a new exploratory session for this project with the current startup script.
+          </Typography>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              The startup script will run when the agent environment launches. You'll be able to connect and verify it worked correctly.
+            </Typography>
+          </Alert>
+          {startupScript.trim() ? (
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                Current startup script:
+              </Typography>
+              <Box sx={{
+                p: 1.5,
+                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                borderRadius: 1,
+                fontFamily: 'monospace',
+                fontSize: '0.75rem',
+                maxHeight: 200,
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap'
+              }}>
+                {startupScript}
+              </Box>
+            </Box>
+          ) : (
+            <Alert severity="warning">
+              No startup script configured. The session will start without any initialization.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTestStartupScriptDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmTestStartupScript}
+            variant="contained"
+            color="primary"
+            startIcon={<ExploreIcon />}
+          >
+            Start Exploratory Session
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Attach Repository Dialog */}
+      <Dialog
+        open={attachRepoDialogOpen}
+        onClose={() => {
+          setAttachRepoDialogOpen(false)
+          setSelectedRepoToAttach('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LinkIcon />
+            Attach Repository to Project
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Select a repository from your account to attach to this project. Attached repositories will be cloned into the agent workspace when working on this project.
+          </Typography>
+          <FormControl fullWidth>
+            <InputLabel>Select Repository</InputLabel>
+            <Select
+              value={selectedRepoToAttach}
+              onChange={(e) => setSelectedRepoToAttach(e.target.value)}
+              label="Select Repository"
+            >
+              {allUserRepositories
+                .filter((repo) => !repositories.some((pr) => pr.id === repo.id))
+                .map((repo) => (
+                  <MenuItem key={repo.id} value={repo.id}>
+                    {repo.name}
+                  </MenuItem>
+                ))}
+            </Select>
+            {allUserRepositories.filter((repo) => !repositories.some((pr) => pr.id === repo.id)).length === 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                All your repositories are already attached to this project.
+              </Typography>
+            )}
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setAttachRepoDialogOpen(false)
+              setSelectedRepoToAttach('')
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleAttachRepository}
+            variant="contained"
+            disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
+            startIcon={attachRepoMutation.isPending ? <CircularProgress size={16} /> : <LinkIcon />}
+          >
+            {attachRepoMutation.isPending ? 'Attaching...' : 'Attach Repository'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setDeleteConfirmName('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningIcon color="error" />
+            <span>Delete Project</span>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+              This action cannot be undone!
+            </Typography>
+            <Typography variant="body2">
+              This will permanently delete the project <strong>{project?.name}</strong>, all its tasks, work sessions, and associated data.
+            </Typography>
+          </Alert>
+
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Please type the project name <strong>{project?.name}</strong> to confirm:
+          </Typography>
+
+          <TextField
+            fullWidth
+            value={deleteConfirmName}
+            onChange={(e) => setDeleteConfirmName(e.target.value)}
+            placeholder={project?.name}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDeleteDialogOpen(false);
+              setDeleteConfirmName('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteProject}
+            variant="contained"
+            color="error"
+            disabled={deleteConfirmName !== project?.name || deleteProjectMutation.isPending}
+            startIcon={deleteProjectMutation.isPending ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
+          >
+            {deleteProjectMutation.isPending ? 'Deleting...' : 'Delete Project'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }

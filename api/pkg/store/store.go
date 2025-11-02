@@ -491,6 +491,9 @@ type Store interface {
 	DeleteProject(ctx context.Context, projectID string) error
 	GetProjectRepositories(ctx context.Context, projectID string) ([]*DBGitRepository, error)
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
+	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
+	DetachRepositoryFromProject(ctx context.Context, repoID string) error
+	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
 
 	// Sample Project methods
 	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)

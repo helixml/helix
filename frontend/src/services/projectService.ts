@@ -138,6 +138,46 @@ export const useSetProjectPrimaryRepository = (projectId: string) => {
 };
 
 /**
+ * Hook to attach a repository to a project
+ */
+export const useAttachRepositoryToProject = (projectId: string) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (repoId: string) => {
+      const response = await apiClient.v1ProjectsRepositoriesAttachUpdate(projectId, repoId);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: projectRepositoriesQueryKey(projectId) });
+    },
+  });
+};
+
+/**
+ * Hook to detach a repository from a project
+ */
+export const useDetachRepositoryFromProject = (projectId: string) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (repoId: string) => {
+      const response = await apiClient.v1ProjectsRepositoriesDetachUpdate(projectId, repoId);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: projectRepositoriesQueryKey(projectId) });
+    },
+  });
+};
+
+/**
  * Hook to list all sample projects
  */
 export const useListSampleProjects = () => {

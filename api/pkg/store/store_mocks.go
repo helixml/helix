@@ -3704,6 +3704,49 @@ func (mr *MockStoreMockRecorder) SetProjectPrimaryRepository(ctx, projectID, rep
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProjectPrimaryRepository", reflect.TypeOf((*MockStore)(nil).SetProjectPrimaryRepository), ctx, projectID, repoID)
 }
 
+// AttachRepositoryToProject mocks base method.
+func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AttachRepositoryToProject", ctx, projectID, repoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AttachRepositoryToProject indicates an expected call of AttachRepositoryToProject.
+func (mr *MockStoreMockRecorder) AttachRepositoryToProject(ctx, projectID, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachRepositoryToProject", reflect.TypeOf((*MockStore)(nil).AttachRepositoryToProject), ctx, projectID, repoID)
+}
+
+// DetachRepositoryFromProject mocks base method.
+func (m *MockStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DetachRepositoryFromProject", ctx, repoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DetachRepositoryFromProject indicates an expected call of DetachRepositoryFromProject.
+func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, repoID)
+}
+
+// GetProjectExploratorySession mocks base method.
+func (m *MockStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProjectExploratorySession", ctx, projectID)
+	ret0, _ := ret[0].(*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProjectExploratorySession indicates an expected call of GetProjectExploratorySession.
+func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
+}
+
 // CreateSampleProject mocks base method.
 func (m *MockStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
 	m.ctrl.T.Helper()

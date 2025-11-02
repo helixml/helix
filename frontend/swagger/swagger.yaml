@@ -1692,6 +1692,8 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        type: string
       owner_id:
         type: string
       project_id:
@@ -1719,6 +1721,9 @@ definitions:
         additionalProperties: true
         type: object
       name:
+        type: string
+      organization_id:
+        description: Organization ID - required for access control
         type: string
       owner_id:
         type: string
@@ -2034,6 +2039,9 @@ definitions:
         description: Stores Metadata as JSON
         type: string
       name:
+        type: string
+      organizationID:
+        description: Organization ID - will be backfilled for existing repos
         type: string
       ownerID:
         type: string
@@ -5619,6 +5627,9 @@ definitions:
         type: string
       priority:
         type: boolean
+      project_id:
+        description: ID of associated Project (for exploratory sessions)
+        type: string
       rag_enabled:
         description: |-
           these settings control which features of a session we want to use
@@ -5634,7 +5645,7 @@ definitions:
           $ref: '#/definitions/types.SessionRAGResult'
         type: array
       session_role:
-        description: '"planning", "implementation", "coordination"'
+        description: '"planning", "implementation", "coordination", "exploratory"'
         type: string
       spec_task_id:
         description: Multi-session SpecTask context
@@ -8641,6 +8652,42 @@ paths:
       summary: Update git repository
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/access-grants:
+    get:
+      description: List access grants for a git repository (repository owners can
+        list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List repository access grants
+      tags:
+      - gitrepositories
+    post:
+      description: Grant access to a repository to a user (repository owners can grant
+        access)
+      parameters:
+      - description: Request body with user reference and roles
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to a repository to a user
+      tags:
+      - gitrepositories
   /api/v1/git/repositories/{id}/clone-command:
     get:
       description: Get the git clone command for a repository with authentication
@@ -9970,12 +10017,91 @@ paths:
       summary: Update project
       tags:
       - Projects
-  /api/v1/projects/{id}/exploratory-session:
+  /api/v1/projects/{id}/access-grants:
+    get:
+      description: List access grants for a project (project owners and org owners
+        can list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List project access grants
+      tags:
+      - projects
     post:
+      description: Grant access to a project to a team or organization member (project
+        owners and org owners can grant access)
+      parameters:
+      - description: Request body with team or organization member ID and roles
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to a project to a team or organization member
+      tags:
+      - projects
+  /api/v1/projects/{id}/exploratory-session:
+    get:
       consumes:
       - application/json
-      description: Start an exploratory agent session for a project without a specific
-        task
+      description: |-
+        Start an exploratory agent session for a project without a specific task
+        Get the active exploratory session for a project (returns null if none exists)
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+        "204":
+          description: No exploratory session exists
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      - BearerAuth: []
+      summary: Get project exploratory session
+      tags:
+      - Projects
+      - Projects
+    post:
+      description: Start or return existing exploratory session for a project
       parameters:
       - description: Project ID
         in: path
@@ -10003,7 +10129,7 @@ paths:
             $ref: '#/definitions/system.HTTPError'
       security:
       - BearerAuth: []
-      summary: Start exploratory session
+      summary: Start project exploratory session
       tags:
       - Projects
   /api/v1/projects/{id}/repositories:
@@ -10041,6 +10167,90 @@ paths:
       security:
       - BearerAuth: []
       summary: Get project repositories
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/attach:
+    put:
+      consumes:
+      - application/json
+      description: Attach an existing repository to a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Attach repository to project
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/detach:
+    put:
+      consumes:
+      - application/json
+      description: Detach a repository from its project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Detach repository from project
       tags:
       - Projects
   /api/v1/projects/{id}/repositories/{repo_id}/primary:
