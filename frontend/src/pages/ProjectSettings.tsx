@@ -23,7 +23,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  CircularProgress,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -39,6 +38,7 @@ import LinkIcon from '@mui/icons-material/Link'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
+import StartupScriptEditor from '../components/project/StartupScriptEditor'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -382,39 +382,14 @@ const ProjectSettings: FC = () => {
               This script runs when an agent starts working on this project. Use it to install dependencies, start dev servers, etc.
             </Typography>
             <Divider sx={{ mb: 3 }} />
-            <TextField
-              fullWidth
-              multiline
-              rows={10}
+
+            <StartupScriptEditor
               value={startupScript}
-              onChange={(e) => setStartupScript(e.target.value)}
-              placeholder={`#!/bin/bash
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev &
-
-# Run migrations
-npm run db:migrate`}
-              sx={{
-                fontFamily: 'monospace',
-                '& textarea': {
-                  fontFamily: 'monospace',
-                },
-              }}
+              onChange={setStartupScript}
+              onTest={handleTestStartupScript}
+              testDisabled={startingExploratorySession || checkingExploratorySession}
+              projectId={projectId}
             />
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
-              <Button
-                variant="outlined"
-                color="primary"
-                startIcon={<ExploreIcon />}
-                onClick={handleTestStartupScript}
-                disabled={startingExploratorySession}
-              >
-                Test Startup Script
-              </Button>
-            </Box>
           </Paper>
 
           {/* Repositories */}

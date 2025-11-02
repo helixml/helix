@@ -4656,32 +4656,17 @@ const docTemplate = `{
                 "security": [
                     {
                         "BearerAuth": []
-                    },
-                    {
-                        "BearerAuth": []
                     }
                 ],
-                "description": "Start an exploratory agent session for a project without a specific task\nGet the active exploratory session for a project (returns null if none exists)",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Get the active exploratory session for a project (returns null if none exists)",
                 "produces": [
-                    "application/json",
                     "application/json"
                 ],
                 "tags": [
-                    "Projects",
                     "Projects"
                 ],
                 "summary": "Get project exploratory session",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
                     {
                         "type": "string",
                         "description": "Project ID",
