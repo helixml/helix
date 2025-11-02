@@ -137,30 +137,26 @@ const LiveAgentScreenshot: React.FC<{
       }}
     >
       <Box sx={{ position: 'relative', height: 150 }}>
-        <ScreenshotViewer
-          sessionId={sessionId}
-          autoRefresh={true}
-          refreshInterval={3000}
-          enableStreaming={false}
-          showToolbar={false}
-        />
-        {/* Paused overlay */}
-        {isPaused && (
+        {isRunning ? (
+          <ScreenshotViewer
+            sessionId={sessionId}
+            autoRefresh={true}
+            refreshInterval={3000}
+            enableStreaming={false}
+            showToolbar={false}
+          />
+        ) : (
           <Box
             sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.6)',
+              width: '100%',
+              height: '100%',
+              backgroundColor: '#1a1a1a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              pointerEvents: 'none',
             }}
           >
-            <Typography variant="body2" sx={{ color: 'white', fontWeight: 500 }}>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
               Desktop Paused
             </Typography>
           </Box>
