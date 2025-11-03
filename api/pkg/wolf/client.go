@@ -27,7 +27,7 @@ func NewClient(socketPath string) *Client {
 					return net.Dial("unix", socketPath)
 				},
 			},
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second, // Increased from 30s - StopSession can take time with many sessions
 		},
 	}
 }
