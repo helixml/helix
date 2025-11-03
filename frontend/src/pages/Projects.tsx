@@ -215,18 +215,20 @@ const Projects: FC = () => {
                 placement="right"
                 arrow
               >
-                <MenuItem
-                  key={sample.id}
-                  onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
-                  disabled={instantiateSampleMutation.isPending}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                    <Kanban size={18} />
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {sample.name}
-                    </Typography>
-                  </Box>
-                </MenuItem>
+                <span>
+                  <MenuItem
+                    key={sample.id}
+                    onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
+                    disabled={instantiateSampleMutation.isPending}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
+                      <Kanban size={18} />
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {sample.name}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                </span>
               </Tooltip>
             ))}
           </Menu>

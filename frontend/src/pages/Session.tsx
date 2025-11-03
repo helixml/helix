@@ -64,9 +64,10 @@ const useWolfAppState = (sessionId: string) => {
   const [wolfState, setWolfState] = React.useState<string>('loading');
 
   React.useEffect(() => {
+    const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
-        const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
+        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
         if (response.data) {
           setWolfState(response.data.state || 'absent');
         }
@@ -78,7 +79,7 @@ const useWolfAppState = (sessionId: string) => {
     fetchState();
     const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
-  }, [sessionId, api]);
+  }, [sessionId]); // Removed 'api' - getApiClient() is stable
 
   const isRunning = wolfState === 'running' || wolfState === 'resumable';
   const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
