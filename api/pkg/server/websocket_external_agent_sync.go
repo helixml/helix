@@ -916,6 +916,43 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("content", content).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
 
+			// CRITICAL: Also send to response channel for HTTP streaming
+			// The request_id was sent to Zed in the chat_message command
+			// We need to find it using the request->session mapping
+			var foundRequestID string
+			if apiServer.requestToSessionMapping != nil {
+				for reqID, sessID := range apiServer.requestToSessionMapping {
+					if sessID == helixSessionID {
+						foundRequestID = reqID
+						break
+					}
+				}
+			}
+
+			if foundRequestID != "" {
+				responseChan, _, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
+				if exists {
+					select {
+					case responseChan <- content:
+						log.Info().
+							Str("session_id", helixSessionID).
+							Str("request_id", foundRequestID).
+							Int("content_length", len(content)).
+							Msg("✅ [HELIX] Sent message_added content to HTTP streaming channel")
+					default:
+						log.Warn().
+							Str("session_id", helixSessionID).
+							Str("request_id", foundRequestID).
+							Msg("HTTP response channel full or closed")
+					}
+				} else {
+					log.Debug().
+						Str("session_id", helixSessionID).
+						Str("request_id", foundRequestID).
+						Msg("No HTTP response channel found (may not be an HTTP streaming request)")
+				}
+			}
+
 			// Reload session with all interactions so WebSocket event has latest data
 			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
 			if err != nil {

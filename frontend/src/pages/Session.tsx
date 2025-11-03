@@ -28,8 +28,7 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import { useGetSession, useUpdateSession } from '../services/sessionService'
-import { useStopProjectExploratorySession } from '../services'
+import { useGetSession, useUpdateSession, useStopExternalAgent } from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -340,23 +339,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   const isOwner = account.user?.id == session?.data?.owner
 
-  // Check if this is an exploratory session
-  const isExploratorySession = session?.data?.config?.session_role === 'exploratory'
-  const exploratoryProjectId = session?.data?.config?.project_id as string | undefined
+  // Stop external agent hook (works for any external agent session)
+  const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
 
-  // Stop exploratory session hook (only for exploratory sessions)
-  const stopExploratorySessionMutation = useStopProjectExploratorySession(exploratoryProjectId || '')
-
-  const handleStopExploratorySession = async () => {
-    if (!exploratoryProjectId) return
-
+  const handleStopExternalAgent = async () => {
     try {
-      await stopExploratorySessionMutation.mutateAsync()
-      snackbar.success('Exploratory session stopped')
-      // Refresh session data to update UI
-      refetchSession()
+      await stopExternalAgentMutation.mutateAsync()
+      snackbar.success('External Zed agent stopped')
     } catch (err) {
-      snackbar.error('Failed to stop exploratory session')
+      snackbar.error('Failed to stop external agent')
     }
   }
 
@@ -1520,19 +1511,17 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       Desktop State:
                     </Typography>
                     <WolfAppStateIndicator sessionId={sessionID} />
-                    {isExploratorySession && exploratoryProjectId && (
-                      <Tooltip title="Stop desktop environment">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={handleStopExploratorySession}
-                          disabled={stopExploratorySessionMutation.isPending}
-                          sx={{ ml: 0.5 }}
-                        >
-                          <StopIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
+                    <Tooltip title="Stop external Zed agent">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={handleStopExternalAgent}
+                        disabled={stopExternalAgentMutation.isPending}
+                        sx={{ ml: 0.5 }}
+                      >
+                        <StopIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
                   <ResumeAgentButton sessionId={sessionID} />
                 </Box>
