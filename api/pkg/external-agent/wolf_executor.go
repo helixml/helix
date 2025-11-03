@@ -1406,11 +1406,12 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
 // Terminates external agents after 30min of inactivity across ALL sessions
+// Timeout is database-based (checks LastInteraction timestamp), so it survives API restarts
 func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds for faster cleanup in dev mode
 	defer ticker.Stop()
 
-	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout)")
+	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout, checks every 30s)")
 
 	for {
 		select {
