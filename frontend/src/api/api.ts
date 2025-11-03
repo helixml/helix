@@ -6640,6 +6640,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionDelete
+     * @summary Stop project exploratory session
+     * @request DELETE:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the active exploratory session for a project (returns null if none exists)
      *
      * @tags Projects

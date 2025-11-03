@@ -313,3 +313,22 @@ export const useStartProjectExploratorySession = (projectId: string) => {
     },
   });
 };
+
+/**
+ * Hook to stop project exploratory session
+ */
+export const useStopProjectExploratorySession = (projectId: string) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.v1ProjectsExploratorySessionDelete(projectId);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
+    },
+  });
+};

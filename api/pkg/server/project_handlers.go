@@ -850,3 +850,74 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 
 	return createdSession, nil
 }
+
+// stopExploratorySession godoc
+// @Summary Stop project exploratory session
+// @Description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
+// @Tags Projects
+// @Produce json
+// @Param id path string true "Project ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/projects/{id}/exploratory-session [delete]
+func (s *HelixAPIServer) stopExploratorySession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	user := getRequestUser(r)
+	projectID := getID(r)
+
+	// Check if user has access to the project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("failed to get project for stopping exploratory session")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	if project.UserID != user.ID {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("project_id", projectID).
+			Msg("user not authorized to stop exploratory session")
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Get the active exploratory session
+	session, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get exploratory session to stop")
+		return nil, system.NewHTTPError500("failed to get exploratory session")
+	}
+
+	if session == nil {
+		return nil, system.NewHTTPError404("no exploratory session found")
+	}
+
+	// Stop the Zed agent (Wolf container)
+	err = s.externalAgentExecutor.StopZedAgent(r.Context(), session.ID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", session.ID).
+			Str("project_id", projectID).
+			Msg("Failed to stop exploratory session")
+		return nil, system.NewHTTPError500("failed to stop exploratory session")
+	}
+
+	log.Info().
+		Str("session_id", session.ID).
+		Str("project_id", projectID).
+		Msg("Exploratory session stopped successfully")
+
+	return map[string]string{
+		"message":    "exploratory session stopped",
+		"session_id": session.ID,
+	}, nil
+}
