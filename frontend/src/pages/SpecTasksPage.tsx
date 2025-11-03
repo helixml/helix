@@ -241,22 +241,30 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, taskPrompt]);
 
-  // Keyboard shortcut: ESC to close new task dialog
+  // Keyboard shortcut: ESC to close dialogs/panels (one at a time, innermost first)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (createDialogOpen) {
+        // Close panels in order: attach repo dialog (nested), then repo panel, then create task panel
+        if (attachRepoDialogOpen) {
+          e.preventDefault();
+          setAttachRepoDialogOpen(false);
+          setSelectedRepoToAttach('');
+        } else if (repoDialogOpen) {
+          e.preventDefault();
+          setRepoDialogOpen(false);
+        } else if (createDialogOpen) {
           e.preventDefault();
           setCreateDialogOpen(false);
         }
       }
     };
 
-    if (createDialogOpen) {
+    if (createDialogOpen || repoDialogOpen || attachRepoDialogOpen) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [createDialogOpen]);
+  }, [createDialogOpen, repoDialogOpen, attachRepoDialogOpen]);
 
   // Handle task creation - SIMPLIFIED
   const handleCreateTask = async () => {
@@ -409,7 +417,7 @@ const SpecTasksPage: FC = () => {
           <Button
             variant="outlined"
             startIcon={<GitBranch size={20} />}
-            onClick={() => setRepoDialogOpen(true)}
+            onClick={() => setRepoDialogOpen(!repoDialogOpen)}
             sx={{ flexShrink: 0 }}
           >
             Repositories ({projectRepositories.length + (internalRepo ? 1 : 0)})
