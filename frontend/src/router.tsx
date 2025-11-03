@@ -186,7 +186,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     ),
   },  {
     name: namePrefix + 'qa-results',
-    path: routePrefix + '/qa-results/:execution_id',
+    path: routePrefix + '/qa-results/:question_set_id/:execution_id',
     meta: {
       drawer: true,
       topbar: false,

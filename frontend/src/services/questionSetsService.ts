@@ -18,6 +18,12 @@ export const questionSetExecutionsQueryKey = (questionSetId: string) => [
   questionSetId
 ];
 
+export const questionSetExecutionResultsQueryKey = (questionSetId: string, executionId: string) => [
+  "question-set-execution-results",
+  questionSetId,
+  executionId
+];
+
 export function useListQuestionSets(orgId?: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -138,6 +144,21 @@ export function useListQuestionSetExecutions(questionSetId: string, options?: { 
     },
     enabled: (options?.enabled ?? true) && !!questionSetId,
     refetchInterval: 3000,
+  });
+}
+
+export function useQuestionSetExecutionResults(questionSetId: string, executionId: string, format?: 'json' | 'markdown', options?: { enabled?: boolean, refetchIntervalMs?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: questionSetExecutionResultsQueryKey(questionSetId, executionId),
+    queryFn: async () => {
+      const result = await apiClient.v1QuestionSetsExecutionsDetail2(executionId, questionSetId, format ? { format } : undefined)
+      return result.data
+    },
+    enabled: (options?.enabled ?? true) && !!questionSetId && !!executionId,
+    refetchInterval: options?.refetchIntervalMs ?? 3000,
   });
 }
 
