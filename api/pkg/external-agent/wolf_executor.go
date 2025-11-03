@@ -1681,7 +1681,49 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 		return // No sessions to check
 	}
 
-	log.Info().Int("total_sessions", len(sessions)).Msg("Checking for orphaned Wolf-UI sessions")
+	// Get all active lobbies from Wolf to check for orphans
+	// CRITICAL: Use Wolf lobbies list, not in-memory map (survives API restarts)
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Wolf lobbies for orphan cleanup")
+		return
+	}
+
+	// Build map of session IDs that have active lobbies
+	activeSessions := make(map[string]bool)
+	for _, lobby := range lobbies {
+		// Extract session ID from lobby name: "Agent {session_suffix}"
+		// Or check lobby's runner env vars for HELIX_SESSION_ID
+		// For now, build container name from lobby ID and check if it's in helix-agent pattern
+
+		// Lobbies are named like "Agent 4jqgmj" (last 6 chars of session ID)
+		// This is insufficient for exact matching, so we need a better approach
+
+		// Instead: Check if lobby's container is running by using lobby ID
+		// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+		// We can't reverse-engineer session ID from this easily
+
+		// BETTER: Extract HELIX_SESSION_ID from lobby's runner env vars if available
+		if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+			if envList, ok := runnerMap["env"].([]interface{}); ok {
+				for _, envVar := range envList {
+					if envStr, ok := envVar.(string); ok {
+						if strings.HasPrefix(envStr, "HELIX_SESSION_ID=") {
+							sessionID := strings.TrimPrefix(envStr, "HELIX_SESSION_ID=")
+							activeSessions[sessionID] = true
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Int("total_sessions", len(sessions)).
+		Int("active_lobbies", len(lobbies)).
+		Int("tracked_sessions", len(activeSessions)).
+		Msg("Checking for orphaned Wolf-UI sessions")
 
 	stoppedCount := 0
 
@@ -1704,29 +1746,31 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 			sessionID = sessionID[:idx]
 		}
 
-		// Check if container exists for this session
-		_, err := w.FindContainerBySessionID(ctx, sessionID)
+		// Check if lobby exists for this session (using Wolf API, not in-memory map)
+		if activeSessions[sessionID] {
+			// Session has an active lobby, keep it
+			continue
+		}
+
+		// No active lobby found - this is an orphaned session
+		log.Info().
+			Str("client_id", session.ClientID).
+			Str("client_unique_id", session.ClientUniqueID).
+			Str("session_id", sessionID).
+			Msg("🧹 Found orphaned Wolf-UI session (no lobby), stopping...")
+
+		err := w.wolfClient.StopSession(ctx, session.ClientID)
 		if err != nil {
-			// No container found - this is an orphaned session
+			log.Warn().
+				Err(err).
+				Str("client_id", session.ClientID).
+				Msg("Failed to stop orphaned Wolf-UI session")
+		} else {
+			stoppedCount++
 			log.Info().
 				Str("client_id", session.ClientID).
-				Str("client_unique_id", session.ClientUniqueID).
 				Str("session_id", sessionID).
-				Msg("🧹 Found orphaned Wolf-UI session (no Zed container), stopping...")
-
-			err := w.wolfClient.StopSession(ctx, session.ClientID)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("client_id", session.ClientID).
-					Msg("Failed to stop orphaned Wolf-UI session")
-			} else {
-				stoppedCount++
-				log.Info().
-					Str("client_id", session.ClientID).
-					Str("session_id", sessionID).
-					Msg("✅ Stopped orphaned Wolf-UI session")
-			}
+				Msg("✅ Stopped orphaned Wolf-UI session")
 		}
 	}
 
@@ -1779,29 +1823,54 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 			continue
 		}
 
-		log.Info().
-			Str("repository_id", repoID).
-			Str("repository_url", repo.CloneURL).
-			Str("clone_dir", cloneDir).
-			Msg("Cloning git repository")
-
-		// Clone the repository
-		// Use git clone with --bare for the main repo, then set up worktrees
-		cloneCmd := fmt.Sprintf("git clone %s %s", repo.CloneURL, cloneDir)
-		output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("output", output).
+		// For internal repos (helix_hosted), copy from LocalPath instead of cloning
+		if repo.LocalPath != "" && repo.RepoType == "helix_hosted" {
+			log.Info().
 				Str("repository_id", repoID).
-				Msg("Failed to clone repository")
-			return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
-		}
+				Str("local_path", repo.LocalPath).
+				Str("clone_dir", cloneDir).
+				Msg("Copying internal repository from local filesystem")
 
-		log.Info().
-			Str("repository_id", repoID).
-			Str("clone_dir", cloneDir).
-			Msg("Successfully cloned git repository")
+			// Use cp -a to preserve git history and permissions
+			cpCmd := fmt.Sprintf("cp -a %s %s", repo.LocalPath, cloneDir)
+			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cpCmd)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("output", output).
+					Str("repository_id", repoID).
+					Msg("Failed to copy internal repository")
+				return fmt.Errorf("failed to copy repository %s: %w", repo.Name, err)
+			}
+
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Successfully copied internal repository")
+		} else {
+			// For external repos, use git clone with CloneURL
+			log.Info().
+				Str("repository_id", repoID).
+				Str("repository_url", repo.CloneURL).
+				Str("clone_dir", cloneDir).
+				Msg("Cloning external git repository")
+
+			cloneCmd := fmt.Sprintf("git clone %s %s", repo.CloneURL, cloneDir)
+			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("output", output).
+					Str("repository_id", repoID).
+					Msg("Failed to clone repository")
+				return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
+			}
+
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Successfully cloned git repository")
+		}
 
 		// For primary repository, set up design docs worktree
 		if repoID == primaryRepositoryID {
