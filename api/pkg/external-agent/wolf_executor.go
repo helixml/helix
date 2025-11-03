@@ -575,6 +575,39 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("container_name", containerHostname).
 		Msg("External Zed agent started successfully")
 
+	// Track activity for idle cleanup (all external agent types)
+	// Determine agent type based on session metadata
+	agentType := "agent" // Default for regular agent sessions
+	if agent.ProjectID != "" {
+		agentType = "exploratory" // Exploratory sessions have project ID
+	}
+	if agent.SpecTaskID != "" {
+		agentType = "spectask" // SpecTask agents have spec task ID
+	}
+
+	err = w.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+		ExternalAgentID: agent.SessionID,
+		SpecTaskID:      agent.SpecTaskID, // May be empty for non-SpecTask agents
+		LastInteraction: time.Now(),
+		AgentType:       agentType,
+		WolfAppID:       response.WolfAppID,
+		WorkspaceDir:    workspaceDir,
+		UserID:          agent.UserID,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", agent.SessionID).
+			Str("agent_type", agentType).
+			Msg("Failed to track external agent activity - cleanup won't work for this session")
+		// Non-fatal - session is already created
+	} else {
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Str("agent_type", agentType).
+			Msg("External agent activity tracked for idle cleanup")
+	}
+
 	return response, nil
 }
 
@@ -624,68 +657,77 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 	log.Info().Str("session_id", sessionID).Msg("Stopping Zed agent via Wolf")
 
+	// Try in-memory map first (for recently created sessions)
 	session, exists := w.sessions[sessionID]
-	if !exists {
-		return fmt.Errorf("session %s not found", sessionID)
+	var wolfLobbyID string
+	var wolfLobbyPIN string
+
+	if exists {
+		// Found in memory - use cached lobby ID
+		wolfLobbyID = session.WolfLobbyID
 	}
 
+	// Always fetch from database to get lobby ID and PIN (handles sessions created before restart)
+	dbSession, err := w.store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session from database for stop")
+		return fmt.Errorf("session %s not found in database", sessionID)
+	}
+
+	// Use database lobby ID if we don't have it from memory
+	if wolfLobbyID == "" {
+		wolfLobbyID = dbSession.Metadata.WolfLobbyID
+	}
+
+	// Get PIN from database
+	wolfLobbyPIN = dbSession.Metadata.WolfLobbyPIN
+
 	// Stop the lobby (tears down container)
-	if session.WolfLobbyID != "" {
-		// CRITICAL: Must provide PIN to stop lobby - read from database session
+	if wolfLobbyID != "" {
+		// CRITICAL: Must provide PIN to stop lobby
 		var lobbyPIN []int16
 
-		// Get PIN from database session (stored in Metadata.WolfLobbyPIN)
-		dbSession, err := w.store.GetSession(ctx, session.HelixSessionID)
-		if err != nil {
-			log.Warn().Err(err).Str("session_id", session.HelixSessionID).Msg("Failed to get session for PIN, attempting stop without PIN")
-		} else if dbSession.Metadata.WolfLobbyPIN != "" {
-			// PIN is stored as "1234" string in database, convert to [1,2,3,4] slice
-			pinStr := dbSession.Metadata.WolfLobbyPIN
-			if len(pinStr) == 4 {
-				lobbyPIN = make([]int16, 4)
-				for i, ch := range pinStr {
-					lobbyPIN[i] = int16(ch - '0')
-				}
-				log.Debug().
-					Str("lobby_id", session.WolfLobbyID).
-					Str("lobby_pin", pinStr).
-					Msg("Retrieved lobby PIN from database session for stop request")
+		if wolfLobbyPIN != "" && len(wolfLobbyPIN) == 4 {
+			// PIN is stored as "1234" string, convert to [1,2,3,4] slice
+			lobbyPIN = make([]int16, 4)
+			for i, ch := range wolfLobbyPIN {
+				lobbyPIN[i] = int16(ch - '0')
 			}
+			log.Debug().
+				Str("lobby_id", wolfLobbyID).
+				Str("lobby_pin", wolfLobbyPIN).
+				Msg("Retrieved lobby PIN from database for stop request")
 		}
 
 		stopReq := &wolf.StopLobbyRequest{
-			LobbyID: session.WolfLobbyID,
+			LobbyID: wolfLobbyID,
 			PIN:     lobbyPIN, // CRITICAL: Wolf requires PIN to stop lobbies
 		}
 		err = w.wolfClient.StopLobby(ctx, stopReq)
 		if err != nil {
 			log.Error().
 				Err(err).
-				Str("lobby_id", session.WolfLobbyID).
+				Str("lobby_id", wolfLobbyID).
 				Interface("lobby_pin", lobbyPIN).
 				Msg("Failed to stop Wolf lobby")
 			// Continue with cleanup even if stop fails
 		} else {
 			log.Info().
-				Str("lobby_id", session.WolfLobbyID).
+				Str("lobby_id", wolfLobbyID).
 				Str("session_id", sessionID).
 				Msg("Wolf lobby stopped successfully")
 		}
 	} else {
-		// Fallback for old app-based sessions (backward compatibility during migration)
-		appID := fmt.Sprintf("zed-agent-%s", sessionID)
-		err := w.wolfClient.StopSession(ctx, sessionID)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to stop Wolf session")
-		}
-		err = w.wolfClient.RemoveApp(ctx, appID)
-		if err != nil {
-			log.Error().Err(err).Str("app_id", appID).Msg("Failed to remove Wolf app")
-		}
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("No Wolf lobby ID found in database - session may not have external agent running")
+		return fmt.Errorf("no Wolf lobby ID found for session %s", sessionID)
 	}
 
-	// Update session status
-	session.Status = "stopped"
+	// Update in-memory session status if it exists
+	if exists {
+		session.Status = "stopped"
+	}
 
 	// Remove from our tracking
 	delete(w.sessions, sessionID)
@@ -1429,8 +1471,8 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	cutoff := time.Now().Add(-1 * time.Minute) // 1 minute for testing (will be 30min in production)
 
-	// Get idle external agents (SpecTask AND exploratory sessions)
-	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory"})
+	// Get idle external agents (SpecTask, exploratory, and regular agent sessions)
+	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory", "agent"})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get idle external agents")
 		return
