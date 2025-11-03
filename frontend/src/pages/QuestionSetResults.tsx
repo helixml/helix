@@ -131,13 +131,7 @@ const QuestionSetResults: FC = () => {
                     color="secondary"
                     size="small"
                     onClick={() => {
-                      account.orgNavigate('qa', {})
-                      setTimeout(() => {
-                        const url = new URL(window.location.href)
-                        url.searchParams.set('questionSetId', questionSetId)
-                        window.history.replaceState({}, '', url.toString())
-                        window.dispatchEvent(new PopStateEvent('popstate'))
-                      }, 100)
+                      account.orgNavigate('qa', {}, { questionSetId })
                     }}
                   >
                     <Edit size={18} />
