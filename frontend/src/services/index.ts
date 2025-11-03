@@ -27,6 +27,7 @@ export {
   useUpdateBoardSettings,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
+  useStopProjectExploratorySession,
   projectsListQueryKey,
   projectQueryKey,
   projectRepositoriesQueryKey,
