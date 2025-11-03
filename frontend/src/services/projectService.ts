@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject, TypesSampleProjectInstantiateRequest, StoreDBGitRepository } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject, TypesSampleProjectInstantiateRequest, StoreDBGitRepository, TypesBoardSettings, TypesSession } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = () => ['projects'];
@@ -8,6 +8,8 @@ export const projectQueryKey = (id: string) => ['project', id];
 export const projectRepositoriesQueryKey = (projectId: string) => ['project-repositories', projectId];
 export const sampleProjectsListQueryKey = () => ['sample-projects'];
 export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
+export const boardSettingsQueryKey = () => ['board-settings'];
+export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
 
 /**
  * Hook to list all projects for the current user
@@ -225,6 +227,85 @@ export const useInstantiateSampleProject = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
+    },
+  });
+};
+
+/**
+ * Hook to get board settings
+ */
+export const useGetBoardSettings = () => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<TypesBoardSettings>({
+    queryKey: boardSettingsQueryKey(),
+    queryFn: async () => {
+      const response = await apiClient.v1SpecTasksBoardSettingsList();
+      return response.data;
+    },
+  });
+};
+
+/**
+ * Hook to update board settings
+ */
+export const useUpdateBoardSettings = () => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (settings: TypesBoardSettings) => {
+      const response = await apiClient.v1SpecTasksBoardSettingsUpdate(settings);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardSettingsQueryKey() });
+    },
+  });
+};
+
+/**
+ * Hook to get project exploratory session
+ */
+export const useGetProjectExploratorySession = (projectId: string, enabled = true) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<TypesSession | null>({
+    queryKey: projectExploratorySessionQueryKey(projectId),
+    queryFn: async () => {
+      try {
+        const response = await apiClient.v1ProjectsExploratorySessionDetail(projectId);
+        return response.data || null;
+      } catch (err: any) {
+        // 204 No Content means no session exists
+        if (err?.response?.status === 204) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: enabled && !!projectId,
+  });
+};
+
+/**
+ * Hook to start project exploratory session
+ */
+export const useStartProjectExploratorySession = (projectId: string) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.v1ProjectsExploratorySessionCreate(projectId);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });
 };
