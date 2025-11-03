@@ -1482,7 +1482,7 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds for faster cleanup in dev mode
 	defer ticker.Stop()
 
-	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout, checks every 30s)")
+	log.Info().Msg("Starting idle external agent cleanup loop (5min timeout, checks every 30s)")
 
 	for {
 		select {
@@ -1496,9 +1496,9 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	}
 }
 
-// cleanupIdleExternalAgents terminates external agents that have been idle for >30min
+// cleanupIdleExternalAgents terminates external agents that have been idle for >5min (development)
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
-	cutoff := time.Now().Add(-30 * time.Minute) // 30 minute idle threshold
+	cutoff := time.Now().Add(-5 * time.Minute) // 5 minute idle threshold for development
 
 	// Get idle external agents (SpecTask, exploratory, and regular agent sessions)
 	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory", "agent"})
