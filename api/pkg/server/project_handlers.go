@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -152,6 +153,35 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				Str("project_id", created.ID).
 				Str("internal_repo_path", internalRepoPath).
 				Msg("Internal project repository initialized and linked")
+		}
+
+		// Create a DBGitRepository entry for the internal repo so it can be browsed
+		internalRepoID := fmt.Sprintf("%s-internal", created.ID)
+		internalRepo := &store.GitRepository{
+			ID:             internalRepoID,
+			Name:           fmt.Sprintf("%s-internal", created.Name),
+			Description:    "Internal project repository for configuration and metadata",
+			OwnerID:        user.ID,
+			OrganizationID: created.OrganizationID,
+			ProjectID:      created.ID,
+			RepoType:       "helix_hosted",
+			Status:         "ready",
+			LocalPath:      internalRepoPath,
+			DefaultBranch:  "main",
+		}
+
+		err = s.Store.CreateGitRepository(r.Context(), internalRepo)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", created.ID).
+				Msg("failed to create git repository entry for internal repo (continuing)")
+			// Continue - internal repo works without DB entry, just can't be browsed
+		} else {
+			log.Info().
+				Str("project_id", created.ID).
+				Str("internal_repo_id", internalRepoID).
+				Msg("Created git repository entry for internal repo")
 		}
 	}
 
@@ -315,28 +345,11 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Check if project has any tasks (prevent orphaning tasks)
-	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
-		ProjectID: projectID,
-		Limit:     1, // Just need to know if any exist
-	})
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("project_id", projectID).
-			Msg("failed to check project tasks")
-		return nil, system.NewHTTPError500("failed to check project tasks")
-	}
-
-	if len(tasks) > 0 {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("project_id", projectID).
-			Int("task_count", len(tasks)).
-			Msg("cannot delete project with existing tasks")
-		return nil, system.NewHTTPError400("cannot delete project with existing tasks. Please delete or archive all tasks first.")
-	}
-
+	// Soft delete the project (GORM handles this with DeletedAt field)
+	// Tasks, sessions, and agents will be orphaned but that's okay - they'll be cleaned up by:
+	// 1. Task queries filter by non-deleted projects
+	// 2. Idle agent cleanup will terminate abandoned agents
+	// 3. Sessions naturally expire or can be manually cleaned up
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {
 		log.Error().
@@ -350,7 +363,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
-		Msg("project deleted successfully")
+		Msg("project archived successfully (soft delete)")
 
 	return map[string]string{"message": "project deleted successfully"}, nil
 }

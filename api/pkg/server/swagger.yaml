@@ -1519,9 +1519,6 @@ definitions:
       app_id:
         description: 'Optional: Helix agent to use for spec generation'
         type: string
-      git_repository_id:
-        description: 'Optional: Primary git repository for this task'
-        type: string
       priority:
         type: string
       project_id:
@@ -5799,11 +5796,6 @@ definitions:
       archived:
         description: Archive to hide from main view
         type: boolean
-      attached_repositories:
-        description: Git repository attachments (multiple repos can be attached)
-        items:
-          type: integer
-        type: array
       branch_name:
         type: string
       completed_at:
@@ -5848,8 +5840,6 @@ definitions:
         type: string
       planning_session_id:
         description: Session tracking (same agent, different Helix sessions per phase)
-        type: string
-      primary_repository_id:
         type: string
       priority:
         description: '"low", "medium", "high", "critical"'
@@ -6748,18 +6738,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

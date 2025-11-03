@@ -20,10 +20,10 @@ import {
   TextField,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import FolderIcon from '@mui/icons-material/Folder'
 import SettingsIcon from '@mui/icons-material/Settings'
-import DeleteIcon from '@mui/icons-material/Delete'
+import { Kanban } from 'lucide-react'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
@@ -32,7 +32,8 @@ import useSnackbar from '../hooks/useSnackbar'
 import {
   useListProjects,
   useCreateProject,
-  useDeleteProject,
+  useListSampleProjects,
+  useInstantiateSampleProject,
   TypesProject,
 } from '../services'
 
@@ -42,14 +43,18 @@ const Projects: FC = () => {
   const snackbar = useSnackbar()
 
   const { data: projects = [], isLoading, error } = useListProjects()
+  const { data: sampleProjects = [] } = useListSampleProjects()
   const createProjectMutation = useCreateProject()
-  const deleteProjectMutation = useDeleteProject()
+  const instantiateSampleMutation = useInstantiateSampleProject()
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedProject, setSelectedProject] = useState<TypesProject | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
+
+  // New Project dropdown menu state
+  const [newProjectMenuAnchor, setNewProjectMenuAnchor] = useState<null | HTMLElement>(null)
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -97,18 +102,6 @@ const Projects: FC = () => {
     handleMenuClose()
   }
 
-  const handleDeleteProject = async () => {
-    if (!selectedProject) return
-
-    try {
-      await deleteProjectMutation.mutateAsync(selectedProject.id)
-      snackbar.success('Project deleted successfully')
-      handleMenuClose()
-    } catch (err) {
-      snackbar.error('Failed to delete project')
-    }
-  }
-
   const checkLoginStatus = (): boolean => {
     if (!account.user) {
       account.setShowLoginWindow(true)
@@ -120,6 +113,31 @@ const Projects: FC = () => {
   const handleNewProject = () => {
     if (!checkLoginStatus()) return
     setCreateDialogOpen(true)
+    setNewProjectMenuAnchor(null) // Close dropdown
+  }
+
+  const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
+    if (!checkLoginStatus()) return
+
+    try {
+      setNewProjectMenuAnchor(null) // Close dropdown
+
+      snackbar.info(`Creating ${sampleName}...`)
+
+      const result = await instantiateSampleMutation.mutateAsync({
+        sampleId,
+        request: { project_name: sampleName }, // Use sample name as default
+      })
+
+      snackbar.success('Sample project created successfully!')
+
+      // Navigate to the new project
+      if (result && result.project_id) {
+        account.orgNavigate('project-specs', { id: result.project_id })
+      }
+    } catch (err) {
+      snackbar.error('Failed to create sample project')
+    }
   }
 
   if (isLoading) {
@@ -142,14 +160,64 @@ const Projects: FC = () => {
       breadcrumbTitle="Projects"
       orgBreadcrumbs={true}
       topbarContent={(
-        <Button
-          variant="contained"
-          color="primary"
-          endIcon={<AddIcon />}
-          onClick={handleNewProject}
-        >
-          New Project
-        </Button>
+        <>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={<AddIcon />}
+            endIcon={<ArrowDropDownIcon />}
+            onClick={(e) => setNewProjectMenuAnchor(e.currentTarget)}
+          >
+            New Project
+          </Button>
+          <Menu
+            anchorEl={newProjectMenuAnchor}
+            open={Boolean(newProjectMenuAnchor)}
+            onClose={() => setNewProjectMenuAnchor(null)}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <MenuItem onClick={handleNewProject}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
+                <AddIcon fontSize="small" />
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Empty Project
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Start from scratch
+                  </Typography>
+                </Box>
+              </Box>
+            </MenuItem>
+            {sampleProjects.length > 0 && <MenuItem disabled><Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.6 }}>Sample Projects</Typography></MenuItem>}
+            {sampleProjects.map((sample) => (
+              <MenuItem
+                key={sample.id}
+                onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
+                disabled={instantiateSampleMutation.isPending}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
+                  <Kanban size={18} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {sample.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {sample.category} • {sample.difficulty}
+                    </Typography>
+                  </Box>
+                </Box>
+              </MenuItem>
+            ))}
+          </Menu>
+        </>
       )}
     >
       <Container maxWidth="lg">
@@ -162,7 +230,7 @@ const Projects: FC = () => {
 
           {projects.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
-              <FolderIcon sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
+              <Kanban size={80} color="currentColor" style={{ color: 'rgba(0, 0, 0, 0.6)', marginBottom: 16 }} />
               <Typography variant="h6" color="text.secondary" gutterBottom>
                 No projects yet
               </Typography>
@@ -185,7 +253,7 @@ const Projects: FC = () => {
                   <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     <CardContent sx={{ flexGrow: 1, cursor: 'pointer' }} onClick={() => handleViewProject(project)}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                        <FolderIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+                        <Kanban size={40} style={{ color: '#1976d2' }} />
                         <IconButton
                           size="small"
                           onClick={(e) => {
@@ -238,10 +306,6 @@ const Projects: FC = () => {
           <MenuItem onClick={handleProjectSettings}>
             <SettingsIcon sx={{ mr: 1 }} fontSize="small" />
             Settings
-          </MenuItem>
-          <MenuItem onClick={handleDeleteProject}>
-            <DeleteIcon sx={{ mr: 1 }} fontSize="small" />
-            Delete
           </MenuItem>
         </Menu>
 

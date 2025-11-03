@@ -162,7 +162,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&DBGitRepository{},
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
-		&types.PersonalDevEnvironment{},
+		&types.PersonalDevEnvironment{}, // DEPRECATED - stub for backward compatibility
 		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},

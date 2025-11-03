@@ -179,6 +179,18 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <ProjectSettings />
     ),
   }, {
+    name: namePrefix + 'project-session',
+    path: routePrefix + '/projects/:id/session/:session_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+      orgRouteAware: true,
+      title: 'Project Session',
+    },
+    render: () => (
+      <Session />
+    ),
+  }, {
     name: namePrefix + 'app',
     path: routePrefix + '/app/:app_id',
     meta: {

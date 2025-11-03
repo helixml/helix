@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -457,18 +456,20 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// Parse attached repositories
-	var repos []types.AttachedRepository
-	if len(task.AttachedRepositories) > 0 {
-		json.Unmarshal(task.AttachedRepositories, &repos)
+	// Get repositories from parent project - repos are now managed at project level
+	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
+		projectRepos = nil
 	}
 
-	// Find primary repo and task directory
-	primaryRepoPath := "backend"
-	for _, repo := range repos {
-		if repo.IsPrimary {
-			primaryRepoPath = repo.LocalPath
-			break
+	// Find primary repo path (use first repo as fallback)
+	primaryRepoPath := "backend" // Default fallback
+	if len(projectRepos) > 0 {
+		// Use LocalPath from first repo (or we could fetch project.DefaultRepoID to find the primary)
+		primaryRepoPath = projectRepos[0].LocalPath
+		if primaryRepoPath == "" {
+			primaryRepoPath = "backend" // Fallback if LocalPath not set
 		}
 	}
 
@@ -804,28 +805,43 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// Parse attached repositories
-	var repos []types.AttachedRepository
-	if len(task.AttachedRepositories) > 0 {
-		json.Unmarshal(task.AttachedRepositories, &repos)
+	// Get repositories from parent project - repos are now managed at project level
+	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
+		projectRepos = nil
 	}
 
-	// Build repository clone commands
+	// Build repository clone commands from project repos
 	repoInstructions := ""
-	if len(repos) > 0 {
+	if len(projectRepos) > 0 {
 		repoInstructions = "\n**Step 1: Clone all attached repositories**\n\n```bash\ncd /home/retro/work\n"
-		for _, repo := range repos {
+		for _, repo := range projectRepos {
 			repoInstructions += fmt.Sprintf("git clone %s %s\n", repo.CloneURL, repo.LocalPath)
 		}
 		repoInstructions += "```\n"
 	}
 
-	// Find primary repo for helix-design-docs
-	primaryRepoPath := "backend" // Default
-	for _, repo := range repos {
-		if repo.IsPrimary {
-			primaryRepoPath = repo.LocalPath
-			break
+	// Get project's primary repo (or use first repo as fallback)
+	project, projErr := o.store.GetProject(context.Background(), task.ProjectID)
+	primaryRepoPath := "backend" // Default fallback
+	if projErr == nil && len(projectRepos) > 0 {
+		// Find the primary repo
+		for _, repo := range projectRepos {
+			if repo.ID == project.DefaultRepoID {
+				primaryRepoPath = repo.LocalPath
+				if primaryRepoPath == "" {
+					primaryRepoPath = "backend"
+				}
+				break
+			}
+		}
+		// If no primary set or not found, use first repo
+		if primaryRepoPath == "backend" && len(projectRepos) > 0 {
+			primaryRepoPath = projectRepos[0].LocalPath
+			if primaryRepoPath == "" {
+				primaryRepoPath = "backend"
+			}
 		}
 	}
 

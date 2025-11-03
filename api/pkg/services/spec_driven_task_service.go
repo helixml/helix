@@ -144,19 +144,19 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 	}
 
 	task := &types.SpecTask{
-		ID:                  generateTaskID(),
-		ProjectID:           req.ProjectID,
-		Name:                generateTaskNameFromPrompt(req.Prompt),
-		Description:         req.Prompt,
-		Type:                req.Type,
-		Priority:            req.Priority,
-		Status:              types.TaskStatusBacklog,
-		OriginalPrompt:      req.Prompt,
-		CreatedBy:           req.UserID,
-		SpecAgent:           specAgent, // Set the spec agent from request or default
-		PrimaryRepositoryID: req.GitRepositoryID,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		ID:             generateTaskID(),
+		ProjectID:      req.ProjectID,
+		Name:           generateTaskNameFromPrompt(req.Prompt),
+		Description:    req.Prompt,
+		Type:           req.Type,
+		Priority:       req.Priority,
+		Status:         types.TaskStatusBacklog,
+		OriginalPrompt: req.Prompt,
+		CreatedBy:      req.UserID,
+		SpecAgent:      specAgent, // Set the spec agent from request or default
+		// Repositories inherited from parent project - no task-level repo configuration
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	// Store the task
@@ -279,38 +279,34 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
-	// Get all project repositories (not just the task's primary)
+	// Get parent project to access repository configuration
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		return
+	}
+
+	// Get all project repositories - repos are now managed entirely at project level
 	projectRepos, err := s.store.GetProjectRepositories(ctx, task.ProjectID)
 	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories, falling back to task primary repo only")
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
 		projectRepos = nil
 	}
 
-	// Build list of all repository IDs to clone
+	// Build list of all repository IDs to clone from project
 	repositoryIDs := []string{}
-	if len(projectRepos) > 0 {
-		// Use all project repositories
-		for _, repo := range projectRepos {
-			if repo.ID != "" {
-				repositoryIDs = append(repositoryIDs, repo.ID)
-			}
+	for _, repo := range projectRepos {
+		if repo.ID != "" {
+			repositoryIDs = append(repositoryIDs, repo.ID)
 		}
-	} else if task.PrimaryRepositoryID != "" {
-		// Fallback to task-level primary repository if no project repos
-		repositoryIDs = []string{task.PrimaryRepositoryID}
 	}
 
-	// Determine primary repository (task-level override or project default)
-	primaryRepoID := task.PrimaryRepositoryID
+	// Determine primary repository from project configuration
+	primaryRepoID := project.DefaultRepoID
 	if primaryRepoID == "" && len(projectRepos) > 0 {
-		// Get project's default repo if task doesn't specify one
-		project, err := s.store.GetProject(ctx, task.ProjectID)
-		if err == nil && project.DefaultRepoID != "" {
-			primaryRepoID = project.DefaultRepoID
-		} else if len(projectRepos) > 0 {
-			// Use first project repo as fallback
-			primaryRepoID = projectRepos[0].ID
-		}
+		// Use first project repo as fallback if no default set
+		primaryRepoID = projectRepos[0].ID
 	}
 
 	// Create ZedAgent struct with session info for Wolf executor
@@ -788,11 +784,11 @@ func convertPriorityToInt(priority string) int {
 
 // Request types
 type CreateTaskRequest struct {
-	ProjectID       string `json:"project_id"`
-	Prompt          string `json:"prompt"`
-	Type            string `json:"type"`
-	Priority        string `json:"priority"`
-	UserID          string `json:"user_id"`
-	AppID           string `json:"app_id"`            // Optional: Helix agent to use for spec generation
-	GitRepositoryID string `json:"git_repository_id"` // Optional: Primary git repository for this task
+	ProjectID string `json:"project_id"`
+	Prompt    string `json:"prompt"`
+	Type      string `json:"type"`
+	Priority  string `json:"priority"`
+	UserID    string `json:"user_id"`
+	AppID     string `json:"app_id"` // Optional: Helix agent to use for spec generation
+	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

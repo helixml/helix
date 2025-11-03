@@ -12206,10 +12206,6 @@ const docTemplate = `{
                     "description": "Optional: Helix agent to use for spec generation",
                     "type": "string"
                 },
-                "git_repository_id": {
-                    "description": "Optional: Primary git repository for this task",
-                    "type": "string"
-                },
                 "priority": {
                     "type": "string"
                 },
@@ -18338,13 +18334,6 @@ const docTemplate = `{
                     "description": "Archive to hide from main view",
                     "type": "boolean"
                 },
-                "attached_repositories": {
-                    "description": "Git repository attachments (multiple repos can be attached)",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
                 "branch_name": {
                     "type": "string"
                 },
@@ -18405,9 +18394,6 @@ const docTemplate = `{
                 },
                 "planning_session_id": {
                     "description": "Session tracking (same agent, different Helix sessions per phase)",
-                    "type": "string"
-                },
-                "primary_repository_id": {
                     "type": "string"
                 },
                 "priority": {
@@ -19697,18 +19683,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

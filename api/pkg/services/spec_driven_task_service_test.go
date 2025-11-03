@@ -30,6 +30,7 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		[]string{"test-zed-agent"},
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -87,6 +88,7 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 		[]string{"test-zed-agent"},
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -142,6 +144,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 		[]string{"test-zed-agent"},
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -199,6 +202,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 		[]string{"test-zed-agent"},
 		mockPubsub,
 		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -240,7 +244,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{
@@ -264,7 +268,7 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{

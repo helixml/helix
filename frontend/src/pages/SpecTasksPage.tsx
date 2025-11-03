@@ -6,24 +6,32 @@ import {
   Alert,
   Chip,
   Stack,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Drawer,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  ListSubheader,
   CircularProgress,
-  Tabs,
-  Tab,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  IconButton,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Refresh as RefreshIcon,
+  Settings as SettingsIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon,
+  Delete as DeleteIcon,
+  Link as LinkIcon,
+  Close as CloseIcon,
+  Explore as ExploreIcon,
 } from '@mui/icons-material';
+import { GitBranch } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
@@ -34,20 +42,18 @@ import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
-import { useSampleTypes } from '../hooks/useSampleTypes';
 import { useSpecTasks } from '../hooks/useSpecTasks';
-import { useGitRepositories, useCreateGitRepository, useCreateSampleRepository } from '../services/gitRepositoryService';
-import { useGetProject } from '../services';
-import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
 import {
-  SampleType,
-  getSampleTypeIcon,
-  getSampleTypeCategory,
-  isBusinessTask,
-  getBusinessTaskDescription,
-  groupSampleTypesByCategory,
-  getCategoryDisplayName
-} from '../utils/sampleTypeUtils';
+  useGetProject,
+  useGetProjectRepositories,
+  useSetProjectPrimaryRepository,
+  useAttachRepositoryToProject,
+  useDetachRepositoryFromProject,
+  useGetProjectExploratorySession,
+  useStartProjectExploratorySession,
+} from '../services';
+import { useGitRepositories } from '../services/gitRepositoryService';
+import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
 
 const SpecTasksPage: FC = () => {
   const account = useAccount();
@@ -61,6 +67,27 @@ const SpecTasksPage: FC = () => {
 
   // Fetch project data for breadcrumbs and title
   const { data: project } = useGetProject(projectId || '', !!projectId);
+
+  // Fetch project repositories for display in topbar
+  const { data: allProjectRepositories = [] } = useGetProjectRepositories(projectId || '', !!projectId);
+
+  // Separate internal repo from code repos
+  const internalRepo = allProjectRepositories.find(repo => repo.id?.endsWith('-internal'));
+  const projectRepositories = allProjectRepositories.filter(repo => !repo.id?.endsWith('-internal'));
+
+  // Repository management mutations
+  const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId || '');
+  const attachRepoMutation = useAttachRepositoryToProject(projectId || '');
+  const detachRepoMutation = useDetachRepositoryFromProject(projectId || '');
+
+  // Exploratory session hooks
+  const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId || '', !!projectId);
+  const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
+
+  // Get all user repositories for attach dialog
+  const currentOrg = account.organizationTools.organization;
+  const ownerId = currentOrg?.id || account.user?.id || '';
+  const { data: allUserRepositories = [] } = useGitRepositories(ownerId);
 
   // Redirect to projects list if no project selected (new architecture: must select project first)
   // Exception: if user is trying to create a new task (new=true param), allow it for backward compat
@@ -77,6 +104,11 @@ const SpecTasksPage: FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // Repository management dialog state
+  const [repoDialogOpen, setRepoDialogOpen] = useState(false);
+  const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false);
+  const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('');
+
   // Board WIP limits (loaded from backend, edited in Project Settings)
   const [wipLimits, setWipLimits] = useState({
     planning: 3,
@@ -88,25 +120,10 @@ const SpecTasksPage: FC = () => {
   const [taskPrompt, setTaskPrompt] = useState(''); // Single text box for everything
   const [taskPriority, setTaskPriority] = useState('medium');
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
-
-  // Repository attachment state
-  const [repoTabValue, setRepoTabValue] = useState(0); // 0 = existing, 1 = new
-  const [selectedExistingRepo, setSelectedExistingRepo] = useState('');
-  const [newRepoType, setNewRepoType] = useState('empty'); // Default to 'empty', or sample type ID
-  const [newRepoName, setNewRepoName] = useState(''); // Name for new repository
+  // Repository configuration moved to project level - no task-level repo selection needed
 
   // Data hooks
-  const { data: sampleTypes, loading: sampleTypesLoading, loadSampleTypes } = useSampleTypes();
-  const createSampleRepoMutation = useCreateSampleRepository();
   const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
-
-  // Get current org/user ID for fetching repositories
-  const currentOrg = account.organizationTools.organization;
-  const ownerId = currentOrg?.id || account.user?.id || '';
-
-  // Fetch existing repositories
-  const { data: existingRepositories = [], isLoading: repositoriesLoading } = useGitRepositories(ownerId);
-  const createGitRepoMutation = useCreateGitRepository();
 
   // Load tasks and apps on mount
   useEffect(() => {
@@ -146,20 +163,6 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, apps.apps]);
 
-  // Auto-select first repository when dialog opens
-  useEffect(() => {
-    if (createDialogOpen && !repositoriesLoading) {
-      if (existingRepositories.length > 0 && !selectedExistingRepo) {
-        // Auto-select first existing repository
-        setSelectedExistingRepo(existingRepositories[0]?.id || '');
-        setRepoTabValue(0); // Switch to existing repo tab
-      } else if (existingRepositories.length === 0) {
-        // No existing repos, default to "Create New" tab
-        setRepoTabValue(1);
-      }
-    }
-  }, [createDialogOpen, existingRepositories, repositoriesLoading]);
-
   // Load board settings on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -183,21 +186,14 @@ const SpecTasksPage: FC = () => {
     }
   }, [account.user?.id]);
 
-  // Handle URL parameters for pre-selecting repo and opening dialog
+  // Handle URL parameters for opening dialog
   useEffect(() => {
     if (router.params.new === 'true') {
       setCreateDialogOpen(true);
-
-      // Pre-select repository if repo_id is provided
-      if (router.params.repo_id) {
-        setSelectedExistingRepo(router.params.repo_id);
-        setRepoTabValue(0); // Switch to existing repo tab
-      }
-
-      // Clear URL parameters after handling them
-      router.removeParams(['new', 'repo_id']);
+      // Clear URL parameter after handling
+      router.removeParams(['new']);
     }
-  }, [router.params.new, router.params.repo_id]);
+  }, [router.params.new]);
 
   // Check authentication
   const checkLoginStatus = (): boolean => {
@@ -207,6 +203,43 @@ const SpecTasksPage: FC = () => {
     }
     return true;
   };
+
+  // Keyboard shortcut: Enter to open new task dialog
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        // Only trigger if not typing in an input field
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        if (!createDialogOpen) {
+          setCreateDialogOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [createDialogOpen]);
+
+  // Keyboard shortcut: Ctrl/Cmd+Enter to submit task (when dialog is open)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (createDialogOpen && taskPrompt.trim()) {
+          e.preventDefault();
+          handleCreateTask();
+        }
+      }
+    };
+
+    if (createDialogOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [createDialogOpen, taskPrompt]);
 
   // Handle task creation - SIMPLIFIED
   const handleCreateTask = async () => {
@@ -258,103 +291,14 @@ const SpecTasksPage: FC = () => {
         }
       }
 
-      // Handle repository attachment - MANDATORY
-      let repositoryId: string | undefined;
-
-      if (repoTabValue === 0) {
-        // Use existing repository
-        if (!selectedExistingRepo) {
-          snackbar.error('Please select a repository');
-          return;
-        }
-        repositoryId = selectedExistingRepo;
-      } else if (repoTabValue === 1) {
-        // Create new repository
-        if (!newRepoName.trim()) {
-          snackbar.error('Please enter a repository name');
-          return;
-        }
-
-        // Check if repository name already exists
-        const nameExists = existingRepositories.some((repo: any) => repo.name === newRepoName.trim());
-        if (nameExists) {
-          snackbar.error(`A repository named "${newRepoName.trim()}" already exists. Please choose a different name.`);
-          return;
-        }
-
-        if (newRepoType === 'empty') {
-          // Create empty repository
-          try {
-            snackbar.info('Creating empty repository...');
-
-            const newRepo = await createGitRepoMutation.mutateAsync({
-              name: newRepoName.trim(),
-              description: taskPrompt,
-              owner_id: ownerId,
-              repo_type: 'project',
-              default_branch: 'main',
-              metadata: {
-                kodit_indexing: true,
-              },
-            });
-
-            // Check if repository was created successfully
-            if (!newRepo || !newRepo.id) {
-              snackbar.error('Failed to create empty repository. Please try again.');
-              return;
-            }
-
-            repositoryId = newRepo.id;
-          } catch (err: any) {
-            console.error('Failed to create empty repository:', err);
-            const errorMessage = err?.response?.data?.message
-              || err?.message
-              || 'Failed to create empty repository. Please try again.';
-            snackbar.error(errorMessage);
-            return;
-          }
-        } else if (newRepoType) {
-          // Create sample repository
-          if (!newRepoName.trim()) {
-            snackbar.error('Please enter a repository name');
-            return;
-          }
-
-          try {
-            snackbar.info('Creating demo repository...');
-
-            const newRepo = await createSampleRepoMutation.mutateAsync({
-              owner_id: ownerId,
-              sample_type: newRepoType,
-              name: newRepoName.trim(),
-              kodit_indexing: true,
-            });
-
-            // Check if repository was created successfully
-            if (!newRepo || !newRepo.id) {
-              snackbar.error('Failed to create sample repository. Please try again.');
-              return;
-            }
-
-            repositoryId = newRepo.id;
-          } catch (err: any) {
-            console.error('Failed to create sample repository:', err);
-            const errorMessage = err?.response?.data?.message
-              || err?.message
-              || 'Failed to create sample repository. Please try again.';
-            snackbar.error(errorMessage);
-            return;
-          }
-        }
-      }
-
       // Create SpecTask with simplified single-field approach
+      // Repository configuration is managed at the project level - no task-level repo selection
       const createTaskRequest: ServicesCreateTaskRequest = {
         prompt: taskPrompt, // Just the raw user input!
         priority: taskPriority,
         project_id: projectId || 'default', // Use project ID from route, or 'default'
         app_id: agentId || undefined, // Include selected or created agent if provided
-        git_repository_id: repositoryId, // Attach repository if selected/created
+        // Repositories inherited from parent project - no task-level repo configuration
       };
 
       console.log('Creating SpecTask with simplified prompt:', createTaskRequest);
@@ -368,10 +312,6 @@ const SpecTasksPage: FC = () => {
         setTaskPrompt('');
         setTaskPriority('medium');
         setSelectedHelixAgent(''); // Reset agent selection
-        setRepoTabValue(0);
-        setSelectedExistingRepo('');
-        setNewRepoType('empty');
-        setNewRepoName('');
 
         // Trigger immediate refresh of Kanban board
         setRefreshTrigger(prev => prev + 1);
@@ -386,25 +326,51 @@ const SpecTasksPage: FC = () => {
     }
   };
 
-  const getSampleTypesByCategory = () => {
-    if (!sampleTypes || sampleTypes.length === 0) return { empty: [], development: [], business: [], content: [] };
-
-    const categorized = {
-      empty: [] as SampleType[],
-      development: [] as SampleType[],
-      business: [] as SampleType[],
-      content: [] as SampleType[],
-    };
-
-    sampleTypes.forEach((type: SampleType) => {
-      const category = getSampleTypeCategory(type.id || '');
-      categorized[category].push(type);
-    });
-
-    return categorized;
+  // Repository management handlers
+  const handleSetPrimaryRepo = async (repoId: string) => {
+    try {
+      await setPrimaryRepoMutation.mutateAsync(repoId);
+      snackbar.success('Primary repository updated');
+    } catch (err) {
+      snackbar.error('Failed to update primary repository');
+    }
   };
 
-  const categorizedSampleTypes = getSampleTypesByCategory();
+  const handleAttachRepository = async () => {
+    if (!selectedRepoToAttach) {
+      snackbar.error('Please select a repository');
+      return;
+    }
+
+    try {
+      await attachRepoMutation.mutateAsync(selectedRepoToAttach);
+      snackbar.success('Repository attached successfully');
+      setAttachRepoDialogOpen(false);
+      setSelectedRepoToAttach('');
+    } catch (err) {
+      snackbar.error('Failed to attach repository');
+    }
+  };
+
+  const handleDetachRepository = async (repoId: string) => {
+    try {
+      await detachRepoMutation.mutateAsync(repoId);
+      snackbar.success('Repository detached successfully');
+    } catch (err) {
+      snackbar.error('Failed to detach repository');
+    }
+  };
+
+  const handleStartExploratorySession = async () => {
+    try {
+      const session = await startExploratorySessionMutation.mutateAsync();
+      snackbar.success('Exploratory session started');
+      // Navigate to the project session page
+      account.orgNavigate('project-session', { id: projectId, session_id: session.id });
+    } catch (err) {
+      snackbar.error('Failed to start exploratory session');
+    }
+  };
 
   return (
     <Page
@@ -421,7 +387,34 @@ const SpecTasksPage: FC = () => {
       orgBreadcrumbs={true}
       showDrawerButton={false}
       topbarContent={
-        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0 }}>
+        <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
+          {/* Repository Management Button */}
+          <Button
+            variant="outlined"
+            startIcon={<GitBranch size={20} />}
+            onClick={() => setRepoDialogOpen(true)}
+            sx={{ flexShrink: 0 }}
+          >
+            Repositories ({projectRepositories.length + (internalRepo ? 1 : 0)})
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<ExploreIcon />}
+            onClick={handleStartExploratorySession}
+            disabled={startExploratorySessionMutation.isPending}
+            sx={{ flexShrink: 0 }}
+          >
+            {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<SettingsIcon />}
+            onClick={() => router.navigate('project-settings', { id: projectId })}
+            sx={{ flexShrink: 0 }}
+          >
+            Settings
+          </Button>
           <Button
             variant="outlined"
             startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
@@ -437,245 +430,428 @@ const SpecTasksPage: FC = () => {
         </Stack>
       }
     >
-      <Box sx={{ width: '100%', maxWidth: '100%', height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', overflowX: 'hidden', overflowY: 'hidden', px: 3, boxSizing: 'border-box' }}>
-        {/* Project Header */}
-        <Box sx={{ flexShrink: 0, mb: 2, minWidth: 0 }}>
-          <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
-            {project ? project.name : 'Project'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Spec Work for Agents: Create tasks, review plans, supervise execution, and provide guidance.
-          </Typography>
-        </Box>
+      {/* Three-column layout: left drawer, main content, right drawer */}
+      <Box sx={{
+        display: 'flex',
+        flexDirection: 'row',
+        width: '100%',
+        height: 'calc(100vh - 120px)',
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
 
-        {/* Kanban Board */}
-        <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
-          <SpecTaskKanbanBoard
-            userId={account.user?.id}
-            projectId={projectId}
-            onCreateTask={() => setCreateDialogOpen(true)}
-            refreshTrigger={refreshTrigger}
-            wipLimits={wipLimits}
-            repositories={existingRepositories}
-          />
-        </Box>
-      </Box>
-
-      {/* Create SpecTask Dialog - SIMPLIFIED */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* LEFT PANEL: New Spec Task - slides in from left, pushes content */}
+        <Box
+          sx={{
+            width: createDialogOpen ? { xs: '100%', sm: '500px', md: '600px' } : 0,
+            flexShrink: 0,
+            overflow: 'hidden',
+            transition: 'width 0.3s ease-in-out',
+            borderRight: createDialogOpen ? 1 : 0,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'background.paper',
+          }}
+        >
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Header */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <AddIcon />
-              New SpecTask
+              <Typography variant="h6">New SpecTask</Typography>
             </Box>
-            <FormControl size="small" sx={{ minWidth: 100 }}>
-              <InputLabel>Priority</InputLabel>
-              <Select
-                value={taskPriority}
-                onChange={(e) => setTaskPriority(e.target.value)}
-                label="Priority"
-              >
-                <MenuItem value="low">Low</MenuItem>
-                <MenuItem value="medium">Medium</MenuItem>
-                <MenuItem value="high">High</MenuItem>
-                <MenuItem value="critical">Critical</MenuItem>
-              </Select>
-            </FormControl>
+            <IconButton onClick={() => setCreateDialogOpen(false)}>
+              <CloseIcon />
+            </IconButton>
           </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={3} sx={{ mt: 1 }}>
-            {/* Single large text box for everything */}
-            <TextField
-              label="Describe what you want to get done"
-              fullWidth
-              required
-              multiline
-              rows={12}
-              value={taskPrompt}
-              onChange={(e) => setTaskPrompt(e.target.value)}
-              placeholder="Dump everything you know here - the AI will parse this into requirements, design, and implementation plan.
+
+          {/* Content */}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+            <Stack spacing={3}>
+              {/* Priority Selector */}
+              <FormControl fullWidth>
+                <InputLabel>Priority</InputLabel>
+                <Select
+                  value={taskPriority}
+                  onChange={(e) => setTaskPriority(e.target.value)}
+                  label="Priority"
+                >
+                  <MenuItem value="low">Low</MenuItem>
+                  <MenuItem value="medium">Medium</MenuItem>
+                  <MenuItem value="high">High</MenuItem>
+                  <MenuItem value="critical">Critical</MenuItem>
+                </Select>
+              </FormControl>
+
+              {/* Single large text box for everything */}
+              <TextField
+                label="Describe what you want to get done"
+                fullWidth
+                required
+                multiline
+                rows={12}
+                value={taskPrompt}
+                onChange={(e) => setTaskPrompt(e.target.value)}
+                placeholder="Dump everything you know here - the AI will parse this into requirements, design, and implementation plan.
 
 Examples:
 - Add dark mode toggle to settings page
 - Fix the user registration bug where emails aren't validated properly
 - Refactor the payment processing to use Stripe instead of PayPal"
-              helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
-              autoFocus
-            />
+                helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
+                autoFocus
+              />
 
-            {/* Repository Selection - Tabs layout */}
-            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
-                Repository <span style={{ color: 'red' }}>*</span>
-              </Typography>
+              {/* Repository configuration managed at project level - no task-level repo selection */}
 
-              <Tabs
-                value={repoTabValue}
-                onChange={(e, newValue) => {
-                  setRepoTabValue(newValue);
-                  // Reset selections when switching
-                  setSelectedExistingRepo('');
-                  setNewRepoType('empty');
-                  setNewRepoName('');
-                }}
-                sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
-              >
-                <Tab label="Use Existing Repository" />
-                <Tab label="Create New (Empty or Demo)" />
-              </Tabs>
-
-              {/* Tab Panel 0: Existing Repository */}
-              {repoTabValue === 0 && (
-                <Box sx={{ pt: 1 }}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Select Repository *</InputLabel>
-                    <Select
-                      value={selectedExistingRepo}
-                      onChange={(e) => setSelectedExistingRepo(e.target.value)}
-                      label="Select Repository *"
-                      disabled={repositoriesLoading}
-                    >
-                      {existingRepositories.map((repo: any) => (
-                        <MenuItem key={repo.id} value={repo.id}>
-                          {repo.name || repo.id}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  {!repositoriesLoading && existingRepositories.length === 0 && (
-                    <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                      No existing repositories found. Please create a new one in the "Create New" tab.
-                    </Typography>
-                  )}
-                  {!repositoriesLoading && existingRepositories.length > 0 && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                      Required: Select which repository this task will work on.
-                    </Typography>
-                  )}
-                </Box>
-              )}
-
-              {/* Tab Panel 1: Create New Repository */}
-              {repoTabValue === 1 && (
-                <Box sx={{ pt: 1 }}>
-                  <Stack spacing={2}>
-                    <FormControl fullWidth>
-                      <InputLabel>Repository Type</InputLabel>
-                      <Select
-                        value={newRepoType}
-                        onChange={(e) => {
-                          const selectedType = e.target.value;
-                          setNewRepoType(selectedType);
-
-                          // Auto-fill name for demo repositories
-                          if (selectedType !== 'empty') {
-                            const sampleType = sampleTypes.find((t: SampleType) => t.id === selectedType);
-                            if (sampleType?.name) {
-                              const autoName = sampleType.name
-                                .toLowerCase()
-                                .replace(/[^a-z0-9\s-]/g, '')
-                                .replace(/\s+/g, '-')
-                                .replace(/-+/g, '-')
-                                .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
-                              setNewRepoName(autoName);
-                            }
-                          } else {
-                            // Clear name for empty repos so user must enter it
-                            setNewRepoName('');
-                          }
-                        }}
-                        label="Repository Type"
-                        disabled={sampleTypesLoading}
-                      >
-                        <MenuItem value="empty">
-                          📄 New Empty Repository
-                        </MenuItem>
-                        <ListSubheader>Demo Repositories</ListSubheader>
-                        {sampleTypes && sampleTypes.map((type: SampleType) => (
-                          <MenuItem key={type.id} value={type.id}>
-                            {getSampleTypeIcon(type.id || '')} {type.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-
-                    <TextField
-                      label="Repository Name"
-                      fullWidth
-                      required
-                      value={newRepoName}
-                      onChange={(e) => setNewRepoName(e.target.value)}
-                      placeholder="my-project-repo"
-                      helperText={newRepoType === 'empty'
-                        ? "Enter a name for the new repository"
-                        : "Auto-filled from demo type (you can edit if needed)"}
-                    />
-
-                    <Typography variant="caption" color="text.secondary">
-                      The repository will be created when you create the SpecTask. <strong>Required.</strong>
-                    </Typography>
-                  </Stack>
-                </Box>
-              )}
-            </Box>
-
-            {/* Helix Agent Selection */}
-            <FormControl fullWidth>
-              <InputLabel>Helix Agent</InputLabel>
-              <Select
-                value={selectedHelixAgent}
-                onChange={(e) => setSelectedHelixAgent(e.target.value)}
-                label="Helix Agent"
-              >
-                {apps.apps.map((app) => (
-                  <MenuItem key={app.id} value={app.id}>
-                    {app.config?.helix?.name || app.name || 'Unnamed Agent'}
+              {/* Helix Agent Selection */}
+              <FormControl fullWidth>
+                <InputLabel>Helix Agent</InputLabel>
+                <Select
+                  value={selectedHelixAgent}
+                  onChange={(e) => setSelectedHelixAgent(e.target.value)}
+                  label="Helix Agent"
+                >
+                  {apps.apps.map((app) => (
+                    <MenuItem key={app.id} value={app.id}>
+                      {app.config?.helix?.name || app.name || 'Unnamed Agent'}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="__create_default__">
+                    <em>Create new external agent...</em>
                   </MenuItem>
-                ))}
-                <MenuItem value="__create_default__">
-                  <em>Create new external agent...</em>
-                </MenuItem>
-              </Select>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                {selectedHelixAgent === '__create_default__'
-                  ? 'A new external agent will be created when you submit this task.'
-                  : 'Select which agent will generate specifications for this task.'}
+                </Select>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                  {selectedHelixAgent === '__create_default__'
+                    ? 'A new external agent will be created when you submit this task.'
+                    : 'Select which agent will generate specifications for this task.'}
+                </Typography>
+              </FormControl>
+            </Stack>
+          </Box>
+
+          {/* Footer Actions */}
+          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button onClick={() => {
+              setCreateDialogOpen(false);
+              setTaskPrompt('');
+              setTaskPriority('medium');
+              setSelectedHelixAgent('');
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateTask}
+              variant="contained"
+              color="secondary"
+              disabled={!taskPrompt.trim()}
+              startIcon={<AddIcon />}
+              sx={{
+                '& .MuiButton-endIcon': {
+                  ml: 1,
+                  opacity: 0.6,
+                  fontSize: '0.75rem',
+                },
+              }}
+              endIcon={
+                <Box component="span" sx={{
+                  fontSize: '0.75rem',
+                  opacity: 0.6,
+                  fontFamily: 'monospace',
+                  ml: 1,
+                }}>
+                  {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                </Box>
+              }
+            >
+              Create Task
+            </Button>
+          </Box>
+        </Box>
+        </Box>
+
+        {/* CENTER: Main Content - Kanban Board shifts based on drawer states */}
+        <Box sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          overflow: 'hidden',
+          transition: 'all 0.3s ease-in-out',
+          px: 3,
+        }}>
+          {/* Project Header */}
+          <Box sx={{ flexShrink: 0, mb: 2, minWidth: 0, mt: 2 }}>
+            <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
+              {project ? project.name : 'Project'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Spec Work for Agents: Create tasks, review plans, supervise execution, and provide guidance.
+            </Typography>
+          </Box>
+
+          {/* Kanban Board */}
+          <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden' }}>
+            <SpecTaskKanbanBoard
+              userId={account.user?.id}
+              projectId={projectId}
+              onCreateTask={() => setCreateDialogOpen(true)}
+              refreshTrigger={refreshTrigger}
+              wipLimits={wipLimits}
+            />
+          </Box>
+        </Box>
+
+        {/* RIGHT PANEL: Repository Management - slides in from right, pushes content */}
+        <Box
+          sx={{
+            width: repoDialogOpen ? { xs: '100%', sm: '500px', md: '600px' } : 0,
+            flexShrink: 0,
+            overflow: 'hidden',
+            transition: 'width 0.3s ease-in-out',
+            borderLeft: repoDialogOpen ? 1 : 0,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'background.paper',
+          }}
+        >
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: { xs: '100%', sm: '500px', md: '600px' } }}>
+          {/* Header - changes based on view */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <GitBranch size={24} />
+              <Typography variant="h6">
+                {attachRepoDialogOpen ? 'Attach Repository' : 'Manage Repositories'}
               </Typography>
+            </Box>
+            <IconButton onClick={() => {
+              setRepoDialogOpen(false);
+              setAttachRepoDialogOpen(false);
+              setSelectedRepoToAttach('');
+            }}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+
+          {/* Content - conditional based on view */}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+            {!attachRepoDialogOpen ? (
+              /* MANAGE REPOSITORIES VIEW */
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Repositories attached to this project. The primary repository is opened by default when agents start. Design documents are stored in a helix-design-docs branch in the primary repository.
+                </Typography>
+
+                {/* User Code Repositories Section */}
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
+                  Code Repositories
+                </Typography>
+
+            {projectRepositories.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 4, border: 1, borderColor: 'divider', borderRadius: 1, borderStyle: 'dashed' }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  No code repositories attached yet.
+                </Typography>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setAttachRepoDialogOpen(true); // Switch to attach view, keep panel open
+                  }}
+                >
+                  Attach Repository
+                </Button>
+              </Box>
+            ) : (
+              <>
+                <List>
+                  {projectRepositories.map((repo) => (
+                    <ListItem key={repo.id} divider>
+                      <ListItemText
+                        primary={repo.name}
+                        secondary={repo.clone_url}
+                      />
+                      <ListItemSecondaryAction>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          {project?.default_repo_id === repo.id ? (
+                            <Chip
+                              icon={<StarIcon />}
+                              label="Primary"
+                              color="primary"
+                              size="small"
+                            />
+                          ) : (
+                            <IconButton
+                              onClick={() => handleSetPrimaryRepo(repo.id)}
+                              disabled={setPrimaryRepoMutation.isPending}
+                              title="Set as primary"
+                            >
+                              <StarBorderIcon />
+                            </IconButton>
+                          )}
+                          <IconButton
+                            onClick={() => handleDetachRepository(repo.id)}
+                            disabled={detachRepoMutation.isPending}
+                            title="Detach from project"
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  ))}
+                </List>
+                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setAttachRepoDialogOpen(true); // Switch to attach view, keep panel open
+                    }}
+                  >
+                    Attach Another Repository
+                  </Button>
+                </Box>
+              </>
+            )}
+
+            {/* Internal Repository Section - MOVED TO BOTTOM */}
+            {internalRepo && (
+              <>
+                <Divider sx={{ my: 3 }} />
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
+                  Internal Repository
+                </Typography>
+                <List>
+                  <ListItem
+                    sx={{
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      },
+                    }}
+                    onClick={() => {
+                      setRepoDialogOpen(false);
+                      account.orgNavigate('git-repo-detail', { repoId: internalRepo.id });
+                    }}
+                  >
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {internalRepo.name}
+                          </Typography>
+                          <Chip label="Project Config" size="small" variant="outlined" />
+                        </Box>
+                      }
+                      secondary="Stores .helix/project.json and .helix/startup.sh"
+                    />
+                  </ListItem>
+                </List>
+              </>
+            )}
+          </Box>
+        </Box>
+        </Box>
+
+      </Box>
+
+      {/* Attach Repository Drawer - TEMPORARY: Keep as overlay until integrated into right panel */}
+      <Drawer
+        anchor="right"
+        open={attachRepoDialogOpen}
+        onClose={() => {
+          setAttachRepoDialogOpen(false);
+          setSelectedRepoToAttach('');
+        }}
+        transitionDuration={150}
+        hideBackdrop={true}
+        ModalProps={{
+          keepMounted: false,
+          disableEscapeKeyDown: false,
+        }}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: { xs: '100%', sm: '400px', md: '500px' },
+            maxWidth: '100%',
+            boxShadow: 3,
+          },
+        }}
+      >
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Header */}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <LinkIcon />
+              <Typography variant="h6">Attach Repository</Typography>
+            </Box>
+            <IconButton onClick={() => {
+              setAttachRepoDialogOpen(false);
+              setSelectedRepoToAttach('');
+            }}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+
+          {/* Content */}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Select a repository from your account to attach to this project. Attached repositories will be cloned into the agent workspace when working on this project.
+            </Typography>
+            <FormControl fullWidth>
+              <InputLabel>Select Repository</InputLabel>
+              <Select
+                value={selectedRepoToAttach}
+                onChange={(e) => setSelectedRepoToAttach(e.target.value)}
+                label="Select Repository"
+              >
+                {allUserRepositories
+                  .filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id))
+                  .map((repo) => (
+                    <MenuItem key={repo.id} value={repo.id}>
+                      {repo.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+              {allUserRepositories.filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id)).length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                  All your repositories are already attached to this project.
+                </Typography>
+              )}
             </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setCreateDialogOpen(false);
-            setTaskPrompt('');
-            setTaskPriority('medium');
-            setSelectedHelixAgent('');
-            setRepoTabValue(0);
-            setSelectedExistingRepo('');
-            setNewRepoType('empty');
-            setNewRepoName('');
-          }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCreateTask}
-            variant="contained"
-            disabled={
-              !taskPrompt.trim() ||
-              createSampleRepoMutation.isPending ||
-              createGitRepoMutation.isPending ||
-              (repoTabValue === 0 && !selectedExistingRepo) ||
-              (repoTabValue === 1 && !newRepoName.trim())
-            }
-            startIcon={createSampleRepoMutation.isPending || createGitRepoMutation.isPending ? <CircularProgress size={16} /> : <AddIcon />}
-          >
-            {createSampleRepoMutation.isPending || createGitRepoMutation.isPending ? 'Creating...' : 'Create Task'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          </Box>
+
+          {/* Footer Actions */}
+          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button
+              onClick={() => {
+                setAttachRepoDialogOpen(false);
+                setSelectedRepoToAttach('');
+                setRepoDialogOpen(true); // Go back to manage repositories drawer
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAttachRepository}
+              variant="contained"
+              color="secondary"
+              disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
+              startIcon={attachRepoMutation.isPending ? <CircularProgress size={16} /> : <LinkIcon />}
+            >
+              {attachRepoMutation.isPending ? 'Attaching...' : 'Attach Repository'}
+            </Button>
+          </Box>
+        </Box>
+      </Drawer>
 
     </Page>
   );

@@ -556,26 +556,37 @@ const Home: FC = () => {
                   sx={{
                     display: 'flex',
                     flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     mb: 1,
                     mt: 3,
                   }}
                 >
-                  <Typography
-                    sx={{
-                      color: '#fff',
-                      fontSize: '1.1rem',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                      },
-                    }}
-                    onClick={() => account.orgNavigate('projects')}
-                  >
-                    Projects
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                    <Typography
+                      sx={{
+                        color: '#fff',
+                        fontSize: '1.1rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                        },
+                      }}
+                      onClick={() => account.orgNavigate('projects')}
+                    >
+                      Projects
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: 'rgba(255, 255, 255, 0.4)',
+                        fontSize: '0.85rem',
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      A Kanban board for your agents
+                    </Typography>
+                  </Box>
                 </Row>
                 <Row
                   sx={{
@@ -587,75 +598,119 @@ const Home: FC = () => {
                   }}
                 >
                   <Grid container spacing={1} justifyContent="left">
-                    {projects.length === 0 ? (
-                      <Grid item xs={12}>
+                    {
+                      [...projects]
+                        .sort((a, b) => new Date(b.updated || b.created).getTime() - new Date(a.updated || a.created).getTime())
+                        .slice(0, 5)
+                        .map((project) => (
+                          <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={project.id}>
+                            <Box
+                              sx={{
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                p: 1.5,
+                                pb: 0.5,
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                },
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: 1,
+                                width: '100%',
+                                minWidth: 0,
+                              }}
+                              onClick={() => account.orgNavigate('project-specs', { id: project.id })}
+                            >
+                              <Avatar
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                  color: '#fff',
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                {project.name && project.name.length > 0
+                                  ? project.name[0].toUpperCase()
+                                  : 'P'}
+                              </Avatar>
+                              <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
+                                <Typography sx={{
+                                  color: '#fff',
+                                  fontSize: '0.95rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 'bold',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  width: '100%',
+                                }}>
+                                  {project.name}
+                                </Typography>
+                                <Typography variant="caption" sx={{
+                                  color: 'rgba(255, 255, 255, 0.5)',
+                                  fontSize: '0.8rem',
+                                  lineHeight: 1.2,
+                                }}>
+                                  {getTimeAgo(new Date(project.updated || project.created))}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Grid>
+                        ))
+                    }
+                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
+                      <Box
+                        sx={{
+                          borderRadius: '12px',
+                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          p: 1.5,
+                          pb: 0.5,
+                          cursor: 'pointer',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          },
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 1,
+                        }}
+                        onClick={() => account.orgNavigate('projects')}
+                      >
                         <Box
-                          onClick={() => account.orgNavigate('projects')}
                           sx={{
-                            cursor: 'pointer',
-                            p: 2,
-                            border: '1px dashed rgba(255, 255, 255, 0.3)',
-                            borderRadius: 1,
-                            textAlign: 'center',
-                            '&:hover': {
-                              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                            },
+                            width: 28,
+                            height: 28,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '50%',
+                            backgroundColor: 'rgb(0, 153, 255)',
                           }}
                         >
-                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
-                            Create your first project
+                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
+                        </Box>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography sx={{
+                            color: '#fff',
+                            fontSize: '0.95rem',
+                            lineHeight: 1.2,
+                            fontWeight: 'bold',
+                          }}>
+                            New project
+                          </Typography>
+                          <Typography variant="caption" sx={{
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            fontSize: '0.8rem',
+                            lineHeight: 1.2,
+                          }}>
+                            &nbsp;
                           </Typography>
                         </Box>
-                      </Grid>
-                    ) : (
-                      projects.slice(0, 6).map((project) => (
-                        <Grid item key={project.id}>
-                          <Box
-                            onClick={() => account.orgNavigate('project-specs', { id: project.id })}
-                            sx={{
-                              cursor: 'pointer',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'flex-start',
-                              justifyContent: 'center',
-                              p: 1.5,
-                              minWidth: 120,
-                              maxWidth: 160,
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
-                              borderRadius: 1,
-                              backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                              '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                                borderColor: 'rgba(255, 255, 255, 0.4)',
-                              },
-                            }}
-                          >
-                            <Typography sx={{
-                              color: '#fff',
-                              fontSize: '0.9rem',
-                              fontWeight: 500,
-                              mb: 0.5,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              width: '100%',
-                            }}>
-                              {project.name}
-                            </Typography>
-                            <Typography variant="caption" sx={{
-                              color: 'rgba(255, 255, 255, 0.5)',
-                              fontSize: '0.75rem',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              width: '100%',
-                            }}>
-                              {project.status || 'active'}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      ))
-                    )}
+                      </Box>
+                    </Grid>
                   </Grid>
                 </Row>
 
@@ -664,26 +719,37 @@ const Home: FC = () => {
                   sx={{
                     display: 'flex',
                     flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     mb: 1,
                     mt: 3,
                   }}
                 >
-                  <Typography
-                    sx={{
-                      color: '#fff',
-                      fontSize: '1.1rem',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                      },
-                    }}
-                    onClick={() => account.orgNavigate('tasks')}
-                  >
-                    Tasks
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                    <Typography
+                      sx={{
+                        color: '#fff',
+                        fontSize: '1.1rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                        },
+                      }}
+                      onClick={() => account.orgNavigate('tasks')}
+                    >
+                      Tasks
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: 'rgba(255, 255, 255, 0.4)',
+                        fontSize: '0.85rem',
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Run prompts in agents at scheduled times
+                    </Typography>
+                  </Box>
                 </Row>
                 <Row
                   sx={{
@@ -826,26 +892,37 @@ const Home: FC = () => {
                   sx={{
                     display: 'flex',
                     flexDirection: 'row',
-                    alignItems: 'left',
-                    justifyContent: 'left',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     mb: 1,
                     mt: 3,
                   }}
                 >
-                  <Typography
-                    sx={{
-                      color: '#fff',
-                      fontSize: '1.1rem',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        textDecoration: 'underline',
-                      },
-                    }}
-                    onClick={() => account.orgNavigate('apps')}
-                  >
-                    Agents
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                    <Typography
+                      sx={{
+                        color: '#fff',
+                        fontSize: '1.1rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          textDecoration: 'underline',
+                        },
+                      }}
+                      onClick={() => account.orgNavigate('apps')}
+                    >
+                      Agents
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: 'rgba(255, 255, 255, 0.4)',
+                        fontSize: '0.85rem',
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Models, knowledge, and skills and test them together with prompts
+                    </Typography>
+                  </Box>
                 </Row>
                 <Row
                   sx={{

@@ -10,34 +10,36 @@ import (
 
 // GitRepository is a simple DTO for git repository data to avoid circular imports
 type GitRepository struct {
-	ID            string
-	Name          string
-	Description   string
-	OwnerID       string
-	ProjectID     string
-	SpecTaskID    string
-	RepoType      string
-	Status        string
-	CloneURL      string
-	LocalPath     string
-	DefaultBranch string
-	LastActivity  time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Metadata      map[string]interface{}
+	ID             string
+	Name           string
+	Description    string
+	OwnerID        string
+	OrganizationID string
+	ProjectID      string
+	SpecTaskID     string
+	RepoType       string
+	Status         string
+	CloneURL       string
+	LocalPath      string
+	DefaultBranch  string
+	LastActivity   time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Metadata       map[string]interface{}
 }
 
 // DBGitRepository represents a git repository stored in the database
 // Supports both Helix-hosted repositories and external repositories (GitHub, GitLab, ADO, etc.)
 type DBGitRepository struct {
-	ID            string    `gorm:"type:varchar(255);primaryKey"`
-	Name          string    `gorm:"type:varchar(255);not null;index"`
-	Description   string    `gorm:"type:text"`
-	OwnerID       string    `gorm:"type:varchar(255);not null;index"`
-	ProjectID     string    `gorm:"type:varchar(255);index"`
-	SpecTaskID    string    `gorm:"type:varchar(255);index"`
-	RepoType      string    `gorm:"type:varchar(50);not null;index"`
-	Status        string    `gorm:"type:varchar(50);not null"`
+	ID             string    `gorm:"type:varchar(255);primaryKey"`
+	Name           string    `gorm:"type:varchar(255);not null;index"`
+	Description    string    `gorm:"type:text"`
+	OwnerID        string    `gorm:"type:varchar(255);not null;index"`
+	OrganizationID string    `gorm:"type:varchar(255);index"` // Organization ID - will be backfilled for existing repos
+	ProjectID      string    `gorm:"type:varchar(255);index"`
+	SpecTaskID     string    `gorm:"type:varchar(255);index"`
+	RepoType       string    `gorm:"type:varchar(50);not null;index"`
+	Status         string    `gorm:"type:varchar(50);not null"`
 	CloneURL      string    `gorm:"type:text"` // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
 	LocalPath     string    `gorm:"type:text"` // Local filesystem path for Helix-hosted repos (empty for external)
 	DefaultBranch string    `gorm:"type:varchar(100)"`
@@ -107,6 +109,7 @@ func (s *PostgresStore) CreateGitRepository(ctx context.Context, repo *GitReposi
 		Name:           repo.Name,
 		Description:    repo.Description,
 		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
 		ProjectID:      repo.ProjectID,
 		SpecTaskID:     repo.SpecTaskID,
 		RepoType:       repo.RepoType,
@@ -166,21 +169,22 @@ func (s *PostgresStore) GetGitRepository(ctx context.Context, id string) (*GitRe
 	metadata["kodit_indexing"] = dbRepo.KoditIndexing
 
 	return &GitRepository{
-		ID:            dbRepo.ID,
-		Name:          dbRepo.Name,
-		Description:   dbRepo.Description,
-		OwnerID:       dbRepo.OwnerID,
-		ProjectID:     dbRepo.ProjectID,
-		SpecTaskID:    dbRepo.SpecTaskID,
-		RepoType:      dbRepo.RepoType,
-		Status:        dbRepo.Status,
-		CloneURL:      dbRepo.CloneURL,
-		LocalPath:     dbRepo.LocalPath,
-		DefaultBranch: dbRepo.DefaultBranch,
-		LastActivity:  dbRepo.LastActivity,
-		CreatedAt:     dbRepo.CreatedAt,
-		UpdatedAt:     dbRepo.UpdatedAt,
-		Metadata:      metadata,
+		ID:             dbRepo.ID,
+		Name:           dbRepo.Name,
+		Description:    dbRepo.Description,
+		OwnerID:        dbRepo.OwnerID,
+		OrganizationID: dbRepo.OrganizationID,
+		ProjectID:      dbRepo.ProjectID,
+		SpecTaskID:     dbRepo.SpecTaskID,
+		RepoType:       dbRepo.RepoType,
+		Status:         dbRepo.Status,
+		CloneURL:       dbRepo.CloneURL,
+		LocalPath:      dbRepo.LocalPath,
+		DefaultBranch:  dbRepo.DefaultBranch,
+		LastActivity:   dbRepo.LastActivity,
+		CreatedAt:      dbRepo.CreatedAt,
+		UpdatedAt:      dbRepo.UpdatedAt,
+		Metadata:       metadata,
 	}, nil
 }
 
@@ -225,21 +229,22 @@ func (s *PostgresStore) ListGitRepositories(ctx context.Context, ownerID string)
 		metadata["kodit_indexing"] = dbRepo.KoditIndexing
 
 		repos[i] = &GitRepository{
-			ID:            dbRepo.ID,
-			Name:          dbRepo.Name,
-			Description:   dbRepo.Description,
-			OwnerID:       dbRepo.OwnerID,
-			ProjectID:     dbRepo.ProjectID,
-			SpecTaskID:    dbRepo.SpecTaskID,
-			RepoType:      dbRepo.RepoType,
-			Status:        dbRepo.Status,
-			CloneURL:      dbRepo.CloneURL,
-			LocalPath:     dbRepo.LocalPath,
-			DefaultBranch: dbRepo.DefaultBranch,
-			LastActivity:  dbRepo.LastActivity,
-			CreatedAt:     dbRepo.CreatedAt,
-			UpdatedAt:     dbRepo.UpdatedAt,
-			Metadata:      metadata,
+			ID:             dbRepo.ID,
+			Name:           dbRepo.Name,
+			Description:    dbRepo.Description,
+			OwnerID:        dbRepo.OwnerID,
+			OrganizationID: dbRepo.OrganizationID,
+			ProjectID:      dbRepo.ProjectID,
+			SpecTaskID:     dbRepo.SpecTaskID,
+			RepoType:       dbRepo.RepoType,
+			Status:         dbRepo.Status,
+			CloneURL:       dbRepo.CloneURL,
+			LocalPath:      dbRepo.LocalPath,
+			DefaultBranch:  dbRepo.DefaultBranch,
+			LastActivity:   dbRepo.LastActivity,
+			CreatedAt:      dbRepo.CreatedAt,
+			UpdatedAt:      dbRepo.UpdatedAt,
+			Metadata:       metadata,
 		}
 	}
 
@@ -290,6 +295,7 @@ func (s *PostgresStore) UpdateGitRepository(ctx context.Context, repo *GitReposi
 		Name:           repo.Name,
 		Description:    repo.Description,
 		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
 		ProjectID:      repo.ProjectID,
 		SpecTaskID:     repo.SpecTaskID,
 		RepoType:       repo.RepoType,

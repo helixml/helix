@@ -237,7 +237,7 @@ interface SpecTaskKanbanBoardProps {
     review: number;
     implementation: number;
   };
-  repositories?: any[]; // List of git repositories for display
+  // repositories prop removed - repos are now managed at project level
 }
 
 const DroppableColumn: React.FC<{
@@ -246,8 +246,7 @@ const DroppableColumn: React.FC<{
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
   theme: any;
-  repositories: any[];
-}> = ({ column, columns, onStartPlanning, onArchiveTask, theme, repositories }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, theme }): JSX.Element => {
   const router = useRouter();
 
   // Simplified - no drag and drop, no complex interactions
@@ -303,22 +302,9 @@ const DroppableColumn: React.FC<{
               </Tooltip>
             </Box>
 
-            {/* Repository and session chips */}
-            {(task.primary_repository_id || (task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
+            {/* Session chips - repositories managed at project level */}
+            {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
-                {task.primary_repository_id && repositories && (() => {
-                  const repo = repositories.find((r: any) => r.id === task.primary_repository_id);
-                  return repo ? (
-                    <Chip
-                      size="small"
-                      icon={<GitIcon fontSize="small" />}
-                      label={repo.name || repo.id}
-                      variant="outlined"
-                      sx={{ fontSize: '0.75rem' }}
-                    />
-                  ) : null;
-                })()}
-
                 {(task.activeSessionsCount ?? 0) > 0 && (
                   <Chip
                     size="small"
@@ -437,7 +423,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   onCreateTask,
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
-  repositories = [],
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -1232,9 +1217,30 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           {onCreateTask && (
             <Button
               variant="contained"
-              color="primary"
+              color="secondary"
               startIcon={<AddIcon />}
               onClick={onCreateTask}
+              sx={{
+                '& .MuiButton-endIcon': {
+                  ml: 1,
+                  opacity: 0.7,
+                  fontSize: '0.75rem',
+                },
+              }}
+              endIcon={
+                <Box component="span" sx={{
+                  fontSize: '0.75rem',
+                  opacity: 0.7,
+                  fontFamily: 'monospace',
+                  ml: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: '4px',
+                }}>
+                  ↵
+                </Box>
+              }
             >
               New SpecTask
             </Button>
@@ -1262,7 +1268,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onStartPlanning={handleStartPlanning}
             onArchiveTask={handleArchiveTask}
             theme={theme}
-            repositories={repositories}
           />
         ))}
       </Box>
