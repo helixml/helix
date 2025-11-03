@@ -30,6 +30,7 @@ import {
   Link as LinkIcon,
   Close as CloseIcon,
   Explore as ExploreIcon,
+  Stop as StopIcon,
 } from '@mui/icons-material';
 import { GitBranch } from 'lucide-react';
 
@@ -423,27 +424,48 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
-          <Button
-            variant="outlined"
-            color="secondary"
-            startIcon={<ExploreIcon />}
-            onClick={handleStartExploratorySession}
-            disabled={startExploratorySessionMutation.isPending}
-            sx={{ flexShrink: 0 }}
-          >
-            {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
-          </Button>
-          {exploratorySessionData && (
+          {!exploratorySessionData ? (
             <Button
               variant="outlined"
               color="secondary"
-              startIcon={<RefreshIcon />}
+              startIcon={<ExploreIcon />}
               onClick={handleStartExploratorySession}
               disabled={startExploratorySessionMutation.isPending}
               sx={{ flexShrink: 0 }}
             >
-              {startExploratorySessionMutation.isPending ? 'Restarting...' : 'Restart Session'}
+              {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
             </Button>
+          ) : (
+            <>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<ExploreIcon />}
+                onClick={() => account.orgNavigate('project-session', { id: projectId, session_id: exploratorySessionData.id })}
+                sx={{ flexShrink: 0 }}
+              >
+                View Session
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<StopIcon />}
+                onClick={() => snackbar.info('Stop session functionality coming soon')}
+                sx={{ flexShrink: 0 }}
+              >
+                Stop Session
+              </Button>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<RefreshIcon />}
+                onClick={handleStartExploratorySession}
+                disabled={startExploratorySessionMutation.isPending}
+                sx={{ flexShrink: 0 }}
+              >
+                {startExploratorySessionMutation.isPending ? 'Starting...' : 'New Session'}
+              </Button>
+            </>
           )}
           <Button
             variant="outlined"
