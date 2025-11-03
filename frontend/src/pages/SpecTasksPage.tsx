@@ -423,14 +423,17 @@ const SpecTasksPage: FC = () => {
   };
 
   const handleResumeExploratorySession = async (e: React.MouseEvent) => {
+    if (!exploratorySessionData) return;
+
     try {
-      const session = await startExploratorySessionMutation.mutateAsync();
+      // Call the resume endpoint to restart the stopped Wolf container
+      await api.post(`/api/v1/sessions/${exploratorySessionData.id}/resume`);
       snackbar.success('Exploratory session resumed');
-      // Open floating window instead of navigating
+      // Open floating window
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
-        sessionId: session.id,
-        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+        sessionId: exploratorySessionData.id,
+        wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
       }, { x: e.clientX, y: e.clientY });
     } catch (err) {
       snackbar.error('Failed to resume exploratory session');
