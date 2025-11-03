@@ -220,6 +220,46 @@ func (s *HelixAPIServer) instantiateSampleProject(_ http.ResponseWriter, r *http
 		}
 	}
 
+	// Create GitRepository entry for external GitHub repository
+	if sample.RepositoryURL != "" && sample.RepositoryURL != "https://github.com/helixml/sample-todo-app" {
+		externalRepoID := fmt.Sprintf("%s-external", created.ID)
+		externalRepo := &store.GitRepository{
+			ID:             externalRepoID,
+			Name:           created.Name, // Use project name
+			Description:    fmt.Sprintf("External repository for %s", created.Name),
+			OwnerID:        user.ID,
+			OrganizationID: created.OrganizationID,
+			ProjectID:      created.ID,
+			RepoType:       "project",
+			Status:         "ready",
+			CloneURL:       sample.RepositoryURL,
+			LocalPath:      "", // External repos don't have local paths
+			DefaultBranch:  "main",
+			IsExternal:     true,
+			ExternalURL:    sample.RepositoryURL,
+			ExternalType:   "github",
+			MetadataJSON:   "{}",
+		}
+
+		err = s.Store.CreateGitRepository(r.Context(), externalRepo)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", created.ID).
+				Str("repository_url", sample.RepositoryURL).
+				Msg("failed to create git repository entry for external repo (continuing)")
+		} else {
+			// Set as default repository for the project
+			created.DefaultRepoID = externalRepoID
+			if err := s.Store.UpdateProject(r.Context(), created); err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to set default repository for project")
+			}
+		}
+	}
+
 	// Parse sample tasks and create spec tasks
 	var sampleTasks []types.SampleProjectTask
 	if sample.SampleTasks != nil {

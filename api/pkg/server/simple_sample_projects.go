@@ -444,6 +444,51 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// Create GitRepository entry for external GitHub repository
+	if sampleProject.GitHubRepo != "" {
+		// Convert GitHub repo format (org/repo) to clone URL
+		cloneURL := fmt.Sprintf("https://github.com/%s.git", sampleProject.GitHubRepo)
+		externalURL := fmt.Sprintf("https://github.com/%s", sampleProject.GitHubRepo)
+
+		externalRepoID := fmt.Sprintf("%s-external", createdProject.ID)
+		externalRepo := &store.GitRepository{
+			ID:             externalRepoID,
+			Name:           createdProject.Name, // Use project name
+			Description:    fmt.Sprintf("External repository for %s", createdProject.Name),
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "project",
+			Status:         "ready",
+			CloneURL:       cloneURL,
+			LocalPath:      "", // External repos don't have local paths
+			DefaultBranch:  sampleProject.DefaultBranch,
+			IsExternal:     true,
+			ExternalURL:    externalURL,
+			ExternalType:   "github",
+			MetadataJSON:   "{}",
+		}
+
+		err = s.Store.CreateGitRepository(ctx, externalRepo)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("github_repo", sampleProject.GitHubRepo).
+				Msg("failed to create git repository entry for external repo (continuing)")
+		} else {
+			// Set as default repository for the project
+			createdProject.DefaultRepoID = externalRepoID
+			err = s.Store.UpdateProject(ctx, createdProject)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", createdProject.ID).
+					Msg("failed to set default repository for project")
+			}
+		}
+	}
+
 	// Create spec-driven tasks from the natural language prompts
 	tasksCreated := 0
 	for _, taskPrompt := range sampleProject.TaskPrompts {
