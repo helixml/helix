@@ -1868,6 +1868,29 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Str("wolf_lobby_id", response.WolfLobbyID).
 		Msg("External agent session resumed successfully")
 
+	// If session has a ZedThreadID, send open_thread command to Zed
+	// This tells Zed to open the last thread in the AgentPanel UI
+	if session.Metadata.ZedThreadID != "" {
+		go func() {
+			// Wait a bit for Zed WebSocket to connect
+			time.Sleep(2 * time.Second)
+
+			err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", id).
+					Str("thread_id", session.Metadata.ZedThreadID).
+					Msg("Failed to send open_thread command to Zed")
+			} else {
+				log.Info().
+					Str("session_id", id).
+					Str("thread_id", session.Metadata.ZedThreadID).
+					Msg("✅ Sent open_thread command to Zed")
+			}
+		}()
+	}
+
 	// Return success response
 	result := types.SessionResumeResponse{
 		SessionID:     id,
@@ -1879,6 +1902,36 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(result)
+}
+
+// sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
+// to tell it to open a specific thread in the AgentPanel UI
+func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string) error {
+	// Find the external agent WebSocket connection
+	conn, exists := s.externalAgentWSManager.getConnection(sessionID)
+	if !exists {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	// Create the open_thread command
+	command := types.ExternalAgentCommand{
+		Type: "open_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": acpThreadID,
+		},
+	}
+
+	// Send the command via WebSocket
+	select {
+	case conn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("acp_thread_id", acpThreadID).
+			Msg("📤 Queued open_thread command for Zed")
+		return nil
+	default:
+		return fmt.Errorf("send channel full for session %s", sessionID)
+	}
 }
 
 // getSessionIdleStatus godoc
@@ -1944,8 +1997,8 @@ func (s *HelixAPIServer) getSessionIdleStatus(_ http.ResponseWriter, req *http.R
 		willTerminateIn = 0
 	}
 
-	// Show warning when 5 minutes or less remaining
-	warningThreshold := willTerminateIn <= 5 && willTerminateIn > 0
+	// Show warning when 25 minutes or less remaining (for easy testing visibility)
+	warningThreshold := willTerminateIn <= 25 && willTerminateIn > 0
 
 	return &types.SessionIdleStatus{
 		HasExternalAgent: true,
