@@ -26,9 +26,8 @@ type SpecTask struct {
 	// NEW: Single Helix Agent for entire workflow (App type in code)
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
-	// Git repository attachments (multiple repos can be attached)
-	AttachedRepositories datatypes.JSON `json:"attached_repositories,omitempty" gorm:"type:jsonb"`
-	PrimaryRepositoryID  string         `json:"primary_repository_id,omitempty" gorm:"size:255;index"`
+	// Git repository attachments: REMOVED - now inherited from parent Project
+	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
 	// Session tracking (same agent, different Helix sessions per phase)
 	PlanningSessionID        string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
@@ -175,14 +174,6 @@ type SpecApprovalResponse struct {
 	Changes    []string  `json:"changes,omitempty"` // Specific requested changes
 	ApprovedBy string    `json:"approved_by"`
 	ApprovedAt time.Time `json:"approved_at"`
-}
-
-// AttachedRepository represents a git repository attached to a SpecTask
-type AttachedRepository struct {
-	RepositoryID string `json:"repository_id"`
-	CloneURL     string `json:"clone_url"`
-	LocalPath    string `json:"local_path"` // Where to clone in workspace (e.g., "backend", "frontend")
-	IsPrimary    bool   `json:"is_primary"` // Primary repo hosts helix-design-docs branch
 }
 
 // SpecTaskExternalAgent represents the external agent (Wolf container) for a SpecTask

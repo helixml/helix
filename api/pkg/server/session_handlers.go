@@ -1819,14 +1819,13 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 						}
 					}
 
-					// Set primary repository
-					agent.PrimaryRepositoryID = specTask.PrimaryRepositoryID
-					if agent.PrimaryRepositoryID == "" {
-						// Fall back to project's default repo
-						project, err := s.Controller.Options.Store.GetProject(ctx, specTask.ProjectID)
-						if err == nil && project.DefaultRepoID != "" {
-							agent.PrimaryRepositoryID = project.DefaultRepoID
-						}
+					// Set primary repository from project (repos are now managed at project level)
+					project, err := s.Controller.Options.Store.GetProject(ctx, specTask.ProjectID)
+					if err == nil && project.DefaultRepoID != "" {
+						agent.PrimaryRepositoryID = project.DefaultRepoID
+					} else if len(projectRepos) > 0 {
+						// Use first repo as fallback if no default set
+						agent.PrimaryRepositoryID = projectRepos[0].ID
 					}
 				}
 			}

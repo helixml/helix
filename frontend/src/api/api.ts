@@ -937,8 +937,6 @@ export enum ServicesCoordinationEventType {
 export interface ServicesCreateTaskRequest {
   /** Optional: Helix agent to use for spec generation */
   app_id?: string;
-  /** Optional: Primary git repository for this task */
-  git_repository_id?: string;
   priority?: string;
   project_id?: string;
   prompt?: string;
@@ -3359,8 +3357,6 @@ export interface TypesSpecApprovalResponse {
 export interface TypesSpecTask {
   /** Archive to hide from main view */
   archived?: boolean;
-  /** Git repository attachments (multiple repos can be attached) */
-  attached_repositories?: number[];
   branch_name?: string;
   completed_at?: string;
   created_at?: string;
@@ -3385,7 +3381,6 @@ export interface TypesSpecTask {
   original_prompt?: string;
   /** Session tracking (same agent, different Helix sessions per phase) */
   planning_session_id?: string;
-  primary_repository_id?: string;
   /** "low", "medium", "high", "critical" */
   priority?: string;
   project_id?: string;
@@ -3896,11 +3891,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {

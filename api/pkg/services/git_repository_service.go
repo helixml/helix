@@ -31,22 +31,23 @@ type GitRepositoryService struct {
 
 // GitRepository represents a git repository hosted on the server
 type GitRepository struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	OwnerID       string                 `json:"owner_id"`
-	ProjectID     string                 `json:"project_id,omitempty"`
-	SpecTaskID    string                 `json:"spec_task_id,omitempty"`
-	RepoType      GitRepositoryType      `json:"repo_type"`
-	Status        GitRepositoryStatus    `json:"status"`
-	CloneURL      string                 `json:"clone_url"`
-	LocalPath     string                 `json:"local_path"`
-	DefaultBranch string                 `json:"default_branch"`
-	Branches      []string               `json:"branches,omitempty"`
-	LastActivity  time.Time              `json:"last_activity"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	OwnerID        string                 `json:"owner_id"`
+	OrganizationID string                 `json:"organization_id,omitempty"`
+	ProjectID      string                 `json:"project_id,omitempty"`
+	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
+	RepoType       GitRepositoryType      `json:"repo_type"`
+	Status         GitRepositoryStatus    `json:"status"`
+	CloneURL       string                 `json:"clone_url"`
+	LocalPath      string                 `json:"local_path"`
+	DefaultBranch  string                 `json:"default_branch"`
+	Branches       []string               `json:"branches,omitempty"`
+	LastActivity   time.Time              `json:"last_activity"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GitRepositoryType defines the type of repository
@@ -70,15 +71,16 @@ const (
 
 // GitRepositoryCreateRequest represents a request to create a new repository
 type GitRepositoryCreateRequest struct {
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	RepoType      GitRepositoryType      `json:"repo_type"`
-	OwnerID       string                 `json:"owner_id"`
-	ProjectID     string                 `json:"project_id,omitempty"`
-	SpecTaskID    string                 `json:"spec_task_id,omitempty"`
-	InitialFiles  map[string]string      `json:"initial_files,omitempty"`
-	DefaultBranch string                 `json:"default_branch,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	RepoType       GitRepositoryType      `json:"repo_type"`
+	OwnerID        string                 `json:"owner_id"`
+	OrganizationID string                 `json:"organization_id,omitempty"` // Organization ID - required for access control
+	ProjectID      string                 `json:"project_id,omitempty"`
+	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
+	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
+	DefaultBranch  string                 `json:"default_branch,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GitRepositoryUpdateRequest represents a request to update a repository
@@ -93,41 +95,43 @@ type GitRepositoryUpdateRequest struct {
 // toStoreGitRepository converts services.GitRepository to store.GitRepository
 func toStoreGitRepository(repo *GitRepository) *store.GitRepository {
 	return &store.GitRepository{
-		ID:            repo.ID,
-		Name:          repo.Name,
-		Description:   repo.Description,
-		OwnerID:       repo.OwnerID,
-		ProjectID:     repo.ProjectID,
-		SpecTaskID:    repo.SpecTaskID,
-		RepoType:      string(repo.RepoType),
-		Status:        string(repo.Status),
-		CloneURL:      repo.CloneURL,
-		LocalPath:     repo.LocalPath,
-		DefaultBranch: repo.DefaultBranch,
-		LastActivity:  repo.LastActivity,
-		CreatedAt:     repo.CreatedAt,
-		UpdatedAt:     repo.UpdatedAt,
-		Metadata:      repo.Metadata,
+		ID:             repo.ID,
+		Name:           repo.Name,
+		Description:    repo.Description,
+		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
+		ProjectID:      repo.ProjectID,
+		SpecTaskID:     repo.SpecTaskID,
+		RepoType:       string(repo.RepoType),
+		Status:         string(repo.Status),
+		CloneURL:       repo.CloneURL,
+		LocalPath:      repo.LocalPath,
+		DefaultBranch:  repo.DefaultBranch,
+		LastActivity:   repo.LastActivity,
+		CreatedAt:      repo.CreatedAt,
+		UpdatedAt:      repo.UpdatedAt,
+		Metadata:       repo.Metadata,
 	}
 }
 
 // fromStoreGitRepository converts store.GitRepository to services.GitRepository
 func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
 	return &GitRepository{
-		ID:            repo.ID,
-		Name:          repo.Name,
-		Description:   repo.Description,
-		OwnerID:       repo.OwnerID,
-		ProjectID:     repo.ProjectID,
-		SpecTaskID:    repo.SpecTaskID,
-		RepoType:      GitRepositoryType(repo.RepoType),
-		Status:        GitRepositoryStatus(repo.Status),
-		CloneURL:      repo.CloneURL,
-		LocalPath:     repo.LocalPath,
-		DefaultBranch: repo.DefaultBranch,
-		LastActivity:  repo.LastActivity,
-		CreatedAt:     repo.CreatedAt,
-		UpdatedAt:     repo.UpdatedAt,
+		ID:             repo.ID,
+		Name:           repo.Name,
+		Description:    repo.Description,
+		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
+		ProjectID:      repo.ProjectID,
+		SpecTaskID:     repo.SpecTaskID,
+		RepoType:       GitRepositoryType(repo.RepoType),
+		Status:         GitRepositoryStatus(repo.Status),
+		CloneURL:       repo.CloneURL,
+		LocalPath:      repo.LocalPath,
+		DefaultBranch:  repo.DefaultBranch,
+		LastActivity:   repo.LastActivity,
+		CreatedAt:      repo.CreatedAt,
+		UpdatedAt:      repo.UpdatedAt,
 		Metadata:      repo.Metadata,
 	}
 }
@@ -208,6 +212,28 @@ func (s *GitRepositoryService) CreateRepository(
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
 
+	// Resolve organization ID
+	orgID := request.OrganizationID
+	if orgID == "" {
+		// If attached to a project, use project's organization
+		if request.ProjectID != "" {
+			project, err := s.store.GetProject(ctx, request.ProjectID)
+			if err == nil && project.OrganizationID != "" {
+				orgID = project.OrganizationID
+			}
+		}
+
+		// If still no org, get owner's first organization
+		if orgID == "" {
+			memberships, err := s.store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+				UserID: request.OwnerID,
+			})
+			if err == nil && len(memberships) > 0 {
+				orgID = memberships[0].OrganizationID
+			}
+		}
+	}
+
 	// Set default branch if not specified
 	defaultBranch := request.DefaultBranch
 	if defaultBranch == "" {
@@ -219,21 +245,22 @@ func (s *GitRepositoryService) CreateRepository(
 
 	// Create repository object
 	gitRepo := &GitRepository{
-		ID:            repoID,
-		Name:          request.Name,
-		Description:   request.Description,
-		OwnerID:       request.OwnerID,
-		ProjectID:     request.ProjectID,
-		SpecTaskID:    request.SpecTaskID,
-		RepoType:      request.RepoType,
-		Status:        GitRepositoryStatusActive,
-		CloneURL:      s.generateCloneURL(repoID),
-		LocalPath:     repoPath,
-		DefaultBranch: defaultBranch,
-		LastActivity:  time.Now(),
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Metadata:      request.Metadata,
+		ID:             repoID,
+		Name:           request.Name,
+		Description:    request.Description,
+		OwnerID:        request.OwnerID,
+		OrganizationID: orgID,
+		ProjectID:      request.ProjectID,
+		SpecTaskID:     request.SpecTaskID,
+		RepoType:       request.RepoType,
+		Status:         GitRepositoryStatusActive,
+		CloneURL:       s.generateCloneURL(repoID),
+		LocalPath:      repoPath,
+		DefaultBranch:  defaultBranch,
+		LastActivity:   time.Now(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		Metadata:       request.Metadata,
 	}
 
 	// Initialize git repository

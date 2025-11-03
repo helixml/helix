@@ -386,46 +386,6 @@ func NewServer(
 		}
 	}()
 
-	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
-	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
-		go func() {
-			// Wolf is pre-registered in moonlight-web's data.json via installer
-			// Per-session pairing happens automatically in moonlight-web's stream.rs
-			// Initial reconciliation on startup
-			time.Sleep(8 * time.Second)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
-				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
-			}
-
-			// Start periodic reconciliation to detect Wolf restarts
-			ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
-			defer ticker.Stop()
-
-			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 5s)")
-
-			for {
-				select {
-				case <-ticker.C:
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
-						log.Error().Err(err).Msg("Failed during periodic reconciliation")
-					}
-					cancel()
-				case <-controller.Ctx.Done():
-					log.Info().Msg("Stopping periodic reconciliation due to server shutdown")
-					return
-				}
-			}
-
-			// Wait for server shutdown
-			<-controller.Ctx.Done()
-			log.Info().Msg("Stopping reconciliation goroutine due to server shutdown")
-		}()
-	}
-
 	return apiServer, nil
 }
 
@@ -688,16 +648,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/keepalive", apiServer.getExternalAgentKeepaliveStatus).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
-
-	// Personal dev environment routes
-	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")
-	authRouter.HandleFunc("/personal-dev-environments", apiServer.createPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.getPersonalDevEnvironment).Methods("GET")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.updatePersonalDevEnvironment).Methods("PUT")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.deletePersonalDevEnvironment).Methods("DELETE")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/screenshot", apiServer.getPersonalDevEnvironmentScreenshot).Methods("GET")
 
 	// Wolf pairing routes
 	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")

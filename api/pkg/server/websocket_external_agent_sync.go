@@ -326,10 +326,17 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 						}
 
 						if requestID != "" {
+							// Combine system prompt and user message into a single message
+							// This ensures Zed receives the planning instructions
+							fullMessage := interactions[i].PromptMessage
+							if interactions[i].SystemPrompt != "" {
+								fullMessage = interactions[i].SystemPrompt + "\n\n**User Request:**\n" + interactions[i].PromptMessage
+							}
+
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",
 								Data: map[string]interface{}{
-									"message":       interactions[i].PromptMessage,
+									"message":       fullMessage,
 									"request_id":    requestID,
 									"acp_thread_id": nil, // null = create new thread
 								},

@@ -501,12 +501,12 @@ type Store interface {
 	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
 	DeleteSampleProject(ctx context.Context, id string) error
 
-	// Personal Dev Environment methods
+	// Personal Dev Environment methods (DEPRECATED - these are stubs for backward compatibility)
+	// TODO: Remove these after cleaning up wolf_executor.go
 	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
-	GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error)
-	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
+	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	DeletePersonalDevEnvironment(ctx context.Context, id string) error
 
 	// SSH Key methods

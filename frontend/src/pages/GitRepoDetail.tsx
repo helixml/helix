@@ -24,10 +24,17 @@ import { GitBranch, Copy, ExternalLink, ArrowLeft, Edit, Brain, Link, Trash2, Pl
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
+import AccessManagement from '../components/app/AccessManagement'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
+import useSnackbar from '../hooks/useSnackbar'
 import { useGitRepository } from '../services/gitRepositoryService'
+import {
+  useListRepositoryAccessGrants,
+  useCreateRepositoryAccessGrant,
+  useDeleteRepositoryAccessGrant,
+} from '../services/repositoryAccessGrantService'
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -36,12 +43,18 @@ const GitRepoDetail: FC = () => {
   const { navigate } = router
   const queryClient = useQueryClient()
   const api = useApi()
+  const snackbar = useSnackbar()
 
   const currentOrg = account.organizationTools.organization
   const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
   const ownerId = currentOrg?.id || account.user?.id || ''
 
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
+
+  // Access grants for RBAC
+  const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
+  const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
+  const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
@@ -110,6 +123,31 @@ const GitRepoDetail: FC = () => {
     navigator.clipboard.writeText(command)
     setCopiedClone(true)
     setTimeout(() => setCopiedClone(false), 2000)
+  }
+
+  const handleCreateAccessGrant = async (request: any) => {
+    try {
+      const result = await createAccessGrantMutation.mutateAsync(request)
+      if (result) {
+        snackbar.success('Access grant created successfully')
+        return result
+      }
+      return null
+    } catch (err) {
+      snackbar.error('Failed to create access grant')
+      return null
+    }
+  }
+
+  const handleDeleteAccessGrant = async (grantId: string) => {
+    try {
+      await deleteAccessGrantMutation.mutateAsync(grantId)
+      snackbar.success('Access grant removed successfully')
+      return true
+    } catch (err) {
+      snackbar.error('Failed to remove access grant')
+      return false
+    }
   }
 
   if (isLoading) {
@@ -376,6 +414,36 @@ const GitRepoDetail: FC = () => {
                 </Box>
               )}
             </Stack>
+          </CardContent>
+        </Card>
+
+        {/* Members & Access Control */}
+        <Card sx={{ mt: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+              Members & Access
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Manage who has access to this repository and their roles.
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+
+            {repository.organization_id ? (
+              <AccessManagement
+                appId={repoId || ''}
+                accessGrants={accessGrants}
+                isLoading={accessGrantsLoading}
+                isReadOnly={repository.owner_id !== account.user?.id && !account.user?.admin}
+                onCreateGrant={handleCreateAccessGrant}
+                onDeleteGrant={handleDeleteAccessGrant}
+              />
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  This repository is not associated with an organization. Only the owner can access it.
+                </Typography>
+              </Box>
+            )}
           </CardContent>
         </Card>
 

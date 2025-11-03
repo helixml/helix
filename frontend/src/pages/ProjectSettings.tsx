@@ -71,7 +71,12 @@ const ProjectSettings: FC = () => {
   const projectId = params.id as string
 
   const { data: project, isLoading, error } = useGetProject(projectId)
-  const { data: repositories = [] } = useGetProjectRepositories(projectId)
+  const { data: allRepositories = [] } = useGetProjectRepositories(projectId)
+
+  // Separate internal repo from code repos
+  const internalRepo = allRepositories.find(repo => repo.id?.endsWith('-internal'))
+  const repositories = allRepositories.filter(repo => !repo.id?.endsWith('-internal'))
+
   const updateProjectMutation = useUpdateProject(projectId)
   const setPrimaryRepoMutation = useSetProjectPrimaryRepository(projectId)
   const attachRepoMutation = useAttachRepositoryToProject(projectId)
@@ -416,9 +421,15 @@ const ProjectSettings: FC = () => {
               </Button>
             </Box>
             <Divider sx={{ mb: 2 }} />
+
+            {/* User Code Repositories Section */}
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
+              Code Repositories
+            </Typography>
+
             {repositories.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                No repositories attached to this project yet. Click "Attach Repository" to add one.
+                No code repositories attached to this project yet. Click "Attach Repository" to add one.
               </Typography>
             ) : (
               <List>
@@ -459,6 +470,45 @@ const ProjectSettings: FC = () => {
                   </ListItem>
                 ))}
               </List>
+            )}
+
+            {/* Internal Repository Section - MOVED TO BOTTOM */}
+            {internalRepo && (
+              <>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
+                  Internal Repository
+                </Typography>
+                <List>
+                  <ListItem
+                    sx={{
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      },
+                    }}
+                    onClick={() => {
+                      account.orgNavigate('git-repo-detail', { repoId: internalRepo.id });
+                    }}
+                  >
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            {internalRepo.name}
+                          </Typography>
+                          <Chip label="Project Config" size="small" variant="outlined" />
+                        </Box>
+                      }
+                      secondary="Stores .helix/project.json and .helix/startup.sh"
+                    />
+                  </ListItem>
+                </List>
+              </>
             )}
           </Paper>
 

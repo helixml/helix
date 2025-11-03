@@ -5,7 +5,6 @@ import { Computer as ComputerIcon, Login as LoginIcon } from '@mui/icons-materia
 
 import Page from '../components/system/Page'
 import AgentDashboard from '../components/tasks/AgentDashboard'
-import PersonalDevEnvironments from '../components/fleet/PersonalDevEnvironments'
 import LiveAgentFleetDashboard from '../components/fleet/LiveAgentFleetDashboard'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
@@ -45,11 +44,11 @@ const Fleet: FC = () => {
                 Fleet Management
               </Typography>
               <Typography variant="h6" color="text.secondary" gutterBottom>
-                Manage AI agents and personal development environments
+                Manage AI agents and live agent sessions
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
-                Access the Agent Dashboard to monitor and manage your AI agents, or create personal development environments
-                for coding with Moonlight streaming. Sign in to get started.
+                Access the Agent Dashboard to monitor and manage your AI agents and view live agent sessions.
+                Sign in to get started.
               </Typography>
               <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <Button
@@ -79,14 +78,12 @@ const Fleet: FC = () => {
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="fleet tabs">
             <Tab label="Agent Dashboard" />
-            <Tab label="Personal Dev Environments" />
             <Tab label="Live Agent Fleet" />
           </Tabs>
         </Box>
 
         {tabValue === 0 && <AgentDashboard apps={apps.apps} />}
-        {tabValue === 1 && <PersonalDevEnvironments apps={apps.apps} />}
-        {tabValue === 2 && <LiveAgentFleetDashboard />}
+        {tabValue === 1 && <LiveAgentFleetDashboard />}
       </Container>
     </Page>
   )

@@ -180,3 +180,26 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 
 	return existing, nil
 }
+
+// GetProjectExploratorySession gets the active exploratory session for a project
+// Returns the session if found and active, nil if not found or inactive
+func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
+	var session types.Session
+
+	// Query for sessions with matching project_id in metadata and role=exploratory
+	// Use raw SQL to query JSONB field
+	err := s.gdb.WithContext(ctx).
+		Where("metadata->>'project_id' = ?", projectID).
+		Where("metadata->>'session_role' = ?", "exploratory").
+		Order("created DESC").
+		First(&session).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // No exploratory session found (not an error)
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}
