@@ -52,6 +52,7 @@ import {
   useDetachRepositoryFromProject,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
+  useStopProjectExploratorySession,
 } from '../services';
 import { useGitRepositories } from '../services/gitRepositoryService';
 import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
@@ -84,6 +85,7 @@ const SpecTasksPage: FC = () => {
   // Exploratory session hooks
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId || '', !!projectId);
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
+  const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
 
   // Get all user repositories for attach dialog
   const currentOrg = account.organizationTools.organization;
@@ -408,6 +410,15 @@ const SpecTasksPage: FC = () => {
     }
   };
 
+  const handleStopExploratorySession = async () => {
+    try {
+      await stopExploratorySessionMutation.mutateAsync();
+      snackbar.success('Exploratory session stopped');
+    } catch (err) {
+      snackbar.error('Failed to stop exploratory session');
+    }
+  };
+
   return (
     <Page
       breadcrumbs={project ? [
@@ -450,10 +461,11 @@ const SpecTasksPage: FC = () => {
                 variant="outlined"
                 color="error"
                 startIcon={<StopIcon />}
-                onClick={() => snackbar.info('Stop session functionality coming soon')}
+                onClick={handleStopExploratorySession}
+                disabled={stopExploratorySessionMutation.isPending}
                 sx={{ flexShrink: 0 }}
               >
-                Stop Session
+                {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
               </Button>
               <Button
                 variant="outlined"

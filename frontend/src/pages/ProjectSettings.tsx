@@ -57,6 +57,7 @@ import {
   useUpdateBoardSettings,
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
+  useStopProjectExploratorySession,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import {
@@ -102,6 +103,7 @@ const ProjectSettings: FC = () => {
   // Exploratory session
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
+  const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
   const deleteSessionMutation = useDeleteSession(exploratorySessionData?.id || '')
 
   const [name, setName] = useState('')
@@ -213,6 +215,15 @@ const ProjectSettings: FC = () => {
       account.orgNavigate('project-session', { id: projectId, session_id: session.id })
     } catch (err) {
       snackbar.error('Failed to start exploratory session')
+    }
+  }
+
+  const handleStopExploratorySession = async () => {
+    try {
+      await stopExploratorySessionMutation.mutateAsync()
+      snackbar.success('Exploratory session stopped')
+    } catch (err) {
+      snackbar.error('Failed to stop exploratory session')
     }
   }
 
@@ -354,9 +365,10 @@ const ProjectSettings: FC = () => {
                 variant="outlined"
                 color="error"
                 startIcon={<StopIcon />}
-                onClick={() => snackbar.info('Stop session functionality coming soon')}
+                onClick={handleStopExploratorySession}
+                disabled={stopExploratorySessionMutation.isPending}
               >
-                Stop Session
+                {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
               </Button>
               <Button
                 variant="outlined"
