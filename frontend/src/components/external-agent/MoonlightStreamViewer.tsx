@@ -469,13 +469,19 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   }, []);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
-    // Don't preventDefault or stopPropagation - let the stream input handler process it naturally
+    // Process the key with the stream input handler FIRST
     streamRef.current?.getInput().onKeyDown(event.nativeEvent);
+    // THEN prevent default browser behavior and stop bubbling to page shortcuts
+    event.preventDefault();
+    event.stopPropagation();
   }, []);
 
   const handleKeyUp = useCallback((event: React.KeyboardEvent) => {
-    // Don't preventDefault or stopPropagation - let the stream input handler process it naturally
+    // Process the key with the stream input handler FIRST
     streamRef.current?.getInput().onKeyUp(event.nativeEvent);
+    // THEN prevent default browser behavior and stop bubbling to page shortcuts
+    event.preventDefault();
+    event.stopPropagation();
   }, []);
 
   // Focus container when clicking anywhere in the viewer
