@@ -92,8 +92,7 @@ type ZedSession struct {
 	ProjectPath    string    `json:"project_path,omitempty"`
 	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
 	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
-	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // NEW: Lobby ID for auto-start approach
-	WolfLobbyPIN   string    `json:"wolf_lobby_pin,omitempty"`  // NEW: Lobby PIN for reconnection
+	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
 	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
 
 	// Keepalive session tracking (prevents stale buffer crash on rejoin)

@@ -370,26 +370,8 @@ const ProjectSettings: FC = () => {
               >
                 {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
               </Button>
-              <Button
-                variant="outlined"
-                color="secondary"
-                startIcon={<RefreshIcon />}
-                onClick={handleStartExploratorySession}
-                disabled={startExploratorySessionMutation.isPending}
-              >
-                {startExploratorySessionMutation.isPending ? 'Starting...' : 'New Session'}
-              </Button>
             </>
           )}
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            disabled={updateProjectMutation.isPending || updateBoardSettingsMutation.isPending}
-          >
-            {updateProjectMutation.isPending || updateBoardSettingsMutation.isPending ? 'Saving...' : 'Save Changes'}
-          </Button>
         </Box>
       )}
     >

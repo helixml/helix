@@ -148,6 +148,13 @@ const SpecTasksPage: FC = () => {
     }
   }, []);
 
+  // Blur task prompt input when dialog closes to prevent hidden typing
+  useEffect(() => {
+    if (!createDialogOpen && taskPromptRef.current) {
+      taskPromptRef.current.blur();
+    }
+  }, [createDialogOpen]);
+
   // Auto-select default agent when dialog opens
   useEffect(() => {
     if (createDialogOpen) {
@@ -466,16 +473,6 @@ const SpecTasksPage: FC = () => {
                 sx={{ flexShrink: 0 }}
               >
                 {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
-              </Button>
-              <Button
-                variant="outlined"
-                color="secondary"
-                startIcon={<RefreshIcon />}
-                onClick={handleStartExploratorySession}
-                disabled={startExploratorySessionMutation.isPending}
-                sx={{ flexShrink: 0 }}
-              >
-                {startExploratorySessionMutation.isPending ? 'Starting...' : 'New Session'}
               </Button>
             </>
           )}
