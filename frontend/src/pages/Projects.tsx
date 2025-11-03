@@ -3,6 +3,7 @@ import {
   Container,
   Box,
   Button,
+  ButtonGroup,
   Card,
   CardContent,
   CardActions,
@@ -161,15 +162,19 @@ const Projects: FC = () => {
       breadcrumbTitle="Projects"
       orgBreadcrumbs={true}
       topbarContent={(
-        <>
+        <ButtonGroup variant="contained" color="secondary">
           <Button
-            variant="contained"
-            color="secondary"
             startIcon={<AddIcon />}
-            endIcon={<ArrowDropDownIcon />}
-            onClick={(e) => setNewProjectMenuAnchor(e.currentTarget)}
+            onClick={handleNewProject}
           >
             New Project
+          </Button>
+          <Button
+            size="small"
+            onClick={(e) => setNewProjectMenuAnchor(e.currentTarget)}
+            sx={{ px: 1 }}
+          >
+            <ArrowDropDownIcon />
           </Button>
           <Menu
             anchorEl={newProjectMenuAnchor}
@@ -232,7 +237,7 @@ const Projects: FC = () => {
               </Tooltip>
             ))}
           </Menu>
-        </>
+        </ButtonGroup>
       )}
     >
       <Container maxWidth="lg">
@@ -267,7 +272,7 @@ const Projects: FC = () => {
                 <Grid item xs={12} sm={6} md={4} key={project.id}>
                   <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     <CardContent sx={{ flexGrow: 1, cursor: 'pointer' }} onClick={() => handleViewProject(project)}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                         <Kanban size={40} style={{ color: '#1976d2' }} />
                         <IconButton
                           size="small"
@@ -283,13 +288,16 @@ const Projects: FC = () => {
                         {project.name}
                       </Typography>
                       {project.description && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}>
                           {project.description}
                         </Typography>
                       )}
-                      <Typography variant="caption" color="text.secondary">
-                        {project.status || 'active'}
-                      </Typography>
                     </CardContent>
                     <CardActions>
                       <Button size="small" onClick={() => handleViewProject(project)}>

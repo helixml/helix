@@ -186,11 +186,11 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
 	var session types.Session
 
-	// Query for sessions with matching project_id in metadata and role=exploratory
-	// Use raw SQL to query JSONB field
+	// Query for sessions with matching project_id in config (metadata) and role=exploratory
+	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
 	err := s.gdb.WithContext(ctx).
-		Where("metadata->>'project_id' = ?", projectID).
-		Where("metadata->>'session_role' = ?", "exploratory").
+		Where("config->>'project_id' = ?", projectID).
+		Where("config->>'session_role' = ?", "exploratory").
 		Order("created DESC").
 		First(&session).Error
 

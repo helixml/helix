@@ -11,6 +11,7 @@ import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageIcon from '@mui/icons-material/Image'
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
 import LightbulbIcon from '@mui/icons-material/Lightbulb'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
@@ -562,7 +563,7 @@ const Home: FC = () => {
                     mt: 3,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
                         color: '#fff',
@@ -577,15 +578,22 @@ const Home: FC = () => {
                     >
                       Projects
                     </Typography>
-                    <Typography
-                      sx={{
-                        color: 'rgba(255, 255, 255, 0.4)',
-                        fontSize: '0.85rem',
-                        fontStyle: 'italic',
-                      }}
+                    <Tooltip
+                      title="A Kanban board where you can organize work for your agents to complete"
+                      placement="right"
+                      arrow
                     >
-                      A Kanban board for your agents
-                    </Typography>
+                      <InfoOutlinedIcon
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.4)',
+                          fontSize: '1rem',
+                          cursor: 'help',
+                          '&:hover': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      />
+                    </Tooltip>
                   </Box>
                 </Row>
                 <Row
@@ -725,7 +733,7 @@ const Home: FC = () => {
                     mt: 3,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
                         color: '#fff',
@@ -740,15 +748,22 @@ const Home: FC = () => {
                     >
                       Tasks
                     </Typography>
-                    <Typography
-                      sx={{
-                        color: 'rgba(255, 255, 255, 0.4)',
-                        fontSize: '0.85rem',
-                        fontStyle: 'italic',
-                      }}
+                    <Tooltip
+                      title="Schedule prompts to run automatically in your agents at specific times or on triggers"
+                      placement="right"
+                      arrow
                     >
-                      Run prompts in agents at scheduled times
-                    </Typography>
+                      <InfoOutlinedIcon
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.4)',
+                          fontSize: '1rem',
+                          cursor: 'help',
+                          '&:hover': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      />
+                    </Tooltip>
                   </Box>
                 </Row>
                 <Row
@@ -898,7 +913,7 @@ const Home: FC = () => {
                     mt: 3,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography
                       sx={{
                         color: '#fff',
@@ -913,15 +928,22 @@ const Home: FC = () => {
                     >
                       Agents
                     </Typography>
-                    <Typography
-                      sx={{
-                        color: 'rgba(255, 255, 255, 0.4)',
-                        fontSize: '0.85rem',
-                        fontStyle: 'italic',
-                      }}
+                    <Tooltip
+                      title="Configure AI agents by choosing models, adding knowledge, connecting skills, and testing with prompts"
+                      placement="right"
+                      arrow
                     >
-                      Models, knowledge, and skills and test them together with prompts
-                    </Typography>
+                      <InfoOutlinedIcon
+                        sx={{
+                          color: 'rgba(255, 255, 255, 0.4)',
+                          fontSize: '1rem',
+                          cursor: 'help',
+                          '&:hover': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      />
+                    </Tooltip>
                   </Box>
                 </Row>
                 <Row

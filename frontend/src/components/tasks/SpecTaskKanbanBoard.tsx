@@ -328,7 +328,7 @@ const DroppableColumn: React.FC<{
             {task.spec_session_id && (
               <LiveAgentScreenshot
                 sessionId={task.spec_session_id}
-                onNavigate={() => router.navigate('session', { session_id: task.spec_session_id })}
+                onNavigate={() => account.orgNavigate('session', { session_id: task.spec_session_id })}
               />
             )}
 

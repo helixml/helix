@@ -870,7 +870,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
 
-	// Sample project routes
+	// Sample project routes (simple in-memory)
+	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
+
+	// Sample project routes (database-backed v2)
 	authRouter.HandleFunc("/sample-projects-v2", system.Wrapper(apiServer.listSampleProjectsV2)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects-v2/{id}", system.Wrapper(apiServer.getSampleProjectByID)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects-v2/{id}/instantiate", system.Wrapper(apiServer.instantiateSampleProject)).Methods(http.MethodPost)
