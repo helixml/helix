@@ -6804,10 +6804,19 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @duplicate
      * @secure
      */
-    v1QuestionSetsExecutionsDetail2: (id: string, questionSetId: string, params: RequestParams = {}) =>
+    v1QuestionSetsExecutionsDetail2: (
+      id: string,
+      questionSetId: string,
+      query?: {
+        /** Format, one of: json (default), markdown */
+        format?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesQuestionSetExecution, any>({
         path: `/api/v1/question-sets/${questionSetId}/executions/${id}`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
