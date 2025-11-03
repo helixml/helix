@@ -28,6 +28,7 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
 import { useGetSession, useUpdateSession, useStopExternalAgent } from '../services/sessionService'
 
 import {
@@ -89,52 +90,21 @@ const useWolfAppState = (sessionId: string) => {
   return { wolfState, isRunning, isPaused };
 };
 
-// Desktop controls component for external agent sessions
+// Desktop controls component - only shows Stop button when running
 const DesktopControls: React.FC<{
   sessionId: string,
   onStop: () => void,
   isStopping: boolean
 }> = ({ sessionId, onStop, isStopping }) => {
-  const api = useApi();
-  const snackbar = useSnackbar();
-  const { wolfState, isRunning, isPaused } = useWolfAppState(sessionId);
-  const [isResuming, setIsResuming] = React.useState(false);
+  const { isRunning } = useWolfAppState(sessionId);
 
-  const handleResume = async () => {
-    setIsResuming(true);
-    try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`);
-      snackbar.success('External agent resumed successfully');
-    } catch (error: any) {
-      console.error('Failed to resume agent:', error);
-      snackbar.error(error?.message || 'Failed to resume agent');
-    } finally {
-      setIsResuming(false);
-    }
-  };
-
-  // Show Resume button when paused, Stop button when running
-  if (isPaused) {
-    return (
-      <Button
-        variant="outlined"
-        size="small"
-        color="primary"
-        startIcon={isResuming ? <CircularProgress size={16} /> : <PlayArrow />}
-        onClick={handleResume}
-        disabled={isResuming}
-      >
-        {isResuming ? 'Starting...' : 'Start'}
-      </Button>
-    );
-  }
-
+  // Only show Stop button when desktop is running
   if (isRunning) {
     return (
       <Button
         variant="outlined"
         size="small"
-        color="error"
+        color="warning"
         startIcon={isStopping ? <CircularProgress size={16} /> : <StopIcon />}
         onClick={onStop}
         disabled={isStopping}
@@ -153,7 +123,23 @@ const ExternalAgentDesktopViewer: React.FC<{
   wolfLobbyId?: string;
   height: number;
 }> = ({ sessionId, wolfLobbyId, height }) => {
+  const api = useApi();
+  const snackbar = useSnackbar();
   const { isRunning, isPaused } = useWolfAppState(sessionId);
+  const [isResuming, setIsResuming] = React.useState(false);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      snackbar.success('External agent started successfully');
+    } catch (error: any) {
+      console.error('Failed to resume agent:', error);
+      snackbar.error(error?.message || 'Failed to start agent');
+    } finally {
+      setIsResuming(false);
+    }
+  };
 
   if (isPaused) {
     return (
@@ -163,16 +149,28 @@ const ExternalAgentDesktopViewer: React.FC<{
           height: height,
           backgroundColor: '#1a1a1a',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           border: '1px solid',
           borderColor: 'divider',
           borderRadius: 1,
+          gap: 2,
         }}
       >
         <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
           Desktop Paused
         </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+          onClick={handleResume}
+          disabled={isResuming}
+        >
+          {isResuming ? 'Starting...' : 'Start Desktop'}
+        </Button>
       </Box>
     );
   }
@@ -361,8 +359,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Stop external agent hook (works for any external agent session)
   const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
 
-  const handleStopExternalAgent = async () => {
+  const handleStopExternalAgent = () => {
+    setShowStopConfirm(true)
+  }
+
+  const handleConfirmStop = async () => {
+    setShowStopConfirm(false)
     try {
       await stopExternalAgentMutation.mutateAsync()
       snackbar.success('External Zed agent stopped')
@@ -1530,8 +1534,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                     <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
                       Desktop:
                     </Typography>
-                    <WolfAppStateIndicator sessionId={sessionID} />
-                    <Box sx={{ ml: 'auto' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <WolfAppStateIndicator sessionId={sessionID} />
                       <DesktopControls
                         sessionId={sessionID}
                         onStop={handleStopExternalAgent}
@@ -1910,6 +1914,18 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           snackbar.success('Moonlight client paired successfully!')
         }}
       />
+
+      {/* Stop Confirmation Dialog */}
+      {showStopConfirm && (
+        <SimpleConfirmWindow
+          title="Stop External Zed Agent?"
+          message="Stopping the external agent will terminate the running container. Any unsaved files or in-memory state will be lost. The conversation history will be preserved."
+          confirmTitle="Stop Agent"
+          cancelTitle="Cancel"
+          onCancel={() => setShowStopConfirm(false)}
+          onSubmit={handleConfirmStop}
+        />
+      )}
 
     </Box>
   )
