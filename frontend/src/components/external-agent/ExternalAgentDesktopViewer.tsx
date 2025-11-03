@@ -54,7 +54,8 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   const { isRunning, isPaused } = useWolfAppState(sessionId);
   const [isResuming, setIsResuming] = useState(false);
 
-  const handleResume = async () => {
+  const handleResume = async (e?: React.MouseEvent) => {
+    e?.stopPropagation(); // Prevent click from bubbling to parent (e.g., Kanban card navigation)
     setIsResuming(true);
     try {
       await api.post(`/api/v1/sessions/${sessionId}/resume`);
