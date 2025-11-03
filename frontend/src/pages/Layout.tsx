@@ -428,7 +428,7 @@ const Layout: FC<{
           )
         }
         {
-          account.admin && floatingModal.isVisible && (
+          floatingModal.isVisible && (account.admin || floatingModal.modalConfig?.type === 'exploratory_session') && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }

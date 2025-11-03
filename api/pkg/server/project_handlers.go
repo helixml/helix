@@ -715,7 +715,35 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 		return nil, system.NewHTTPError500("failed to get exploratory session")
 	}
 
-	// Return nil session if not found (frontend will handle null response)
+	// If no session found in database, return nil
+	if session == nil {
+		return nil, nil
+	}
+
+	// Check if the external agent (Wolf lobby) is actually running
+	// If not running, update status to "stopped"
+	if s.externalAgentExecutor != nil {
+		_, err := s.externalAgentExecutor.GetSession(session.ID)
+		if err != nil {
+			// External agent not running - mark as stopped
+			session.Metadata.ExternalAgentStatus = "stopped"
+			log.Info().
+				Str("session_id", session.ID).
+				Str("project_id", projectID).
+				Msg("Exploratory session exists in database but Wolf lobby is stopped")
+		} else {
+			// External agent is running
+			session.Metadata.ExternalAgentStatus = "running"
+			log.Debug().
+				Str("session_id", session.ID).
+				Str("project_id", projectID).
+				Msg("Exploratory session is running")
+		}
+	} else {
+		// No external agent executor available - assume stopped
+		session.Metadata.ExternalAgentStatus = "stopped"
+	}
+
 	return session, nil
 }
 
