@@ -55,6 +55,7 @@ import ScreenshotViewer from '../components/external-agent/ScreenshotViewer'
 import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
 import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
+import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -117,85 +118,8 @@ const DesktopControls: React.FC<{
   return null;
 };
 
-// Desktop viewer for external agent sessions - shows live screenshot or paused state
-const ExternalAgentDesktopViewer: React.FC<{
-  sessionId: string;
-  wolfLobbyId?: string;
-  height: number;
-}> = ({ sessionId, wolfLobbyId, height }) => {
-  const api = useApi();
-  const snackbar = useSnackbar();
-  const { isRunning, isPaused } = useWolfAppState(sessionId);
-  const [isResuming, setIsResuming] = React.useState(false);
-
-  const handleResume = async () => {
-    setIsResuming(true);
-    try {
-      await api.post(`/api/v1/sessions/${sessionId}/resume`);
-      snackbar.success('External agent started successfully');
-    } catch (error: any) {
-      console.error('Failed to resume agent:', error);
-      snackbar.error(error?.message || 'Failed to start agent');
-    } finally {
-      setIsResuming(false);
-    }
-  };
-
-  if (isPaused) {
-    return (
-      <Box
-        sx={{
-          width: '100%',
-          height: height,
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
-          gap: 2,
-        }}
-      >
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
-          Desktop Paused
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          size="large"
-          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
-          onClick={handleResume}
-          disabled={isResuming}
-        >
-          {isResuming ? 'Starting...' : 'Start Desktop'}
-        </Button>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{
-      height: height,
-      border: '1px solid',
-      borderColor: 'divider',
-      borderRadius: 1,
-      overflow: 'hidden'
-    }}>
-      <ScreenshotViewer
-        sessionId={sessionId}
-        isRunner={false}
-        wolfLobbyId={wolfLobbyId}
-        enableStreaming={true}
-        onError={(error) => {
-          console.error('Screenshot viewer error:', error);
-        }}
-        height={height}
-      />
-    </Box>
-  );
-};
+// Note: ExternalAgentDesktopViewer component moved to separate file
+// Import: import ExternalAgentDesktopViewer from '../components/external-agent/ExternalAgentDesktopViewer'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {

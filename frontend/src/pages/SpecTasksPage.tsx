@@ -44,6 +44,7 @@ import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
 import useApps from '../hooks/useApps';
 import { useSpecTasks } from '../hooks/useSpecTasks';
+import { useFloatingModal } from '../contexts/floatingModal';
 import {
   useGetProject,
   useGetProjectRepositories,
@@ -63,6 +64,7 @@ const SpecTasksPage: FC = () => {
   const snackbar = useSnackbar();
   const router = useRouter();
   const apps = useApps();
+  const floatingModal = useFloatingModal();
 
   // Get project ID from URL if in project context
   const projectId = router.params.id as string | undefined;
@@ -453,13 +455,30 @@ const SpecTasksPage: FC = () => {
             >
               {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
             </Button>
+          ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<ExploreIcon />}
+              onClick={handleStartExploratorySession}
+              disabled={startExploratorySessionMutation.isPending}
+              sx={{ flexShrink: 0 }}
+            >
+              {startExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
+            </Button>
           ) : (
             <>
               <Button
                 variant="contained"
                 color="primary"
                 startIcon={<ExploreIcon />}
-                onClick={() => account.orgNavigate('project-session', { id: projectId, session_id: exploratorySessionData.id })}
+                onClick={(e) => {
+                  floatingModal.showFloatingModal({
+                    type: 'exploratory_session',
+                    sessionId: exploratorySessionData.id,
+                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
+                  }, { x: e.clientX, y: e.clientY });
+                }}
                 sx={{ flexShrink: 0 }}
               >
                 View Session

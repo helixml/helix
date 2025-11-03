@@ -45,6 +45,7 @@ import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
+import { useFloatingModal } from '../contexts/floatingModal'
 import {
   useGetProject,
   useUpdateProject,
@@ -72,6 +73,7 @@ const ProjectSettings: FC = () => {
   const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
   const projectId = params.id as string
+  const floatingModal = useFloatingModal()
 
   const { data: project, isLoading, error } = useGetProject(projectId)
   const { data: allRepositories = [] } = useGetProjectRepositories(projectId)
@@ -351,13 +353,29 @@ const ProjectSettings: FC = () => {
             >
               {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
             </Button>
+          ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<ExploreIcon />}
+              onClick={handleStartExploratorySession}
+              disabled={startExploratorySessionMutation.isPending}
+            >
+              {startExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
+            </Button>
           ) : (
             <>
               <Button
                 variant="contained"
                 color="primary"
                 startIcon={<ExploreIcon />}
-                onClick={() => account.orgNavigate('project-session', { id: projectId, session_id: exploratorySessionData.id })}
+                onClick={(e) => {
+                  floatingModal.showFloatingModal({
+                    type: 'exploratory_session',
+                    sessionId: exploratorySessionData.id,
+                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
+                  }, { x: e.clientX, y: e.clientY });
+                }}
               >
                 View Session
               </Button>
