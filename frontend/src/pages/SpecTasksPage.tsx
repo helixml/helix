@@ -241,6 +241,23 @@ const SpecTasksPage: FC = () => {
     }
   }, [createDialogOpen, taskPrompt]);
 
+  // Keyboard shortcut: ESC to close new task dialog
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (createDialogOpen) {
+          e.preventDefault();
+          setCreateDialogOpen(false);
+        }
+      }
+    };
+
+    if (createDialogOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [createDialogOpen]);
+
   // Handle task creation - SIMPLIFIED
   const handleCreateTask = async () => {
     if (!checkLoginStatus()) return;
@@ -638,7 +655,6 @@ Examples:
           {/* Content - conditional based on view */}
           <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
             {!attachRepoDialogOpen ? (
-              /* MANAGE REPOSITORIES VIEW */
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                   Repositories attached to this project. The primary repository is opened by default when agents start. Design documents are stored in a helix-design-docs branch in the primary repository.
@@ -758,100 +774,62 @@ Examples:
                 </List>
               </>
             )}
+          </>
+        ) : (
+          <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Select a repository from your account to attach to this project. Attached repositories will be cloned into the agent workspace when working on this project.
+                </Typography>
+                <FormControl fullWidth>
+                  <InputLabel>Select Repository</InputLabel>
+                  <Select
+                    value={selectedRepoToAttach}
+                    onChange={(e) => setSelectedRepoToAttach(e.target.value)}
+                    label="Select Repository"
+                  >
+                    {allUserRepositories
+                      .filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id))
+                      .map((repo) => (
+                        <MenuItem key={repo.id} value={repo.id}>
+                          {repo.name}
+                        </MenuItem>
+                      ))}
+                  </Select>
+                  {allUserRepositories.filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id)).length === 0 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                      All your repositories are already attached to this project.
+                    </Typography>
+                  )}
+                </FormControl>
+
+                {/* Footer Actions for Attach View */}
+                <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                  <Button
+                    onClick={() => {
+                      setAttachRepoDialogOpen(false);
+                      setSelectedRepoToAttach('');
+                      // Stay in repo panel, just go back to manage view
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleAttachRepository}
+                    variant="contained"
+                    color="secondary"
+                    disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
+                    startIcon={attachRepoMutation.isPending ? <CircularProgress size={16} /> : <LinkIcon />}
+                  >
+                    {attachRepoMutation.isPending ? 'Attaching...' : 'Attach Repository'}
+                  </Button>
+                </Box>
+              </>
+            )}
           </Box>
         </Box>
         </Box>
 
       </Box>
-
-      {/* Attach Repository Drawer - TEMPORARY: Keep as overlay until integrated into right panel */}
-      <Drawer
-        anchor="right"
-        open={attachRepoDialogOpen}
-        onClose={() => {
-          setAttachRepoDialogOpen(false);
-          setSelectedRepoToAttach('');
-        }}
-        transitionDuration={150}
-        hideBackdrop={true}
-        ModalProps={{
-          keepMounted: false,
-          disableEscapeKeyDown: false,
-        }}
-        sx={{
-          '& .MuiDrawer-paper': {
-            width: { xs: '100%', sm: '400px', md: '500px' },
-            maxWidth: '100%',
-            boxShadow: 3,
-          },
-        }}
-      >
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LinkIcon />
-              <Typography variant="h6">Attach Repository</Typography>
-            </Box>
-            <IconButton onClick={() => {
-              setAttachRepoDialogOpen(false);
-              setSelectedRepoToAttach('');
-            }}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-
-          {/* Content */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Select a repository from your account to attach to this project. Attached repositories will be cloned into the agent workspace when working on this project.
-            </Typography>
-            <FormControl fullWidth>
-              <InputLabel>Select Repository</InputLabel>
-              <Select
-                value={selectedRepoToAttach}
-                onChange={(e) => setSelectedRepoToAttach(e.target.value)}
-                label="Select Repository"
-              >
-                {allUserRepositories
-                  .filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id))
-                  .map((repo) => (
-                    <MenuItem key={repo.id} value={repo.id}>
-                      {repo.name}
-                    </MenuItem>
-                  ))}
-              </Select>
-              {allUserRepositories.filter((repo) => !projectRepositories.some((pr) => pr.id === repo.id)).length === 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                  All your repositories are already attached to this project.
-                </Typography>
-              )}
-            </FormControl>
-          </Box>
-
-          {/* Footer Actions */}
-          <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
-            <Button
-              onClick={() => {
-                setAttachRepoDialogOpen(false);
-                setSelectedRepoToAttach('');
-                setRepoDialogOpen(true); // Go back to manage repositories drawer
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAttachRepository}
-              variant="contained"
-              color="secondary"
-              disabled={!selectedRepoToAttach || attachRepoMutation.isPending}
-              startIcon={attachRepoMutation.isPending ? <CircularProgress size={16} /> : <LinkIcon />}
-            >
-              {attachRepoMutation.isPending ? 'Attaching...' : 'Attach Repository'}
-            </Button>
-          </Box>
-        </Box>
-      </Drawer>
 
     </Page>
   );

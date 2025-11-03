@@ -4529,7 +4529,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/store.DBGitRepository"
+                                "$ref": "#/definitions/store.GitRepository"
                             }
                         }
                     },
@@ -12779,7 +12779,7 @@ const docTemplate = `{
                 }
             }
         },
-        "store.DBGitRepository": {
+        "store.GitRepository": {
             "type": "object",
             "properties": {
                 "cloneURL": {
@@ -12828,6 +12828,11 @@ const docTemplate = `{
                 "localPath": {
                     "description": "Local filesystem path for Helix-hosted repos (empty for external)",
                     "type": "string"
+                },
+                "metadata": {
+                    "description": "Transient field, not persisted (used by services)",
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "metadataJSON": {
                     "description": "Stores Metadata as JSON",

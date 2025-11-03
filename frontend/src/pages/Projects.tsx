@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Tooltip,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
@@ -183,38 +184,50 @@ const Projects: FC = () => {
               horizontal: 'right',
             }}
           >
-            <MenuItem onClick={handleNewProject}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                <AddIcon fontSize="small" />
-                <Box>
+            <Tooltip
+              title="Create a blank project with no sample code or pre-configured tasks"
+              placement="right"
+              arrow
+            >
+              <MenuItem onClick={handleNewProject}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
+                  <AddIcon fontSize="small" />
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     Empty Project
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Start from scratch
-                  </Typography>
                 </Box>
-              </Box>
-            </MenuItem>
+              </MenuItem>
+            </Tooltip>
             {sampleProjects.length > 0 && <MenuItem disabled><Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.6 }}>Sample Projects</Typography></MenuItem>}
             {sampleProjects.map((sample) => (
-              <MenuItem
-                key={sample.id}
-                onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
-                disabled={instantiateSampleMutation.isPending}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                  <Kanban size={18} />
+              <Tooltip
+                key={`tooltip-${sample.id}`}
+                title={
                   <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {sample.name}
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      {sample.description || 'Sample project with pre-configured tasks'}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
                       {sample.category} • {sample.difficulty}
                     </Typography>
                   </Box>
-                </Box>
-              </MenuItem>
+                }
+                placement="right"
+                arrow
+              >
+                <MenuItem
+                  key={sample.id}
+                  onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
+                  disabled={instantiateSampleMutation.isPending}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
+                    <Kanban size={18} />
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {sample.name}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              </Tooltip>
             ))}
           </Menu>
         </>
