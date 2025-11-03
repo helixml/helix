@@ -468,21 +468,41 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     event.preventDefault();
   }, []);
 
-  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
-    // Process the key with the stream input handler FIRST
-    streamRef.current?.getInput().onKeyDown(event.nativeEvent);
-    // THEN prevent default browser behavior and stop bubbling to page shortcuts
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
+  // Attach native keyboard event listeners when connected
+  useEffect(() => {
+    if (!isConnected || !containerRef.current) return;
 
-  const handleKeyUp = useCallback((event: React.KeyboardEvent) => {
-    // Process the key with the stream input handler FIRST
-    streamRef.current?.getInput().onKeyUp(event.nativeEvent);
-    // THEN prevent default browser behavior and stop bubbling to page shortcuts
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
+    const container = containerRef.current;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only process if container is focused
+      if (document.activeElement !== container) return;
+
+      streamRef.current?.getInput().onKeyDown(event);
+      // Only stop propagation (prevents window listener from firing)
+      // Don't preventDefault - let the stream library handle keyboard state properly
+      event.stopPropagation();
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      // Only process if container is focused
+      if (document.activeElement !== container) return;
+
+      streamRef.current?.getInput().onKeyUp(event);
+      // Only stop propagation (prevents window listener from firing)
+      // Don't preventDefault - let the stream library handle keyboard state properly
+      event.stopPropagation();
+    };
+
+    // Attach to container, not document (so we only capture when focused)
+    container.addEventListener('keydown', handleKeyDown);
+    container.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      container.removeEventListener('keydown', handleKeyDown);
+      container.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isConnected]);
 
   // Focus container when clicking anywhere in the viewer
   const handleContainerClick = useCallback(() => {
@@ -496,8 +516,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       ref={containerRef}
       className={className}
       tabIndex={0}
-      onKeyDown={handleKeyDown}
-      onKeyUp={handleKeyUp}
       onClick={handleContainerClick}
       sx={{
         position: 'relative',
