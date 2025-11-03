@@ -103,7 +103,7 @@ const QuestionSetResults: FC = () => {
             sx={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 1,
+              gap: 0,
             }}
           >
             <Box
@@ -120,33 +120,29 @@ const QuestionSetResults: FC = () => {
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  flexGrow: 1,
                 }}
               >
                 Question Set Results
               </Typography>
               {questionSetId && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<Edit size={18} />}
-                  onClick={() => {
-                    account.orgNavigate('qa', {})
-                    setTimeout(() => {
-                      const url = new URL(window.location.href)
-                      url.searchParams.set('questionSetId', questionSetId)
-                      window.history.replaceState({}, '', url.toString())
-                      window.dispatchEvent(new PopStateEvent('popstate'))
-                    }, 100)
-                  }}
-                  sx={{
-                    fontSize: '0.7rem',
-                    py: 0.25,
-                    px: 1,
-                    minWidth: 'auto',
-                  }}
-                >
-                  Edit Question Set
-                </Button>
+                <Tooltip title="Edit Question Set">
+                  <IconButton
+                    color="secondary"
+                    size="small"
+                    onClick={() => {
+                      account.orgNavigate('qa', {})
+                      setTimeout(() => {
+                        const url = new URL(window.location.href)
+                        url.searchParams.set('questionSetId', questionSetId)
+                        window.history.replaceState({}, '', url.toString())
+                        window.dispatchEvent(new PopStateEvent('popstate'))
+                      }, 100)
+                    }}
+                  >
+                    <Edit size={18} />
+                  </IconButton>
+                </Tooltip>
               )}
             </Box>
             {questionSet?.created && (
