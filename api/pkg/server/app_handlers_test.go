@@ -453,9 +453,15 @@ func TestApplyModelSubstitutions(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, substitutions, 0) // No substitutions should have occurred
 
-		// Verify NO changes occurred
+		// Verify NO provider/model changes occurred
+		// Note: AgentType will be migrated to "helix_basic" by MigrateAgentMode()
 		assistant := app.Config.Helix.Assistants[0]
-		require.Equal(t, originalAssistant, assistant)
+		require.Equal(t, originalAssistant.Name, assistant.Name)
+		require.Equal(t, originalAssistant.Provider, assistant.Provider)
+		require.Equal(t, originalAssistant.Model, assistant.Model)
+		require.Equal(t, originalAssistant.Description, assistant.Description)
+		require.Equal(t, originalAssistant.ConversationStarters, assistant.ConversationStarters)
+		require.Equal(t, types.AgentTypeHelixBasic, assistant.AgentType) // AgentType migrated
 	})
 
 	t.Run("handles multiple assistants independently", func(t *testing.T) {

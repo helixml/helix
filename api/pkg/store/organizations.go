@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 )
 
@@ -40,6 +41,43 @@ func (s *PostgresStore) CreateOrganization(ctx context.Context, org *types.Organ
 	}
 	if existingOrg != nil {
 		return nil, fmt.Errorf("organization with name %s already exists", org.Name)
+	}
+
+	// Check if a user slug conflicts with the organization name
+	// Organizations take precedence, so rename the user slug if needed
+	var conflictingUserMeta types.UserMeta
+	userErr := s.gdb.WithContext(ctx).Where("slug = ?", org.Name).First(&conflictingUserMeta).Error
+	if userErr == nil {
+		// User slug conflicts - rename it by appending counter
+		baseSlug := conflictingUserMeta.Slug
+		counter := 2
+		newSlug := fmt.Sprintf("%s-%d", baseSlug, counter)
+
+		// Find available slug
+		for {
+			var existing types.UserMeta
+			checkErr := s.gdb.WithContext(ctx).Where("slug = ?", newSlug).First(&existing).Error
+			if checkErr == gorm.ErrRecordNotFound {
+				break
+			}
+			counter++
+			newSlug = fmt.Sprintf("%s-%d", baseSlug, counter)
+		}
+
+		// Update user slug
+		conflictingUserMeta.Slug = newSlug
+		updateErr := s.gdb.WithContext(ctx).Save(&conflictingUserMeta).Error
+		if updateErr != nil {
+			return nil, fmt.Errorf("failed to rename conflicting user slug: %w", updateErr)
+		}
+
+		// Log warning about the rename
+		log.Warn().
+			Str("user_id", conflictingUserMeta.ID).
+			Str("old_slug", baseSlug).
+			Str("new_slug", newSlug).
+			Str("org_name", org.Name).
+			Msg("renamed user slug due to organization name conflict")
 	}
 
 	err = s.gdb.WithContext(ctx).Create(org).Error

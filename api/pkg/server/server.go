@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,21 +24,26 @@ import (
 	"github.com/helixml/helix/api/pkg/anthropic"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/connman"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/moonlight"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/revdial"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
@@ -70,38 +76,65 @@ type Options struct {
 	LocalFilestorePath string
 }
 
+// serverWSChecker implements WebSocketConnectionChecker interface for Wolf executor
+type serverWSChecker struct {
+	manager *ExternalAgentWSManager
+}
+
+func (s *serverWSChecker) IsExternalAgentConnected(sessionID string) bool {
+	_, exists := s.manager.getConnection(sessionID)
+	return exists
+}
+
 type HelixAPIServer struct {
-	Cfg               *config.ServerConfig
-	Store             store.Store
-	Stripe            *stripe.Stripe
-	Controller        *controller.Controller
-	Janitor           *janitor.Janitor
-	authMiddleware    *authMiddleware
-	pubsub            pubsub.PubSub
-	mcpClientGetter   mcp.ClientGetter
-	providerManager   manager.ProviderManager
-	modelInfoProvider model.ModelInfoProvider
-	gptScriptExecutor gptscript.Executor
-	inferenceServer   *openai.InternalHelixServer
-	knowledgeManager  knowledge.Manager
-	skillManager      *api_skill.Manager
-	router            *mux.Router
-	scheduler         *scheduler.Scheduler
-	pingService       *version.PingService
-	oidcClient        auth.OIDC
-	oauthManager      *oauth.Manager
-	fileServerHandler http.Handler
-	cache             *ristretto.Cache[string, string]
-	avatarsBucket     *blob.Bucket
-	trigger           *trigger.Manager
-	anthropicProxy    *anthropic.Proxy
+	Cfg                         *config.ServerConfig
+	Store                       store.Store
+	Stripe                      *stripe.Stripe
+	Controller                  *controller.Controller
+	Janitor                     *janitor.Janitor
+	authMiddleware              *authMiddleware
+	pubsub                      pubsub.PubSub
+	mcpClientGetter             mcp.ClientGetter
+	connman                     *connman.ConnectionManager
+	providerManager             manager.ProviderManager
+	modelInfoProvider           model.ModelInfoProvider
+	externalAgentExecutor       external_agent.Executor
+	externalAgentWSManager      *ExternalAgentWSManager
+	externalAgentRunnerManager  *ExternalAgentRunnerManager
+	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
+	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
+	inferenceServer             *openai.InternalHelixServer
+	knowledgeManager            knowledge.Manager
+	skillManager                *api_skill.Manager
+	router                      *mux.Router
+	scheduler                   *scheduler.Scheduler
+	pingService                 *version.PingService
+	oidcClient                  auth.OIDC
+	oauthManager                *oauth.Manager
+	fileServerHandler           http.Handler
+	cache                       *ristretto.Cache[string, string]
+	avatarsBucket               *blob.Bucket
+	trigger                     *trigger.Manager
+	specDrivenTaskService       *services.SpecDrivenTaskService
+	sampleProjectCodeService    *services.SampleProjectCodeService
+	gitRepositoryService        *services.GitRepositoryService
+	zedPlanningService          *services.ZedPlanningService
+	moonlightProxy              *moonlight.MoonlightProxy
+	moonlightServer             *moonlight.MoonlightServer
+	specTaskOrchestrator        *services.SpecTaskOrchestrator
+	externalAgentPool           *services.ExternalAgentPool
+	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
+	anthropicProxy              *anthropic.Proxy
 }
 
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
-	gptScriptExecutor gptscript.Executor,
+
 	providerManager manager.ProviderManager,
 	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
@@ -148,6 +181,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     cfg.OIDC.Audience,
 			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
@@ -170,6 +204,7 @@ func NewServer(
 			AdminUserSrc: cfg.WebServer.AdminSrc,
 			Audience:     "account",
 			Scopes:       []string{"openid", "profile", "email"},
+			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
@@ -192,14 +227,53 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
-	server := &HelixAPIServer{
-		Cfg:               cfg,
-		Store:             store,
-		Stripe:            stripe,
-		Controller:        controller,
-		Janitor:           janitor,
-		gptScriptExecutor: gptScriptExecutor,
-		inferenceServer:   inferenceServer,
+	// Initialize external agent executor with Wolf executor
+	// Wolf will spawn Zed agents in containers and stream them via moonlight
+	wolfSocketPath := os.Getenv("WOLF_SOCKET_PATH")
+	if wolfSocketPath == "" {
+		wolfSocketPath = "/var/run/wolf/wolf.sock"
+	}
+
+	zedImage := os.Getenv("ZED_IMAGE")
+	if zedImage == "" {
+		zedImage = "helix-sway:latest" // Use same Sway image as PDEs
+	}
+
+	// Initialize external agent WebSocket manager BEFORE executor
+	externalAgentWSManager := NewExternalAgentWSManager()
+
+	// Create simple adapter for WebSocket connection checking
+	wsChecker := &serverWSChecker{manager: externalAgentWSManager}
+
+	externalAgentExecutor := external_agent.NewWolfExecutor(
+		wolfSocketPath,
+		zedImage,
+		cfg.WebServer.URL,
+		cfg.WebServer.RunnerToken,
+		store,
+		wsChecker,
+	)
+
+	// Initialize external agent runner connection manager
+	externalAgentRunnerManager := NewExternalAgentRunnerManager()
+
+	// Initialize connection manager for reverse dial
+	connectionManager := connman.New()
+
+	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
+
+	apiServer := &HelixAPIServer{
+		Cfg:        cfg,
+		Store:      store,
+		Stripe:     stripe,
+		Controller: controller,
+		Janitor:    janitor,
+
+		externalAgentExecutor:      externalAgentExecutor,
+		externalAgentWSManager:     externalAgentWSManager,
+		externalAgentRunnerManager: externalAgentRunnerManager,
+		contextMappings:            make(map[string]string),
+		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			oidcClient,
 			authenticator,
@@ -213,6 +287,9 @@ func NewServer(
 		providerManager:   providerManager,
 		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,
+		mcpClientGetter: &mcp.DefaultClientGetter{
+			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
+		},
 		knowledgeManager:  knowledgeManager,
 		skillManager:      skillManager,
 		scheduler:         scheduler,
@@ -221,15 +298,122 @@ func NewServer(
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 		cache:             cache,
-		mcpClientGetter: &mcp.DefaultClientGetter{
-			TLSSkipVerify: cfg.Tools.TLSSkipVerify,
-		},
-		avatarsBucket:  avatarsBucket,
-		trigger:        trigger,
-		anthropicProxy: anthropicProxy,
+		avatarsBucket:     avatarsBucket,
+		trigger:           trigger,
+		anthropicProxy:    anthropicProxy,
+		specDrivenTaskService: services.NewSpecDrivenTaskService(
+			store,
+			controller,
+			"helix-spec-agent",         // Default Helix agent for spec generation
+			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
+			ps,                         // PubSub for Zed integration
+		),
+		sampleProjectCodeService: services.NewSampleProjectCodeService(),
+		connman:                  connectionManager,
 	}
 
-	return server, nil
+	// Initialize Moonlight proxy and server
+	publicURL := cfg.WebServer.URL
+	if publicURL == "" {
+		publicURL = "localhost"
+	}
+
+	apiServer.moonlightProxy = moonlight.NewMoonlightProxy(connectionManager, publicURL)
+	apiServer.moonlightServer = moonlight.NewMoonlightServer(apiServer.moonlightProxy, store, publicURL, authenticator)
+
+	// Start Moonlight proxy
+	if err := apiServer.moonlightProxy.Start(); err != nil {
+		log.Error().Err(err).Msg("Failed to start Moonlight proxy")
+	}
+
+	// Initialize Git Repository Service using filestore mount
+	apiServer.gitRepositoryService = services.NewGitRepositoryService(
+		store,
+		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
+		cfg.WebServer.URL,         // Server base URL
+		"Helix System",            // Git user name
+		"system@helix.ml",         // Git user email
+	)
+
+	// Initialize git repository base directory
+	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+	}
+
+	// Initialize Zed Planning Service
+	apiServer.zedPlanningService = services.NewZedPlanningService(
+		store,
+		controller,
+		ps,
+		apiServer.specDrivenTaskService.ZedIntegrationService,
+		apiServer.gitRepositoryService,
+		"/workspace", // Default workspace path for Zed agents
+	)
+
+	// Initialize SpecTask Orchestrator components
+	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
+		"Helix System",
+		"system@helix.ml",
+	)
+	apiServer.externalAgentPool = services.NewExternalAgentPool(store, controller)
+	apiServer.specTaskOrchestrator = services.NewSpecTaskOrchestrator(
+		store,
+		controller,
+		apiServer.gitRepositoryService,
+		apiServer.specDrivenTaskService,
+		apiServer.externalAgentPool,
+		apiServer.designDocsWorktreeManager,
+		apiServer.externalAgentExecutor, // NEW: Pass Wolf executor for external agent management
+	)
+
+	// Start orchestrator
+	go func() {
+		if err := apiServer.specTaskOrchestrator.Start(context.Background()); err != nil {
+			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
+		}
+	}()
+
+	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
+	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
+		go func() {
+			// Wolf is pre-registered in moonlight-web's data.json via installer
+			// Per-session pairing happens automatically in moonlight-web's stream.rs
+			// Initial reconciliation on startup
+			time.Sleep(8 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
+				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
+			}
+
+			// Start periodic reconciliation to detect Wolf restarts
+			ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
+			defer ticker.Stop()
+
+			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 5s)")
+
+			for {
+				select {
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
+						log.Error().Err(err).Msg("Failed during periodic reconciliation")
+					}
+					cancel()
+				case <-controller.Ctx.Done():
+					log.Info().Msg("Stopping periodic reconciliation due to server shutdown")
+					return
+				}
+			}
+
+			// Wait for server shutdown
+			<-controller.Ctx.Done()
+			log.Info().Msg("Stopping reconciliation goroutine due to server shutdown")
+		}()
+	}
+
+	return apiServer, nil
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
@@ -256,15 +440,14 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/runner",
 	)
 
-	apiServer.startGptScriptRunnerWebSocketServer(
-		apiRouter,
-		"/ws/gptscript-runner",
-	)
+	// Zed Agent Runner WebSocket Server
+	// External Agent Runner WebSocket Server (with query parameter auth)
+	// Note: External agent runners connect via /ws/external-agent-runner endpoint
 
 	// Start UNIX socket server for embeddings if configured
 	if apiServer.Cfg.WebServer.EmbeddingsSocket != "" {
 		go func() {
-			if err := apiServer.startUnixSocketServer(ctx); err != nil {
+			if err := apiServer.startEmbeddingsSocketServer(ctx); err != nil {
 				log.Error().Err(err).Msg("failed to start embeddings socket server")
 			}
 		}()
@@ -300,8 +483,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter := router.PathPrefix(APIPrefix).Subrouter()
 
 	// any route that lives under /api/v1
+	// Extract auth for /api/v1 routes only (not frontend static assets)
 	subRouter := router.PathPrefix(APIPrefix).Subrouter()
-
 	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
 
 	// auth router requires a valid token from keycloak or api key
@@ -375,11 +558,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods(http.MethodGet)
-	// Azure OpenAI API compatible routes
-	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
-
 	// Anthropic API compatible routes
 	router.HandleFunc("/v1/messages", apiServer.authMiddleware.auth(apiServer.anthropicAPIProxyHandler)).Methods(http.MethodPost, http.MethodOptions)
+	// Azure OpenAI API compatible routes
+	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 
 	authRouter.HandleFunc("/providers", apiServer.listProviders).Methods(http.MethodGet)
 
@@ -403,30 +585,51 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}/feedback", system.Wrapper(apiServer.feedbackInteraction)).Methods(http.MethodPost)
 
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/wolf-app-state", apiServer.getSessionWolfAppState).Methods(http.MethodGet)
+
+	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.getQuestionSet)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.updateQuestionSet)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.deleteQuestionSet)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.executeQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.listQuestionSetExecutions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets/{question_set_id}/executions/{id}", apiServer.getQuestionSetExecutionResults).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.updateSecret)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/secrets/{id}", system.Wrapper(apiServer.deleteSecret)).Methods(http.MethodDelete)
 
+	authRouter.HandleFunc("/ssh-keys", system.Wrapper(apiServer.listSSHKeys)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/ssh-keys", system.Wrapper(apiServer.createSSHKey)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/ssh-keys/generate", system.Wrapper(apiServer.generateSSHKey)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/ssh-keys/{id}", system.Wrapper(apiServer.deleteSSHKey)).Methods(http.MethodDelete)
+
+	// Zed config endpoints
+	authRouter.HandleFunc("/sessions/{id}/zed-config", system.Wrapper(apiServer.getZedConfig)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/zed-config/user", system.Wrapper(apiServer.updateZedUserSettings)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/zed-settings", system.Wrapper(apiServer.getMergedZedSettings)).Methods(http.MethodGet)
+
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods(http.MethodDelete)
-	authRouter.HandleFunc("/apps/{id}/duplicate", system.Wrapper(apiServer.duplicateApp)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/daily-usage", system.Wrapper(apiServer.getAppDailyUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/users-daily-usage", system.Wrapper(apiServer.getAppUsersDailyUsage)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/llm-calls", system.Wrapper(apiServer.listAppLLMCalls)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/interactions", system.Wrapper(apiServer.listAppInteractions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/step-info", system.Wrapper(apiServer.listAppStepInfo)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/memories", system.Wrapper(apiServer.listAppMemories)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/memories/{memory_id}", system.Wrapper(apiServer.deleteAppMemory)).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/apps/{id}/api-actions", system.Wrapper(apiServer.appRunAPIAction)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/user-access", system.Wrapper(apiServer.getAppUserAccess)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/apps/{id}/duplicate", system.Wrapper(apiServer.duplicateApp)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/apps/{id}/memories", system.Wrapper(apiServer.listAppMemories)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/apps/{id}/memories/{memory_id}", system.Wrapper(apiServer.deleteAppMemory)).Methods(http.MethodDelete)
 
 	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.listAppTriggers)).Methods(http.MethodGet)
 
@@ -464,6 +667,69 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
+
+	// External agent routes
+	authRouter.HandleFunc("/external-agents", apiServer.createExternalAgent).Methods("POST")
+	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
+	// Specific routes must come before parametric routes
+	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
+	authRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
+	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/keepalive", apiServer.getExternalAgentKeepaliveStatus).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
+
+	// Personal dev environment routes
+	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")
+	authRouter.HandleFunc("/personal-dev-environments", apiServer.createPersonalDevEnvironment).Methods("POST")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.getPersonalDevEnvironment).Methods("GET")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.updatePersonalDevEnvironment).Methods("PUT")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.deletePersonalDevEnvironment).Methods("DELETE")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
+	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/screenshot", apiServer.getPersonalDevEnvironmentScreenshot).Methods("GET")
+
+	// Wolf pairing routes
+	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
+	authRouter.HandleFunc("/wolf/pairing/complete", apiServer.completeWolfPairing).Methods("POST")
+	authRouter.HandleFunc("/wolf/ui-app-id", apiServer.getWolfUIAppID).Methods("GET")
+
+	// Reverse dial endpoint for external agent runners (requires runner token authentication)
+	// This handles both control connections (non-WebSocket) and data connections (WebSocket)
+	runnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
+
+	// RDP proxy management endpoints
+	// Note: RDP proxy health endpoint removed - not implemented
+
+	// External agent WebSocket runner endpoint
+	apiServer.startExternalAgentRunnerWebSocketServer(subRouter, "/ws/external-agent-runner")
+
+	// Moonlight streaming server routes - no auth required for Moonlight protocol compatibility
+	// Moonlight server routes disabled - using proxy approach instead (see line ~868)
+	// The proxy validates Helix auth and injects moonlight-web credentials
+	// apiServer.moonlightServer.RegisterRoutes(router)
+
+	// Agent dashboard and management routes
+	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
+	authRouter.HandleFunc("/agents/fleet", system.Wrapper(apiServer.getAgentFleet)).Methods("GET")
+	authRouter.HandleFunc("/agents/sessions", system.Wrapper(apiServer.listAgentSessions)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.listAgentWorkItems)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.createAgentWorkItem)).Methods("POST")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.getAgentWorkItem)).Methods("GET")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
+	authRouter.HandleFunc("/agents/help-requests", system.Wrapper(apiServer.listHelpRequests)).Methods("GET")
+	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.Wrapper(apiServer.resolveHelpRequest)).Methods("POST")
+	authRouter.HandleFunc("/agents/stats", system.Wrapper(apiServer.getWorkQueueStats)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
+
+	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
+	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
+	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -613,6 +879,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
+	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
+	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
+	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
+	moonlightRouter.PathPrefix("/").HandlerFunc(apiServer.proxyToMoonlightWeb)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
@@ -625,6 +896,89 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OAuth routes
 	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
+
+	// Spec-driven task routes
+	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/specs", apiServer.getTaskSpecs).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
+
+	// Multi-session spec-driven task routes
+	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/multi-session-overview", apiServer.getSpecTaskMultiSessionOverview).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/work-sessions", apiServer.listSpecTaskWorkSessions).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-tasks", apiServer.listImplementationTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}", apiServer.getWorkSessionDetail).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/spawn", apiServer.spawnWorkSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/status", apiServer.updateWorkSessionStatus).Methods(http.MethodPut)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.updateZedThreadStatus).Methods(http.MethodPut)
+
+	// Document handoff and git integration routes
+	authRouter.HandleFunc("/spec-tasks/{taskId}/generate-documents", apiServer.generateSpecDocuments).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/execute-handoff", apiServer.executeDocumentHandoff).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-with-handoff", apiServer.approveSpecsWithHandoff).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/commit-progress", apiServer.commitProgressUpdate).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/document-status", apiServer.getDocumentHandoffStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/download-documents", apiServer.downloadSpecDocuments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/documents/{document}", apiServer.getSpecDocumentContent).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/coordination-log", apiServer.getCoordinationLog).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
+
+	// Zed integration routes
+	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/instances/{instanceId}/threads/{threadId}/events", apiServer.handleZedThreadEvent).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/instances/{instanceId}/heartbeat", apiServer.handleZedConnectionHeartbeat).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/threads/{threadId}/activity", apiServer.updateZedThreadActivity).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-instance", apiServer.getZedInstanceStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-instance", apiServer.shutdownZedInstance).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-threads", apiServer.listZedThreads).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
+
+	// Sample project code routes
+	authRouter.HandleFunc("/sample-projects", apiServer.listSampleProjects).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/{projectId}/code", apiServer.getSampleProjectCode).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/{projectId}/archive", apiServer.getSampleProjectCodeArchive).Methods(http.MethodGet)
+
+	// Git repository routes (actual git repository management)
+	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+
+	// Spec-driven task routes
+	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
+	authRouter.HandleFunc("/specs/repositories", apiServer.createSpecTaskRepository).Methods(http.MethodPost)
+
+	// SpecTask orchestrator routes
+	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/from-demo", system.Wrapper(apiServer.createSpecTaskFromDemo)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{id}/design-docs", system.Wrapper(apiServer.getSpecTaskDesignDocs)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/status", apiServer.getSpecTaskExternalAgentStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/start", apiServer.startSpecTaskExternalAgent).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{id}/external-agent/stop", apiServer.stopSpecTaskExternalAgent).Methods(http.MethodPost)
+
+	// SpecTask shareable design docs (authenticated)
+	authRouter.HandleFunc("/spec-tasks/{id}/design-docs/share", system.Wrapper(apiServer.generateDesignDocsShareLink)).Methods(http.MethodPost)
+
+	// Public design docs viewer (token-based, no auth)
+	subRouter.HandleFunc("/spec-tasks/{id}/view", apiServer.viewDesignDocsPublic).Methods(http.MethodGet)
+
+	// Sample repository routes
+	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/samples/initialize", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
+
+	// Zed planning routes
+	authRouter.HandleFunc("/zed/planning/sessions", apiServer.startZedPlanningSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/sessions", apiServer.listZedPlanningSessions).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}", apiServer.getZedPlanningSession).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}/complete", apiServer.completeZedPlanning).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}/cancel", apiServer.cancelZedPlanningSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/from-sample", apiServer.createZedPlanningFromSample).Methods(http.MethodPost)
 
 	apiServer.router = router
 
@@ -770,8 +1124,8 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	})
 }
 
-// startUnixSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
-func (apiServer *HelixAPIServer) startUnixSocketServer(ctx context.Context) error {
+// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
+func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
 	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
 
 	// Remove socket file if it already exists
@@ -794,30 +1148,6 @@ func (apiServer *HelixAPIServer) startUnixSocketServer(ctx context.Context) erro
 
 	// Create a new router for the socket server
 	router := mux.NewRouter()
-
-	router.Use(ErrorLoggingMiddleware)
-
-	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
-		user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
-			ID: apiServer.Cfg.WebServer.EmbeddingsSocketUserID,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get user '%s': %w (does it exist?)", apiServer.Cfg.WebServer.EmbeddingsSocketUserID, err)
-		}
-
-		log.Info().
-			Str("user_id", apiServer.Cfg.WebServer.EmbeddingsSocketUserID).
-			Str("user_email", user.Email).
-			Msg("setting user for embeddings socket")
-
-		router.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Set user to the request context
-				r = r.WithContext(setRequestUser(r.Context(), *user))
-				next.ServeHTTP(w, r)
-			})
-		})
-	}
 
 	// Register only the necessary endpoints with no auth
 	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
@@ -855,4 +1185,545 @@ func (apiServer *HelixAPIServer) startUnixSocketServer(ctx context.Context) erro
 	}
 
 	return nil
+}
+
+// startExternalAgentRunnerWebSocketServer starts a WebSocket server for external agent runners
+// Follows the exact same pattern as GPTScript runner for consistency
+func (apiServer *HelixAPIServer) startExternalAgentRunnerWebSocketServer(r *mux.Router, path string) {
+	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		// Extract authentication and runner info from query parameters (like GPTScript)
+		runnerID := r.URL.Query().Get("runnerid")
+		accessToken := r.URL.Query().Get("access_token")
+		concurrencyStr := r.URL.Query().Get("concurrency")
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_connection_attempt").
+			Str("path", path).
+			Str("remote_addr", r.RemoteAddr).
+			Str("runner_id", runnerID).
+			Msg("🔗 EXTERNAL_AGENT_DEBUG: External agent runner attempting WebSocket connection")
+
+		if runnerID == "" {
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "missing_runner_id").
+				Msg("❌ EXTERNAL_AGENT_DEBUG: runnerid is required")
+			http.Error(w, "runnerid is required", http.StatusBadRequest)
+			return
+		}
+		if accessToken == "" {
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "missing_access_token").
+				Msg("❌ EXTERNAL_AGENT_DEBUG: access_token is required")
+			http.Error(w, "access_token is required", http.StatusBadRequest)
+			return
+		}
+
+		// Validate the runner token (like GPTScript does)
+		if accessToken != apiServer.Cfg.WebServer.RunnerToken {
+			log.Warn().
+				Str("EXTERNAL_AGENT_DEBUG", "invalid_token").
+				Str("provided_token", accessToken).
+				Str("expected_token", apiServer.Cfg.WebServer.RunnerToken).
+				Str("runner_id", runnerID).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Invalid runner token for external agent runner")
+			http.Error(w, "Invalid access token", http.StatusUnauthorized)
+			return
+		}
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "auth_success").
+			Str("runner_id", runnerID).
+			Msg("✅ EXTERNAL_AGENT_DEBUG: External agent runner authenticated successfully")
+
+		wsConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Error().
+				Str("EXTERNAL_AGENT_DEBUG", "websocket_upgrade_error").
+				Err(err).
+				Msg("❌ EXTERNAL_AGENT_DEBUG: Error upgrading external agent runner websocket")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer wsConn.Close()
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "websocket_upgraded").
+			Msg("🔌 EXTERNAL_AGENT_DEBUG: WebSocket connection upgraded successfully")
+
+		// Set initial read deadline to prevent hanging connections
+		const readTimeout = 60 * time.Second
+		wsConn.SetReadDeadline(time.Now().Add(readTimeout))
+
+		// Set up ping handler to track when runner sends pings to us
+		wsConn.SetPingHandler(func(appData string) error {
+			// log.Info().
+			// 	Str("EXTERNAL_AGENT_DEBUG", "ping_received").
+			// 	Str("runner_id", runnerID).
+			// 	Str("app_data", appData).
+			// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Received ping from external agent runner")
+
+			// Update last ping time in connection manager
+			if apiServer.externalAgentRunnerManager != nil {
+				apiServer.externalAgentRunnerManager.updatePingByRunner(runnerID)
+				// log.Info().
+				// 	Str("EXTERNAL_AGENT_DEBUG", "ping_timestamp_updated").
+				// 	Str("runner_id", runnerID).
+				// 	Msg("🏓 EXTERNAL_AGENT_DEBUG: Updated last ping timestamp in connection manager")
+			} else {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "no_connection_manager").
+					Str("runner_id", runnerID).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: No external agent runner manager available to update ping")
+			}
+
+			// Refresh read deadline on ping to keep connection alive
+			wsConn.SetReadDeadline(time.Now().Add(readTimeout))
+
+			// Send pong response back to runner (this is what the default ping handler does)
+			err := wsConn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
+			if err != nil {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_send_error").
+					Str("runner_id", runnerID).
+					Err(err).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Failed to send pong response")
+			} else {
+				log.Info().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_sent").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Sent pong response to external agent runner")
+			}
+
+			return nil
+		})
+
+		concurrency := 1
+		if concurrencyStr != "" {
+			if c, err := strconv.Atoi(concurrencyStr); err == nil {
+				concurrency = c
+			} else {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "concurrency_parse_error").
+					Err(err).
+					Str("concurrency_str", concurrencyStr).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error parsing concurrency")
+			}
+		}
+
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+
+		// Declare connectionID before defer so it's in scope
+		var connectionID string
+
+		defer func() {
+			// Update runner status to offline in store
+			if updateErr := apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "offline"); updateErr != nil {
+				log.Warn().Err(updateErr).Str("runner_id", runnerID).Msg("Failed to update runner status to offline")
+			}
+
+			// Remove the connection from the runner manager
+			if connectionID != "" {
+				apiServer.externalAgentRunnerManager.removeConnection(runnerID, connectionID)
+			}
+
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+				Str("runner_id", runnerID).
+				Msg("🟠 EXTERNAL_AGENT_DEBUG: External agent runner disconnected")
+		}()
+
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "runner_connected").
+			Str("action", "🟢 External agent runner connected").
+			Str("runner_id", runnerID).
+			Int("concurrency", concurrency).
+			Msg("🎉 EXTERNAL_AGENT_DEBUG: Connected external agent runner websocket")
+
+		// Track the connection in the runner manager
+		connectionID = apiServer.externalAgentRunnerManager.addConnection(runnerID, concurrency)
+
+		// Create or update agent runner in store with new RDP password
+		log.Info().
+			Str("EXTERNAL_AGENT_DEBUG", "creating_or_updating_runner_in_store").
+			Str("runner_id", runnerID).
+			Msg("💾 EXTERNAL_AGENT_DEBUG: Creating or updating agent runner in store")
+
+		agentRunner, err := apiServer.Store.GetOrCreateAgentRunner(ctx, runnerID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", runnerID).
+				Msg("Failed to create or update agent runner in store")
+			// Continue anyway - don't fail the connection for this
+		} else {
+			log.Info().
+				Str("runner_id", runnerID).
+				Str("status", agentRunner.Status).
+				Msg("✅ Agent runner created/updated in store")
+
+			// Update runner status to online
+			err = apiServer.Store.UpdateAgentRunnerStatus(ctx, runnerID, "online")
+			if err != nil {
+				log.Warn().Err(err).Str("runner_id", runnerID).Msg("Failed to update runner status to online")
+			}
+		}
+
+		// Subscribe to Zed agent tasks (using ZedAgentRunnerStream like GPTScript uses ScriptRunnerStream)
+		log.Info().
+			Str("ZED_FLOW_DEBUG", "websocket_subscribing_to_nats").
+			Str("stream", pubsub.ZedAgentRunnerStream).
+			Str("queue", pubsub.ZedAgentQueue).
+			Str("runner_id", runnerID).
+			Msg("📡 ZED_FLOW_DEBUG: [STEP 2.5] WebSocket server about to subscribe to NATS stream")
+
+		// Track consecutive WebSocket write failures for circuit breaker pattern
+		var consecutiveFailures int
+		const maxConsecutiveFailures = 3
+
+		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "message_from_nats_stream").
+				Str("runner_id", runnerID).
+				Str("kind", msg.Header.Get("kind")).
+				Str("reply", msg.Reply).
+				Int("data_length", len(msg.Data)).
+				Msg("🎯 ZED_FLOW_DEBUG: [STEP 3] Received message from NATS stream - about to forward to WebSocket")
+
+			var messageType types.RunnerEventRequestType
+
+			switch msg.Header.Get("kind") {
+			case "zed_agent":
+				messageType = types.RunnerEventRequestZedAgent
+				log.Info().
+					Str("ZED_FLOW_DEBUG", "message_type_zed_agent").
+					Str("runner_id", runnerID).
+					Msg("🎯 ZED_FLOW_DEBUG: Message type identified as zed_agent")
+			case "stop_zed_agent":
+				messageType = types.RunnerEventRequestZedAgent // Handle stop requests
+				log.Info().
+					Str("ZED_FLOW_DEBUG", "message_type_stop_zed_agent").
+					Str("runner_id", runnerID).
+					Msg("🎯 ZED_FLOW_DEBUG: Message type identified as stop_zed_agent")
+			default:
+				log.Warn().
+					Str("ZED_FLOW_DEBUG", "unknown_message_type").
+					Str("kind", msg.Header.Get("kind")).
+					Str("runner_id", runnerID).
+					Msg("⚠️ ZED_FLOW_DEBUG: Unknown message kind, defaulting to zed_agent")
+				messageType = types.RunnerEventRequestZedAgent
+			}
+
+			envelope := &types.RunnerEventRequestEnvelope{
+				RequestID: system.GenerateRequestID(),
+				Reply:     msg.Reply, // Runner will need this inbox channel to send messages back to the requestor
+				Type:      messageType,
+				Payload:   msg.Data, // The actual payload (Zed agent request)
+			}
+
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "envelope_created").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Str("reply", envelope.Reply).
+				Int("type", int(envelope.Type)).
+				Int("payload_length", len(envelope.Payload)).
+				Msg("📦 ZED_FLOW_DEBUG: Created envelope - about to send via WebSocket")
+
+			err := wsConn.WriteJSON(envelope)
+			if err != nil {
+				consecutiveFailures++
+				log.Error().
+					Str("ZED_FLOW_DEBUG", "websocket_write_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("request_id", envelope.RequestID).
+					Int("consecutive_failures", consecutiveFailures).
+					Msg("❌ ZED_FLOW_DEBUG: [STEP 4 FAILED] Error writing envelope to WebSocket - NAK'ing message but continuing subscription")
+
+				// NAK the message so it can be redelivered to another runner
+				if nakErr := msg.Nak(); nakErr != nil {
+					log.Error().
+						Str("ZED_FLOW_DEBUG", "nats_nak_error").
+						Err(nakErr).
+						Str("runner_id", runnerID).
+						Str("request_id", envelope.RequestID).
+						Msg("❌ ZED_FLOW_DEBUG: Failed to NAK message after WebSocket write error")
+				}
+
+				// Circuit breaker: if too many consecutive failures, break the subscription
+				// This allows the WebSocket to close cleanly and the runner to reconnect
+				if consecutiveFailures >= maxConsecutiveFailures {
+					log.Error().
+						Str("ZED_FLOW_DEBUG", "circuit_breaker_triggered").
+						Str("runner_id", runnerID).
+						Int("consecutive_failures", consecutiveFailures).
+						Int("max_failures", maxConsecutiveFailures).
+						Msg("🔥 ZED_FLOW_DEBUG: Circuit breaker triggered - too many consecutive WebSocket failures, closing connection to allow reconnect")
+					return fmt.Errorf("circuit breaker: %d consecutive WebSocket write failures", consecutiveFailures)
+				}
+
+				// Don't return error for isolated failures - this would break the entire NATS subscription
+				// Instead, let the WebSocket connection detection handle the cleanup
+				// The message will be redelivered to another healthy runner
+				return nil
+			}
+
+			// Reset failure counter on successful write
+			consecutiveFailures = 0
+
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "websocket_write_success").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Msg("✅ ZED_FLOW_DEBUG: [STEP 4] Successfully sent envelope to external agent runner via WebSocket")
+
+			if err := msg.Ack(); err != nil {
+				log.Error().
+					Str("ZED_FLOW_DEBUG", "nats_ack_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("request_id", envelope.RequestID).
+					Msg("❌ ZED_FLOW_DEBUG: Failed to acknowledge NATS message")
+				return fmt.Errorf("failed to ack the message: %v", err)
+			}
+
+			log.Info().
+				Str("ZED_FLOW_DEBUG", "nats_message_acked").
+				Str("runner_id", runnerID).
+				Str("request_id", envelope.RequestID).
+				Msg("✅ ZED_FLOW_DEBUG: NATS message acknowledged successfully")
+
+			return nil
+		})
+		if err != nil {
+			log.Error().
+				Str("ZED_FLOW_DEBUG", "nats_subscription_failed").
+				Err(err).
+				Str("stream", pubsub.ZedAgentRunnerStream).
+				Str("queue", pubsub.ZedAgentQueue).
+				Str("runner_id", runnerID).
+				Msg("❌ ZED_FLOW_DEBUG: [STEP 2.5 FAILED] WebSocket server failed to subscribe to NATS - no messages will be received")
+			return
+		}
+
+		log.Info().
+			Str("ZED_FLOW_DEBUG", "nats_subscription_success").
+			Str("runner_id", runnerID).
+			Msg("✅ ZED_FLOW_DEBUG: [STEP 2.5] WebSocket server successfully subscribed to NATS - waiting for messages")
+		defer func() {
+			if err := zedAgentSub.Unsubscribe(); err != nil {
+				log.Err(err).
+					Str("ZED_FLOW_DEBUG", "nats_unsubscribe_error").
+					Str("runner_id", runnerID).
+					Msg("❌ ZED_FLOW_DEBUG: Error unsubscribing from NATS stream")
+			}
+		}()
+
+		// Block reads in order to detect disconnects and handle responses
+		log.Info().
+			Str("ZED_FLOW_DEBUG", "websocket_message_loop_start").
+			Str("runner_id", runnerID).
+			Msg("🔄 ZED_FLOW_DEBUG: Starting WebSocket message read loop - ready to receive responses from external agent")
+
+		for {
+			messageType, messageBytes, err := wsConn.ReadMessage()
+			if err != nil || messageType == websocket.CloseMessage {
+				// Only log as error if it's an unexpected close
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Error().
+						Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+						Str("action", "🟠 External agent runner ws DISCONNECT").
+						Str("runner_id", runnerID).
+						Err(err).
+						Msg("🟠 EXTERNAL_AGENT_DEBUG: Unexpected close error from external agent runner websocket")
+				} else {
+					log.Info().
+						Str("EXTERNAL_AGENT_DEBUG", "runner_disconnect").
+						Str("action", "🟠 External agent runner ws DISCONNECT").
+						Str("runner_id", runnerID).
+						Err(err).
+						Msg("🟠 EXTERNAL_AGENT_DEBUG: Disconnected external agent runner websocket")
+				}
+				return
+			}
+
+			// Refresh read deadline on any message to keep connection alive
+			wsConn.SetReadDeadline(time.Now().Add(readTimeout))
+
+			// Log all incoming WebSocket messages with their types
+			log.Info().
+				Str("EXTERNAL_AGENT_DEBUG", "websocket_message_received").
+				Str("runner_id", runnerID).
+				Int("message_type", int(messageType)).
+				Str("message_type_name", getWebSocketMessageTypeName(messageType)).
+				Int("message_length", len(messageBytes)).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: WebSocket message received from external agent runner")
+
+			// Note: Ping messages are now handled automatically by the WebSocket library
+			// and our SetPongHandler above will track the ping timestamps
+
+			// Handle pong messages (if any - though these should be handled by SetPongHandler)
+			if messageType == websocket.PongMessage {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "pong_received_in_readloop").
+					Str("runner_id", runnerID).
+					Msg("🏓 EXTERNAL_AGENT_DEBUG: Received pong in read message loop (unexpected)")
+				continue
+			}
+
+			// Only process text messages as JSON
+			if messageType != websocket.TextMessage {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "non_text_message").
+					Str("runner_id", runnerID).
+					Int("message_type", int(messageType)).
+					Msg("🔄 EXTERNAL_AGENT_DEBUG: Received non-text message, skipping")
+				continue
+			}
+
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "runner_response").
+				Str("runner_id", runnerID).
+				Int("message_type", int(messageType)).
+				Int("message_length", len(messageBytes)).
+				Str("message_preview", func() string {
+					if len(messageBytes) > 200 {
+						return string(messageBytes[:200]) + "..."
+					}
+					return string(messageBytes)
+				}()).
+				Msg("📨 EXTERNAL_AGENT_DEBUG: External agent runner websocket response")
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			var resp types.RunnerEventResponseEnvelope
+			err = json.Unmarshal(messageBytes, &resp)
+			if err != nil {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "response_unmarshal_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("raw_message", string(messageBytes)).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error unmarshalling websocket event")
+				continue
+			}
+
+			log.Debug().
+				Str("EXTERNAL_AGENT_DEBUG", "response_parsed").
+				Str("runner_id", runnerID).
+				Str("request_id", resp.RequestID).
+				Str("reply", resp.Reply).
+				Msg("📋 EXTERNAL_AGENT_DEBUG: Parsed runner response envelope")
+
+			err = apiServer.pubsub.Publish(ctx, resp.Reply, resp.Payload)
+			if err != nil {
+				log.Error().
+					Str("EXTERNAL_AGENT_DEBUG", "publish_response_error").
+					Err(err).
+					Str("runner_id", runnerID).
+					Str("reply", resp.Reply).
+					Msg("❌ EXTERNAL_AGENT_DEBUG: Error publishing external agent response")
+			} else {
+				log.Debug().
+					Str("EXTERNAL_AGENT_DEBUG", "response_published").
+					Str("runner_id", runnerID).
+					Str("reply", resp.Reply).
+					Msg("✅ EXTERNAL_AGENT_DEBUG: External agent response published successfully")
+			}
+		}
+	})
+}
+
+// Helper function to get WebSocket message type names for logging
+func getWebSocketMessageTypeName(messageType int) string {
+	switch messageType {
+	case websocket.TextMessage:
+		return "TextMessage"
+	case websocket.BinaryMessage:
+		return "BinaryMessage"
+	case websocket.CloseMessage:
+		return "CloseMessage"
+	case websocket.PingMessage:
+		return "PingMessage"
+	case websocket.PongMessage:
+		return "PongMessage"
+	default:
+		return fmt.Sprintf("Unknown(%d)", messageType)
+	}
+}
+
+// handleRevDial handles reverse dial connections from external agent runners
+func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
+	// Create the WebSocket handler for data connections using revdial.ConnHandler
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for now
+		},
+	}
+
+	revDialConnHandler := revdial.ConnHandler(upgrader)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if this is a WebSocket upgrade request (data connection)
+		if websocket.IsWebSocketUpgrade(r) {
+			log.Debug().Msg("Handling revdial WebSocket data connection")
+			// This is a data connection - use the revdial ConnHandler
+			revDialConnHandler.ServeHTTP(w, r)
+			return
+		}
+
+		// This is a control connection - proceed with existing logic
+		log.Debug().Msg("Handling revdial control connection")
+
+		// Get authenticated user from middleware (runner token authentication)
+		user := getRequestUser(r)
+		if user == nil || user.TokenType != types.TokenTypeRunner {
+			log.Error().Msg("Unauthorized reverse dial request - runner token required")
+			http.Error(w, "runner token required", http.StatusUnauthorized)
+			return
+		}
+
+		// Extract runner ID from query parameter
+		runnerID := r.URL.Query().Get("runnerid")
+		if runnerID == "" {
+			log.Error().Msg("Missing runnerid in reverse dial request")
+			http.Error(w, "runnerid is required", http.StatusBadRequest)
+			return
+		}
+
+		log.Info().
+			Str("remote_addr", r.RemoteAddr).
+			Str("runner_id", runnerID).
+			Str("token_type", string(user.TokenType)).
+			Msg("Authenticated external agent runner establishing reverse dial connection")
+
+		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
+
+		// Hijack the HTTP connection to get raw TCP connection
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			log.Error().Msg("HTTP hijacking not supported")
+			http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
+			return
+		}
+
+		// Send HTTP 200 response before hijacking
+		w.WriteHeader(http.StatusOK)
+
+		// Hijack the connection to get raw TCP
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
+			return
+		}
+
+		// Register the reverse dial connection in connman
+		apiServer.connman.Set(runnerID, conn)
+		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
+
+		// The connection is now managed by connman
+		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
+	})
 }

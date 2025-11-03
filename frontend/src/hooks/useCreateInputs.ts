@@ -137,6 +137,23 @@ export const useCreateInputs = () => {
     formData.set('rag_results_count', sessionConfig.ragResultsCount.toString())
     formData.set('rag_chunk_size', sessionConfig.ragChunkSize.toString())
     formData.set('rag_chunk_overflow', sessionConfig.ragChunkOverflow.toString())
+    
+    // Agent type configuration
+    formData.set('agent_type', sessionConfig.agentType)
+    if (sessionConfig.externalAgentConfig) {
+      if (sessionConfig.externalAgentConfig.workspace_dir) {
+        formData.set('external_agent_workspace_dir', sessionConfig.externalAgentConfig.workspace_dir)
+      }
+      if (sessionConfig.externalAgentConfig.project_path) {
+        formData.set('external_agent_project_path', sessionConfig.externalAgentConfig.project_path)
+      }
+      if (sessionConfig.externalAgentConfig.env_vars && sessionConfig.externalAgentConfig.env_vars.length > 0) {
+        formData.set('external_agent_env_vars', JSON.stringify(sessionConfig.externalAgentConfig.env_vars))
+      }
+      if (sessionConfig.externalAgentConfig.auto_connect_rdp !== undefined) {
+        formData.set('external_agent_auto_connect_rdp', sessionConfig.externalAgentConfig.auto_connect_rdp ? 'yes' : '')
+      }
+    }
 
     finetuneFiles.forEach((file) => {
       formData.append("files", file.file)

@@ -71,21 +71,6 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 
 func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, mcpClientGetter mcp.ClientGetter, strict bool) error {
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-
-		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
-			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
-		}
-
-		if tool.Config.GPTScript.Script != "" && tool.Config.GPTScript.ScriptURL != "" {
-			return system.NewHTTPError400("only one of script or script URL is allowed for GPTScript tools")
-		}
-
-		// OK
-		if tool.Description == "" && strict {
-			return system.NewHTTPError400("description is required for GPTScript tools, make as descriptive as possible")
-		}
-
 	case types.ToolTypeAPI:
 		// Validate the API
 		if tool.Config.API == nil {
@@ -104,7 +89,7 @@ func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.T
 		tool.Config.API.Schema = strings.TrimSpace(tool.Config.API.Schema)
 		tool.Config.API.URL = strings.TrimSpace(tool.Config.API.URL)
 
-		if assistant.AgentMode && tool.Config.API.SystemPrompt == "" {
+		if assistant.IsAgentMode() && tool.Config.API.SystemPrompt == "" {
 			return system.NewHTTPError400("system prompt is required for API tools when using the agent mode")
 		}
 

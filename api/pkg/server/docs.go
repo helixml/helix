@@ -23,6 +23,467 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/admin/agent-sandboxes/debug": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retrieves combined debug data from Wolf (memory, lobbies, sessions) for the Agent Sandboxes dashboard",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get Wolf debugging data",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.AgentSandboxesDebugResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/agent-sandboxes/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Proxies Server-Sent Events from Wolf for real-time monitoring",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get Wolf real-time events (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "event: message",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/fleet": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent fleet data including active sessions, work queue, and help requests without dashboard data",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent fleet data",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentFleetSummary"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/fleet/live-progress": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get real-time progress of all agents working on SpecTasks",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get live agent fleet progress",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.LiveAgentFleetProgressResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/help-requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List help requests from agents needing human assistance",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List help requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Help request status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Urgency level filter",
+                        "name": "urgency",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.HelpRequestsListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/help-requests/{request_id}/resolve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Provide resolution for a help request from an agent",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Resolve a help request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Help request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Resolution details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.HelpRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List agent sessions with filtering and pagination",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent sessions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type filter",
+                        "name": "agent_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Show only active sessions",
+                        "name": "active_only",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentSessionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get statistics about the agent work queue",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get work queue statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkQueueStats"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/work": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List work items in the agent queue with filtering and pagination",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "List agent work items",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Work item status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type filter",
+                        "name": "agent_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Work item source filter",
+                        "name": "source",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItemsResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new work item in the agent queue",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Create a new agent work item",
+                "parameters": [
+                    {
+                        "description": "Work item details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItemCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItem"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/work/{work_item_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get details of a specific work item",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get an agent work item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work item ID",
+                        "name": "work_item_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItem"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update details of a specific work item",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Update an agent work item",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work item ID",
+                        "name": "work_item_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItemUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentWorkItem"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/api_keys": {
             "get": {
                 "security": [
@@ -1184,6 +1645,152 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard/agent": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get comprehensive dashboard data including agent sessions, work queue, and help requests",
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Get enhanced dashboard data with agent management",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentDashboardSummary"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/auto-join-lobby": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Auto-join Wolf lobby after connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Helix Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/keepalive": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get keepalive session health status for an external agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get keepalive session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/filestore/config": {
             "get": {
                 "security": [
@@ -1511,6 +2118,201 @@ const docTemplate = `{
                         "description": "File content",
                         "schema": {
                             "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all git repositories, optionally filtered by owner and type",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List git repositories",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by owner ID",
+                        "name": "owner_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by repository type",
+                        "name": "repo_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/services.GitRepository"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new git repository on the server",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create git repository",
+                "parameters": [
+                    {
+                        "description": "Repository creation request",
+                        "name": "repository",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get information about a specific git repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get git repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/clone-command": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the git clone command for a repository with authentication",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get clone command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target directory for clone",
+                        "name": "target_dir",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CloneCommandResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     }
                 }
@@ -3042,6 +3844,266 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/personal-dev-environments": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all personal development environments for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "List personal development environments",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new personal development environment with the specified configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Create a personal development environment",
+                "parameters": [
+                    {
+                        "description": "Personal dev environment configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreatePersonalDevEnvironmentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Delete a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}/start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Start a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Start a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/personal-dev-environments/{environmentID}/stop": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a personal development environment by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PersonalDevEnvironments"
+                ],
+                "summary": "Stop a personal development environment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Environment ID",
+                        "name": "environmentID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/provider-endpoints": {
             "get": {
                 "security": [
@@ -3286,6 +4348,770 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/question-sets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List question sets for the current user or organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question sets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSet"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Create a new question set",
+                "parameters": [
+                    {
+                        "description": "Question set to create",
+                        "name": "questionSet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a question set by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Get a question set by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Update a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question set to update",
+                        "name": "questionSet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Delete a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List executions for the question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question set executions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSetExecution"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Execute a question set, this is a blocking operation and will return a response for each question in the question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Execute a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request to execute a question set",
+                        "name": "executeQuestionSetRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{question_set_id}/executions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get results for a question set execution",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Get question set execution results",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set execution ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Format, one of: json (default), markdown",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSetExecution"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a list of all available sample projects that users can fork and use",
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "List available sample projects",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.SampleProject"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/fork": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fork a sample project to the user's GitHub account and create a new Helix project",
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Fork a sample project",
+                "parameters": [
+                    {
+                        "description": "Fork request details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSampleProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSampleProjectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/simple": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get sample projects with natural language task prompts (Kiro-style)",
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "List simple sample projects",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/server.SimpleSampleProject"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/simple/fork": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fork a sample project and create tasks from natural language prompts",
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Fork a simple sample project",
+                "parameters": [
+                    {
+                        "description": "Fork request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSimpleProjectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.ForkSimpleProjectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/{projectId}/archive": {
+            "get": {
+                "description": "Get all files for a sample project as a flat map (for container initialization)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Get sample project code as archive",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/{projectId}/code": {
+            "get": {
+                "description": "Get the starter code and file structure for a sample project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Get sample project starter code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.SampleProjectCode"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sample-projects/{project_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get details of a specific sample project by ID",
+                "tags": [
+                    "sample-projects"
+                ],
+                "summary": "Get a specific sample project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Sample project ID",
+                        "name": "project_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SampleProject"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/samples/initialize": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create multiple sample repositories for development/testing",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Initialize sample repositories",
+                "parameters": [
+                    {
+                        "description": "Initialize samples request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.InitializeSampleRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.InitializeSampleRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/samples/repositories": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a sample/demo git repository from available templates",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Create sample repository",
+                "parameters": [
+                    {
+                        "description": "Sample repository creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateSampleRepositoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/scheduler/heartbeats": {
             "get": {
                 "security": [
@@ -3510,6 +5336,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Organization slug or ID",
                         "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "question_set_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question set execution ID",
+                        "name": "question_set_execution_id",
                         "in": "query"
                     },
                     {
@@ -3795,6 +5633,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/rdp-connection": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get Wolf streaming connection details for accessing a session (replaces RDP)",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get Wolf connection info for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/step-info": {
             "get": {
                 "security": [
@@ -3810,6 +5680,252 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.StepInfo"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/wolf-app-state": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the current Wolf app state for an external agent session (absent/running/resumable)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get Wolf app state for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionWolfAppStateResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-config": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get Helix-managed Zed MCP configuration for a session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Get Zed configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ZedConfigResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-config/user": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Update user's custom Zed settings overrides",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Update Zed user settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "User settings overrides",
+                        "name": "overrides",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/zed-settings": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get merged Helix + user Zed settings for a session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Zed"
+                ],
+                "summary": "Get merged Zed settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -3967,6 +6083,1774 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks": {
+            "get": {
+                "description": "List spec-driven tasks with optional filtering by project, status, or user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List spec-driven tasks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by project ID",
+                        "name": "project_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SpecTask"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/from-demo": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new SpecTask with a demo repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Create SpecTask from demo repo",
+                "parameters": [
+                    {
+                        "description": "Demo task request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateSpecTaskFromDemoRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/from-prompt": {
+            "post": {
+                "description": "Create a new task from a simple description and start spec generation",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Create spec-driven task from simple prompt",
+                "parameters": [
+                    {
+                        "description": "Task creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.CreateTaskRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{id}/design-docs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get the design documents from helix-design-docs worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get design docs for SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.DesignDocsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{id}/design-docs/share": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Generate a token-based shareable link for viewing design documents on any device",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Generate shareable design docs link",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.DesignDocsShareLinkResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{id}/external-agent/start": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Start or resume the external agent for a SpecTask (allocates GPU)",
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Start SpecTask external agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{id}/external-agent/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get the current status and info for a SpecTask's external agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get SpecTask external agent status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SpecTaskExternalAgentStatusResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{id}/external-agent/stop": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Manually stop the external agent for a SpecTask (frees GPU)",
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Stop SpecTask external agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}": {
+            "get": {
+                "description": "Get detailed information about a specific spec-driven task",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get spec-driven task details",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update SpecTask status, priority, or other fields",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/approve-specs": {
+            "post": {
+                "description": "Human approval/rejection of specs generated by AI agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Approve or reject generated specifications",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Approval response",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecApprovalResponse"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/approve-with-handoff": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Combined endpoint that approves specifications and immediately executes document handoff workflow",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Approve specs and execute document handoff",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Approval and handoff configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.ApprovalWithHandoffRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CombinedApprovalHandoffResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/commit-progress": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Commit a progress update to git with current implementation status",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Commit implementation progress update",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Progress update data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.HandoffResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/coordination-log": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the coordination log showing inter-session communication for a SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get coordination log for SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Limit number of events",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event type",
+                        "name": "event_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.CoordinationLogResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/document-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current status of document handoff and git integration for a SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get document handoff status for SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.DocumentHandoffStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/documents/{document}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve the content of a specific spec document (requirements.md, design.md, or tasks.md)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get specific spec document content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "requirements",
+                            "design",
+                            "tasks",
+                            "metadata"
+                        ],
+                        "type": "string",
+                        "description": "Document name",
+                        "name": "document",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SpecDocumentContentResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/download-documents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download the generated spec documents as a zip file or individual files",
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Download generated spec documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "zip",
+                            "individual"
+                        ],
+                        "type": "string",
+                        "default": "zip",
+                        "description": "Download format",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/execute-handoff": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Execute the complete document handoff when specs are approved, including git commit and implementation start",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Execute complete document handoff workflow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Handoff configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.DocumentHandoffConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.HandoffResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/generate-documents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Generate Kiro-style spec documents (requirements.md, design.md, tasks.md) and commit to git repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Generate and commit spec documents to git",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Document generation configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.SpecDocumentConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.SpecDocumentResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/implementation-sessions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create multiple work sessions from an approved SpecTask implementation plan",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Create implementation sessions for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Implementation sessions configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskImplementationSessionsCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskMultiSessionOverviewResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/implementation-tasks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all parsed implementation tasks from a SpecTask's implementation plan",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List implementation tasks for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskImplementationTaskListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/multi-session-overview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get comprehensive overview of all work sessions and progress for a SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get multi-session overview for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskMultiSessionOverviewResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/progress": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get detailed progress information including phase progress and implementation task status",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get detailed progress for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskProgressResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/specs": {
+            "get": {
+                "description": "Get the generated specifications for human review",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get task specifications for review",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.TaskSpecsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/work-sessions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all work sessions associated with a specific SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "List work sessions for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "planning",
+                            "implementation",
+                            "validation"
+                        ],
+                        "type": "string",
+                        "description": "Filter by phase",
+                        "name": "phase",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/zed-instance": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the current status and information about a Zed instance associated with a SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Get Zed instance status for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ZedInstanceStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually shutdown a Zed instance and all its threads for a SpecTask",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Shutdown Zed instance for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/zed-threads": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all Zed threads associated with a SpecTask",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "List Zed threads for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThreadListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/specs/repositories": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a git repository specifically for a SpecTask",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "specs"
+                ],
+                "summary": "Create SpecTask repository",
+                "parameters": [
+                    {
+                        "description": "SpecTask repository creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateSpecTaskRepositoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/specs/sample-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of available sample repository types and templates",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "specs"
+                ],
+                "summary": "Get sample repository types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SampleTypesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get all SSH keys for the current user",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "List SSH keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.SSHKeyResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Create a new SSH key for git operations",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Create SSH key",
+                "parameters": [
+                    {
+                        "description": "SSH key details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys/generate": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Generate a new SSH key pair",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Generate SSH key",
+                "parameters": [
+                    {
+                        "description": "SSH key generation parameters",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyGenerateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyGenerateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ssh-keys/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Delete an SSH key",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SSHKeys"
+                ],
+                "summary": "Delete SSH key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SSH key ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SSHKeyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -4637,6 +8521,772 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/wolf/ui-app-id": {
+            "get": {
+                "description": "Get the Wolf UI app ID for lobbies mode streaming",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Wolf"
+                ],
+                "summary": "Get Wolf UI app ID",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get comprehensive details about a specific work session including related entities",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get detailed information about a work session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionDetailResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve the session history log for a work session from git repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get session history log from git",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "conversation",
+                            "code_change",
+                            "decision",
+                            "coordination"
+                        ],
+                        "type": "string",
+                        "description": "Filter by activity type",
+                        "name": "activity_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "Limit number of entries",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SessionHistoryResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}/record-history": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Record session activity (conversation, code changes, decisions) to git repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Record session activity to git",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Session activity record",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.SessionHistoryRecord"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}/spawn": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new work session that is spawned from an existing active work session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Spawn a new work session from an existing one",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parent Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Spawn configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionSpawnRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}/status": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the status of a work session and handle state transitions",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update work session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskWorkSession"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/work-sessions/{sessionId}/zed-thread": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the status of a Zed thread associated with a work session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update Zed thread status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Zed thread status update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThreadUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThread"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually create a Zed thread for a specific work session",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Create Zed thread for work session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Work Session ID",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Thread creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThreadCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThread"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/zed-threads/create-session": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new Helix work session when a Zed thread is created (reverse flow)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Create Helix session from Zed thread",
+                "parameters": [
+                    {
+                        "description": "Zed thread creation context",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.ZedThreadCreationContext"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.ZedSessionCreationResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/zed/events": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Process events from Zed instances including status changes, thread updates, and coordination",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Handle Zed instance events",
+                "parameters": [
+                    {
+                        "description": "Zed instance event",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ZedInstanceEvent"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/zed/instances/{instanceId}/heartbeat": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Process heartbeat signals from Zed instances to maintain connection status",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Handle Zed connection heartbeat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Zed Instance ID",
+                        "name": "instanceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Heartbeat data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/zed/instances/{instanceId}/threads/{threadId}/events": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Process thread-specific events from Zed instances",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Handle Zed thread-specific events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Zed Instance ID",
+                        "name": "instanceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Zed Thread ID",
+                        "name": "threadId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Thread event data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/zed/threads/{threadId}/activity": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update activity timestamp and status for a Zed thread",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "zed-integration"
+                ],
+                "summary": "Update Zed thread activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Zed Thread ID",
+                        "name": "threadId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Activity data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskZedThread"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -4656,7 +9306,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionRequest"
+                            "$ref": "#/definitions/openai.ChatCompletionRequest"
                         }
                     }
                 ],
@@ -4664,7 +9314,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponse"
+                            "$ref": "#/definitions/openai.ChatCompletionResponse"
                         }
                     }
                 }
@@ -4813,598 +9463,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.Rule"
                     }
-                }
-            }
-        },
-        "github_com_helixml_helix_api_pkg_types.Tool": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "$ref": "#/definitions/types.ToolConfig"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "global": {
-                    "type": "boolean"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "system_prompt": {
-                    "description": "E.g. As a restaurant expert, you provide personalized restaurant recommendations",
-                    "type": "string"
-                },
-                "tool_type": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
-                }
-            }
-        },
-        "github_com_helixml_helix_api_pkg_types.ToolType": {
-            "type": "string",
-            "enum": [
-                "api",
-                "browser",
-                "gptscript",
-                "zapier",
-                "calculator",
-                "email",
-                "web_search",
-                "azure_devops",
-                "mcp"
-            ],
-            "x-enum-varnames": [
-                "ToolTypeAPI",
-                "ToolTypeBrowser",
-                "ToolTypeGPTScript",
-                "ToolTypeZapier",
-                "ToolTypeCalculator",
-                "ToolTypeEmail",
-                "ToolTypeWebSearch",
-                "ToolTypeAzureDevOps",
-                "ToolTypeMCP"
-            ]
-        },
-        "github_com_helixml_helix_api_pkg_types.Usage": {
-            "type": "object",
-            "properties": {
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "duration_ms": {
-                    "description": "How long the request took in milliseconds",
-                    "type": "integer"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionChoice": {
-            "type": "object",
-            "properties": {
-                "content_filter_results": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults"
-                },
-                "finish_reason": {
-                    "description": "FinishReason\nstop: API returned complete message,\nor a message terminated by one of the stop sequences provided via the stop parameter\nlength: Incomplete model output due to max_tokens parameter or token limit\nfunction_call: The model decided to call a function\ncontent_filter: Omitted content due to a flag from our content filters\nnull: API response still in progress or incomplete",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.FinishReason"
-                        }
-                    ]
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "logprobs": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.LogProbs"
-                },
-                "message": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionMessage": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "function_call": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionCall"
-                },
-                "multiContent": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessagePart"
-                    }
-                },
-                "name": {
-                    "description": "This property isn't in the official documentation, but it's in\nthe documentation for the official library for python:\n- https://github.com/openai/openai-python/blob/main/chatml.md\n- https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb",
-                    "type": "string"
-                },
-                "refusal": {
-                    "type": "string"
-                },
-                "role": {
-                    "type": "string"
-                },
-                "tool_call_id": {
-                    "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
-                    "type": "string"
-                },
-                "tool_calls": {
-                    "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
-                    }
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionRequest": {
-            "type": "object",
-            "properties": {
-                "frequency_penalty": {
-                    "type": "number"
-                },
-                "function_call": {
-                    "description": "Deprecated: use ToolChoice instead."
-                },
-                "functions": {
-                    "description": "Deprecated: use Tools instead.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionDefinition"
-                    }
-                },
-                "logit_bias": {
-                    "description": "LogitBias is must be a token id string (specified by their token ID in the tokenizer), not a word string.\nincorrect: ` + "`" + `\"logit_bias\":{\"You\": 6}` + "`" + `, correct: ` + "`" + `\"logit_bias\":{\"1639\": 6}` + "`" + `\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat/create-logit_bias",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "logprobs": {
-                    "description": "LogProbs indicates whether to return log probabilities of the output tokens or not.\nIf true, returns the log probabilities of each output token returned in the content of message.\nThis option is currently not available on the gpt-4-vision-preview model.",
-                    "type": "boolean"
-                },
-                "max_completion_tokens": {
-                    "description": "MaxCompletionTokens An upper bound for the number of tokens that can be generated for a completion,\nincluding visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning",
-                    "type": "integer"
-                },
-                "max_tokens": {
-                    "description": "MaxTokens The maximum number of tokens that can be generated in the chat completion.\nThis value can be used to control costs for text generated via API.\nThis value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens",
-                    "type": "integer"
-                },
-                "messages": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionMessage"
-                    }
-                },
-                "metadata": {
-                    "description": "Metadata to store with the completion.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "model": {
-                    "type": "string"
-                },
-                "n": {
-                    "type": "integer"
-                },
-                "parallel_tool_calls": {
-                    "description": "Disable the default behavior of parallel tool calls by setting it: false."
-                },
-                "presence_penalty": {
-                    "type": "number"
-                },
-                "reasoning_effort": {
-                    "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
-                    "type": "string"
-                },
-                "response_format": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormat"
-                },
-                "seed": {
-                    "type": "integer"
-                },
-                "stop": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "store": {
-                    "description": "Store can be set to true to store the output of this completion request for use in distillations and evals.\nhttps://platform.openai.com/docs/api-reference/chat/create#chat-create-store",
-                    "type": "boolean"
-                },
-                "stream": {
-                    "type": "boolean"
-                },
-                "stream_options": {
-                    "description": "Options for streaming response. Only set this when you set stream: true.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sashabaranov_go-openai.StreamOptions"
-                        }
-                    ]
-                },
-                "temperature": {
-                    "type": "number"
-                },
-                "tool_choice": {
-                    "description": "This can be either a string or an ToolChoice object."
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
-                    }
-                },
-                "top_logprobs": {
-                    "description": "TopLogProbs is an integer between 0 and 5 specifying the number of most likely tokens to return at each\ntoken position, each with an associated log probability.\nlogprobs must be set to true if this parameter is used.",
-                    "type": "integer"
-                },
-                "top_p": {
-                    "type": "number"
-                },
-                "user": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionResponse": {
-            "type": "object",
-            "properties": {
-                "choices": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionChoice"
-                    }
-                },
-                "created": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "object": {
-                    "type": "string"
-                },
-                "prompt_filter_results": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/openai.PromptFilterResult"
-                    }
-                },
-                "system_fingerprint": {
-                    "type": "string"
-                },
-                "usage": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionResponseFormat": {
-            "type": "object",
-            "properties": {
-                "json_schema": {
-                    "$ref": "#/definitions/openai.ChatCompletionResponseFormatJSONSchema"
-                },
-                "type": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatCompletionResponseFormatType"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatCompletionResponseFormatType": {
-            "type": "string",
-            "enum": [
-                "json_object",
-                "json_schema",
-                "text"
-            ],
-            "x-enum-varnames": [
-                "ChatCompletionResponseFormatTypeJSONObject",
-                "ChatCompletionResponseFormatTypeJSONSchema",
-                "ChatCompletionResponseFormatTypeText"
-            ]
-        },
-        "github_com_sashabaranov_go-openai.ChatMessageImageURL": {
-            "type": "object",
-            "properties": {
-                "detail": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ImageURLDetail"
-                },
-                "url": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatMessagePart": {
-            "type": "object",
-            "properties": {
-                "image_url": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessageImageURL"
-                },
-                "text": {
-                    "type": "string"
-                },
-                "type": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ChatMessagePartType"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ChatMessagePartType": {
-            "type": "string",
-            "enum": [
-                "text",
-                "image_url"
-            ],
-            "x-enum-varnames": [
-                "ChatMessagePartTypeText",
-                "ChatMessagePartTypeImageURL"
-            ]
-        },
-        "github_com_sashabaranov_go-openai.ContentFilterResults": {
-            "type": "object",
-            "properties": {
-                "hate": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Hate"
-                },
-                "jailbreak": {
-                    "$ref": "#/definitions/openai.JailBreak"
-                },
-                "profanity": {
-                    "$ref": "#/definitions/openai.Profanity"
-                },
-                "self_harm": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.SelfHarm"
-                },
-                "sexual": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Sexual"
-                },
-                "violence": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Violence"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.FinishReason": {
-            "type": "string",
-            "enum": [
-                "stop",
-                "length",
-                "function_call",
-                "tool_calls",
-                "content_filter",
-                "null"
-            ],
-            "x-enum-varnames": [
-                "FinishReasonStop",
-                "FinishReasonLength",
-                "FinishReasonFunctionCall",
-                "FinishReasonToolCalls",
-                "FinishReasonContentFilter",
-                "FinishReasonNull"
-            ]
-        },
-        "github_com_sashabaranov_go-openai.FunctionCall": {
-            "type": "object",
-            "properties": {
-                "arguments": {
-                    "description": "call function with arguments in JSON format",
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.FunctionDefinition": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "parameters": {
-                    "description": "Parameters is an object describing the function.\nYou can pass json.RawMessage to describe the schema,\nor you can pass in a struct which serializes to the proper JSON schema.\nThe jsonschema package is provided for convenience, but you should\nconsider another specialized library if you require more complex schemas."
-                },
-                "strict": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.Hate": {
-            "type": "object",
-            "properties": {
-                "filtered": {
-                    "type": "boolean"
-                },
-                "severity": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ImageURLDetail": {
-            "type": "string",
-            "enum": [
-                "high",
-                "low",
-                "auto"
-            ],
-            "x-enum-varnames": [
-                "ImageURLDetailHigh",
-                "ImageURLDetailLow",
-                "ImageURLDetailAuto"
-            ]
-        },
-        "github_com_sashabaranov_go-openai.LogProb": {
-            "type": "object",
-            "properties": {
-                "bytes": {
-                    "description": "Omitting the field if it is null",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "logprob": {
-                    "type": "number"
-                },
-                "token": {
-                    "type": "string"
-                },
-                "top_logprobs": {
-                    "description": "TopLogProbs is a list of the most likely tokens and their log probability, at this token position.\nIn rare cases, there may be fewer than the number of requested top_logprobs returned.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.TopLogProbs"
-                    }
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.LogProbs": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "description": "Content is a list of message content tokens with log probability information.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.LogProb"
-                    }
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.SelfHarm": {
-            "type": "object",
-            "properties": {
-                "filtered": {
-                    "type": "boolean"
-                },
-                "severity": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.Sexual": {
-            "type": "object",
-            "properties": {
-                "filtered": {
-                    "type": "boolean"
-                },
-                "severity": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.StreamOptions": {
-            "type": "object",
-            "properties": {
-                "include_usage": {
-                    "description": "If set, an additional chunk will be streamed before the data: [DONE] message.\nThe usage field on this chunk shows the token usage statistics for the entire request,\nand the choices field will always be an empty array.\nAll other chunks will also include a usage field, but with a null value.",
-                    "type": "boolean"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.Tool": {
-            "type": "object",
-            "properties": {
-                "function": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionDefinition"
-                },
-                "type": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolType"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ToolCall": {
-            "type": "object",
-            "properties": {
-                "function": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.FunctionCall"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "index": {
-                    "description": "Index is not nil only in chat completion chunk object",
-                    "type": "integer"
-                },
-                "type": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolType"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.ToolType": {
-            "type": "string",
-            "enum": [
-                "function"
-            ],
-            "x-enum-varnames": [
-                "ToolTypeFunction"
-            ]
-        },
-        "github_com_sashabaranov_go-openai.TopLogProbs": {
-            "type": "object",
-            "properties": {
-                "bytes": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "logprob": {
-                    "type": "number"
-                },
-                "token": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.Usage": {
-            "type": "object",
-            "properties": {
-                "completion_tokens": {
-                    "type": "integer"
-                },
-                "completion_tokens_details": {
-                    "$ref": "#/definitions/openai.CompletionTokensDetails"
-                },
-                "prompt_tokens": {
-                    "type": "integer"
-                },
-                "prompt_tokens_details": {
-                    "$ref": "#/definitions/openai.PromptTokensDetails"
-                },
-                "total_tokens": {
-                    "type": "integer"
-                }
-            }
-        },
-        "github_com_sashabaranov_go-openai.Violence": {
-            "type": "object",
-            "properties": {
-                "filtered": {
-                    "type": "boolean"
-                },
-                "severity": {
-                    "type": "string"
                 }
             }
         },
@@ -5687,6 +9745,230 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.ChatCompletionChoice": {
+            "type": "object",
+            "properties": {
+                "content_filter_results": {
+                    "$ref": "#/definitions/openai.ContentFilterResults"
+                },
+                "finish_reason": {
+                    "description": "FinishReason\nstop: API returned complete message,\nor a message terminated by one of the stop sequences provided via the stop parameter\nlength: Incomplete model output due to max_tokens parameter or token limit\nfunction_call: The model decided to call a function\ncontent_filter: Omitted content due to a flag from our content filters\nnull: API response still in progress or incomplete",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/openai.FinishReason"
+                        }
+                    ]
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "logprobs": {
+                    "$ref": "#/definitions/openai.LogProbs"
+                },
+                "message": {
+                    "$ref": "#/definitions/openai.ChatCompletionMessage"
+                }
+            }
+        },
+        "openai.ChatCompletionMessage": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "function_call": {
+                    "$ref": "#/definitions/openai.FunctionCall"
+                },
+                "multiContent": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.ChatMessagePart"
+                    }
+                },
+                "name": {
+                    "description": "This property isn't in the official documentation, but it's in\nthe documentation for the official library for python:\n- https://github.com/openai/openai-python/blob/main/chatml.md\n- https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb",
+                    "type": "string"
+                },
+                "refusal": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.ToolCall"
+                    }
+                }
+            }
+        },
+        "openai.ChatCompletionRequest": {
+            "type": "object",
+            "properties": {
+                "frequency_penalty": {
+                    "type": "number"
+                },
+                "function_call": {
+                    "description": "Deprecated: use ToolChoice instead."
+                },
+                "functions": {
+                    "description": "Deprecated: use Tools instead.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.FunctionDefinition"
+                    }
+                },
+                "logit_bias": {
+                    "description": "LogitBias is must be a token id string (specified by their token ID in the tokenizer), not a word string.\nincorrect: ` + "`" + `\"logit_bias\":{\"You\": 6}` + "`" + `, correct: ` + "`" + `\"logit_bias\":{\"1639\": 6}` + "`" + `\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat/create-logit_bias",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "logprobs": {
+                    "description": "LogProbs indicates whether to return log probabilities of the output tokens or not.\nIf true, returns the log probabilities of each output token returned in the content of message.\nThis option is currently not available on the gpt-4-vision-preview model.",
+                    "type": "boolean"
+                },
+                "max_completion_tokens": {
+                    "description": "MaxCompletionTokens An upper bound for the number of tokens that can be generated for a completion,\nincluding visible output tokens and reasoning tokens https://platform.openai.com/docs/guides/reasoning",
+                    "type": "integer"
+                },
+                "max_tokens": {
+                    "description": "MaxTokens The maximum number of tokens that can be generated in the chat completion.\nThis value can be used to control costs for text generated via API.\nThis value is now deprecated in favor of max_completion_tokens, and is not compatible with o1 series models.\nrefs: https://platform.openai.com/docs/api-reference/chat/create#chat-create-max_tokens",
+                    "type": "integer"
+                },
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.ChatCompletionMessage"
+                    }
+                },
+                "metadata": {
+                    "description": "Metadata to store with the completion.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "n": {
+                    "type": "integer"
+                },
+                "parallel_tool_calls": {
+                    "description": "Disable the default behavior of parallel tool calls by setting it: false."
+                },
+                "presence_penalty": {
+                    "type": "number"
+                },
+                "reasoning_effort": {
+                    "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
+                    "type": "string"
+                },
+                "response_format": {
+                    "$ref": "#/definitions/openai.ChatCompletionResponseFormat"
+                },
+                "seed": {
+                    "type": "integer"
+                },
+                "stop": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "store": {
+                    "description": "Store can be set to true to store the output of this completion request for use in distillations and evals.\nhttps://platform.openai.com/docs/api-reference/chat/create#chat-create-store",
+                    "type": "boolean"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "stream_options": {
+                    "description": "Options for streaming response. Only set this when you set stream: true.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/openai.StreamOptions"
+                        }
+                    ]
+                },
+                "temperature": {
+                    "type": "number"
+                },
+                "tool_choice": {
+                    "description": "This can be either a string or an ToolChoice object."
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.Tool"
+                    }
+                },
+                "top_logprobs": {
+                    "description": "TopLogProbs is an integer between 0 and 5 specifying the number of most likely tokens to return at each\ntoken position, each with an associated log probability.\nlogprobs must be set to true if this parameter is used.",
+                    "type": "integer"
+                },
+                "top_p": {
+                    "type": "number"
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.ChatCompletionResponse": {
+            "type": "object",
+            "properties": {
+                "choices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.ChatCompletionChoice"
+                    }
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "prompt_filter_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.PromptFilterResult"
+                    }
+                },
+                "system_fingerprint": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/openai.Usage"
+                }
+            }
+        },
+        "openai.ChatCompletionResponseFormat": {
+            "type": "object",
+            "properties": {
+                "json_schema": {
+                    "$ref": "#/definitions/openai.ChatCompletionResponseFormatJSONSchema"
+                },
+                "type": {
+                    "$ref": "#/definitions/openai.ChatCompletionResponseFormatType"
+                }
+            }
+        },
         "openai.ChatCompletionResponseFormatJSONSchema": {
             "type": "object",
             "properties": {
@@ -5702,6 +9984,55 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.ChatCompletionResponseFormatType": {
+            "type": "string",
+            "enum": [
+                "json_object",
+                "json_schema",
+                "text"
+            ],
+            "x-enum-varnames": [
+                "ChatCompletionResponseFormatTypeJSONObject",
+                "ChatCompletionResponseFormatTypeJSONSchema",
+                "ChatCompletionResponseFormatTypeText"
+            ]
+        },
+        "openai.ChatMessageImageURL": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "$ref": "#/definitions/openai.ImageURLDetail"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.ChatMessagePart": {
+            "type": "object",
+            "properties": {
+                "image_url": {
+                    "$ref": "#/definitions/openai.ChatMessageImageURL"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/openai.ChatMessagePartType"
+                }
+            }
+        },
+        "openai.ChatMessagePartType": {
+            "type": "string",
+            "enum": [
+                "text",
+                "image_url"
+            ],
+            "x-enum-varnames": [
+                "ChatMessagePartTypeText",
+                "ChatMessagePartTypeImageURL"
+            ]
+        },
         "openai.CompletionTokensDetails": {
             "type": "object",
             "properties": {
@@ -5713,6 +10044,101 @@ const docTemplate = `{
                 }
             }
         },
+        "openai.ContentFilterResults": {
+            "type": "object",
+            "properties": {
+                "hate": {
+                    "$ref": "#/definitions/openai.Hate"
+                },
+                "jailbreak": {
+                    "$ref": "#/definitions/openai.JailBreak"
+                },
+                "profanity": {
+                    "$ref": "#/definitions/openai.Profanity"
+                },
+                "self_harm": {
+                    "$ref": "#/definitions/openai.SelfHarm"
+                },
+                "sexual": {
+                    "$ref": "#/definitions/openai.Sexual"
+                },
+                "violence": {
+                    "$ref": "#/definitions/openai.Violence"
+                }
+            }
+        },
+        "openai.FinishReason": {
+            "type": "string",
+            "enum": [
+                "stop",
+                "length",
+                "function_call",
+                "tool_calls",
+                "content_filter",
+                "null"
+            ],
+            "x-enum-varnames": [
+                "FinishReasonStop",
+                "FinishReasonLength",
+                "FinishReasonFunctionCall",
+                "FinishReasonToolCalls",
+                "FinishReasonContentFilter",
+                "FinishReasonNull"
+            ]
+        },
+        "openai.FunctionCall": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "description": "call function with arguments in JSON format",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.FunctionDefinition": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "description": "Parameters is an object describing the function.\nYou can pass json.RawMessage to describe the schema,\nor you can pass in a struct which serializes to the proper JSON schema.\nThe jsonschema package is provided for convenience, but you should\nconsider another specialized library if you require more complex schemas."
+                },
+                "strict": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "openai.Hate": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.ImageURLDetail": {
+            "type": "string",
+            "enum": [
+                "high",
+                "low",
+                "auto"
+            ],
+            "x-enum-varnames": [
+                "ImageURLDetailHigh",
+                "ImageURLDetailLow",
+                "ImageURLDetailAuto"
+            ]
+        },
         "openai.JailBreak": {
             "type": "object",
             "properties": {
@@ -5721,6 +10147,43 @@ const docTemplate = `{
                 },
                 "filtered": {
                     "type": "boolean"
+                }
+            }
+        },
+        "openai.LogProb": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "description": "Omitting the field if it is null",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "logprob": {
+                    "type": "number"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "top_logprobs": {
+                    "description": "TopLogProbs is a list of the most likely tokens and their log probability, at this token position.\nIn rare cases, there may be fewer than the number of requested top_logprobs returned.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.TopLogProbs"
+                    }
+                }
+            }
+        },
+        "openai.LogProbs": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Content is a list of message content tokens with log probability information.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/openai.LogProb"
+                    }
                 }
             }
         },
@@ -5739,7 +10202,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "content_filter_results": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.ContentFilterResults"
+                    "$ref": "#/definitions/openai.ContentFilterResults"
                 },
                 "index": {
                     "type": "integer"
@@ -5754,6 +10217,197 @@ const docTemplate = `{
                 },
                 "cached_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "openai.SelfHarm": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.Sexual": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.StreamOptions": {
+            "type": "object",
+            "properties": {
+                "include_usage": {
+                    "description": "If set, an additional chunk will be streamed before the data: [DONE] message.\nThe usage field on this chunk shows the token usage statistics for the entire request,\nand the choices field will always be an empty array.\nAll other chunks will also include a usage field, but with a null value.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "openai.Tool": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/openai.FunctionDefinition"
+                },
+                "type": {
+                    "$ref": "#/definitions/openai.ToolType"
+                }
+            }
+        },
+        "openai.ToolCall": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/openai.FunctionCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "description": "Index is not nil only in chat completion chunk object",
+                    "type": "integer"
+                },
+                "type": {
+                    "$ref": "#/definitions/openai.ToolType"
+                }
+            }
+        },
+        "openai.ToolType": {
+            "type": "string",
+            "enum": [
+                "function"
+            ],
+            "x-enum-varnames": [
+                "ToolTypeFunction"
+            ]
+        },
+        "openai.TopLogProbs": {
+            "type": "object",
+            "properties": {
+                "bytes": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "logprob": {
+                    "type": "number"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "openai.Usage": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "completion_tokens_details": {
+                    "$ref": "#/definitions/openai.CompletionTokensDetails"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "prompt_tokens_details": {
+                    "$ref": "#/definitions/openai.PromptTokensDetails"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "openai.Violence": {
+            "type": "object",
+            "properties": {
+                "filtered": {
+                    "type": "boolean"
+                },
+                "severity": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.AgentProgressItem": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string"
+                },
+                "current_task": {
+                    "$ref": "#/definitions/server.TaskItemDTO"
+                },
+                "last_update": {
+                    "type": "string"
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "task_name": {
+                    "type": "string"
+                },
+                "tasks_after": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.TaskItemDTO"
+                    }
+                },
+                "tasks_before": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.TaskItemDTO"
+                    }
+                }
+            }
+        },
+        "server.AgentSandboxesDebugResponse": {
+            "type": "object",
+            "properties": {
+                "apps": {
+                    "description": "Apps mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfAppInfo"
+                    }
+                },
+                "lobbies": {
+                    "description": "Lobbies mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfLobbyInfo"
+                    }
+                },
+                "memory": {
+                    "$ref": "#/definitions/server.WolfSystemMemory"
+                },
+                "moonlight_clients": {
+                    "description": "NEW: moonlight-web client connections",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.MoonlightClientInfo"
+                    }
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfSessionInfo"
+                    }
+                },
+                "wolf_mode": {
+                    "description": "Current Wolf mode (\"apps\" or \"lobbies\")",
+                    "type": "string"
                 }
             }
         },
@@ -5806,6 +10460,204 @@ const docTemplate = `{
                 }
             }
         },
+        "server.ApprovalWithHandoffRequest": {
+            "type": "object",
+            "properties": {
+                "approved": {
+                    "type": "boolean"
+                },
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "comments": {
+                    "type": "string"
+                },
+                "create_pull_request": {
+                    "type": "boolean"
+                },
+                "handoff_config": {
+                    "$ref": "#/definitions/services.DocumentHandoffConfig"
+                },
+                "project_path": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CloneCommandResponse": {
+            "type": "object",
+            "properties": {
+                "clone_command": {
+                    "type": "string"
+                },
+                "clone_url": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "target_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CombinedApprovalHandoffResult": {
+            "type": "object",
+            "properties": {
+                "approval": {
+                    "$ref": "#/definitions/types.SpecApprovalResponse"
+                },
+                "handoff_result": {
+                    "$ref": "#/definitions/services.HandoffResult"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "next_steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.CoordinationLogResponse": {
+            "type": "object",
+            "properties": {
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "completed_sessions": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.CoordinationEvent"
+                    }
+                },
+                "events_by_type": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "filtered_events": {
+                    "type": "integer"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "total_events": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.CreatePersonalDevEnvironmentRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_fps": {
+                    "description": "Default: 120",
+                    "type": "integer"
+                },
+                "display_height": {
+                    "description": "Default: 1640 (iPad Pro)",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Display configuration for the streaming session",
+                    "type": "integer"
+                },
+                "environment_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CreateSampleRepositoryRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CreateSpecTaskFromDemoRequest": {
+            "type": "object",
+            "required": [
+                "demo_repo",
+                "prompt"
+            ],
+            "properties": {
+                "demo_repo": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.CreateSpecTaskRepositoryRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "template_files": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.CreateTopUpRequest": {
             "type": "object",
             "properties": {
@@ -5817,10 +10669,155 @@ const docTemplate = `{
                 }
             }
         },
+        "server.DesignDocsResponse": {
+            "type": "object",
+            "properties": {
+                "current_task_index": {
+                    "type": "integer"
+                },
+                "design_markdown": {
+                    "type": "string"
+                },
+                "progress_markdown": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.DesignDocsShareLinkResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "share_url": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ForkSampleProjectRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "private": {
+                    "type": "boolean"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ForkSampleProjectResponse": {
+            "type": "object",
+            "properties": {
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ForkSimpleProjectRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_project_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ForkSimpleProjectResponse": {
+            "type": "object",
+            "properties": {
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "tasks_created": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.InitializeSampleRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "owner_id": {
+                    "type": "string"
+                },
+                "sample_types": {
+                    "description": "If empty, creates all samples",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.InitializeSampleRepositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "created_count": {
+                    "type": "integer"
+                },
+                "created_repositories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.GitRepository"
+                    }
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
                 "license_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.LiveAgentFleetProgressResponse": {
+            "type": "object",
+            "properties": {
+                "agents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.AgentProgressItem"
+                    }
+                },
+                "timestamp": {
                     "type": "string"
                 }
             }
@@ -5874,6 +10871,414 @@ const docTemplate = `{
                 }
             }
         },
+        "server.MoonlightClientInfo": {
+            "type": "object",
+            "properties": {
+                "client_unique_id": {
+                    "description": "Unique Moonlight client ID (null for browser clients)",
+                    "type": "string"
+                },
+                "has_websocket": {
+                    "description": "Is a WebRTC client currently connected?",
+                    "type": "boolean"
+                },
+                "mode": {
+                    "description": "\"create\", \"keepalive\", \"join\"",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.PersonalDevEnvironmentResponse": {
+            "type": "object",
+            "properties": {
+                "appID": {
+                    "description": "Helix App ID for configuration (MCP servers, tools, etc.)",
+                    "type": "string"
+                },
+                "configured_tools": {
+                    "description": "MCP servers enabled",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "container_name": {
+                    "description": "Container information for direct network access",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "data_sources": {
+                    "description": "Connected data sources",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_fps": {
+                    "description": "Streaming framerate",
+                    "type": "integer"
+                },
+                "display_height": {
+                    "description": "Streaming resolution height",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Display configuration for streaming",
+                    "type": "integer"
+                },
+                "environment_name": {
+                    "description": "User-friendly name",
+                    "type": "string"
+                },
+                "instanceID": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "description": "\"spec_task\", \"personal_dev\", \"shared_workspace\"",
+                    "type": "string"
+                },
+                "is_personal_env": {
+                    "description": "Personal dev environment specific",
+                    "type": "boolean"
+                },
+                "lastActivity": {
+                    "type": "string"
+                },
+                "projectPath": {
+                    "type": "string"
+                },
+                "specTaskID": {
+                    "description": "Optional - null for personal dev environments",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "stream_url": {
+                    "type": "string"
+                },
+                "threadCount": {
+                    "type": "integer"
+                },
+                "userID": {
+                    "description": "Always required",
+                    "type": "string"
+                },
+                "vnc_port": {
+                    "description": "VNC port inside container (5901)",
+                    "type": "integer"
+                },
+                "wolf_session_id": {
+                    "description": "Wolf's numeric session ID for API calls",
+                    "type": "string"
+                }
+            }
+        },
+        "server.PhaseProgress": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "revision_count": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SampleProject": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "description": "\"web\", \"api\", \"mobile\", \"data\", \"ai\"",
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "demo_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "difficulty": {
+                    "description": "\"beginner\", \"intermediate\", \"advanced\"",
+                    "type": "string"
+                },
+                "github_repo": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "readme_url": {
+                    "type": "string"
+                },
+                "sample_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SampleProjectTask"
+                    }
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SampleProjectTask": {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "estimated_hours": {
+                    "type": "integer"
+                },
+                "files_to_modify": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "priority": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"backlog\", \"ready\", \"in_progress\", \"review\", \"done\"",
+                    "type": "string"
+                },
+                "technical_notes": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"feature\", \"bug\", \"task\", \"epic\"",
+                    "type": "string"
+                }
+            }
+        },
+        "server.SampleTaskPrompt": {
+            "type": "object",
+            "properties": {
+                "constraints": {
+                    "description": "Any specific constraints or requirements",
+                    "type": "string"
+                },
+                "context": {
+                    "description": "Additional context about the codebase",
+                    "type": "string"
+                },
+                "labels": {
+                    "description": "Tags for organization",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "priority": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "type": "string"
+                },
+                "prompt": {
+                    "description": "Natural language request",
+                    "type": "string"
+                }
+            }
+        },
+        "server.SampleType": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tech_stack": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.SampleTypesResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "sample_types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SampleType"
+                    }
+                }
+            }
+        },
+        "server.SessionHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "activity_type": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "files_affected": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "activity_type": {
+                    "type": "string"
+                },
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SessionHistoryEntry"
+                    }
+                },
+                "git_branch": {
+                    "type": "string"
+                },
+                "last_commit": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "total_entries": {
+                    "type": "integer"
+                },
+                "work_session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SessionWolfAppStateResponse": {
+            "type": "object",
+            "properties": {
+                "client_unique_id": {
+                    "description": "Unique Moonlight client ID for this agent",
+                    "type": "string"
+                },
+                "has_websocket": {
+                    "description": "Is a browser client currently connected?",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "\"absent\", \"running\", \"resumable\"",
+                    "type": "string"
+                },
+                "wolf_app_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SimpleSampleProject": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "demo_url": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "difficulty": {
+                    "type": "string"
+                },
+                "github_repo": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "readme_url": {
+                    "type": "string"
+                },
+                "task_prompts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SampleTaskPrompt"
+                    }
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "server.SlotLogSummary": {
             "type": "object",
             "properties": {
@@ -5887,6 +11292,916 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SpecDocumentContentResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "document_name": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "last_modified": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SpecTaskExternalAgentStatusResponse": {
+            "type": "object",
+            "properties": {
+                "exists": {
+                    "type": "boolean"
+                },
+                "external_agent_id": {
+                    "type": "string"
+                },
+                "helix_session_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "idle_minutes": {
+                    "type": "integer"
+                },
+                "session_count": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "warning_threshold": {
+                    "type": "boolean"
+                },
+                "will_terminate_in": {
+                    "type": "integer"
+                },
+                "wolf_app_id": {
+                    "type": "string"
+                },
+                "workspace_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.TaskItemDTO": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.TaskProgressResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "implementation": {
+                    "$ref": "#/definitions/server.PhaseProgress"
+                },
+                "specification": {
+                    "$ref": "#/definitions/server.PhaseProgress"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.TaskSpecsResponse": {
+            "type": "object",
+            "properties": {
+                "implementation_plan": {
+                    "type": "string"
+                },
+                "original_prompt": {
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "type": "string"
+                },
+                "spec_approved_at": {
+                    "type": "string"
+                },
+                "spec_approved_by": {
+                    "type": "string"
+                },
+                "spec_revision_count": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "technical_design": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfAppInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfAppMemory": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "app_name": {
+                    "type": "string"
+                },
+                "client_count": {
+                    "type": "integer"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "resolution": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfClientConnection": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "apps mode: connected app",
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "lobby_id": {
+                    "description": "lobbies mode: connected lobby",
+                    "type": "string"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "resolution": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Wolf returns this as string (Moonlight protocol requirement)",
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfLobbyInfo": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "multi_user": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pin": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "started_by_profile_id": {
+                    "type": "string"
+                },
+                "stop_when_everyone_leaves": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "server.WolfLobbyMemory": {
+            "type": "object",
+            "properties": {
+                "client_count": {
+                    "type": "integer"
+                },
+                "lobby_id": {
+                    "type": "string"
+                },
+                "lobby_name": {
+                    "type": "string"
+                },
+                "memory_bytes": {
+                    "type": "integer"
+                },
+                "resolution": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfSessionInfo": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "client_ip": {
+                    "type": "string"
+                },
+                "display_mode": {
+                    "type": "object",
+                    "properties": {
+                        "av1_supported": {
+                            "type": "boolean"
+                        },
+                        "height": {
+                            "type": "integer"
+                        },
+                        "hevc_supported": {
+                            "type": "boolean"
+                        },
+                        "refresh_rate": {
+                            "type": "integer"
+                        },
+                        "width": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "session_id": {
+                    "description": "Exposed as session_id for frontend",
+                    "type": "string"
+                }
+            }
+        },
+        "server.WolfSystemMemory": {
+            "type": "object",
+            "properties": {
+                "apps": {
+                    "description": "Apps mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfAppMemory"
+                    }
+                },
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfClientConnection"
+                    }
+                },
+                "gstreamer_buffer_bytes": {
+                    "type": "integer"
+                },
+                "lobbies": {
+                    "description": "Lobbies mode",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.WolfLobbyMemory"
+                    }
+                },
+                "process_rss_bytes": {
+                    "type": "integer"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "total_memory_bytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "services.CoordinationEvent": {
+            "type": "object",
+            "properties": {
+                "acknowledged": {
+                    "type": "boolean"
+                },
+                "acknowledged_at": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "event_type": {
+                    "$ref": "#/definitions/services.CoordinationEventType"
+                },
+                "from_session_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "to_session_id": {
+                    "description": "Empty for broadcast",
+                    "type": "string"
+                }
+            }
+        },
+        "services.CoordinationEventType": {
+            "type": "string",
+            "enum": [
+                "handoff",
+                "blocking",
+                "notification",
+                "request",
+                "response",
+                "broadcast",
+                "completion",
+                "spawn"
+            ],
+            "x-enum-varnames": [
+                "CoordinationEventTypeHandoff",
+                "CoordinationEventTypeBlocking",
+                "CoordinationEventTypeNotification",
+                "CoordinationEventTypeRequest",
+                "CoordinationEventTypeResponse",
+                "CoordinationEventTypeBroadcast",
+                "CoordinationEventTypeCompletion",
+                "CoordinationEventTypeSpawn"
+            ]
+        },
+        "services.CreateTaskRequest": {
+            "type": "object",
+            "properties": {
+                "priority": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.DocumentHandoffConfig": {
+            "type": "object",
+            "properties": {
+                "auto_merge_approved_specs": {
+                    "type": "boolean"
+                },
+                "commit_frequency_minutes": {
+                    "type": "integer"
+                },
+                "custom_git_hooks": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "enable_git_integration": {
+                    "type": "boolean"
+                },
+                "enable_pull_requests": {
+                    "type": "boolean"
+                },
+                "enable_session_recording": {
+                    "type": "boolean"
+                },
+                "notification_webhooks": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "require_code_review": {
+                    "type": "boolean"
+                },
+                "spec_reviewers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "services.DocumentHandoffStatus": {
+            "type": "object",
+            "properties": {
+                "current_phase": {
+                    "type": "string"
+                },
+                "documents_generated": {
+                    "type": "boolean"
+                },
+                "git_integration_status": {
+                    "type": "string"
+                },
+                "last_commit_hash": {
+                    "type": "string"
+                },
+                "last_commit_time": {
+                    "type": "string"
+                },
+                "session_recording_active": {
+                    "type": "boolean"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.GitRepository": {
+            "type": "object",
+            "properties": {
+                "branches": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "clone_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "local_path": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_type": {
+                    "$ref": "#/definitions/services.GitRepositoryType"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/services.GitRepositoryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.GitRepositoryCreateRequest": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "initial_files": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_type": {
+                    "$ref": "#/definitions/services.GitRepositoryType"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.GitRepositoryStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "archived",
+                "deleted"
+            ],
+            "x-enum-varnames": [
+                "GitRepositoryStatusActive",
+                "GitRepositoryStatusArchived",
+                "GitRepositoryStatusDeleted"
+            ]
+        },
+        "services.GitRepositoryType": {
+            "type": "string",
+            "enum": [
+                "project",
+                "spec_task",
+                "sample",
+                "template"
+            ],
+            "x-enum-comments": {
+                "GitRepositoryTypeProject": "User project repository",
+                "GitRepositoryTypeSample": "Sample/demo repository",
+                "GitRepositoryTypeSpecTask": "SpecTask-specific repository",
+                "GitRepositoryTypeTemplate": "Template repository"
+            },
+            "x-enum-varnames": [
+                "GitRepositoryTypeProject",
+                "GitRepositoryTypeSpecTask",
+                "GitRepositoryTypeSample",
+                "GitRepositoryTypeTemplate"
+            ]
+        },
+        "services.HandoffResult": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "type": "string"
+                },
+                "estimated_completion": {
+                    "type": "string"
+                },
+                "files_committed": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "git_commit_hash": {
+                    "type": "string"
+                },
+                "handoff_timestamp": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "next_actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "notifications_sent": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "phase": {
+                    "description": "\"spec_commit\", \"implementation_start\", \"progress_update\", \"completion\"",
+                    "type": "string"
+                },
+                "pull_request_url": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "work_sessions_created": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "zed_instance_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.SampleProjectCode": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "files": {
+                    "description": "filepath -\u003e content",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "github_repo": {
+                    "type": "string"
+                },
+                "gitignore": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "readme_url": {
+                    "type": "string"
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "services.SessionHistoryRecord": {
+            "type": "object",
+            "properties": {
+                "activity_type": {
+                    "description": "\"conversation\", \"code_change\", \"decision\", \"coordination\"",
+                    "type": "string"
+                },
+                "code_changes": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "content": {
+                    "type": "string"
+                },
+                "coordination_data": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "files_affected": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "helix_session_id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "work_session_id": {
+                    "type": "string"
+                },
+                "zed_thread_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.SpecDocumentConfig": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "type": "string"
+                },
+                "commit_message": {
+                    "type": "string"
+                },
+                "create_pull_request": {
+                    "type": "boolean"
+                },
+                "custom_metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "generate_task_board": {
+                    "type": "boolean"
+                },
+                "include_timestamps": {
+                    "type": "boolean"
+                },
+                "overwrite_existing": {
+                    "type": "boolean"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "reviewers_needed": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.SpecDocumentResult": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "type": "string"
+                },
+                "commit_hash": {
+                    "type": "string"
+                },
+                "files_created": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "generated_files": {
+                    "description": "filename -\u003e content",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "pull_request_url": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "services.ZedSessionCreationResult": {
+            "type": "object",
+            "properties": {
+                "creation_method": {
+                    "description": "\"spawned\", \"planned\", \"ad_hoc\"",
+                    "type": "string"
+                },
+                "helix_session": {
+                    "$ref": "#/definitions/types.Session"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "parent_work_session": {
+                    "$ref": "#/definitions/types.SpecTaskWorkSession"
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "work_session": {
+                    "$ref": "#/definitions/types.SpecTaskWorkSession"
+                },
+                "zed_thread": {
+                    "$ref": "#/definitions/types.SpecTaskZedThread"
+                }
+            }
+        },
+        "services.ZedThreadCreationContext": {
+            "type": "object",
+            "properties": {
+                "agent_configuration": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "environment_variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "estimated_duration_hours": {
+                    "type": "number"
+                },
+                "expected_work_type": {
+                    "type": "string"
+                },
+                "initial_prompt": {
+                    "type": "string"
+                },
+                "parent_zed_thread_id": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "related_implementation_task": {
+                    "type": "integer"
+                },
+                "spawn_reason": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "thread_description": {
+                    "type": "string"
+                },
+                "thread_name": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "zed_instance_id": {
+                    "type": "string"
+                },
+                "zed_thread_id": {
                     "type": "string"
                 }
             }
@@ -5934,6 +12249,21 @@ const docTemplate = `{
                 },
                 "statusCode": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.APIError": {
+            "type": "object",
+            "properties": {
+                "code": {},
+                "message": {
+                    "type": "string"
+                },
+                "param": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
@@ -6034,6 +12364,598 @@ const docTemplate = `{
                 "user_reference": {
                     "description": "Either user ID or user email",
                     "type": "string"
+                }
+            }
+        },
+        "types.AgentDashboardSummary": {
+            "type": "object",
+            "properties": {
+                "active_help_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.HelpRequest"
+                    }
+                },
+                "active_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "global_allocation_decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GlobalAllocationDecision"
+                    }
+                },
+                "last_updated": {
+                    "type": "string"
+                },
+                "pending_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "pending_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "queue": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.WorkloadSummary"
+                    }
+                },
+                "recent_completions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "runners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.DashboardRunner"
+                    }
+                },
+                "running_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "scheduling_decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SchedulingDecision"
+                    }
+                },
+                "sessions_needing_help": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "work_queue_stats": {
+                    "$ref": "#/definitions/types.AgentWorkQueueStats"
+                }
+            }
+        },
+        "types.AgentFleetSummary": {
+            "type": "object",
+            "properties": {
+                "active_help_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.HelpRequest"
+                    }
+                },
+                "active_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "external_agent_runners": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ExternalAgentConnection"
+                    }
+                },
+                "last_updated": {
+                    "type": "string"
+                },
+                "pending_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "pending_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "recent_completions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "running_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "sessions_needing_help": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "work_queue_stats": {
+                    "$ref": "#/definitions/types.AgentWorkQueueStats"
+                }
+            }
+        },
+        "types.AgentSessionStatus": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "type": "string"
+                },
+                "app_id": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "configuration": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "container_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "current_task": {
+                    "description": "What the agent is currently doing",
+                    "type": "string"
+                },
+                "current_work_item": {
+                    "type": "string"
+                },
+                "health_checked_at": {
+                    "type": "string"
+                },
+                "health_status": {
+                    "description": "\"healthy\", \"unhealthy\", \"unknown\"",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "metrics": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "process_id": {
+                    "type": "integer"
+                },
+                "rdp_port": {
+                    "type": "integer"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "status": {
+                    "description": "\"starting\", \"active\", \"waiting_for_help\", \"paused\", \"completed\", \"pending_review\", \"failed\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "workspace_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AgentSessionsResponse": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.AgentType": {
+            "type": "string",
+            "enum": [
+                "helix_basic",
+                "helix_agent",
+                "zed_external"
+            ],
+            "x-enum-comments": {
+                "AgentTypeHelixAgent": "Standard Helix agent with skills",
+                "AgentTypeHelixBasic": "Basic Helix agent",
+                "AgentTypeZedExternal": "Zed-integrated agent"
+            },
+            "x-enum-varnames": [
+                "AgentTypeHelixBasic",
+                "AgentTypeHelixAgent",
+                "AgentTypeZedExternal"
+            ]
+        },
+        "types.AgentWorkConfig": {
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "description": "Agent environment and setup",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "github": {
+                    "description": "Source integration settings",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.GitHubWorkConfig"
+                        }
+                    ]
+                },
+                "instructions": {
+                    "description": "Custom instructions or context",
+                    "type": "string"
+                },
+                "manual": {
+                    "$ref": "#/definitions/types.ManualWorkConfig"
+                },
+                "skills": {
+                    "description": "Skills to enable for this work type",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "webhook": {
+                    "$ref": "#/definitions/types.WebhookWorkConfig"
+                },
+                "working_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AgentWorkItem": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "description": "Required agent type",
+                    "type": "string"
+                },
+                "app_id": {
+                    "type": "string"
+                },
+                "assigned_session_id": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "config": {
+                    "description": "Agent configuration",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deadline_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "description": "Labels/tags for filtering",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "max_retries": {
+                    "type": "integer"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "Lower = higher priority",
+                    "type": "integer"
+                },
+                "retry_count": {
+                    "type": "integer"
+                },
+                "scheduled_for": {
+                    "description": "When to start this work",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "\"github\", \"manual\", \"webhook\", etc.",
+                    "type": "string"
+                },
+                "source_id": {
+                    "description": "External ID from source system",
+                    "type": "string"
+                },
+                "source_url": {
+                    "description": "URL to source (e.g., GitHub issue URL)",
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"pending\", \"assigned\", \"in_progress\", \"completed\", \"failed\", \"cancelled\"",
+                    "type": "string"
+                },
+                "trigger_config_id": {
+                    "description": "Links to TriggerConfiguration",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "work_data": {
+                    "description": "Work-specific data",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "types.AgentWorkItemCreateRequest": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "type": "string"
+                },
+                "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "deadline_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "max_retries": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "scheduled_for": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "work_data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "types.AgentWorkItemUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "description": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "work_data": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "types.AgentWorkItemsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.AgentWorkQueueStats": {
+            "type": "object",
+            "properties": {
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "average_wait_time_minutes": {
+                    "type": "number"
+                },
+                "by_agent_type": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "by_priority": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "by_source": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "oldest_pending": {
+                    "type": "string"
+                },
+                "total_completed": {
+                    "type": "integer"
+                },
+                "total_failed": {
+                    "type": "integer"
+                },
+                "total_pending": {
+                    "type": "integer"
+                },
+                "total_running": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.AgentWorkQueueTrigger": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "description": "\"zed\", \"helix\", etc.",
+                    "type": "string"
+                },
+                "auto_assign": {
+                    "description": "Auto-assign to available agents",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_retries": {
+                    "description": "Maximum retry attempts",
+                    "type": "integer"
+                },
+                "priority": {
+                    "description": "Lower numbers = higher priority",
+                    "type": "integer"
+                },
+                "timeout_mins": {
+                    "description": "Timeout in minutes",
+                    "type": "integer"
+                },
+                "work_config": {
+                    "description": "Work item configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentWorkConfig"
+                        }
+                    ]
                 }
             }
         },
@@ -6249,8 +13171,22 @@ const docTemplate = `{
                 "avatar_content_type": {
                     "type": "string"
                 },
+                "default_agent_type": {
+                    "description": "Agent configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentType"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string"
+                },
+                "external_agent_config": {
+                    "$ref": "#/definitions/types.ExternalAgentConfig"
+                },
+                "external_agent_enabled": {
+                    "type": "boolean"
                 },
                 "external_url": {
                     "type": "string"
@@ -6385,8 +13321,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "agent_mode": {
-                    "description": "AgentMode triggers the use of the agent loop",
+                    "description": "AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)",
                     "type": "boolean"
+                },
+                "agent_type": {
+                    "description": "AgentType specifies the type of agent to use",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AgentType"
+                        }
+                    ]
                 },
                 "apis": {
                     "type": "array",
@@ -6432,12 +13376,6 @@ const docTemplate = `{
                 },
                 "generation_model_provider": {
                     "type": "string"
-                },
-                "gptscripts": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AssistantGPTScript"
-                    }
                 },
                 "id": {
                     "type": "string"
@@ -6549,7 +13487,7 @@ const docTemplate = `{
                 "tools": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
+                        "$ref": "#/definitions/types.Tool"
                     }
                 },
                 "top_p": {
@@ -6574,24 +13512,6 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "template_example": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.AssistantGPTScript": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "description": {
-                    "description": "When to use this tool (required)",
-                    "type": "string"
-                },
-                "file": {
-                    "type": "string"
-                },
-                "name": {
                     "type": "string"
                 }
             }
@@ -6743,7 +13663,7 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
+                        "$ref": "#/definitions/openai.ToolCall"
                     }
                 }
             }
@@ -7071,6 +13991,81 @@ const docTemplate = `{
                 "EffectAllow",
                 "EffectDeny"
             ]
+        },
+        "types.ExecuteQuestionSetRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ExecuteQuestionSetResponse": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                }
+            }
+        },
+        "types.ExternalAgentConfig": {
+            "type": "object",
+            "properties": {
+                "auto_connect_rdp": {
+                    "description": "Whether to auto-connect RDP viewer",
+                    "type": "boolean"
+                },
+                "display_height": {
+                    "description": "Streaming resolution height (default: 1600)",
+                    "type": "integer"
+                },
+                "display_refresh_rate": {
+                    "description": "Streaming refresh rate (default: 60)",
+                    "type": "integer"
+                },
+                "display_width": {
+                    "description": "Video settings for streaming (Phase 3.5) - matches PDE display settings",
+                    "type": "integer"
+                },
+                "env_vars": {
+                    "description": "Environment variables in KEY=VALUE format",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "project_path": {
+                    "description": "Relative path for the project directory",
+                    "type": "string"
+                },
+                "workspace_dir": {
+                    "description": "Custom working directory",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ExternalAgentConnection": {
+            "type": "object",
+            "properties": {
+                "connected_at": {
+                    "type": "string"
+                },
+                "last_ping": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
         },
         "types.Feedback": {
             "type": "string",
@@ -7410,6 +14405,41 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GitHubWorkConfig": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "auto_comment": {
+                    "description": "Comment when starting work",
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "issue_types": {
+                    "description": "\"issue\", \"pull_request\"",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "labels": {
+                    "description": "Filter by labels",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "repo_name": {
+                    "type": "string"
+                },
+                "repo_owner": {
+                    "type": "string"
+                }
+            }
+        },
         "types.GlobalAllocationDecision": {
             "type": "object",
             "properties": {
@@ -7487,6 +14517,98 @@ const docTemplate = `{
                 }
             }
         },
+        "types.HelpRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "attempted_solutions": {
+                    "description": "What the agent has already tried",
+                    "type": "string"
+                },
+                "context": {
+                    "description": "Brief context about the current task",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "help_type": {
+                    "description": "\"decision\", \"expertise\", \"clarification\", \"review\", \"guidance\", \"stuck\", \"other\"",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "description": "Additional metadata as JSON",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "resolution": {
+                    "description": "The resolution or guidance provided",
+                    "type": "string"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "resolved_by": {
+                    "description": "UserID of the human who resolved this",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "specific_need": {
+                    "description": "Specific description of what help is needed",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"pending\", \"in_progress\", \"resolved\", \"cancelled\"",
+                    "type": "string"
+                },
+                "suggested_approaches": {
+                    "description": "Potential approaches the agent suggests",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "urgency": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.HelpRequestsListResponse": {
+            "type": "object",
+            "properties": {
+                "help_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.HelpRequest"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.ImageURLDetail": {
             "type": "string",
             "enum": [
@@ -7551,6 +14673,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
+                    "type": "string"
+                },
                 "rag_results": {
                     "type": "array",
                     "items": {
@@ -7601,14 +14727,14 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
+                        "$ref": "#/definitions/openai.ToolCall"
                     }
                 },
                 "tools": {
                     "description": "Model function calling, not to be mistaken with Helix tools",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.Tool"
+                        "$ref": "#/definitions/openai.Tool"
                     }
                 },
                 "trigger": {
@@ -7619,7 +14745,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "usage": {
-                    "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Usage"
+                    "$ref": "#/definitions/types.Usage"
                 },
                 "user_id": {
                     "type": "string"
@@ -7663,6 +14789,87 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "Images",
+                    "type": "string"
+                }
+            }
+        },
+        "types.JobCompletion": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "completion_status": {
+                    "description": "\"fully_completed\", \"milestone_reached\", etc.",
+                    "type": "string"
+                },
+                "confidence": {
+                    "description": "\"high\", \"medium\", \"low\"",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deliverables": {
+                    "type": "string"
+                },
+                "files_created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "limitations": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "next_steps": {
+                    "type": "string"
+                },
+                "review_needed": {
+                    "type": "boolean"
+                },
+                "review_notes": {
+                    "type": "string"
+                },
+                "review_type": {
+                    "description": "\"approval\", \"feedback\", \"validation\", etc.",
+                    "type": "string"
+                },
+                "reviewed_at": {
+                    "type": "string"
+                },
+                "reviewed_by": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"pending_review\", \"approved\", \"needs_changes\", \"archived\"",
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "time_spent": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "work_item_id": {
                     "type": "string"
                 }
             }
@@ -8058,6 +15265,20 @@ const docTemplate = `{
             "properties": {
                 "redirect_uri": {
                     "type": "string"
+                }
+            }
+        },
+        "types.ManualWorkConfig": {
+            "type": "object",
+            "properties": {
+                "allow_anonymous": {
+                    "type": "boolean"
+                },
+                "default_priority": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -8515,7 +15736,7 @@ const docTemplate = `{
                     "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
+                        "$ref": "#/definitions/openai.ToolCall"
                     }
                 }
             }
@@ -9027,6 +16248,136 @@ const docTemplate = `{
                 "ProviderEndpointTypeTeam"
             ]
         },
+        "types.Question": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "question": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Interaction ID",
+                    "type": "string"
+                },
+                "question": {
+                    "description": "Original question",
+                    "type": "string"
+                },
+                "question_id": {
+                    "description": "ID of the question",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Response",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Session ID",
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSet": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Question"
+                    }
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "Creator of the question set",
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSetExecution": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                },
+                "status": {
+                    "$ref": "#/definitions/types.QuestionSetExecutionStatus"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSetExecutionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "success",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "QuestionSetExecutionStatusPending",
+                "QuestionSetExecutionStatusRunning",
+                "QuestionSetExecutionStatusSuccess",
+                "QuestionSetExecutionStatusError"
+            ]
+        },
         "types.RAGSettings": {
             "type": "object",
             "properties": {
@@ -9367,6 +16718,78 @@ const docTemplate = `{
                 "RuntimeVLLM"
             ]
         },
+        "types.SSHKeyCreateRequest": {
+            "type": "object",
+            "required": [
+                "key_name",
+                "private_key",
+                "public_key"
+            ],
+            "properties": {
+                "key_name": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyGenerateRequest": {
+            "type": "object",
+            "required": [
+                "key_name"
+            ],
+            "properties": {
+                "key_name": {
+                    "type": "string"
+                },
+                "key_type": {
+                    "description": "\"ed25519\" or \"rsa\", defaults to ed25519",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyGenerateResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "description": "Only returned once during generation",
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SSHKeyResponse": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "last_used": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SchedulingDecision": {
             "type": "object",
             "properties": {
@@ -9560,6 +16983,10 @@ const docTemplate = `{
                 "license": {
                     "$ref": "#/definitions/types.FrontendLicenseInfo"
                 },
+                "moonlight_web_mode": {
+                    "description": "\"single\" or \"multi\" - determines streaming architecture",
+                    "type": "string"
+                },
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
@@ -9658,6 +17085,13 @@ const docTemplate = `{
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
+                    "type": "string"
+                },
                 "trigger": {
                     "type": "string"
                 },
@@ -9677,6 +17111,10 @@ const docTemplate = `{
         "types.SessionChatRequest": {
             "type": "object",
             "properties": {
+                "agent_type": {
+                    "description": "Agent type: \"helix\" or \"zed_external\"",
+                    "type": "string"
+                },
                 "app_id": {
                     "description": "Assign the session settings from the specified app",
                     "type": "string"
@@ -9684,6 +17122,14 @@ const docTemplate = `{
                 "assistant_id": {
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
+                },
+                "external_agent_config": {
+                    "description": "Configuration for external agents",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalAgentConfig"
+                        }
+                    ]
                 },
                 "interaction_id": {
                     "description": "If empty, we will start a new interaction",
@@ -9757,6 +17203,22 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "agent_type": {
+                    "description": "Agent type: \"helix\" or \"zed_external\"",
+                    "type": "string"
+                },
+                "agent_video_height": {
+                    "description": "Streaming resolution height (default: 1600)",
+                    "type": "integer"
+                },
+                "agent_video_refresh_rate": {
+                    "description": "Streaming refresh rate (default: 60)",
+                    "type": "integer"
+                },
+                "agent_video_width": {
+                    "description": "Video settings for external agent sessions (Phase 3.5)",
+                    "type": "integer"
+                },
                 "app_query_params": {
                     "description": "Passing through user defined app params",
                     "type": "object",
@@ -9808,11 +17270,35 @@ const docTemplate = `{
                 "eval_user_score": {
                     "type": "string"
                 },
+                "external_agent_config": {
+                    "description": "Configuration for external agents",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalAgentConfig"
+                        }
+                    ]
+                },
+                "external_agent_id": {
+                    "description": "NEW: External agent ID for this session",
+                    "type": "string"
+                },
+                "external_agent_status": {
+                    "description": "NEW: External agent status (running, stopped, terminated_idle)",
+                    "type": "string"
+                },
                 "helix_version": {
                     "type": "string"
                 },
+                "implementation_task_index": {
+                    "description": "Index of implementation task this session handles",
+                    "type": "integer"
+                },
                 "manually_review_questions": {
                     "type": "boolean"
+                },
+                "phase": {
+                    "description": "NEW: SpecTask phase (planning, implementation)",
+                    "type": "string"
                 },
                 "priority": {
                     "type": "boolean"
@@ -9830,6 +17316,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/types.SessionRAGResult"
                     }
                 },
+                "session_role": {
+                    "description": "\"planning\", \"implementation\", \"coordination\"",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "description": "Multi-session SpecTask context",
+                    "type": "string"
+                },
                 "stream": {
                     "type": "boolean"
                 },
@@ -9842,6 +17336,26 @@ const docTemplate = `{
                 },
                 "uploaded_data_entity_id": {
                     "description": "when we do fine tuning or RAG, we need to know which data entity we used",
+                    "type": "string"
+                },
+                "wolf_lobby_id": {
+                    "description": "Wolf lobby ID for streaming",
+                    "type": "string"
+                },
+                "wolf_lobby_pin": {
+                    "description": "PIN for Wolf lobby access (Phase 3: Multi-tenancy)",
+                    "type": "string"
+                },
+                "work_session_id": {
+                    "description": "ID of associated WorkSession",
+                    "type": "string"
+                },
+                "zed_instance_id": {
+                    "description": "Associated Zed instance ID",
+                    "type": "string"
+                },
+                "zed_thread_id": {
+                    "description": "Associated Zed thread ID",
                     "type": "string"
                 }
             }
@@ -9930,6 +17444,12 @@ const docTemplate = `{
                 },
                 "priority": {
                     "type": "boolean"
+                },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"
@@ -10097,6 +17617,747 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.SpecApprovalResponse": {
+            "type": "object",
+            "properties": {
+                "approved": {
+                    "type": "boolean"
+                },
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "type": "string"
+                },
+                "changes": {
+                    "description": "Specific requested changes",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "comments": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTask": {
+            "type": "object",
+            "properties": {
+                "attached_repositories": {
+                    "description": "Git repository attachments (multiple repos can be attached)",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "branch_name": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "description": "Metadata",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "estimated_hours": {
+                    "description": "Simple tracking",
+                    "type": "integer"
+                },
+                "external_agent_id": {
+                    "description": "External agent tracking (single agent per SpecTask, spans multiple sessions)",
+                    "type": "string"
+                },
+                "helix_app_id": {
+                    "description": "NEW: Single Helix Agent for entire workflow (App type in code)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_agent": {
+                    "type": "string"
+                },
+                "implementation_plan": {
+                    "description": "Discrete tasks breakdown (markdown)",
+                    "type": "string"
+                },
+                "implementation_session_id": {
+                    "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "original_prompt": {
+                    "description": "Kiro's actual approach: simple, human-readable artifacts",
+                    "type": "string"
+                },
+                "planning_session_id": {
+                    "description": "Session tracking (same agent, different Helix sessions per phase)",
+                    "type": "string"
+                },
+                "primary_repository_id": {
+                    "type": "string"
+                },
+                "priority": {
+                    "description": "\"low\", \"medium\", \"high\", \"critical\"",
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "description": "User stories + EARS acceptance criteria (markdown)",
+                    "type": "string"
+                },
+                "spec_agent": {
+                    "description": "Legacy fields (deprecated, keeping for backward compatibility)",
+                    "type": "string"
+                },
+                "spec_approved_at": {
+                    "type": "string"
+                },
+                "spec_approved_by": {
+                    "description": "Approval tracking",
+                    "type": "string"
+                },
+                "spec_revision_count": {
+                    "description": "Number of spec revisions requested",
+                    "type": "integer"
+                },
+                "spec_session_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Spec-driven workflow statuses - see constants below",
+                    "type": "string"
+                },
+                "technical_design": {
+                    "description": "Design document (markdown)",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"feature\", \"bug\", \"refactor\"",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "workspace_config": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "zed_instance_id": {
+                    "description": "Multi-session support",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskActivityLogEntry": {
+            "type": "object",
+            "properties": {
+                "activity_type": {
+                    "$ref": "#/definitions/types.SpecTaskActivityType"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "work_session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskActivityType": {
+            "type": "string",
+            "enum": [
+                "session_created",
+                "session_completed",
+                "session_spawned",
+                "task_completed",
+                "zed_connected",
+                "zed_disconnected",
+                "phase_transition"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskActivitySessionCreated",
+                "SpecTaskActivitySessionCompleted",
+                "SpecTaskActivitySessionSpawned",
+                "SpecTaskActivityTaskCompleted",
+                "SpecTaskActivityZedConnected",
+                "SpecTaskActivityZedDisconnected",
+                "SpecTaskActivityPhaseTransition"
+            ]
+        },
+        "types.SpecTaskImplementationSessionsCreateRequest": {
+            "type": "object",
+            "required": [
+                "spec_task_id"
+            ],
+            "properties": {
+                "auto_create_sessions": {
+                    "type": "boolean",
+                    "default": true
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "workspace_config": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "types.SpecTaskImplementationStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "assigned",
+                "in_progress",
+                "completed",
+                "blocked"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskImplementationStatusPending",
+                "SpecTaskImplementationStatusAssigned",
+                "SpecTaskImplementationStatusInProgress",
+                "SpecTaskImplementationStatusCompleted",
+                "SpecTaskImplementationStatusBlocked"
+            ]
+        },
+        "types.SpecTaskImplementationTask": {
+            "type": "object",
+            "properties": {
+                "acceptance_criteria": {
+                    "type": "string"
+                },
+                "assigned_work_session": {
+                    "$ref": "#/definitions/types.SpecTaskWorkSession"
+                },
+                "assigned_work_session_id": {
+                    "type": "string"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "dependencies": {
+                    "description": "Array of other task indices",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "estimated_effort": {
+                    "description": "'small', 'medium', 'large'",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "description": "Order within the plan",
+                    "type": "integer"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "spec_task": {
+                    "description": "Relationships",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    ]
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Implementation tracking",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskImplementationStatus"
+                        }
+                    ]
+                },
+                "title": {
+                    "description": "Task details",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskImplementationTaskListResponse": {
+            "type": "object",
+            "properties": {
+                "implementation_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskImplementationTask"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskMultiSessionOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "active_sessions": {
+                    "type": "integer"
+                },
+                "completed_sessions": {
+                    "type": "integer"
+                },
+                "implementation_tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskImplementationTask"
+                    }
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                },
+                "work_session_count": {
+                    "type": "integer"
+                },
+                "work_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWorkSession"
+                    }
+                },
+                "zed_instance_id": {
+                    "type": "string"
+                },
+                "zed_thread_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskPhase": {
+            "type": "string",
+            "enum": [
+                "planning",
+                "implementation",
+                "validation"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskPhasePlanning",
+                "SpecTaskPhaseImplementation",
+                "SpecTaskPhaseValidation"
+            ]
+        },
+        "types.SpecTaskProgressResponse": {
+            "type": "object",
+            "properties": {
+                "active_work_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWorkSession"
+                    }
+                },
+                "implementation_progress": {
+                    "description": "Task index -\u003e progress",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "number"
+                    }
+                },
+                "overall_progress": {
+                    "description": "0.0 to 1.0",
+                    "type": "number"
+                },
+                "phase_progress": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "number"
+                    }
+                },
+                "recent_activity": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskActivityLogEntry"
+                    }
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
+        "types.SpecTaskUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskWorkSession": {
+            "type": "object",
+            "properties": {
+                "agent_config": {
+                    "description": "Configuration",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "State tracking",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_config": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "helix_session_id": {
+                    "description": "1:1 mapping",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_task_description": {
+                    "type": "string"
+                },
+                "implementation_task_index": {
+                    "type": "integer"
+                },
+                "implementation_task_title": {
+                    "description": "Implementation context (parsed from ImplementationPlan)",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Work session details",
+                    "type": "string"
+                },
+                "parent_work_session_id": {
+                    "description": "Relationships for spawning/branching",
+                    "type": "string"
+                },
+                "phase": {
+                    "$ref": "#/definitions/types.SpecTaskPhase"
+                },
+                "spawned_by_session_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskWorkSessionStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskWorkSessionDetailResponse": {
+            "type": "object",
+            "properties": {
+                "child_work_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWorkSession"
+                    }
+                },
+                "helix_session": {
+                    "$ref": "#/definitions/types.Session"
+                },
+                "implementation_task": {
+                    "$ref": "#/definitions/types.SpecTaskImplementationTask"
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                },
+                "work_session": {
+                    "$ref": "#/definitions/types.SpecTaskWorkSession"
+                },
+                "zed_thread": {
+                    "$ref": "#/definitions/types.SpecTaskZedThread"
+                }
+            }
+        },
+        "types.SpecTaskWorkSessionListResponse": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer"
+                },
+                "work_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskWorkSession"
+                    }
+                }
+            }
+        },
+        "types.SpecTaskWorkSessionSpawnRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "parent_work_session_id"
+            ],
+            "properties": {
+                "agent_config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "description": {
+                    "type": "string"
+                },
+                "environment_config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "parent_work_session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskWorkSessionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "active",
+                "completed",
+                "failed",
+                "cancelled",
+                "blocked"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskWorkSessionStatusPending",
+                "SpecTaskWorkSessionStatusActive",
+                "SpecTaskWorkSessionStatusCompleted",
+                "SpecTaskWorkSessionStatusFailed",
+                "SpecTaskWorkSessionStatusCancelled",
+                "SpecTaskWorkSessionStatusBlocked"
+            ]
+        },
+        "types.SpecTaskWorkSessionUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "status": {
+                    "enum": [
+                        "pending",
+                        "active",
+                        "completed",
+                        "failed",
+                        "cancelled",
+                        "blocked"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskWorkSessionStatus"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.SpecTaskZedStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "active",
+                "disconnected",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "SpecTaskZedStatusPending",
+                "SpecTaskZedStatusActive",
+                "SpecTaskZedStatusDisconnected",
+                "SpecTaskZedStatusCompleted",
+                "SpecTaskZedStatusFailed"
+            ]
+        },
+        "types.SpecTaskZedThread": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_activity_at": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskZedStatus"
+                },
+                "thread_config": {
+                    "description": "Thread-specific configuration",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "work_session": {
+                    "description": "Relationships (loaded via joins, not stored in database)\nNOTE: We store IDs, not nested objects, to avoid circular references\nUse GORM preloading: db.Preload(\"WorkSession\").Find(\u0026zedThread)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskWorkSession"
+                        }
+                    ]
+                },
+                "work_session_id": {
+                    "description": "1:1 mapping",
+                    "type": "string"
+                },
+                "zed_thread_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskZedThreadCreateRequest": {
+            "type": "object",
+            "required": [
+                "work_session_id"
+            ],
+            "properties": {
+                "thread_config": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "work_session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskZedThreadListResponse": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer"
+                },
+                "zed_threads": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskZedThread"
+                    }
+                }
+            }
+        },
+        "types.SpecTaskZedThreadUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "enum": [
+                        "pending",
+                        "active",
+                        "disconnected",
+                        "completed",
+                        "failed"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskZedStatus"
+                        }
+                    ]
+                },
+                "thread_config": {
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },
@@ -10293,6 +18554,33 @@ const docTemplate = `{
                 "TokenTypeSocket"
             ]
         },
+        "types.Tool": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/types.ToolConfig"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "description": "E.g. As a restaurant expert, you provide personalized restaurant recommendations",
+                    "type": "string"
+                },
+                "tool_type": {
+                    "$ref": "#/definitions/types.ToolType"
+                }
+            }
+        },
         "types.ToolAPIAction": {
             "type": "object",
             "properties": {
@@ -10452,9 +18740,6 @@ const docTemplate = `{
                 "email": {
                     "$ref": "#/definitions/types.ToolEmailConfig"
                 },
-                "gptscript": {
-                    "$ref": "#/definitions/types.ToolGPTScriptConfig"
-                },
                 "mcp": {
                     "$ref": "#/definitions/types.ToolMCPClientConfig"
                 },
@@ -10473,19 +18758,6 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "template_example": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.ToolGPTScriptConfig": {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "description": "Program code",
-                    "type": "string"
-                },
-                "script_url": {
-                    "description": "URL to download the script",
                     "type": "string"
                 }
             }
@@ -10529,6 +18801,29 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolType": {
+            "type": "string",
+            "enum": [
+                "api",
+                "browser",
+                "zapier",
+                "calculator",
+                "email",
+                "web_search",
+                "azure_devops",
+                "mcp"
+            ],
+            "x-enum-varnames": [
+                "ToolTypeAPI",
+                "ToolTypeBrowser",
+                "ToolTypeZapier",
+                "ToolTypeCalculator",
+                "ToolTypeEmail",
+                "ToolTypeWebSearch",
+                "ToolTypeAzureDevOps",
+                "ToolTypeMCP"
+            ]
+        },
         "types.ToolWebSearchConfig": {
             "type": "object",
             "properties": {
@@ -10557,6 +18852,9 @@ const docTemplate = `{
         "types.Trigger": {
             "type": "object",
             "properties": {
+                "agent_work_queue": {
+                    "$ref": "#/definitions/types.AgentWorkQueueTrigger"
+                },
                 "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOpsTrigger"
                 },
@@ -10713,12 +19011,14 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
                 "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
@@ -10780,6 +19080,24 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Usage": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "description": "How long the request took in milliseconds",
+                    "type": "integer"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.User": {
             "type": "object",
             "properties": {
@@ -10794,6 +19112,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "deactivated": {
+                    "type": "boolean"
+                },
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
@@ -10805,6 +19126,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "sb": {
+                    "type": "boolean"
                 },
                 "token": {
                     "description": "the actual token used and its type",
@@ -10961,6 +19285,27 @@ const docTemplate = `{
                 }
             }
         },
+        "types.WebhookWorkConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "json_path": {
+                    "description": "JSONPath to extract work description",
+                    "type": "string"
+                },
+                "secret": {
+                    "type": "string"
+                }
+            }
+        },
         "types.WebsiteCrawler": {
             "type": "object",
             "properties": {
@@ -11011,6 +19356,88 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ZedConfigResponse": {
+            "type": "object",
+            "properties": {
+                "agent": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "assistant": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "context_servers": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "external_sync": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "language_models": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "theme": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Unix timestamp of app config update",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.ZedInstanceEvent": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "instance_id": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ZedInstanceStatus": {
+            "type": "object",
+            "properties": {
+                "active_threads": {
+                    "type": "integer"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "project_path": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "thread_count": {
+                    "type": "integer"
+                },
+                "zed_instance_id": {
                     "type": "string"
                 }
             }

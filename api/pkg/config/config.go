@@ -30,11 +30,11 @@ type ServerConfig struct {
 	GitHub             GitHub
 	FineTuning         FineTuning
 	Apps               Apps
-	GPTScript          GPTScript
 	Triggers           Triggers
 	Search             Search
 	SSL                SSL
 	Organizations      Organizations
+	TURN               TURN
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -44,6 +44,8 @@ type ServerConfig struct {
 	LicenseKey string `envconfig:"LICENSE_KEY"`
 	// Launchpad URL for version pings
 	LaunchpadURL string `envconfig:"LAUNCHPAD_URL" default:"https://deploy.helix.ml"`
+
+	SBMessage string `envconfig:"SB_MESSAGE" default:""`
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -481,19 +483,6 @@ type Apps struct {
 	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
 
-type GPTScript struct {
-	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
-
-	Runner struct {
-		RequestTimeout time.Duration `envconfig:"GPTSCRIPT_RUNNER_REQUEST_TIMEOUT" default:"10s" description:"How long to wait for the script response."`
-		Retries        uint          `envconfig:"GPTSCRIPT_RUNNER_RETRIES" default:"3" description:"How many retries."`
-	}
-
-	TestFaster struct {
-		URL string `envconfig:"HELIX_TESTFASTER_URL" description:"(Deprecated) The URL to the testfaster cluster."`
-	}
-}
-
 type Triggers struct {
 	Discord Discord
 	Cron    Cron
@@ -533,4 +522,13 @@ type SSL struct {
 
 type Organizations struct {
 	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
+}
+
+type TURN struct {
+	Enabled  bool   `envconfig:"TURN_ENABLED" default:"true" description:"Enable TURN server for WebRTC NAT traversal."`
+	PublicIP string `envconfig:"TURN_PUBLIC_IP" default:"127.0.0.1" description:"Public IP address for TURN server."`
+	Port     int    `envconfig:"TURN_PORT" default:"3478" description:"UDP port for TURN server."`
+	Realm    string `envconfig:"TURN_REALM" default:"helix.ai" description:"Authentication realm for TURN server."`
+	Username string `envconfig:"TURN_USERNAME" default:"helix" description:"Username for TURN authentication."`
+	Password string `envconfig:"TURN_PASSWORD" default:"helix-turn-secret" description:"Password for TURN authentication."`
 }

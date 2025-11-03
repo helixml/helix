@@ -3,6 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export HELIX_HOST_HOME="$DIR"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
@@ -18,9 +19,9 @@ function setup_runner_profile() {
   if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
     # CPU mode
     if [[ -n "$FORCE_CPU" ]]; then
-      echo "FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
+      echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
     else
-      echo "No NVIDIA GPU detected, running without GPU support"
+      echo "❌ No NVIDIA GPU detected, running without GPU support"
     fi
     export RUNNER_CONTAINER="runner"
     export RUNNER_PROFILE="--profile runner"
@@ -28,7 +29,7 @@ function setup_runner_profile() {
     export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
   else
     # GPU mode
-    echo "NVIDIA GPU detected, using GPU support"
+    echo "🚀 NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
@@ -37,10 +38,10 @@ function setup_runner_profile() {
 }
 
 function mock-runner() {
-  echo "Building helix-runner binary for mock runner..."
+  echo "🔨 Building helix-runner binary for mock runner..."
   build-runner || return 1
-  
-  echo "Starting mock runner..."
+
+  echo "🚀 Starting mock runner..."
   ./helix-runner \
     --mock-runner \
     --server-port 8090 \
@@ -57,19 +58,42 @@ function build() {
   setup_runner_profile
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    echo "Building runner: $RUNNER_CONTAINER"
+    # Check for Zed dependency and build if needed
+    if [ ! -d "../zed" ]; then
+      echo "❌ ERROR: Zed source code not found at ../zed/"
+      echo ""
+      echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+      echo ""
+      echo "Please run:"
+      echo "  cd .."
+      echo "  git clone https://github.com/helixml/zed.git"
+      echo "  cd helix"
+      echo "  WITH_RUNNER=1 ./stack build"
+      exit 1
+    fi
+
+    if [ ! -f "./zed-build/zed" ]; then
+      echo "🔨 Zed binary not found, building automatically..."
+      build-zed || {
+        echo "❌ Failed to build Zed. Please check the error messages above."
+        echo "Note: Rust/Cargo is required to build Zed. Install from: https://rustup.rs/"
+        exit 1
+      }
+    fi
+
+    echo "🔨 Building runner: $RUNNER_CONTAINER"
     docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
     return
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
-    echo "Building demos"
+    echo "🔨 Building demos"
     docker compose -f docker-compose.dev.yaml --profile demos build
     return
   fi
 
   # No profiles specified, just build everything
-  echo "Building all services"
+  echo "🔨 Building all services"
   docker compose -f docker-compose.dev.yaml build
 }
 
@@ -79,10 +103,10 @@ function static-compile() {
 }
 
 function build-runner() {
-  echo "Building helix-runner binary..."
+  echo "🔨 Building helix-runner binary..."
   export CGO_ENABLED=1
   local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
-  
+
   if go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version='$APP_VERSION -o helix-runner ./runner-cmd/helix-runner; then
     echo "✅ Successfully built helix-runner binary"
   else
@@ -91,18 +115,209 @@ function build-runner() {
   fi
 }
 
+function build-zed() {
+  echo "🔨 Building Zed with External WebSocket Thread Sync..."
+
+  local ZED_SOURCE_DIR="../zed"
+  local ZED_OUTPUT_DIR="./zed-build"
+  local BUILD_TYPE="${1:-dev}"
+
+  # Validate build type
+  if [[ "$BUILD_TYPE" != "dev" && "$BUILD_TYPE" != "release" ]]; then
+    echo "❌ Error: BUILD_TYPE must be 'dev' or 'release'"
+    echo "Usage: ./stack build-zed [dev|release]"
+    echo ""
+    echo "Build types:"
+    echo "  dev     - Fast incremental builds with debug symbols (default)"
+    echo "  release - Optimized production builds (slower, ~3-5 minutes)"
+    return 1
+  fi
+
+  # Check if Zed source directory exists
+  if [ ! -d "$ZED_SOURCE_DIR" ]; then
+    echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
+    echo "Expected directory structure:"
+    echo "  helix/                 (current directory)"
+    echo "  zed/                   (Zed fork with external_websocket_sync)"
+    return 1
+  fi
+
+  # Check if external_websocket_sync exists in Zed source
+  if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
+    echo "❌ external_websocket_sync crate not found in Zed source"
+    echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
+    return 1
+  fi
+
+  # Check if Rust is installed
+  if ! command -v cargo &> /dev/null; then
+    echo "❌ Rust/Cargo not found. Please install Rust first."
+    echo "Install Rust: https://rustup.rs/"
+    return 1
+  fi
+
+  # Create output directory
+  mkdir -p "$ZED_OUTPUT_DIR"
+
+  # Change to Zed source directory
+  cd "$ZED_SOURCE_DIR"
+
+  echo "🔨 Building Zed with External WebSocket Thread Sync..."
+  echo "Source directory: $(pwd)"
+  echo "Build type: $BUILD_TYPE"
+
+  # Build Zed based on build type
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "🔨 Building in release mode (optimized, stripped, slower build)..."
+    # Use RUSTFLAGS to enable stripping during build (better than post-build strip)
+    if RUSTFLAGS="-C link-arg=-s" RUST_LOG=info cargo build --release --features external_websocket_sync; then
+      BINARY_PATH="target/release/zed"
+    else
+      echo "❌ Zed release build failed"
+      cd - > /dev/null
+      return 1
+    fi
+  else
+    echo "🔨 Building in dev mode (fast incremental builds with debug symbols)..."
+    if RUST_LOG=info cargo build --features external_websocket_sync; then
+      BINARY_PATH="target/debug/zed"
+    else
+      echo "❌ Zed dev build failed"
+      cd - > /dev/null
+      return 1
+    fi
+  fi
+
+  # Check if build was successful
+  if [ ! -f "$BINARY_PATH" ]; then
+    echo "❌ Build failed: Binary not found at $BINARY_PATH"
+    cd - > /dev/null
+    return 1
+  fi
+
+  echo "✅ Zed compilation completed successfully"
+
+  # Copy binary to output directory (atomic rename to avoid "text file busy")
+  cd - > /dev/null
+  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed.new"
+  chmod +x "$ZED_OUTPUT_DIR/zed.new"
+
+  # Atomic rename (works even if old binary is in use by running containers)
+  if [ -f "$ZED_OUTPUT_DIR/zed" ]; then
+    mv "$ZED_OUTPUT_DIR/zed" "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+  fi
+  mv "$ZED_OUTPUT_DIR/zed.new" "$ZED_OUTPUT_DIR/zed"
+  rm -f "$ZED_OUTPUT_DIR/zed.old" 2>/dev/null || true
+
+  # Get binary info
+  local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
+
+  echo "✅ Zed binary copied to: $ZED_OUTPUT_DIR/zed"
+  echo "📦 Binary size: $BINARY_SIZE"
+
+  # Verify external WebSocket sync is included
+  if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
+    echo "✅ External WebSocket Thread Sync detected in binary"
+  else
+    echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
+  fi
+
+  # Note: Release builds are already stripped via RUSTFLAGS during compilation
+  if [ "$BUILD_TYPE" = "release" ]; then
+    echo "✅ Binary built with symbols stripped (via linker flags)"
+  fi
+
+  # Create test configuration
+  cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
+{
+  "external_websocket_sync": {
+    "enabled": true,
+    "server": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 3030
+    },
+    "websocket_sync": {
+      "enabled": true,
+      "external_url": "localhost:8080",
+      "use_tls": false,
+      "auto_reconnect": true
+    }
+  }
+}
+EOF
+
+  echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+  echo "🎉 Zed build completed successfully!"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
+  echo "  2. Build Sway container with Zed: ./stack build-sway"
+  echo "  3. Start services: ./stack start"
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-    echo "Session $TMUX_SESSION already exists. Attaching..."
+    echo "📺 Session $TMUX_SESSION already exists. Attaching..."
     sleep 1
     tmux -2 attach -t $TMUX_SESSION
     exit 0;
   fi
 
+  # Check for Zed dependency and build if needed
+  if [ ! -d "../zed" ]; then
+    echo "❌ ERROR: Zed source code not found at ../zed/"
+    echo ""
+    echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/helixml/zed.git"
+    echo "  cd helix"
+    echo "  ./stack start"
+    exit 1
+  fi
+
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "🔨 Zed binary not found, building automatically..."
+    build-zed || {
+      echo "❌ Failed to build Zed. Please check the error messages above."
+      exit 1
+    }
+  fi
+
+  # Check if Wolf container exists, build if needed
+  if ! docker image inspect wolf:helix-fixed &> /dev/null; then
+    echo "🐺 Wolf container not found, building automatically..."
+    rebuild-wolf || {
+      echo "❌ Failed to build Wolf. Please check the error messages above."
+      exit 1
+    }
+  fi
+
+  # Check if Moonlight Web container exists, build if needed
+  if ! docker image inspect helix-moonlight-web:helix-fixed &> /dev/null; then
+    echo "🌙 Moonlight Web container not found, building automatically..."
+    build-moonlight-web || {
+      echo "❌ Failed to build Moonlight Web. Please check the error messages above."
+      exit 1
+    }
+  fi
+
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  echo "Starting docker compose"
+  # Clean Wolf and moonlight-web pairing state for fresh startup
+  echo "🧹 Cleaning Wolf and moonlight-web pairing state..."
+
+  # Stop services if running (ignore errors if already stopped)
+  docker compose -f docker-compose.dev.yaml stop wolf moonlight-web 2>/dev/null || true
+
+  # Remove state files to force fresh pairing on startup
+  rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
+  echo "✅ Pairing state cleaned (will auto-pair on startup)"
+
+  echo "🐳 Starting docker compose"
 
   # Setup runner profiles first
   setup_runner_profile
@@ -111,154 +326,677 @@ function start() {
   if [[ -n "$WITH_RUNNER" ]]; then
     if [[ -n "$WITH_DEMOS" ]]; then
       # Both runner and demos
-      echo "Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) and demos profiles"
       docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos up -d
     else
       # Just runner
-      echo "Starting services with runner ($RUNNER_CONTAINER) profile"
+      echo "🚀 Starting services with runner ($RUNNER_CONTAINER) profile"
       docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" up -d
     fi
   elif [[ -n "$WITH_DEMOS" ]]; then
     # Just demos
-    echo "Starting services with demos profile"
+    echo "🚀 Starting services with demos profile"
     docker compose -f docker-compose.dev.yaml --profile demos up -d
   else
     # No special profiles
-    echo "Starting base services"
+    echo "🚀 Starting base services"
     docker compose -f docker-compose.dev.yaml up -d
   fi
 
   sleep 2
 
+  # Wait for postgres to be ready before trying to wipe slots
+  echo "⏳ Waiting for postgres to be ready..."
+  timeout=60
+  while ! docker compose -f docker-compose.dev.yaml exec postgres pg_isready -h localhost -p 5432 >/dev/null 2>&1; do
+    timeout=$((timeout - 1))
+    if [[ $timeout -eq 0 ]]; then
+      echo "⚠️ Warning: Postgres not ready after 60 seconds, continuing anyway"
+      break
+    fi
+    echo "⏳ Waiting for postgres... ($timeout seconds remaining)"
+    sleep 1
+  done
+
   # Check if WIPE_SLOTS is set and wipe slots if requested
   if [[ -n "$WIPE_SLOTS" ]]; then
-    echo "WIPE_SLOTS is set, wiping slots from database..."
-    wipe-slots
+    echo "🧹 WIPE_SLOTS is set, wiping slots from database..."
+    if ! wipe-slots; then
+      echo "⚠️ Warning: Failed to wipe slots, but continuing startup..."
+    fi
   fi
 
-  echo "Creating tmux session $TMUX_SESSION..."
+  echo "📺 Creating tmux session $TMUX_SESSION with 3x2 grid layout + full-width hacking terminal..."
+  tmux -2 new-session -d -s "$TMUX_SESSION"
 
-  # get the size of the window and create a session at that size
-  local screensize=$(stty size)
-  local width=$(echo -n "$screensize" | awk '{print $2}')
-  local height=$(echo -n "$screensize" | awk '{print $1}')
-  tmux -2 new-session -d -s $TMUX_SESSION -x "$width" -y "$(($height - 1))"
+  # Create a 3x2 grid layout with full-width hacking terminal at bottom
+  # First create top and middle rows for logs
+  tmux split-window -v -d
+  tmux split-window -v -d
 
-  tmux split-window -v -d
-  tmux select-pane -t 1
-  tmux split-window -v -d
+  # Split the top row into 3 columns (Frontend, API, Haystack)
   tmux select-pane -t 0
-  tmux split-window -v -d
+  tmux split-window -h -d
   tmux select-pane -t 1
-  tmux split-window -v -d
-  tmux select-pane -t 0
-  tmux split-window -v -d
+  tmux split-window -h -d
 
+  # Split the middle row into 3 columns (Zed Agent, Zed Process, GPU Runner)
+  tmux select-pane -t 3
+  tmux split-window -h -d
+  tmux select-pane -t 4
+  tmux split-window -h -d
+
+  # Bottom pane (6) stays full-width for hacking terminal
+
+  # Set pane titles and start processes in 3x2 + full-width layout
+  # Top row (0-2): Frontend, API, Haystack
+  tmux select-pane -t 0 -T "Frontend Logs"
   tmux send-keys -t 0 'docker compose -f docker-compose.dev.yaml logs -f frontend' C-m
+
+  tmux select-pane -t 1 -T "API Logs"
   tmux send-keys -t 1 'docker compose -f docker-compose.dev.yaml logs -f api' C-m
+
+  tmux select-pane -t 2 -T "Haystack Logs"
   tmux send-keys -t 2 'docker compose -f docker-compose.dev.yaml logs -f haystack' C-m
 
+  # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
-    # Build the runner binary first using our build-runner function
-    tmux send-keys -t 3 "echo 'Building helix-runner binary...' && export CGO_ENABLED=1 && go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev' -o helix-runner ./runner-cmd/helix-runner && echo 'Runner binary built successfully'" C-m
-    # Lack of space is intentional below - don't want to break ctrl+c up enter
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD}LOG_LEVEL=debug ${VLLM_ENV_VARS} ./helix-runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
+    # WITH_RUNNER mode: Wolf logs in pane 3
+    tmux select-pane -t 3 -T "Wolf Logs"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+
+    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+
+    # GPU runner logs with air hot reloading
+    tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
+    tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
+  else
+    # WITHOUT_RUNNER mode: Moonlight-web logs in pane 3, Wolf in pane 4
+    tmux select-pane -t 3 -T "Moonlight-web Logs"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f moonlight-web' C-m
+
+    tmux select-pane -t 4 -T "Wolf Logs"
+    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+
+    # Middle right pane (5) - contextual based on demos
+    if [[ -n "$WITH_DEMOS" ]]; then
+      # Demos interactive session
+      tmux select-pane -t 5 -T "Demos"
+      tmux send-keys -t 5 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
+    else
+      # Hacking terminal
+      tmux select-pane -t 5 -T "🔨 HACKING TERMINAL"
+      tmux send-keys -t 5 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+    fi
   fi
 
-  if [[ -n "$WITH_DEMOS" ]]; then
-    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml --profile demos exec demos bash' C-m
-    tmux send-keys -t 4 'go run .' C-m
+  # Bottom full-width pane (6) - HACKING TERMINAL! 🔨
+  tmux select-pane -t 6 -T "🔨 HACKING TERMINAL"
+  tmux send-keys -t 6 'echo "🔨 Full-width hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
+
+  if [[ -n "$WITH_DEMOS" && -n "$WITH_RUNNER" ]]; then
+    echo "Note: Both GPU runner and demos enabled - demos available in background. Run manually with: docker compose -f docker-compose.dev.yaml --profile demos exec demos bash"
   fi
+
+  # Enable pane titles display
+  tmux set-option -g pane-border-status top
+  tmux set-option -g pane-border-format "#{pane_index}: #{pane_title}"
+
+  # Make all panes equal size
+  tmux select-layout even-horizontal
+  tmux select-layout tiled
 
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
+  echo "🛑 Stopping docker containers and tmux session..."
+
+  # Clean up Wolf config to ensure fresh start next time
+  if [ -f "wolf/config.toml" ]; then
+    echo "🗑️  Removing Wolf config.toml (will be regenerated from template on next start)"
+    rm -f wolf/config.toml
+  fi
+
   # Build exclude pattern for services that should not be stopped
   local exclude_services=()
   [[ -z "$STOP_KEYCLOAK" ]] && exclude_services+=("keycloak")
   [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
   [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
 
-  if [[ ${#exclude_services[@]} -eq 0 ]]; then
-    echo "Removing all docker containers"
+  # Setup runner profiles first
+  setup_runner_profile
 
-    # Setup runner profiles first
-    setup_runner_profile
+  if [[ ${#exclude_services[@]} -eq 0 ]]; then
+    echo "🗑️ Removing all docker containers"
 
     # Stop containers based on enabled profiles
     if [[ -n "$WITH_RUNNER" ]]; then
       if [[ -n "$WITH_DEMOS" ]]; then
         # Both runner and demos
-        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 || echo "⚠️  Some services may not exist"
       else
         # Just runner
-        echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 || echo "⚠️  Some services may not exist"
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
-      echo "Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml --profile demos down -t 1
+      echo "🔄 Stopping services with demos profile"
+      docker compose -f docker-compose.dev.yaml --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     else
       # Include all profiles when no environment variables are set
-      echo "Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1
+      echo "🔄 Stopping all services (all profiles)"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 || echo "⚠️  Some services may not exist"
     fi
   else
-    # Create grep pattern to exclude services
+    # Create exclude list for display and grep pattern
+    local exclude_list=$(IFS=', '; echo "${exclude_services[*]}")
     local exclude_pattern=$(IFS='|'; echo "${exclude_services[*]}")
-    echo "Removing docker containers (except: ${exclude_services[*]})"
+    echo "🗑️ Removing docker containers (except: $exclude_list)"
 
-    # Setup runner profiles first
-    setup_runner_profile
-
-    # Stop containers based on enabled profiles
+    # Get list of services to stop (excluding the ones we want to keep)
     if [[ -n "$WITH_RUNNER" ]]; then
       if [[ -n "$WITH_DEMOS" ]]; then
-        # Both runner and demos
-        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: ${exclude_services[*]})"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-        if [[ -n "$services" ]]; then
-          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 $services
-        fi
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
       else
-        # Just runner
-        echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except: ${exclude_services[*]})"
-        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v -E "$exclude_pattern")
-        if [[ -n "$services" ]]; then
-          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 $services
-        fi
+        echo "🔄 Stopping services with runner ($RUNNER_CONTAINER) profile (except: $exclude_list)"
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
-      # Just demos
-      echo "Stopping services with demos profile (except: ${exclude_services[*]})"
-      local services=$(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-      if [[ -n "$services" ]]; then
-        docker compose -f docker-compose.dev.yaml --profile demos down -t 1 $services
-      fi
+      echo "🔄 Stopping services with demos profile (except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
     else
-      # Include all profiles when no environment variables are set
-      echo "Stopping all services (all profiles, except: ${exclude_services[*]})"
-      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v -E "$exclude_pattern")
-      if [[ -n "$services" ]]; then
-        docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 $services
-      fi
+      echo "🔄 Stopping all services (all profiles, except: $exclude_list)"
+      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos config --services 2>/dev/null | grep -v -E "$exclude_pattern" || true)
+    fi
+
+    # Stop only the non-excluded services
+    if [[ -n "$services" ]]; then
+      echo "🗑️ Going to remove containers: $(echo $services | tr '\n' ' ')"
+      # Stop and remove containers in parallel
+      echo $services | xargs -P 0 -I {} sh -c 'echo "🗑️ Going to remove {}" && docker compose -f docker-compose.dev.yaml stop {} && docker compose -f docker-compose.dev.yaml rm -f {} || echo "⚠️  Could not stop/remove {}"'
+    else
+      echo "✨ No services to stop (all are excluded)"
     fi
   fi
 
-  echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION ||true
+  echo "📺 Stopping tmux session $TMUX_SESSION..."
+  if tmux has-session -t $TMUX_SESSION 2>/dev/null; then
+    tmux kill-session -t $TMUX_SESSION || echo "⚠️  Failed to kill tmux session, but continuing..."
+  else
+    echo "📺 Tmux session $TMUX_SESSION not found"
+  fi
+
+  echo "✨ Stop completed successfully!"
 }
 
 function up() {
   docker compose -f docker-compose.dev.yaml up -d $@
 }
 
+function build-zed-agent() {
+  echo "🔨 Building Zed agent Docker image..."
+
+  # Build the Docker image using the Zed binary we built
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run './stack build-zed' first."
+    return 1
+  fi
+
+  docker build -t helix-sway:latest -f Dockerfile.sway-helix .
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Zed agent Docker image built successfully"
+  else
+    echo "❌ Failed to build Zed agent Docker image"
+    return 1
+  fi
+}
+
+function zed-agent-up() {
+  echo "Starting Zed agent services..."
+
+  # Build Zed if binary doesn't exist
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "Zed binary not found, building first..."
+    build-zed || return 1
+  fi
+
+  # Check if image doesn't exist
+  if ! docker image inspect helix/zed-agent:latest &> /dev/null; then
+    echo "Zed agent image not found, building first..."
+    build-zed-agent || return 1
+  fi
+
+  docker compose -f docker-compose.zed-agent.yaml up -d
+
+  echo "✅ Zed agent services started"
+  echo "📋 Services running:"
+  echo "  - Helix API: http://localhost:8080"
+  echo "  - Zed HTTP API: http://localhost:3030"
+  echo "  - VNC Web Client: http://localhost:6080"
+  echo ""
+  echo "🧪 Test commands:"
+  echo "  curl http://localhost:8080/health    # Helix API"
+  echo "  curl http://localhost:3030/health    # Zed integration API"
+}
+
+function zed-agent-down() {
+  echo "Stopping Zed agent services..."
+  docker compose -f docker-compose.zed-agent.yaml down
+}
+
+function zed-agent-logs() {
+  docker compose -f docker-compose.zed-agent.yaml logs -f "${1:-zed-agent-runner}"
+}
+
 function rebuild() {
   docker compose -f docker-compose.dev.yaml up -d --build $@
+}
+
+# Helper function to build image tags string (commit hash + git tag if available)
+function get_image_tags() {
+  local OLD_IFS=$IFS
+  IFS=' '  # Temporarily use space as IFS for proper word splitting
+
+  local IMAGE_BASE=$1
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  local TAG_STRING="-t ${IMAGE_BASE}:${COMMIT_HASH}"
+
+  if [ -n "$GIT_TAG" ]; then
+    TAG_STRING="${TAG_STRING} -t ${IMAGE_BASE}:${GIT_TAG}"
+    echo "🏷️  Git tag detected: ${GIT_TAG}" >&2
+  fi
+
+  printf "%s" "${TAG_STRING}"  # Use printf to avoid trailing newline issues
+
+  IFS=$OLD_IFS
+}
+
+# Helper function to push all image tags
+function push_image_tags() {
+  local IMAGE_BASE=$1
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  # Always push commit hash tag
+  echo "📤 Pushing ${IMAGE_BASE}:${COMMIT_HASH}"
+  if ! docker push "${IMAGE_BASE}:${COMMIT_HASH}"; then
+    echo "⚠️  Failed to push ${IMAGE_BASE}:${COMMIT_HASH}"
+    return 1
+  fi
+
+  # Also push git tag if available
+  if [ -n "$GIT_TAG" ]; then
+    echo "📤 Pushing ${IMAGE_BASE}:${GIT_TAG}"
+    if ! docker push "${IMAGE_BASE}:${GIT_TAG}"; then
+      echo "⚠️  Failed to push ${IMAGE_BASE}:${GIT_TAG}"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+function rebuild-wolf() {
+  echo "🐺 Rebuilding Wolf container with latest source code..."
+
+  # Check if Wolf source directory exists
+  if [ ! -d "../wolf" ]; then
+    echo "❌ ERROR: Wolf source code not found at ../wolf/"
+    echo ""
+    echo "The Wolf integration requires the Wolf source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  cd helix"
+    echo "  ./stack rebuild-wolf"
+    exit 1
+  fi
+
+  # Build Wolf container with image tags
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building Wolf container from source..."
+  cd ../wolf
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f docker/wolf.Dockerfile \
+      -t wolf:helix-fixed \
+      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/wolf:${GIT_TAG}" \
+      .
+  else
+    docker build -f docker/wolf.Dockerfile \
+      -t wolf:helix-fixed \
+      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Wolf container built successfully"
+  else
+    echo "❌ Failed to build Wolf container"
+    cd - > /dev/null
+    return 1
+  fi
+  cd - > /dev/null
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/wolf"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Wolf images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
+  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔄 Removing old Wolf container and recreating with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f wolf
+    docker compose -f docker-compose.dev.yaml up -d wolf
+
+    echo "✅ Wolf container rebuilt and restarted successfully"
+    echo "🐺 Wolf is ready for testing with latest source code changes"
+  fi
+}
+
+function build-xfce() {
+  echo "🖥️  Building custom XFCE container with passwordless sudo..."
+
+  # Build the custom XFCE image
+  echo "🔨 Building helix-xfce:latest container..."
+  if docker build -f Dockerfile.xfce-helix -t helix-xfce:latest .; then
+    echo "✅ XFCE container built successfully"
+    echo "🖥️  Custom XFCE image ready: helix-xfce:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Passwordless sudo for retro and user accounts"
+    echo "  - Proper work directory permissions"
+  else
+    echo "❌ Failed to build XFCE container"
+    exit 1
+  fi
+}
+
+function build-sway() {
+  echo "🪟  Building custom Sway container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom Sway image with image tags
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-sway:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.sway-helix \
+      -t helix-sway:latest \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.sway-helix \
+      -t helix-sway:latest \
+      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Sway container built successfully"
+    echo "🪟  Custom Sway image ready: helix-sway:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Sway tiling window manager with waybar"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
+  else
+    echo "❌ Failed to build Sway container"
+    exit 1
+  fi
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Sway/Zed agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  echo "✅ Sway container build completed"
+}
+
+function build-moonlight-web() {
+  echo "🌙 Building Moonlight Web container..."
+
+  # Check if moonlight-web source directory exists
+  if [ ! -d "../moonlight-web-stream" ]; then
+    echo "❌ ERROR: Moonlight Web source code not found at ../moonlight-web-stream/"
+    echo ""
+    echo "The Moonlight Web integration requires the source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
+    echo "  cd helix"
+    echo "  ./stack build-moonlight-web"
+    exit 1
+  fi
+
+  # Build Moonlight Web container with image tags (like Wolf)
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  # Determine build mode: production mode always uses release, dev mode uses debug
+  local BUILD_MODE="debug"
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    BUILD_MODE="release"
+    echo "🔨 Building Moonlight Web container from source (RELEASE MODE)..."
+  else
+    echo "🔨 Building Moonlight Web container from source (debug mode)..."
+  fi
+  cd ../moonlight-web-stream
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile \
+      --build-arg BUILD_MODE=$BUILD_MODE \
+      -t helix-moonlight-web:helix-fixed \
+      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/moonlight-web:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile \
+      --build-arg BUILD_MODE=$BUILD_MODE \
+      -t helix-moonlight-web:helix-fixed \
+      -t "registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Moonlight Web container built successfully"
+  else
+    echo "❌ Failed to build Moonlight Web container"
+    cd - > /dev/null
+    return 1
+  fi
+  cd - > /dev/null
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Moonlight Web images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  # Remove and recreate Moonlight Web container to use updated image (skip if SKIP_DEV_RESTART is set)
+  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔄 Removing old Moonlight Web container and recreating with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f moonlight-web
+    docker compose -f docker-compose.dev.yaml up -d moonlight-web
+
+    echo "✅ Moonlight Web container rebuilt and restarted successfully"
+    echo "🌙 Moonlight Web is ready for testing with latest source code changes"
+  fi
+}
+
+# NOTE: This function requires specific branches to be checked out in dependency repositories:
+# - wolf: wolf-ui-working (adds client_unique_id for secure auto-join)
+# - moonlight-web-stream: feature/kickoff (threads Wolf client_id through stack)
+# - zed: feature/external-thread-sync (external agent WebSocket sync support)
+# Verify branches before running: cd ../wolf && git branch --show-current
+function build-and-push-helix-code() {
+  echo "🚀 Building and pushing Helix Code components for production deployment"
+  echo "========================================================================"
+  echo ""
+  echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, and Moonlight Web"
+  echo ""
+
+  # Enable image pushing to registry for production builds
+  export PUSH_TO_REGISTRY=1
+  # Skip dev service restarts during production builds
+  export SKIP_DEV_RESTART=1
+
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+  local BUILD_START=$(date +%s)
+  local FAILED_BUILDS=()
+
+  echo "📝 Commit hash: ${COMMIT_HASH}"
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag: ${GIT_TAG}"
+  fi
+  echo "📅 Build started: $(date)"
+  echo ""
+
+  # Track build status
+  local TOTAL_BUILDS=3
+  local COMPLETED_BUILDS=0
+
+  # 1. Build Wolf
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if rebuild-wolf; then
+    echo "✅ Wolf built and pushed successfully"
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
+  else
+    echo "❌ Failed to build Wolf"
+    FAILED_BUILDS+=("wolf")
+  fi
+  echo ""
+
+  # 2. Build Sway+Zed agent (PDEs/External Agents)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [2/$TOTAL_BUILDS] Building Sway+Zed agent (PDEs/External Agents)..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if build-sway; then
+    echo "✅ Sway+Zed agent built and pushed successfully"
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
+  else
+    echo "❌ Failed to build Sway+Zed agent"
+    FAILED_BUILDS+=("zed-agent")
+  fi
+  echo ""
+
+  # 3. Build Moonlight Web
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [3/$TOTAL_BUILDS] Building Moonlight Web..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if build-moonlight-web; then
+    echo "✅ Moonlight Web built and pushed successfully"
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
+  else
+    echo "❌ Failed to build Moonlight Web"
+    FAILED_BUILDS+=("moonlight-web")
+  fi
+  echo ""
+
+  # Build summary
+  local BUILD_END=$(date +%s)
+  local BUILD_DURATION=$((BUILD_END - BUILD_START))
+  local BUILD_MINUTES=$((BUILD_DURATION / 60))
+  local BUILD_SECONDS=$((BUILD_DURATION % 60))
+
+  echo "=========================================================================="
+  echo "🎉 Build Summary"
+  echo "=========================================================================="
+  echo "📊 Completed: ${COMPLETED_BUILDS}/${TOTAL_BUILDS} builds"
+  echo "⏱️  Duration: ${BUILD_MINUTES}m ${BUILD_SECONDS}s"
+  echo "📝 Commit: ${COMMIT_HASH}"
+  echo "🏷️  Registry: registry.helixml.tech/helix/"
+  echo ""
+
+  if [ ${#FAILED_BUILDS[@]} -eq 0 ]; then
+    echo "✅ All images built and pushed successfully!"
+    echo ""
+    echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
+    echo "   • registry.helixml.tech/helix/wolf:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}"
+    if [ -n "$GIT_TAG" ]; then
+      echo ""
+      echo "📦 Also tagged with git tag (${GIT_TAG}):"
+      echo "   • registry.helixml.tech/helix/wolf:${GIT_TAG}"
+      echo "   • registry.helixml.tech/helix/zed-agent:${GIT_TAG}"
+      echo "   • registry.helixml.tech/helix/moonlight-web:${GIT_TAG}"
+    fi
+    echo ""
+    echo "🚀 Ready for production deployment!"
+    echo ""
+    echo "Note: API and Frontend images are built by CI and available at:"
+    echo "   • registry.helixml.tech/helix/api:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/frontend:${COMMIT_HASH}"
+    return 0
+  else
+    echo "⚠️  Some builds failed:"
+    for failed in "${FAILED_BUILDS[@]}"; do
+      echo "   ✗ ${failed}"
+    done
+    echo ""
+    echo "Please review the errors above and retry failed builds individually."
+    return 1
+  fi
 }
 
 function db() {
@@ -341,9 +1079,9 @@ function slot-stats() {
 }
 
 function wipe-slots() {
-  echo "Wiping all slots from database..."
+  echo "🧹 Wiping all slots from database..."
   echo "DELETE FROM runner_slots;" | db pipe postgres
-  echo "All slots have been deleted from the database."
+  echo "✅ All slots have been deleted from the database."
 }
 
 function install() {
@@ -351,13 +1089,41 @@ function install() {
 }
 
 function update_openapi() {
-	go install github.com/swaggo/swag/cmd/swag@v1.16.4 && \
+	echo "🔄 Installing swag..."
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4 || {
+		echo "❌ Failed to install swag"
+		return 1
+	}
+
+	echo "🔄 Generating swagger documentation..."
 	swag init -g api/pkg/server/swagger.go \
-	--parseDependency --parseInternal --parseDepth 3 \
-	-o api/pkg/server
-	# Copy the generated files to the frontend
-	cp -r api/pkg/server/swagger.yaml frontend/swagger/
-	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts
+		--parseDependency --parseInternal --parseDepth 3 \
+		-o api/pkg/server || {
+		echo "❌ CRITICAL: Swagger generation FAILED"
+		echo "Check for ParseComment errors above"
+		return 1
+	}
+
+	# Verify swagger files were created
+	if [[ ! -f "api/pkg/server/swagger.json" ]]; then
+		echo "❌ CRITICAL: swagger.json was not generated"
+		return 1
+	fi
+
+	echo "✅ Swagger generated successfully"
+	echo "📋 Copying swagger to frontend..."
+	cp -r api/pkg/server/swagger.yaml frontend/swagger/ || {
+		echo "❌ Failed to copy swagger.yaml"
+		return 1
+	}
+
+	echo "🔄 Generating TypeScript client..."
+	npx swagger-typescript-api@13.0.23 -p ./frontend/swagger/swagger.yaml -o ./frontend/src/api --axios -n api.ts || {
+		echo "❌ TypeScript client generation FAILED"
+		return 1
+	}
+
+	echo "✅ OpenAPI update complete"
 }
 
 function lint() {
@@ -556,6 +1322,39 @@ function test() {
   fi
 }
 
+function zed-test() {
+  echo "Testing Zed with External WebSocket Thread Sync..."
+
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run: ./stack build-zed"
+    return 1
+  fi
+
+  echo "🧪 Running basic tests..."
+
+  # Test 1: Binary execution
+  if ./zed-build/zed --version > /dev/null 2>&1; then
+    echo "✅ Zed binary executes successfully"
+  else
+    echo "❌ Zed binary failed to execute"
+    return 1
+  fi
+
+  # Test 2: Check for external sync feature
+  if strings ./zed-build/zed | grep -q "external_websocket_sync"; then
+    echo "✅ External WebSocket Thread Sync feature detected"
+  else
+    echo "⚠️  External WebSocket Thread Sync not clearly detectable"
+  fi
+
+  echo "🎉 Basic Zed tests passed!"
+  echo ""
+  echo "For full integration testing:"
+  echo "  1. Start Zed: RUST_LOG=external_websocket_sync=debug ./zed-build/zed"
+  echo "  2. Open a project folder"
+  echo "  3. Test API: curl http://localhost:3030/health"
+}
+
 function help() {
   echo "Helix Stack Management Tool"
   echo ""
@@ -568,6 +1367,21 @@ function help() {
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
+  echo ""
+  echo "Production build commands:"
+  echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
+  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
+  echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
+  echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
+  echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
+  echo ""
+  echo "Zed Agent commands:"
+  echo "  build-zed [dev|release] - Build Zed binary (stripped in release mode)"
+  echo "  build-zed-agent    - Build Zed agent Docker image"
+  echo "  zed-agent-up       - Start Zed agent services"
+  echo "  zed-agent-down     - Stop Zed agent services"
+  echo "  zed-agent-logs [service] - View Zed agent logs"
+  echo "  zed-test           - Test Zed binary functionality"
   echo ""
   echo "Database commands:"
   echo "  db [cli|pipe] [postgres|pgvector] - Access database"

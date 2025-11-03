@@ -37,10 +37,7 @@ func GetToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
 					return tool, true
 				}
 			}
-		case types.ToolTypeGPTScript:
-			if tool.Name == action {
-				return tool, true
-			}
+
 		case types.ToolTypeZapier:
 			if tool.Name == action {
 				return tool, true

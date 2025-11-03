@@ -36,6 +36,10 @@ RUN mkdir -p /go/pkg/mod /root/.cache/go-build && \
     chmod -R 777 /go/pkg/mod /root/.cache/go-build && \
     go mod download
 
+# Install air for hot reloading (cached in go modules)
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod \
+    go install github.com/air-verse/air@v1.52.3
+
 # COPY the source code as the last step
 COPY . .
 
@@ -172,5 +176,6 @@ RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-c
 #    chmod 0777 /workspace/axolotl /workspace/axolotl/dataset_cache
 
 COPY --from=go-build-env /helix-runner /workspace/helix/helix-runner
+COPY --from=go-build-env /go/bin/air /usr/local/bin/air
 
 ENTRYPOINT ["/workspace/helix/helix-runner"]

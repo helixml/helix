@@ -11,7 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
+
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
@@ -62,14 +62,13 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	require.NoError(t, err)
 
 	store := store.NewMockStore(ctrl)
-	executor := gptscript.NewMockExecutor(ctrl)
 
 	config, err := LoadConfig()
 	require.NoError(t, err)
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL, cfg.Stripe.BillingEnabled)
 
-	planner, err := tools.NewChainStrategy(&cfg, store, executor, client)
+	planner, err := tools.NewChainStrategy(&cfg, store, client)
 	require.NoError(t, err)
 
 	petsListCalled := false

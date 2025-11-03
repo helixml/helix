@@ -46,20 +46,20 @@ steps:
       - yarn build
     depends_on: []
 
-#  - name: run-linter
-#    image: golangci/golangci-lint:v1.64-alpine
-#    volumes:
-#      - name: go-build-cache
-#        path: /root/.cache/go-build
-#      - name: go-mod-cache
-#        path: /go/pkg/mod
-#    commands:
-#      - golangci-lint cache clean
-#      - golangci-lint run
-#    when:
-#      event:
-#        - push
-#    depends_on: []
+  #  - name: run-linter
+  #    image: golangci/golangci-lint:v1.64-alpine
+  #    volumes:
+  #      - name: go-build-cache
+  #        path: /root/.cache/go-build
+  #      - name: go-mod-cache
+  #        path: /go/pkg/mod
+  #    commands:
+  #      - golangci-lint cache clean
+  #      - golangci-lint run
+  #    when:
+  #      event:
+  #        - push
+  #    depends_on: []
 
   - name: check-for-secrets
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
@@ -217,7 +217,6 @@ steps:
   #     SMALL_REASONING_MODEL_EFFORT: none
   #     SMALL_GENERATION_MODEL_PROVIDER: openai
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
-
   #   commands:
   #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
@@ -225,7 +224,6 @@ steps:
   #     event:
   #       - push
   #   # depends_on: [unit-test]
-
   # - name: upload-oauth-github-test-artifacts
   #   image: golang:1.24
   #   volumes:
@@ -245,7 +243,6 @@ steps:
   #       - success
   #       - failure
   #   depends_on: [oauth-github-integration-test]
-
   # - name: oauth-gmail-integration-test
   #   image: golang:1.24
   #   volumes:
@@ -326,7 +323,6 @@ steps:
   #     - success
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
-
   - name: oauth-outlook-integration-test
     image: golang:1.24
     volumes:
@@ -702,6 +698,7 @@ steps:
       - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
       - apt-get update && apt-get install -y gh
       - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
+      - sed -i "s/\${HELIX_VERSION:-latest}/$DRONE_TAG/g" docker-compose.yaml
       - |
         if [ -n "$DRONE_TAG" ]; then
           # Look for either exact match or tag followed by space and description
@@ -817,6 +814,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -847,6 +845,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -859,6 +858,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -889,6 +889,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -901,6 +902,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -931,6 +933,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -943,6 +946,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -974,6 +978,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -986,6 +991,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1020,6 +1026,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1032,6 +1039,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1068,6 +1076,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1107,6 +1116,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1143,6 +1153,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1182,6 +1193,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1210,6 +1222,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1222,6 +1235,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1250,6 +1264,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1262,6 +1277,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1290,6 +1306,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 kind: pipeline
@@ -1302,6 +1319,7 @@ trigger:
     - push
   branch:
     - main
+    - feature/helix-code
 
 volumes:
   - name: dockersocket
@@ -1330,6 +1348,7 @@ steps:
         - push
       branch:
         - main
+        - feature/helix-code
 
 ---
 # See integration-test/smoke/README.md

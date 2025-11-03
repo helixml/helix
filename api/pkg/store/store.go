@@ -20,13 +20,15 @@ type OwnerQuery struct {
 }
 
 type ListSessionsQuery struct {
-	Owner          string          `json:"owner"`
-	OwnerType      types.OwnerType `json:"owner_type"`
-	ParentSession  string          `json:"parent_session"`
-	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
-	Page           int             `json:"page"`
-	PerPage        int             `json:"per_page"`
-	Search         string          `json:"search"`
+	Owner                  string          `json:"owner"`
+	OwnerType              types.OwnerType `json:"owner_type"`
+	ParentSession          string          `json:"parent_session"`
+	OrganizationID         string          `json:"organization_id"` // The organization this session belongs to, if any
+	Page                   int             `json:"page"`
+	PerPage                int             `json:"per_page"`
+	Search                 string          `json:"search"`
+	QuestionSetID          string          `json:"question_set_id"`
+	QuestionSetExecutionID string          `json:"question_set_execution_id"`
 }
 
 type ListAPIKeysQuery struct {
@@ -93,6 +95,13 @@ type ListTriggerExecutionsQuery struct {
 	TriggerID string
 	Offset    int
 	Limit     int
+}
+
+type ListQuestionSetExecutionsQuery struct {
+	QuestionSetID string
+	AppID         string
+	Offset        int
+	Limit         int
 }
 
 type ListUsersQuery struct {
@@ -262,11 +271,6 @@ type Store interface {
 	ListKnowledgeVersions(ctx context.Context, q *ListKnowledgeVersionQuery) ([]*types.KnowledgeVersion, error)
 	DeleteKnowledgeVersion(ctx context.Context, id string) error
 
-	// GPTScript runs history table
-	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
-	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
-	DeleteScriptRun(ctx context.Context, id string) error
-
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
 
@@ -370,10 +374,157 @@ type Store interface {
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error
 
+	// spec-driven tasks
+	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
+	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
+	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+
+	// spec-driven task work sessions
+	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error)
+	UpdateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	DeleteSpecTaskWorkSession(ctx context.Context, id string) error
+	ListSpecTaskWorkSessions(ctx context.Context, specTaskID string) ([]*types.SpecTaskWorkSession, error)
+	ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error)
+	GetSpecTaskWorkSessionByHelixSession(ctx context.Context, helixSessionID string) (*types.SpecTaskWorkSession, error)
+
+	// spec-driven task zed threads
+	CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	GetSpecTaskZedThread(ctx context.Context, id string) (*types.SpecTaskZedThread, error)
+	GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error)
+	UpdateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	DeleteSpecTaskZedThread(ctx context.Context, id string) error
+	ListSpecTaskZedThreads(ctx context.Context, specTaskID string) ([]*types.SpecTaskZedThread, error)
+
+	// spec-driven task implementation tasks
+	CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	GetSpecTaskImplementationTask(ctx context.Context, id string) (*types.SpecTaskImplementationTask, error)
+	UpdateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	DeleteSpecTaskImplementationTask(ctx context.Context, id string) error
+	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
+	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
+
+	// spec-driven task multi-session management
+	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
+	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)
+	GetSpecTaskMultiSessionOverview(ctx context.Context, specTaskID string) (*types.SpecTaskMultiSessionOverviewResponse, error)
+	GetSpecTaskProgress(ctx context.Context, specTaskID string) (*types.SpecTaskProgressResponse, error)
+	UpdateSpecTaskZedInstance(ctx context.Context, specTaskID string, zedInstanceID string) error
+
+	// SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
+	CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	GetSpecTaskExternalAgent(ctx context.Context, specTaskID string) (*types.SpecTaskExternalAgent, error)
+	GetSpecTaskExternalAgentByID(ctx context.Context, agentID string) (*types.SpecTaskExternalAgent, error)
+	UpdateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error
+	DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error
+	ListSpecTaskExternalAgents(ctx context.Context, userID string) ([]*types.SpecTaskExternalAgent, error)
+
+	// External Agent Activity methods (idle detection)
+	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
+	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
+	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
+	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
+
+	// Agent session methods
+	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
+	GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error)
+	UpdateAgentSession(ctx context.Context, session *types.AgentSession) error
+	ListAgentSessions(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsListResponse, error)
+
+	// Agent work item methods
+	CreateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
+	GetAgentWorkItem(ctx context.Context, workItemID string) (*types.AgentWorkItem, error)
+	UpdateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
+	ListAgentWorkItems(ctx context.Context, query *ListAgentWorkItemsQuery) (*types.AgentWorkItemsListResponse, error)
+
+	// Help request methods
+	GetHelpRequestByID(ctx context.Context, requestID string) (*types.HelpRequest, error)
+	UpdateHelpRequest(ctx context.Context, request *types.HelpRequest) error
+	ListActiveHelpRequests(ctx context.Context) ([]*types.HelpRequest, error)
+
+	// Agent dashboard helper methods
+	GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentSession, error)
+	GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error)
+	GetPendingReviews(ctx context.Context) ([]*types.JobCompletion, error)
+
+	// Session management methods
+	MarkSessionAsNeedingHelp(ctx context.Context, sessionID string, task string) error
+	MarkSessionAsCompleted(ctx context.Context, sessionID string, completionType string) error
+	CleanupExpiredSessions(ctx context.Context, timeout time.Duration) error
+
+	// Help request methods (additional)
+	CreateHelpRequest(ctx context.Context, request *types.HelpRequest) error
+
+	// Job completion methods
+	CreateJobCompletion(ctx context.Context, completion *types.JobCompletion) error
+
+	// Agent session status methods (additional)
+	GetAgentSessionStatus(ctx context.Context, sessionID string) (*types.AgentSessionStatus, error)
+	CreateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
+	UpdateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
+	ListAgentSessionStatus(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsResponse, error)
+
+	// Agent work queue stats
+	GetAgentWorkQueueStats(ctx context.Context) (*types.AgentWorkQueueStats, error)
+
+	// Additional help request methods
+	ListHelpRequests(ctx context.Context, query *ListHelpRequestsQuery) (*types.HelpRequestsListResponse, error)
+
+	// Additional session management methods
+	MarkSessionAsActive(ctx context.Context, sessionID string, task string) error
+
+	// Agent runner methods
+	CreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	GetAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+	UpdateAgentRunner(ctx context.Context, runner *types.AgentRunner) error
+	UpdateAgentRunnerStatus(ctx context.Context, runnerID, status string) error
+	UpdateAgentRunnerHeartbeat(ctx context.Context, runnerID string) error
+	ListAgentRunners(ctx context.Context, query types.ListAgentRunnersQuery) ([]*types.AgentRunner, int64, error)
+	DeleteAgentRunner(ctx context.Context, runnerID string) error
+	CleanupStaleAgentRunners(ctx context.Context, staleThreshold time.Duration) (int64, error)
+	GetOrCreateAgentRunner(ctx context.Context, runnerID string) (*types.AgentRunner, error)
+
+	// Project methods
+	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
+
+	// Personal Dev Environment methods
+	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
+	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
+	GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error)
+	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
+	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
+	DeletePersonalDevEnvironment(ctx context.Context, id string) error
+
+	// SSH Key methods
+	CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types.SSHKey, error)
+	GetSSHKey(ctx context.Context, id string) (*types.SSHKey, error)
+	ListSSHKeys(ctx context.Context, userID string) ([]*types.SSHKey, error)
+	UpdateSSHKeyLastUsed(ctx context.Context, id string) error
+	DeleteSSHKey(ctx context.Context, id string) error
+
+	// Zed Settings Override methods
+	UpsertZedSettingsOverride(ctx context.Context, override *types.ZedSettingsOverride) error
+	GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error)
+	DeleteZedSettingsOverride(ctx context.Context, sessionID string) error
+
+	// Memory methods
 	CreateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
 	UpdateMemory(ctx context.Context, memory *types.Memory) (*types.Memory, error)
 	DeleteMemory(ctx context.Context, memory *types.Memory) error
 	ListMemories(ctx context.Context, q *types.ListMemoryRequest) ([]*types.Memory, error)
+
+	// Question set methods
+	CreateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	GetQuestionSet(ctx context.Context, id string) (*types.QuestionSet, error)
+	UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error)
+	ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error)
+	DeleteQuestionSet(ctx context.Context, id string) error
+
+	CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error)
+	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
+	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
 }
 
 type EmbeddingsStore interface {

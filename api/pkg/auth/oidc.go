@@ -8,13 +8,15 @@ import (
 
 	"github.com/coreos/go-oidc"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
 var (
-	ErrInvalidConfig = errors.New("invalid config")
+	ErrInvalidConfig    = errors.New("invalid config")
+	ErrProviderNotReady = errors.New("OIDC provider not ready")
 )
 
 type OIDCClient struct {
@@ -22,6 +24,7 @@ type OIDCClient struct {
 	provider     *oidc.Provider
 	oauth2Config *oauth2.Config
 	adminConfig  *AdminConfig
+	store        store.Store
 }
 
 type OIDCConfig struct {
@@ -33,6 +36,7 @@ type OIDCConfig struct {
 	AdminUserSrc config.AdminSrcType
 	Audience     string
 	Scopes       []string
+	Store        store.Store
 }
 
 func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
@@ -56,6 +60,7 @@ func NewOIDCClient(ctx context.Context, cfg OIDCConfig) (*OIDCClient, error) {
 			AdminUserIDs: cfg.AdminUserIDs,
 			AdminUserSrc: cfg.AdminUserSrc,
 		},
+		store: cfg.Store,
 	}
 
 	// Start a go routine to periodically check if the provider is available
@@ -89,7 +94,8 @@ func (c *OIDCClient) getProvider() (*oidc.Provider, error) {
 		log.Trace().Str("provider_url", c.cfg.ProviderURL).Msg("Getting provider")
 		provider, err := oidc.NewProvider(context.Background(), c.cfg.ProviderURL)
 		if err != nil {
-			return nil, err
+			// Wrap error to indicate provider not ready (used to return 503 instead of 401)
+			return nil, fmt.Errorf("%w: %v", ErrProviderNotReady, err)
 		}
 		c.provider = provider
 	}
@@ -234,17 +240,26 @@ func (c *OIDCClient) ValidateUserToken(ctx context.Context, accessToken string) 
 		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
 	}
 
+	user, err := c.store.GetUser(ctx, &store.GetUserQuery{
+		Email: userInfo.Email,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invalid access token (could not get user): %w", err)
+	}
+
 	account := account{userInfo: userInfo}
 
 	return &types.User{
-		ID:        userInfo.Subject,
-		Username:  userInfo.Subject,
-		Email:     userInfo.Email,
-		FullName:  userInfo.Name,
-		Token:     accessToken,
-		TokenType: types.TokenTypeOIDC,
-		Type:      types.OwnerTypeUser,
-		Admin:     account.isAdmin(c.adminConfig),
+		ID:          userInfo.Subject,
+		Username:    userInfo.Subject,
+		Email:       userInfo.Email,
+		FullName:    userInfo.Name,
+		Token:       accessToken,
+		TokenType:   types.TokenTypeOIDC,
+		Type:        types.OwnerTypeUser,
+		Admin:       account.isAdmin(c.adminConfig),
+		SB:          user.SB,
+		Deactivated: user.Deactivated,
 	}, nil
 }
 

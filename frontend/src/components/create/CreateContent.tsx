@@ -1,6 +1,6 @@
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
-import { FC, useState, useMemo, useContext } from 'react'
+import { FC, useState, useMemo, useContext, useEffect } from 'react'
 import AppCreateHeader from '../appstore/CreateHeader'
 import CenterMessage from './CenterMessage'
 import ConfigWindow from './ConfigWindow'
@@ -36,6 +36,7 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   IApp,
+  AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
 
 
@@ -106,6 +107,42 @@ const CreateContent: FC<CreateContentProps> = ({
     return userAppAccess.canRead
   }, [userAppAccess.canRead])
 
+  // Update session config when app changes and has external agent configuration
+  useEffect(() => {
+    if (app?.config?.helix?.default_agent_type === AGENT_TYPE_ZED_EXTERNAL) {
+      console.log('🔄 App loaded with external agent type, updating session config:', {
+        appId: app?.id,
+        appName: app?.config?.helix?.name,
+        defaultAgentType: app?.config?.helix?.default_agent_type,
+        hasExternalConfig: !!app?.config?.helix?.external_agent_config,
+        currentSessionAgentType: inputs.sessionConfig.agentType
+      })
+      
+      inputs.setSessionConfig(prevConfig => {
+        const newConfig = {
+          ...prevConfig,
+          agentType: AGENT_TYPE_ZED_EXTERNAL,
+          externalAgentConfig: app.config.helix.external_agent_config || prevConfig.externalAgentConfig,
+        }
+        
+        console.log('✅ Session config updated:', {
+          oldAgentType: prevConfig.agentType,
+          newAgentType: newConfig.agentType,
+          hasExternalConfig: !!newConfig.externalAgentConfig
+        })
+        
+        return newConfig
+      })
+    } else {
+      console.log('ℹ️ App loaded but not external agent type:', {
+        appId: app?.id,
+        appName: app?.config?.helix?.name,
+        defaultAgentType: app?.config?.helix?.default_agent_type,
+        currentSessionAgentType: inputs.sessionConfig.agentType
+      })
+    }
+  }, [app, inputs.setSessionConfig])
+
   const onInference = async (prompt?: string) => {
     if (!checkLoginStatus()) return
     setLoading(true)
@@ -115,6 +152,14 @@ const CreateContent: FC<CreateContentProps> = ({
     let assistantID = urlParams.get('assistant_id') || ''
     let useModel = urlParams.get('model') || ''
     let orgId = ''
+
+    console.log('🔍 Initial model from URL params:', useModel)
+
+    // For external agents, override model to use external_agent identifier
+    if (inputs.sessionConfig.agentType === AGENT_TYPE_ZED_EXTERNAL) {
+      useModel = 'external_agent'
+      console.log('🔧 Overriding model for external agent:', useModel)
+    }
 
     // if we have an app but no assistant ID let's default to the first one
     if (appID && !assistantID) {
@@ -126,6 +171,15 @@ const CreateContent: FC<CreateContentProps> = ({
     }
 
     prompt = prompt || inputs.inputValue
+
+    console.log('🚀 Creating session with:', {
+      agentType: inputs.sessionConfig.agentType,
+      modelName: useModel,
+      appId: appID,
+      assistantId: assistantID,
+      type: type,
+      hasExternalConfig: !!inputs.sessionConfig.externalAgentConfig
+    })
 
     let actualPrompt = prompt;
     Object.entries(filterMap).forEach(([displayText, fullCommand]) => {
@@ -141,6 +195,8 @@ const CreateContent: FC<CreateContentProps> = ({
         modelName: useModel,
         orgId,
         attachedImages: attachedImages,
+        agentType: inputs.sessionConfig.agentType,
+        externalAgentConfig: inputs.sessionConfig.externalAgentConfig,
       });
 
       if (!session) return

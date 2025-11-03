@@ -1,0 +1,29 @@
+# Basic GPU-optimized Hyprland config
+monitor = WL-1,3840x2160@120,0x0,1
+
+# GPU environment
+env = NVIDIA_VISIBLE_DEVICES,all
+env = NVIDIA_DRIVER_CAPABILITIES,all
+env = GBM_BACKEND,nvidia-drm
+env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+
+general {
+    gaps_in = 4
+    gaps_out = 5
+    border_size = 2
+    col.active_border = rgba(0DB7D4FF)
+    col.inactive_border = rgba(31313600)
+}
+
+input {
+    kb_layout = us
+    follow_mouse = 1
+}
+
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+}
+
+exec-once = /install-ghostty.sh
+exec-once = bash -c 'sleep 5 && (ghostty || foot || kitty)'

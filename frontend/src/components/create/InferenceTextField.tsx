@@ -239,7 +239,7 @@ const InferenceTextField: FC<{
             </Box>
             <Tooltip title="Send Prompt" placement="top">
               <Box
-                onClick={onInference}
+                onClick={() => onInference()}
                 sx={{
                   width: 32,
                   height: 32,
