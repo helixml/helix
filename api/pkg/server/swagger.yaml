@@ -808,13 +808,6 @@ definitions:
       project_path:
         type: string
     type: object
-  server.BoardSettings:
-    properties:
-      wip_limits:
-        additionalProperties:
-          type: integer
-        type: object
-    type: object
   server.CloneCommandResponse:
     properties:
       clone_command:
@@ -865,24 +858,6 @@ definitions:
         type: string
       total_events:
         type: integer
-    type: object
-  server.CreatePersonalDevEnvironmentRequest:
-    properties:
-      app_id:
-        type: string
-      description:
-        type: string
-      display_fps:
-        description: 'Default: 120'
-        type: integer
-      display_height:
-        description: 'Default: 1640 (iPad Pro)'
-        type: integer
-      display_width:
-        description: Display configuration for the streaming session
-        type: integer
-      environment_name:
-        type: string
     type: object
   server.CreateSampleRepositoryRequest:
     properties:
@@ -1079,71 +1054,6 @@ definitions:
         description: '"create", "keepalive", "join"'
         type: string
       session_id:
-        type: string
-    type: object
-  server.PersonalDevEnvironmentResponse:
-    properties:
-      appID:
-        description: Helix App ID for configuration (MCP servers, tools, etc.)
-        type: string
-      configured_tools:
-        description: MCP servers enabled
-        items:
-          type: string
-        type: array
-      container_name:
-        description: Container information for direct network access
-        type: string
-      createdAt:
-        type: string
-      data_sources:
-        description: Connected data sources
-        items:
-          type: string
-        type: array
-      description:
-        type: string
-      display_fps:
-        description: Streaming framerate
-        type: integer
-      display_height:
-        description: Streaming resolution height
-        type: integer
-      display_width:
-        description: Display configuration for streaming
-        type: integer
-      environment_name:
-        description: User-friendly name
-        type: string
-      instanceID:
-        type: string
-      instanceType:
-        description: '"spec_task", "personal_dev", "shared_workspace"'
-        type: string
-      is_personal_env:
-        description: Personal dev environment specific
-        type: boolean
-      lastActivity:
-        type: string
-      projectPath:
-        type: string
-      specTaskID:
-        description: Optional - null for personal dev environments
-        type: string
-      status:
-        type: string
-      stream_url:
-        type: string
-      threadCount:
-        type: integer
-      userID:
-        description: Always required
-        type: string
-      vnc_port:
-        description: VNC port inside container (5901)
-        type: integer
-      wolf_session_id:
-        description: Wolf's numeric session ID for API calls
         type: string
     type: object
   server.PhaseProgress:
@@ -3053,6 +2963,13 @@ definitions:
       enabled:
         type: boolean
     type: object
+  types.BoardSettings:
+    properties:
+      wip_limits:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
   types.ChatCompletionMessage:
     properties:
       content:
@@ -4757,6 +4674,10 @@ definitions:
       default_repo_id:
         description: Project-level repository management
         type: string
+      deleted_at:
+        allOf:
+        - $ref: '#/definitions/gorm.DeletedAt'
+        description: Soft delete timestamp
       description:
         type: string
       github_repo_url:
@@ -6827,18 +6748,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -9674,172 +9595,6 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
-  /api/v1/personal-dev-environments:
-    get:
-      consumes:
-      - application/json
-      description: Get all personal development environments for the current user
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
-            type: array
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: List personal development environments
-      tags:
-      - PersonalDevEnvironments
-    post:
-      consumes:
-      - application/json
-      description: Create a new personal development environment with the specified
-        configuration
-      parameters:
-      - description: Personal dev environment configuration
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreatePersonalDevEnvironmentRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Create a personal development environment
-      tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}:
-    delete:
-      consumes:
-      - application/json
-      description: Delete a personal development environment by ID
-      parameters:
-      - description: Environment ID
-        in: path
-        name: environmentID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: No Content
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Delete a personal development environment
-      tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}/start:
-    post:
-      consumes:
-      - application/json
-      description: Start a personal development environment by ID
-      parameters:
-      - description: Environment ID
-        in: path
-        name: environmentID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Start a personal development environment
-      tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}/stop:
-    post:
-      consumes:
-      - application/json
-      description: Stop a personal development environment by ID
-      parameters:
-      - description: Environment ID
-        in: path
-        name: environmentID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Stop a personal development environment
-      tags:
-      - PersonalDevEnvironments
   /api/v1/projects:
     get:
       consumes:
@@ -12397,7 +12152,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.BoardSettings'
+            $ref: '#/definitions/types.BoardSettings'
         "500":
           description: Internal Server Error
           schema:
@@ -12417,14 +12172,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.BoardSettings'
+          $ref: '#/definitions/types.BoardSettings'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.BoardSettings'
+            $ref: '#/definitions/types.BoardSettings'
         "400":
           description: Bad Request
           schema:

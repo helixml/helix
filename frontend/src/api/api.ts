@@ -529,10 +529,6 @@ export interface ServerApprovalWithHandoffRequest {
   project_path?: string;
 }
 
-export interface ServerBoardSettings {
-  wip_limits?: Record<string, number>;
-}
-
 export interface ServerCloneCommandResponse {
   clone_command?: string;
   clone_url?: string;
@@ -558,18 +554,6 @@ export interface ServerCoordinationLogResponse {
   last_activity?: string;
   spec_task_id?: string;
   total_events?: number;
-}
-
-export interface ServerCreatePersonalDevEnvironmentRequest {
-  app_id?: string;
-  description?: string;
-  /** Default: 120 */
-  display_fps?: number;
-  /** Default: 1640 (iPad Pro) */
-  display_height?: number;
-  /** Display configuration for the streaming session */
-  display_width?: number;
-  environment_name?: string;
 }
 
 export interface ServerCreateSampleRepositoryRequest {
@@ -689,45 +673,6 @@ export interface ServerMoonlightClientInfo {
   /** "create", "keepalive", "join" */
   mode?: string;
   session_id?: string;
-}
-
-export interface ServerPersonalDevEnvironmentResponse {
-  /** Helix App ID for configuration (MCP servers, tools, etc.) */
-  appID?: string;
-  /** MCP servers enabled */
-  configured_tools?: string[];
-  /** Container information for direct network access */
-  container_name?: string;
-  createdAt?: string;
-  /** Connected data sources */
-  data_sources?: string[];
-  description?: string;
-  /** Streaming framerate */
-  display_fps?: number;
-  /** Streaming resolution height */
-  display_height?: number;
-  /** Display configuration for streaming */
-  display_width?: number;
-  /** User-friendly name */
-  environment_name?: string;
-  instanceID?: string;
-  /** "spec_task", "personal_dev", "shared_workspace" */
-  instanceType?: string;
-  /** Personal dev environment specific */
-  is_personal_env?: boolean;
-  lastActivity?: string;
-  projectPath?: string;
-  /** Optional - null for personal dev environments */
-  specTaskID?: string;
-  status?: string;
-  stream_url?: string;
-  threadCount?: number;
-  /** Always required */
-  userID?: string;
-  /** VNC port inside container (5901) */
-  vnc_port?: number;
-  /** Wolf's numeric session ID for API calls */
-  wolf_session_id?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -1771,6 +1716,10 @@ export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
 
+export interface TypesBoardSettings {
+  wip_limits?: Record<string, number>;
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -2763,6 +2712,8 @@ export interface TypesProject {
   default_branch?: string;
   /** Project-level repository management */
   default_repo_id?: string;
+  /** Soft delete timestamp */
+  deleted_at?: GormDeletedAt;
   description?: string;
   github_repo_url?: string;
   id?: string;
@@ -3945,11 +3896,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -6559,101 +6510,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get all personal development environments for the current user
-     *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsList
-     * @summary List personal development environments
-     * @request GET:/api/v1/personal-dev-environments
-     * @secure
-     */
-    v1PersonalDevEnvironmentsList: (params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse[], SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new personal development environment with the specified configuration
-     *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsCreate
-     * @summary Create a personal development environment
-     * @request POST:/api/v1/personal-dev-environments
-     * @secure
-     */
-    v1PersonalDevEnvironmentsCreate: (request: ServerCreatePersonalDevEnvironmentRequest, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Delete a personal development environment by ID
-     *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsDelete
-     * @summary Delete a personal development environment
-     * @request DELETE:/api/v1/personal-dev-environments/{environmentID}
-     * @secure
-     */
-    v1PersonalDevEnvironmentsDelete: (environmentId: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Start a personal development environment by ID
-     *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsStartCreate
-     * @summary Start a personal development environment
-     * @request POST:/api/v1/personal-dev-environments/{environmentID}/start
-     * @secure
-     */
-    v1PersonalDevEnvironmentsStartCreate: (environmentId: string, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}/start`,
-        method: "POST",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Stop a personal development environment by ID
-     *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsStopCreate
-     * @summary Stop a personal development environment
-     * @request POST:/api/v1/personal-dev-environments/{environmentID}/stop
-     * @secure
-     */
-    v1PersonalDevEnvironmentsStopCreate: (environmentId: string, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}/stop`,
-        method: "POST",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get all projects for the current user
      *
      * @tags Projects
@@ -8396,7 +8252,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
-      this.request<ServerBoardSettings, TypesAPIError>({
+      this.request<TypesBoardSettings, TypesAPIError>({
         path: `/api/v1/spec-tasks/board-settings`,
         method: "GET",
         secure: true,
@@ -8413,8 +8269,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/spec-tasks/board-settings
      * @secure
      */
-    v1SpecTasksBoardSettingsUpdate: (request: ServerBoardSettings, params: RequestParams = {}) =>
-      this.request<ServerBoardSettings, TypesAPIError>({
+    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
         path: `/api/v1/spec-tasks/board-settings`,
         method: "PUT",
         body: request,

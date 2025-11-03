@@ -298,9 +298,12 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 	}
 
 	if externalAgent.Status != "running" {
-		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-			"message": "External agent is already stopped",
-			"status":  externalAgent.Status,
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode(types.SpecTaskStopResponse{
+			Message:         "External agent is already stopped",
+			Status:          externalAgent.Status,
+			ExternalAgentID: externalAgent.ID,
+			WorkspaceDir:    externalAgent.WorkspaceDir,
 		})
 		return
 	}
@@ -336,11 +339,12 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		}
 	}
 
-	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-		"message":           "External agent stopped successfully",
-		"external_agent_id": externalAgent.ID,
-		"workspace_dir":     externalAgent.WorkspaceDir,
-		"note":              "Workspace preserved in filestore - use start endpoint to resume",
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(types.SpecTaskStopResponse{
+		Message:         "External agent stopped successfully",
+		ExternalAgentID: externalAgent.ID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		Note:            "Workspace preserved in filestore - use start endpoint to resume",
 	})
 }
 
@@ -385,10 +389,12 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	}
 
 	if externalAgent.Status == "running" {
-		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-			"message":           "External agent is already running",
-			"external_agent_id": externalAgent.ID,
-			"wolf_app_id":       externalAgent.WolfAppID,
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
+			Message:         "External agent is already running",
+			ExternalAgentID: externalAgent.ID,
+			WolfAppID:       externalAgent.WolfAppID,
+			WorkspaceDir:    externalAgent.WorkspaceDir,
 		})
 		return
 	}
@@ -449,14 +455,15 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
-	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-		"message":           "External agent started successfully",
-		"external_agent_id": externalAgent.ID,
-		"wolf_app_id":       agentResp.WolfAppID,
-		"workspace_dir":     externalAgent.WorkspaceDir,
-		"screenshot_url":    agentResp.ScreenshotURL,
-		"stream_url":        agentResp.StreamURL,
-		"note":              "Agent resumed with all previous state (threads, git repos, Zed state)",
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
+		Message:         "External agent started successfully",
+		ExternalAgentID: externalAgent.ID,
+		WolfAppID:       agentResp.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		ScreenshotURL:   agentResp.ScreenshotURL,
+		StreamURL:       agentResp.StreamURL,
+		Note:            "Agent resumed with all previous state (threads, git repos, Zed state)",
 	})
 }
 
@@ -498,9 +505,9 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 	if err != nil {
 		// No external agent yet (task hasn't started)
 		res.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(res).Encode(map[string]interface{}{
-			"exists":  false,
-			"message": "External agent not created yet - task must enter planning phase",
+		json.NewEncoder(res).Encode(types.SpecTaskStatusResponse{
+			Exists:  false,
+			Message: "External agent not created yet - task must enter planning phase",
 		})
 		return
 	}
@@ -512,20 +519,23 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 		idleMinutes = int(time.Since(activity.LastInteraction).Minutes())
 	}
 
-	response := map[string]interface{}{
-		"exists":             true,
-		"external_agent_id":  externalAgent.ID,
-		"status":             externalAgent.Status,
-		"wolf_app_id":        externalAgent.WolfAppID,
-		"workspace_dir":      externalAgent.WorkspaceDir,
-		"helix_session_ids":  externalAgent.HelixSessionIDs,
-		"zed_thread_ids":     externalAgent.ZedThreadIDs,
-		"session_count":      len(externalAgent.HelixSessionIDs),
-		"created":            externalAgent.Created,
-		"last_activity":      externalAgent.LastActivity,
-		"idle_minutes":       idleMinutes,
-		"will_terminate_in":  max(0, 30-idleMinutes),
-		"warning_threshold":  idleMinutes >= 25,
+	var lastActivityPtr *time.Time
+	if !externalAgent.LastActivity.IsZero() {
+		lastActivityPtr = &externalAgent.LastActivity
+	}
+
+	response := types.SpecTaskStatusResponse{
+		Exists:          true,
+		ExternalAgentID: externalAgent.ID,
+		Status:          externalAgent.Status,
+		WolfAppID:       externalAgent.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		HelixSessionIDs: externalAgent.HelixSessionIDs,
+		ZedThreadIDs:    externalAgent.ZedThreadIDs,
+		SessionCount:    len(externalAgent.HelixSessionIDs),
+		Created:         externalAgent.Created,
+		LastActivity:    lastActivityPtr,
+		IdleMinutes:     idleMinutes,
 	}
 
 	res.Header().Set("Content-Type", "application/json")

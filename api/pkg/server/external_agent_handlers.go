@@ -17,6 +17,19 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// RegisterRequestToSessionMapping registers a request_id to session_id mapping for external agent sessions
+// This is used to route initial messages to Zed when it connects via WebSocket
+func (apiServer *HelixAPIServer) RegisterRequestToSessionMapping(requestID, sessionID string) {
+	if apiServer.requestToSessionMapping == nil {
+		apiServer.requestToSessionMapping = make(map[string]string)
+	}
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	log.Info().
+		Str("request_id", requestID).
+		Str("session_id", sessionID).
+		Msg("✅ Registered request_id -> session_id mapping")
+}
+
 // createExternalAgent handles POST /api/v1/external-agents
 func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
@@ -384,19 +397,19 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		Msg("Found external agent session (RDP replaced with Wolf)")
 
 	// Return Wolf-based connection details with WebSocket info
-	connectionInfo := map[string]interface{}{
-		"session_id":          session.SessionID,
-		"screenshot_url":      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		"stream_url":          "moonlight://localhost:47989",
-		"status":              session.Status,
-		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
-		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
+	connectionInfo := types.ExternalAgentConnectionInfo{
+		SessionID:          session.SessionID,
+		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
+		StreamURL:          "moonlight://localhost:47989",
+		Status:             session.Status,
+		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
+		WebsocketConnected: apiServer.isExternalAgentConnected(session.SessionID),
 	}
 
 	log.Info().
 		Str("session_id", session.SessionID).
 		Str("status", session.Status).
-		Bool("websocket_connected", connectionInfo["websocket_connected"].(bool)).
+		Bool("websocket_connected", connectionInfo.WebsocketConnected).
 		Msg("Returning Wolf connection info")
 
 	res.Header().Set("Content-Type", "application/json")
@@ -419,7 +432,7 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	var updateData map[string]interface{}
+	var updateData types.ExternalAgentUpdateRequest
 	err := json.NewDecoder(req.Body).Decode(&updateData)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
@@ -481,16 +494,16 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 		return
 	}
 
-	stats := map[string]interface{}{
-		"session_id":    session.SessionID,
-		"pid":           0,
-		"start_time":    session.StartTime,
-		"last_access":   session.LastAccess,
-		"uptime":        session.LastAccess.Sub(session.StartTime).Seconds(),
-		"workspace_dir": session.ProjectPath,
-		"display_num":   1,
-		"rdp_port":      8080,
-		"status":        "running",
+	stats := types.ExternalAgentStats{
+		SessionID:    session.SessionID,
+		PID:          0,
+		StartTime:    session.StartTime,
+		LastAccess:   session.LastAccess,
+		Uptime:       session.LastAccess.Sub(session.StartTime).Seconds(),
+		WorkspaceDir: session.ProjectPath,
+		DisplayNum:   1,
+		RDPPort:      8080,
+		Status:       "running",
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -534,16 +547,16 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 
 	// For now, return a placeholder response
 	// In a full implementation, you would read actual logs from the Zed process
-	logs := map[string]interface{}{
-		"session_id": sessionID,
-		"lines":      lines,
-		"logs": []string{
+	logs := types.ExternalAgentLogs{
+		SessionID: sessionID,
+		Lines:     lines,
+		Logs: []string{
 			"[INFO] Zed editor started",
 			"[INFO] X server initialized",
 			"[INFO] XRDP server listening on port 3389",
 			"[DEBUG] Session active and responding",
 		},
-		"timestamp": time.Now(),
+		Timestamp: time.Now(),
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -762,13 +775,13 @@ func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.Respon
 	}
 
 	// Build response
-	response := map[string]interface{}{
-		"session_id":              session.SessionID,
-		"lobby_id":                session.WolfLobbyID,
-		"keepalive_status":        session.KeepaliveStatus,
-		"keepalive_start_time":    session.KeepaliveStartTime,
-		"keepalive_last_check":    session.KeepaliveLastCheck,
-		"connection_uptime_seconds": uptimeSeconds,
+	response := types.ExternalAgentKeepaliveStatus{
+		SessionID:              session.SessionID,
+		LobbyID:                session.WolfLobbyID,
+		KeepaliveStatus:        session.KeepaliveStatus,
+		KeepaliveStartTime:     session.KeepaliveStartTime,
+		KeepaliveLastCheck:     session.KeepaliveLastCheck,
+		ConnectionUptimeSeconds: uptimeSeconds,
 	}
 
 	res.Header().Set("Content-Type", "application/json")

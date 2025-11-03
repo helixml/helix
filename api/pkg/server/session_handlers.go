@@ -1705,19 +1705,19 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		Msg("Found external agent session (Wolf-based)")
 
 	// Return Wolf-based connection details with WebSocket info
-	connectionInfo := map[string]interface{}{
-		"session_id":          agentSession.SessionID,
-		"screenshot_url":      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
-		"stream_url":          "moonlight://localhost:47989",
-		"status":              agentSession.Status,
-		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
-		"websocket_connected": s.isExternalAgentConnected(agentSession.SessionID),
+	connectionInfo := types.ExternalAgentConnectionInfo{
+		SessionID:          agentSession.SessionID,
+		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
+		StreamURL:          "moonlight://localhost:47989",
+		Status:             agentSession.Status,
+		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
+		WebsocketConnected: s.isExternalAgentConnected(agentSession.SessionID),
 	}
 
 	log.Info().
 		Str("session_id", agentSession.SessionID).
 		Str("status", agentSession.Status).
-		Bool("websocket_connected", connectionInfo["websocket_connected"].(bool)).
+		Bool("websocket_connected", connectionInfo.WebsocketConnected).
 		Msg("Returning Wolf connection info")
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -1870,12 +1870,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Msg("External agent session resumed successfully")
 
 	// Return success response
-	result := map[string]interface{}{
-		"session_id":     id,
-		"status":         "resumed",
-		"wolf_lobby_id":  response.WolfLobbyID,
-		"wolf_lobby_pin": response.WolfLobbyPIN,
-		"screenshot_url": response.ScreenshotURL,
+	result := types.SessionResumeResponse{
+		SessionID:     id,
+		Status:        "resumed",
+		WolfLobbyID:   response.WolfLobbyID,
+		WolfLobbyPIN:  response.WolfLobbyPIN,
+		ScreenshotURL: response.ScreenshotURL,
 	}
 
 	rw.Header().Set("Content-Type", "application/json")

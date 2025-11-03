@@ -612,17 +612,12 @@ type PhaseProgress struct {
 	RevisionCount int        `json:"revision_count,omitempty"`
 }
 
-// BoardSettings represents the Kanban board settings for a project
-type BoardSettings struct {
-	WIPLimits map[string]int `json:"wip_limits"`
-}
-
 // getBoardSettings godoc
 // @Summary Get board settings for spec tasks
 // @Description Get the Kanban board settings (WIP limits) for the default project
 // @Tags spec-driven-tasks
 // @Produce json
-// @Success 200 {object} BoardSettings
+// @Success 200 {object} types.BoardSettings
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/spec-tasks/board-settings [get]
 // @Security BearerAuth
@@ -638,45 +633,28 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	// Parse metadata to extract board settings
-	var metadata map[string]interface{}
-	if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
-		log.Error().Err(err).Msg("Failed to parse project metadata")
-		http.Error(w, "failed to parse board settings", http.StatusInternalServerError)
-		return
+	var metadata types.ProjectMetadata
+	if len(project.Metadata) > 0 {
+		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
+			log.Error().Err(err).Msg("Failed to parse project metadata")
+			http.Error(w, "failed to parse board settings", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	boardSettingsData, ok := metadata["board_settings"].(map[string]interface{})
-	if !ok {
+	// Return board settings or defaults
+	var boardSettings types.BoardSettings
+	if metadata.BoardSettings != nil {
+		boardSettings = *metadata.BoardSettings
+	} else {
 		// Return default settings if not found
-		boardSettings := BoardSettings{
+		boardSettings = types.BoardSettings{
 			WIPLimits: map[string]int{
 				"planning":       3,
 				"review":         2,
 				"implementation": 5,
 			},
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(boardSettings)
-		return
-	}
-
-	wipLimitsData, ok := boardSettingsData["wip_limits"].(map[string]interface{})
-	if !ok {
-		log.Error().Msg("Invalid wip_limits format in metadata")
-		http.Error(w, "invalid board settings format", http.StatusInternalServerError)
-		return
-	}
-
-	// Convert to map[string]int
-	wipLimits := make(map[string]int)
-	for k, v := range wipLimitsData {
-		if limit, ok := v.(float64); ok {
-			wipLimits[k] = int(limit)
-		}
-	}
-
-	boardSettings := BoardSettings{
-		WIPLimits: wipLimits,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -689,8 +667,8 @@ func (s *HelixAPIServer) getBoardSettings(w http.ResponseWriter, r *http.Request
 // @Tags spec-driven-tasks
 // @Accept json
 // @Produce json
-// @Param request body BoardSettings true "Board settings"
-// @Success 200 {object} BoardSettings
+// @Param request body types.BoardSettings true "Board settings"
+// @Success 200 {object} types.BoardSettings
 // @Failure 400 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/spec-tasks/board-settings [put]
@@ -703,7 +681,7 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var settings BoardSettings
+	var settings types.BoardSettings
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		log.Error().Err(err).Msg("Failed to decode board settings")
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -718,22 +696,18 @@ func (s *HelixAPIServer) updateBoardSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Parse existing metadata
-	var metadata map[string]interface{}
+	// Parse existing metadata or create new
+	var metadata types.ProjectMetadata
 	if len(project.Metadata) > 0 {
 		if err := json.Unmarshal(project.Metadata, &metadata); err != nil {
 			log.Error().Err(err).Msg("Failed to parse project metadata")
 			http.Error(w, "failed to parse existing settings", http.StatusInternalServerError)
 			return
 		}
-	} else {
-		metadata = make(map[string]interface{})
 	}
 
 	// Update board settings in metadata
-	metadata["board_settings"] = map[string]interface{}{
-		"wip_limits": settings.WIPLimits,
-	}
+	metadata.BoardSettings = &settings
 
 	// Marshal back to JSON
 	newMetadata, err := json.Marshal(metadata)

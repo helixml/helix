@@ -99,63 +99,6 @@
                 }
             }
         },
-        "/api/v1/admin/sample-projects": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new sample project template (admin only)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Create sample project (Admin)",
-                "parameters": [
-                    {
-                        "description": "Sample project data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/sample-projects/{id}": {
             "delete": {
                 "security": [
@@ -2477,6 +2420,62 @@
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a git repository (repository owners can list access grants)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "List repository access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to a repository to a user (repository owners can grant access)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "Grant access to a repository to a user",
+                "parameters": [
+                    {
+                        "description": "Request body with user reference and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/clone-command": {
             "get": {
                 "security": [
@@ -4055,266 +4054,6 @@
                 }
             }
         },
-        "/api/v1/personal-dev-environments": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all personal development environments for the current user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "List personal development environments",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a new personal development environment with the specified configuration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Create a personal development environment",
-                "parameters": [
-                    {
-                        "description": "Personal dev environment configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreatePersonalDevEnvironmentRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Delete a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Delete a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}/start": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Start a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Start a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}/stop": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Stop a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Stop a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/projects": {
             "get": {
                 "security": [
@@ -4592,24 +4331,130 @@
                 }
             }
         },
-        "/api/v1/projects/{id}/exploratory-session": {
+        "/api/v1/projects/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a project (project owners and org owners can list access grants)",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Start an exploratory agent session for a project without a specific task",
-                "consumes": [
-                    "application/json"
+                "description": "Grant access to a project to a team or organization member (project owners and org owners can grant access)",
+                "tags": [
+                    "projects"
                 ],
+                "summary": "Grant access to a project to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/exploratory-session": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the active exploratory session for a project (returns null if none exists)",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Projects"
                 ],
-                "summary": "Start exploratory session",
+                "summary": "Get project exploratory session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
+                    "204": {
+                        "description": "No exploratory session exists"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start or return existing exploratory session for a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Start project exploratory session",
                 "parameters": [
                     {
                         "type": "string",
@@ -4681,6 +4526,136 @@
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/store.DBGitRepository"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/attach": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Attach an existing repository to a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Attach repository to project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/detach": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Detach a repository from its project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Detach repository from project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
                             }
                         }
                     },
@@ -5034,6 +5009,61 @@
                             "items": {
                                 "$ref": "#/definitions/server.SampleProject"
                             }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new sample project template (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SampleProjects"
+                ],
+                "summary": "Create sample project (Admin)",
+                "parameters": [
+                    {
+                        "description": "Sample project data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SampleProject"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SampleProject"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -6045,6 +6075,38 @@
                 }
             }
         },
+        "/api/v1/sessions/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Restarts the external agent container for a session that has been stopped",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Resume a paused external agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/step-info": {
             "get": {
                 "security": [
@@ -6557,7 +6619,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
                     "500": {
@@ -6592,7 +6654,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     }
                 ],
@@ -6600,7 +6662,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
                     "400": {
@@ -11072,17 +11134,6 @@
                 }
             }
         },
-        "server.BoardSettings": {
-            "type": "object",
-            "properties": {
-                "wip_limits": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -11158,32 +11209,6 @@
                 },
                 "total_events": {
                     "type": "integer"
-                }
-            }
-        },
-        "server.CreatePersonalDevEnvironmentRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Default: 120",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Default: 1640 (iPad Pro)",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for the streaming session",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "type": "string"
                 }
             }
         },
@@ -11484,97 +11509,6 @@
                     "type": "string"
                 },
                 "session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PersonalDevEnvironmentResponse": {
-            "type": "object",
-            "properties": {
-                "appID": {
-                    "description": "Helix App ID for configuration (MCP servers, tools, etc.)",
-                    "type": "string"
-                },
-                "configured_tools": {
-                    "description": "MCP servers enabled",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "container_name": {
-                    "description": "Container information for direct network access",
-                    "type": "string"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "data_sources": {
-                    "description": "Connected data sources",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Streaming framerate",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Streaming resolution height",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for streaming",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "description": "User-friendly name",
-                    "type": "string"
-                },
-                "instanceID": {
-                    "type": "string"
-                },
-                "instanceType": {
-                    "description": "\"spec_task\", \"personal_dev\", \"shared_workspace\"",
-                    "type": "string"
-                },
-                "is_personal_env": {
-                    "description": "Personal dev environment specific",
-                    "type": "boolean"
-                },
-                "lastActivity": {
-                    "type": "string"
-                },
-                "projectPath": {
-                    "type": "string"
-                },
-                "specTaskID": {
-                    "description": "Optional - null for personal dev environments",
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "stream_url": {
-                    "type": "string"
-                },
-                "threadCount": {
-                    "type": "integer"
-                },
-                "userID": {
-                    "description": "Always required",
-                    "type": "string"
-                },
-                "vnc_port": {
-                    "description": "VNC port inside container (5901)",
-                    "type": "integer"
-                },
-                "wolf_session_id": {
-                    "description": "Wolf's numeric session ID for API calls",
                     "type": "string"
                 }
             }
@@ -12393,6 +12327,9 @@
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "owner_id": {
                     "type": "string"
                 },
@@ -12433,6 +12370,10 @@
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID - required for access control",
                     "type": "string"
                 },
                 "owner_id": {
@@ -12893,6 +12834,10 @@
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "organizationID": {
+                    "description": "Organization ID - will be backfilled for existing repos",
                     "type": "string"
                 },
                 "ownerID": {
@@ -14325,6 +14270,17 @@
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                }
+            }
+        },
+        "types.BoardSettings": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
                 }
             }
         },
@@ -16792,6 +16748,14 @@
                     "description": "Project-level repository management",
                     "type": "string"
                 },
+                "deleted_at": {
+                    "description": "Soft delete timestamp",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/gorm.DeletedAt"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string"
                 },
@@ -16799,6 +16763,10 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "internal_repo_path": {
+                    "description": "Internal project Git repository (stores project config, tasks, design docs)",
                     "type": "string"
                 },
                 "metadata": {
@@ -17118,7 +17086,9 @@
                 "Knowledge",
                 "User",
                 "*",
-                "Dataset"
+                "Dataset",
+                "Project",
+                "GitRepository"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -17131,7 +17101,9 @@
                 "ResourceKnowledge",
                 "ResourceUser",
                 "ResourceAny",
-                "ResourceTypeDataset"
+                "ResourceTypeDataset",
+                "ResourceProject",
+                "ResourceGitRepository"
             ]
         },
         "types.ResponseFormat": {
@@ -18013,6 +17985,10 @@
                 "priority": {
                     "type": "boolean"
                 },
+                "project_id": {
+                    "description": "ID of associated Project (for exploratory sessions)",
+                    "type": "string"
+                },
                 "rag_enabled": {
                     "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
                     "type": "boolean"
@@ -18027,7 +18003,7 @@
                     }
                 },
                 "session_role": {
-                    "description": "\"planning\", \"implementation\", \"coordination\"",
+                    "description": "\"planning\", \"implementation\", \"coordination\", \"exploratory\"",
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -19717,18 +19693,18 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
