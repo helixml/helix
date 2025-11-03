@@ -1880,3 +1880,60 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(result)
 }
+
+// stopExternalAgentSession godoc
+// @Summary Stop external Zed agent session
+// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
+func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	// Get session to verify access and check if it's an external agent session
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	// Verify user owns this session
+	if user == nil || session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	// Stop the Zed agent (Wolf container)
+	err = s.externalAgentExecutor.StopZedAgent(ctx, sessionID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to stop external Zed agent")
+		return nil, system.NewHTTPError500("failed to stop external Zed agent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("External Zed agent stopped successfully")
+
+	return map[string]string{
+		"message":    "external Zed agent stopped",
+		"session_id": sessionID,
+	}, nil
+}
+

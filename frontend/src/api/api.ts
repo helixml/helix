@@ -3893,11 +3893,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -7475,6 +7475,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/step-info`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Stop the external Zed agent for any session (stops container, keeps session record)
+     *
+     * @tags Sessions
+     * @name V1SessionsStopExternalAgentDelete
+     * @summary Stop external Zed agent session
+     * @request DELETE:/api/v1/sessions/{id}/stop-external-agent
+     * @secure
+     */
+    v1SessionsStopExternalAgentDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/stop-external-agent`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
