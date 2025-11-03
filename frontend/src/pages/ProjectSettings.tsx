@@ -35,6 +35,8 @@ import WarningIcon from '@mui/icons-material/Warning'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import DeleteIcon from '@mui/icons-material/Delete'
 import LinkIcon from '@mui/icons-material/Link'
+import StopIcon from '@mui/icons-material/Stop'
+import RefreshIcon from '@mui/icons-material/Refresh'
 
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
@@ -328,25 +330,44 @@ const ProjectSettings: FC = () => {
       orgBreadcrumbs={true}
       topbarContent={(
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', width: '100%' }}>
-          <Button
-            variant="outlined"
-            color="secondary"
-            startIcon={<ExploreIcon />}
-            onClick={handleStartExploratorySession}
-            disabled={startExploratorySessionMutation.isPending}
-          >
-            {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
-          </Button>
-          {exploratorySessionData && (
+          {!exploratorySessionData ? (
             <Button
               variant="outlined"
               color="secondary"
-              startIcon={<RefreshIcon />}
+              startIcon={<ExploreIcon />}
               onClick={handleStartExploratorySession}
               disabled={startExploratorySessionMutation.isPending}
             >
-              {startExploratorySessionMutation.isPending ? 'Restarting...' : 'Restart Session'}
+              {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
             </Button>
+          ) : (
+            <>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<ExploreIcon />}
+                onClick={() => account.orgNavigate('project-session', { id: projectId, session_id: exploratorySessionData.id })}
+              >
+                View Session
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<StopIcon />}
+                onClick={() => snackbar.info('Stop session functionality coming soon')}
+              >
+                Stop Session
+              </Button>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<RefreshIcon />}
+                onClick={handleStartExploratorySession}
+                disabled={startExploratorySessionMutation.isPending}
+              >
+                {startExploratorySessionMutation.isPending ? 'Starting...' : 'New Session'}
+              </Button>
+            </>
           )}
           <Button
             variant="contained"
