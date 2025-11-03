@@ -330,7 +330,7 @@ export const SessionToolbar: FC<{
                   ml: 1
                 }}
               >
-                {showRDPViewer ? 'Hide' : 'Show'} Zed
+                {showRDPViewer ? 'Hide' : 'Show'} Desktop
               </Button>
             )}
 

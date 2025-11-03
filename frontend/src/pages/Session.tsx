@@ -89,11 +89,15 @@ const useWolfAppState = (sessionId: string) => {
   return { wolfState, isRunning, isPaused };
 };
 
-// Resume button component for external agent sessions
-const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
+// Desktop controls component for external agent sessions
+const DesktopControls: React.FC<{
+  sessionId: string,
+  onStop: () => void,
+  isStopping: boolean
+}> = ({ sessionId, onStop, isStopping }) => {
   const api = useApi();
   const snackbar = useSnackbar();
-  const { wolfState, isPaused } = useWolfAppState(sessionId);
+  const { wolfState, isRunning, isPaused } = useWolfAppState(sessionId);
   const [isResuming, setIsResuming] = React.useState(false);
 
   const handleResume = async () => {
@@ -109,22 +113,38 @@ const ResumeAgentButton: React.FC<{ sessionId: string }> = ({ sessionId }) => {
     }
   };
 
-  if (!isPaused) {
-    return null;
+  // Show Resume button when paused, Stop button when running
+  if (isPaused) {
+    return (
+      <Button
+        variant="outlined"
+        size="small"
+        color="primary"
+        startIcon={isResuming ? <CircularProgress size={16} /> : <PlayArrow />}
+        onClick={handleResume}
+        disabled={isResuming}
+      >
+        {isResuming ? 'Starting...' : 'Start'}
+      </Button>
+    );
   }
 
-  return (
-    <Button
-      variant="outlined"
-      size="small"
-      startIcon={isResuming ? <CircularProgress size={16} /> : <PlayArrow />}
-      onClick={handleResume}
-      disabled={isResuming}
-      sx={{ width: 'fit-content' }}
-    >
-      {isResuming ? 'Resuming...' : 'Resume Desktop'}
-    </Button>
-  );
+  if (isRunning) {
+    return (
+      <Button
+        variant="outlined"
+        size="small"
+        color="error"
+        startIcon={isStopping ? <CircularProgress size={16} /> : <StopIcon />}
+        onClick={onStop}
+        disabled={isStopping}
+      >
+        {isStopping ? 'Stopping...' : 'Stop'}
+      </Button>
+    );
+  }
+
+  return null;
 };
 
 // Desktop viewer for external agent sessions - shows live screenshot or paused state
@@ -1505,25 +1525,20 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               />
               {/* Show desktop state for external agent sessions */}
               {isExternalAgent && (
-                <Box sx={{ px: 2, pt: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Desktop State:
+                <Box sx={{ px: 2, pt: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500, minWidth: 'fit-content' }}>
+                      Desktop:
                     </Typography>
                     <WolfAppStateIndicator sessionId={sessionID} />
-                    <Tooltip title="Stop external Zed agent">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={handleStopExternalAgent}
-                        disabled={stopExternalAgentMutation.isPending}
-                        sx={{ ml: 0.5 }}
-                      >
-                        <StopIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    <Box sx={{ ml: 'auto' }}>
+                      <DesktopControls
+                        sessionId={sessionID}
+                        onStop={handleStopExternalAgent}
+                        isStopping={stopExternalAgentMutation.isPending}
+                      />
+                    </Box>
                   </Box>
-                  <ResumeAgentButton sessionId={sessionID} />
                 </Box>
               )}
             </Box>
