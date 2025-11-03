@@ -55,6 +55,7 @@ export const SessionsSidebar: FC<{
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
   const [expandedExecutionIds, setExpandedExecutionIds] = useState<Set<string>>(new Set())
+  const [autoLoadTriggeredForPage, setAutoLoadTriggeredForPage] = useState<number>(-1)
 
   const orgId = router.params.org_id
 
@@ -74,19 +75,71 @@ export const SessionsSidebar: FC<{
     }
   )
 
+  const dedupeSessionsById = (sessions: TypesSessionSummary[]) => {
+    const seen = new Set<string>()
+    const result: TypesSessionSummary[] = []
+    sessions.forEach((s) => {
+      const id = s.session_id
+      if (!id) {
+        result.push(s)
+        return
+      }
+      if (!seen.has(id)) {
+        seen.add(id)
+        result.push(s)
+      }
+    })
+    return result
+  }
+
   // Update state when sessions data changes
   useEffect(() => {
     if (sessionsData?.data) {
       if (currentPage === 0) {
         // First page - replace all sessions
-        setAllSessions(sessionsData.data.sessions || [])
+        const dedupedFirstPage = dedupeSessionsById(sessionsData.data.sessions || [])
+        setAllSessions(dedupedFirstPage)
       } else {
         // Subsequent pages - append sessions
-        setAllSessions(prev => [...prev, ...(sessionsData.data.sessions || [])])
+        setAllSessions(prev => dedupeSessionsById([...prev, ...(sessionsData.data.sessions || [])]))
       }
       
       setTotalCount(sessionsData.data.totalCount || 0)
       setHasMore((sessionsData.data.totalPages || 0) > currentPage + 1)
+
+      // After merging this page, decide if we need to fetch one more to
+      // make the visible list at least PAGE_SIZE rows. Trigger at most once per page.
+      try {
+        if (autoLoadTriggeredForPage !== currentPage && !isLoadingMore) {
+          const merged = dedupeSessionsById(
+            currentPage === 0
+              ? (sessionsData.data.sessions || [])
+              : [...allSessions, ...(sessionsData.data.sessions || [])]
+          )
+
+          const { grouped, standalone } = groupSessionsByExecutionId(merged)
+          type TempMixed = { type: 'execution'; executionId: string; sessions: TypesSessionSummary[] } | { type: 'session'; }
+          const tempItems: TempMixed[] = []
+          Array.from(grouped.entries()).forEach(([executionId, sessions]) => {
+            tempItems.push({ type: 'execution', executionId, sessions })
+          })
+          standalone.forEach(() => tempItems.push({ type: 'session' }))
+
+          const visibleCount = tempItems.reduce((count, item) => {
+            if (item.type === 'execution') {
+              return count + 1 // collapsed by default
+            }
+            return count + 1
+          }, 0)
+
+          if (visibleCount < PAGE_SIZE && ((sessionsData.data.totalPages || 0) > currentPage + 1)) {
+            setAutoLoadTriggeredForPage(currentPage)
+            setCurrentPage(prev => prev + 1)
+          }
+        }
+      } catch (_) {
+        // no-op safeguard
+      }
     }
   }, [sessionsData, currentPage])
 
