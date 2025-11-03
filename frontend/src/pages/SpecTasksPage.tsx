@@ -230,9 +230,12 @@ const SpecTasksPage: FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        // Only trigger if not typing in an input field
+        // Only trigger if not typing in an input field or focused interactive element
         const target = e.target as HTMLElement;
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        if (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable ||
+            target.hasAttribute('tabindex')) { // Exclude focusable elements like stream viewer
           return;
         }
         e.preventDefault();
