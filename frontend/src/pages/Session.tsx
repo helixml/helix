@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
 
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
@@ -29,7 +31,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
-import { useGetSession, useUpdateSession, useStopExternalAgent } from '../services/sessionService'
+import { useGetSession, useUpdateSession, useStopExternalAgent, useGetSessionIdleStatus } from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -360,6 +362,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // Stop external agent hook (works for any external agent session)
   const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
   const [showStopConfirm, setShowStopConfirm] = useState(false)
+
+  // Get idle status for external agent sessions (check session data directly)
+  const { data: idleStatus } = useGetSessionIdleStatus(sessionID || '', {
+    enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
+  })
 
   const handleStopExternalAgent = () => {
     setShowStopConfirm(true)
@@ -1543,6 +1550,20 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       />
                     </Box>
                   </Box>
+                </Box>
+              )}
+
+              {/* Idle timeout warning for external agent sessions */}
+              {isExternalAgent && idleStatus?.data?.warning_threshold && (
+                <Box sx={{ px: 2, pt: 1, pb: 1 }}>
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <AlertTitle sx={{ fontSize: '0.875rem', mb: 0.5 }}>Idle Session Warning</AlertTitle>
+                    <Typography variant="body2" sx={{ fontSize: '0.8125rem' }}>
+                      This external agent has been idle for {idleStatus.data.idle_minutes} minutes.
+                      It will be automatically terminated in {idleStatus.data.will_terminate_in} minutes to free GPU resources.
+                      <br /><strong>Send a message to keep the agent alive.</strong>
+                    </Typography>
+                  </Alert>
                 </Box>
               )}
             </Box>

@@ -3166,6 +3166,13 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionIdleStatus {
+  has_external_agent?: boolean;
+  idle_minutes?: number;
+  warning_threshold?: boolean;
+  will_terminate_in?: number;
+}
+
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /** Agent type: "helix" or "zed_external" */
@@ -3205,6 +3212,8 @@ export interface TypesSessionMetadata {
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
   manually_review_questions?: boolean;
+  /** Path to saved screenshot when agent is paused */
+  paused_screenshot_path?: string;
   /** NEW: SpecTask phase (planning, implementation) */
   phase?: string;
   priority?: boolean;
@@ -3893,11 +3902,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -7353,6 +7362,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns idle timeout information for a session with an external agent
+     *
+     * @tags sessions
+     * @name V1SessionsIdleStatusDetail
+     * @summary Get idle status for external agent session
+     * @request GET:/api/v1/sessions/{id}/idle-status
+     * @secure
+     */
+    v1SessionsIdleStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionIdleStatus, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/idle-status`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

@@ -5960,6 +5960,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/idle-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns idle timeout information for a session with an external agent",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get idle status for external agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionIdleStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/interactions": {
             "get": {
                 "security": [
@@ -17989,6 +18038,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionIdleStatus": {
+            "type": "object",
+            "properties": {
+                "has_external_agent": {
+                    "type": "boolean"
+                },
+                "idle_minutes": {
+                    "type": "integer"
+                },
+                "warning_threshold": {
+                    "type": "boolean"
+                },
+                "will_terminate_in": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.SessionMetadata": {
             "type": "object",
             "properties": {
@@ -18090,6 +18156,10 @@ const docTemplate = `{
                 },
                 "manually_review_questions": {
                     "type": "boolean"
+                },
+                "paused_screenshot_path": {
+                    "description": "Path to saved screenshot when agent is paused",
+                    "type": "string"
                 },
                 "phase": {
                     "description": "NEW: SpecTask phase (planning, implementation)",
@@ -19796,18 +19866,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

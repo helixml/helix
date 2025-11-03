@@ -106,6 +106,18 @@ export function useStopExternalAgent(sessionId: string) {
   })
 }
 
+export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: ['session-idle-status', sessionId],
+    queryFn: () => apiClient.v1SessionsIdleStatusDetail(sessionId),
+    enabled: options?.enabled ?? true,
+    refetchInterval: 30000, // Refetch every 30 seconds to update idle time
+  })
+}
+
 export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
 }
