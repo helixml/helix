@@ -1,0 +1,32 @@
+{
+  "bind_address": "0.0.0.0:8080",
+  "credentials": "helix",
+  "webrtc_ice_servers": [
+    {
+      "urls": [
+        "stun:l.google.com:19302",
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
+      ]
+    },
+    {
+      "urls": [
+        "turn:212.82.90.199:3478?transport=udp",
+        "turn:212.82.90.199:3478?transport=tcp"
+      ],
+      "username": "helix",
+      "credential": "helix-turn-secret"
+    }
+  ],
+  "webrtc_port_range": {
+    "min": 40000,
+    "max": 40010
+  },
+  "webrtc_network_types": [
+    "udp4",
+    "udp6"
+  ]
+}

@@ -14,7 +14,6 @@ const (
 	SessionPrefix              = "ses_"
 	InteractionPrefix          = "int_"
 	AppPrefix                  = "app_"
-	GptScriptRunnerTaskPrefix  = "gst_"
 	RequestPrefix              = "req_"
 	DataEntityPrefix           = "dent_"
 	LLMCallPrefix              = "llmc_"
@@ -38,6 +37,8 @@ const (
 	TransactionPrefix          = "txn_"
 	TopUpPrefix                = "top_"
 	MemoryPrefix               = "mem_"
+	QuestionSetPrefix          = "qs_"
+	QuestionSetExecutionPrefix = "qsex_"
 )
 
 func GenerateUUID() string {
@@ -74,10 +75,6 @@ func GenerateAppID() string {
 
 func GenerateDataEntityID() string {
 	return fmt.Sprintf("%s%s", DataEntityPrefix, newID())
-}
-
-func GenerateGptScriptTaskID() string {
-	return fmt.Sprintf("%s%s", GptScriptRunnerTaskPrefix, newID())
 }
 
 func GenerateRequestID() string {
@@ -169,4 +166,12 @@ func GenerateTopUpID() string {
 
 func GenerateMemoryID() string {
 	return fmt.Sprintf("%s%s", MemoryPrefix, newID())
+}
+
+func GenerateQuestionSetID() string {
+	return fmt.Sprintf("%s%s", QuestionSetPrefix, newID())
+}
+
+func GenerateQuestionSetExecutionID() string {
+	return fmt.Sprintf("%s%s", QuestionSetExecutionPrefix, newID())
 }

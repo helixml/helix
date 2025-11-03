@@ -3,6 +3,80 @@
 # Install:
 # curl -LO https://get.helixml.tech/install.sh && chmod +x install.sh
 
+# ================================================================================
+# PLATFORM AND GPU CONFIGURATION TEST MATRIX
+# ================================================================================
+# IMPORTANT: When modifying this script, ask a state-of-the-art LLM to verify
+# that all combinations below still work correctly. The script must handle every
+# combination of platform, Docker state, GPU configuration, and flags properly.
+#
+# PLATFORMS:
+#   - Git Bash (Windows with Docker Desktop)
+#   - WSL2 (Windows Subsystem for Linux with Docker Desktop)
+#   - Ubuntu/Debian (auto-install Docker supported)
+#   - Fedora (auto-install Docker supported)
+#   - macOS (Docker Desktop required, no auto-install)
+#   - Other Linux (manual Docker install required)
+#
+# DOCKER STATES:
+#   - Not installed (offer auto-install on Ubuntu/Debian/Fedora only)
+#   - Installed, user not in docker group (needs sudo)
+#   - Installed, user in docker group (no sudo needed)
+#
+# GPU CONFIGURATIONS:
+#   - No GPU
+#   - Intel/AMD GPU (/dev/dri exists, no nvidia-smi)
+#   - NVIDIA GPU with drivers (nvidia-smi works)
+#   - NVIDIA GPU without drivers (hardware present but no nvidia-smi)
+#   - NVIDIA GPU with drivers but no Docker runtime (/etc/docker/daemon.json missing nvidia)
+#
+# INSTALLATION FLAGS:
+#   - --cli (no Docker/GPU needed)
+#   - --controlplane (Docker needed, no GPU needed)
+#   - --runner (Docker + NVIDIA GPU + NVIDIA runtime required)
+#   - --code (Docker + any GPU required, NVIDIA runtime if NVIDIA GPU)
+#   - Combinations: --controlplane --runner, --controlplane --code, etc.
+#
+# KEY TEST CASES (Critical Paths):
+#
+# 1. Ubuntu + No Docker + No GPU + --cli
+#    Result: Install CLI only, no Docker installation offered
+#
+# 2. Ubuntu + No Docker + NVIDIA GPU with drivers + --controlplane --runner
+#    Result: Offer to install Docker + NVIDIA runtime → Install both → Create runner
+#
+# 3. Ubuntu + Docker installed + NVIDIA GPU with drivers + No NVIDIA runtime + --code
+#    Result: Detect missing NVIDIA runtime → Offer to install → Install it → Enable code profile
+#
+# 4. Ubuntu + No Docker + NVIDIA GPU without drivers + --runner
+#    Result: Exit with error, instructions to install drivers and reboot
+#
+# 5. Ubuntu + No Docker + Intel/AMD GPU + --code
+#    Result: Detect Intel/AMD GPU → Offer to install Docker → Install Docker → Enable code profile
+#
+# 6. Git Bash + Docker Desktop + --controlplane
+#    Result: Use existing Docker Desktop, no sudo, install controlplane
+#
+# 7. WSL2 + No Docker + --controlplane
+#    Result: Exit with error, tell user to install Docker Desktop for Windows
+#
+# 8. macOS + No Docker + --controlplane
+#    Result: Exit with error, tell user to install Docker Desktop manually
+#
+# 9. Fedora + No Docker + NVIDIA GPU + --runner
+#    Result: Offer to install Docker + NVIDIA runtime → Install both using dnf
+#
+# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner
+#     Result: Skip Docker/runtime installation → Create runner script
+#
+# 11. Arch Linux + No Docker + --controlplane
+#     Result: Exit with error, auto-install only supports Ubuntu/Debian/Fedora
+#
+# 12. Ubuntu + No Docker + No GPU + --code
+#     Result: Exit with error, instructions to install NVIDIA/Intel/AMD drivers
+#
+# ================================================================================
+
 set -euo pipefail
 
 echo -e "\033[1;91m"
@@ -24,9 +98,11 @@ AUTO=true
 CLI=false
 CONTROLPLANE=false
 RUNNER=false
+EXTERNAL_ZED_AGENT=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
+CODE=""
 API_HOST=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
@@ -39,6 +115,8 @@ PROXY=https://get.helixml.tech
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
+EXTERNAL_ZED_RUNNER_ID=""
+EXTERNAL_ZED_CONCURRENCY="1"
 
 # Enhanced environment detection
 detect_environment() {
@@ -119,7 +197,7 @@ check_docker_sudo() {
         fi
         return
     fi
-    
+
     # Original logic for other environments
     # Try without sudo first
     if docker ps >/dev/null 2>&1; then
@@ -144,9 +222,11 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
+  --external-zed-agent     Install the external Zed agent runner (connects to existing controlplane)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
+  --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
@@ -155,6 +235,8 @@ Options:
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
+  --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
+  --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -183,16 +265,54 @@ Examples:
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install external Zed agent to connect to existing controlplane:
+   ./install.sh --external-zed-agent --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+
+9. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
-9. Install CLI and controlplane with custom embeddings provider:
+10. Install CLI and controlplane with custom embeddings provider:
    ./install.sh --cli --controlplane --embeddings-provider openai
 
-10. Install on Windows Git Bash (requires Docker Desktop):
+11. Install on Windows Git Bash (requires Docker Desktop):
    ./install.sh --cli --controlplane
 
+12. Install with Helix Code (External Agents, PDEs, streaming):
+   ./install.sh --cli --controlplane --code --api-host https://helix.mycompany.com
+
 EOF
+}
+
+# Function to check if hostname resolves to localhost
+check_hostname_localhost() {
+    local hostname=$1
+    local resolved_ip=""
+
+    # Try different resolution methods based on platform
+    if command -v getent &> /dev/null; then
+        # Linux/WSL2: Use getent (respects /etc/hosts)
+        resolved_ip=$(getent hosts "$hostname" 2>/dev/null | awk '{ print $1 }' | head -1)
+    elif command -v dscacheutil &> /dev/null; then
+        # macOS: Use dscacheutil (respects /etc/hosts)
+        resolved_ip=$(dscacheutil -q host -a name "$hostname" 2>/dev/null | grep "^ip_address:" | head -1 | awk '{ print $2 }')
+    elif command -v ping &> /dev/null; then
+        # Fallback: Use ping (works on most systems, respects /etc/hosts)
+        # Try to extract IP from ping output
+        if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+            # Windows (Git Bash): ping output format is different
+            resolved_ip=$(ping -n 1 "$hostname" 2>/dev/null | grep "Pinging" | sed -E 's/.*\[([0-9.]+)\].*/\1/')
+        else
+            # Unix-like systems
+            resolved_ip=$(ping -c 1 -W 1 "$hostname" 2>/dev/null | grep -oE '\(([0-9]{1,3}\.){3}[0-9]{1,3}\)' | head -1 | tr -d '()')
+        fi
+    fi
+
+    # Check if resolved IP starts with 127. (localhost range)
+    if [ -n "$resolved_ip" ] && [[ "$resolved_ip" == 127.* ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Parse command line arguments
@@ -217,6 +337,11 @@ while [[ $# -gt 0 ]]; do
             AUTO=false
             shift
             ;;
+        --external-zed-agent)
+            EXTERNAL_ZED_AGENT=true
+            AUTO=false
+            shift
+            ;;
         --large)
             LARGE=true
             shift
@@ -227,6 +352,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --kodit)
             KODIT=true
+            shift
+            ;;
+        --code)
+            CODE=true
             shift
             ;;
         --api-host=*)
@@ -313,6 +442,22 @@ while [[ $# -gt 0 ]]; do
             CLI_INSTALL_PATH="$2"
             shift 2
             ;;
+        --external-zed-runner-id=*)
+            EXTERNAL_ZED_RUNNER_ID="${1#*=}"
+            shift
+            ;;
+        --external-zed-runner-id)
+            EXTERNAL_ZED_RUNNER_ID="$2"
+            shift 2
+            ;;
+        --external-zed-concurrency=*)
+            EXTERNAL_ZED_CONCURRENCY="${1#*=}"
+            shift
+            ;;
+        --external-zed-concurrency)
+            EXTERNAL_ZED_CONCURRENCY="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             display_help
@@ -320,6 +465,31 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate --api-host if provided (must not resolve to localhost)
+if [ -n "$API_HOST" ]; then
+    # Extract hostname from API_HOST (remove protocol and port)
+    API_HOSTNAME=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+
+    # Check if hostname resolves to localhost
+    if check_hostname_localhost "$API_HOSTNAME"; then
+        echo "┌───────────────────────────────────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --api-host hostname resolves to a localhost address (127.x.x.x)"
+        echo "│ "
+        echo "│ The hostname '$API_HOSTNAME' currently resolves to a localhost IP address."
+        echo "│ This breaks Docker networking, as containers cannot reach 127.0.0.1 addresses properly."
+        echo "│ "
+        echo "│ Please ensure the hostname resolves to the real external IP address of this server."
+        echo "│ You may need to check:"
+        echo "│   - /etc/hosts file for incorrect localhost mappings"
+        echo "│   - DNS configuration"
+        echo "│   - Use the actual external IP or correct DNS name"
+        echo "│ "
+        echo "│ Note: For local development, omit --api-host entirely (defaults to http://localhost:8080)"
+        echo "└───────────────────────────────────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+fi
 
 # Function to check if running on WSL2 (don't auto-install docker in that case)
 check_wsl2_docker() {
@@ -330,7 +500,21 @@ check_wsl2_docker() {
     fi
 }
 
-# Function to install Docker and Docker Compose plugin
+# Function to check if Docker needs to be installed
+check_docker_needed() {
+    if ! command -v docker &> /dev/null; then
+        return 0  # Docker not found, needs installation
+    fi
+
+    # Check for Docker Compose plugin (skip for Git Bash)
+    if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
+        return 0  # Compose plugin missing, needs installation
+    fi
+
+    return 1  # Docker already installed
+}
+
+# Function to install Docker and Docker Compose plugin (called after user approval)
 install_docker() {
     if ! command -v docker &> /dev/null; then
         # Git Bash: assume Docker Desktop should be installed manually
@@ -340,7 +524,7 @@ install_docker() {
             echo "Make sure to enable WSL 2 integration if you plan to use WSL 2 as well."
             exit 1
         fi
-        
+
         # Skip Docker installation for WSL2 (should use Docker Desktop)
         if [ "$ENVIRONMENT" = "wsl2" ]; then
             echo "Detected WSL2 environment. Please install Docker Desktop for Windows."
@@ -348,9 +532,9 @@ install_docker() {
             echo "Make sure to enable WSL 2 integration in Docker Desktop settings."
             exit 1
         fi
-        
+
         check_wsl2_docker
-        echo "Docker not found. Installing Docker..."
+        echo "Installing Docker..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             case $ID in
@@ -363,6 +547,8 @@ install_docker() {
                     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
                     sudo apt-get update
                     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                    sudo systemctl start docker
+                    sudo systemctl enable docker
                     ;;
                 fedora)
                     sudo dnf -y install dnf-plugins-core
@@ -372,7 +558,9 @@ install_docker() {
                     sudo systemctl enable docker
                     ;;
                 *)
-                    echo "Unsupported distribution for automatic Docker installation. Please install Docker manually."
+                    echo "Unsupported distribution for automatic Docker installation."
+                    echo "Only Ubuntu/Debian/Fedora are supported for automatic installation."
+                    echo "Please install Docker manually from https://docs.docker.com/engine/install/"
                     exit 1
                     ;;
             esac
@@ -382,31 +570,76 @@ install_docker() {
         fi
     fi
 
-    # Skip Docker Compose plugin installation for Git Bash (assume Docker Desktop includes it)
-    if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
-        echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
-        sudo apt-get update
-        sudo apt-get install -y docker-compose-plugin
-    fi
+    # Docker Compose plugin is included in docker-ce installation above for Ubuntu/Debian/Fedora
+    # No additional installation needed - it's part of docker-compose-plugin package
 }
 
 # default docker command
 DOCKER_CMD="docker"
 
 # Only check docker sudo if we need docker (i.e., not CLI-only installation)
-if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; then
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ]; then
     NEED_SUDO="false"
 else
-    # Install docker if not present, if we're going to
-    install_docker
+    # Docker is needed - check if it's installed
+    if ! command -v docker &> /dev/null; then
+        # For non-Linux platforms, exit with instructions
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            echo "Docker not found. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            exit 1
+        elif [ "$ENVIRONMENT" = "wsl2" ]; then
+            echo "Docker not found. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            echo "Make sure to enable WSL 2 integration in Docker Desktop settings."
+            exit 1
+        elif [ "$OS" != "linux" ]; then
+            echo "Docker not found. Please install Docker manually."
+            echo "Visit https://docs.docker.com/engine/install/ for installation instructions."
+            exit 1
+        fi
+        # For Linux, check if it's Ubuntu/Debian/Fedora before proceeding
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            if [[ "$ID" != "ubuntu" && "$ID" != "debian" && "$ID" != "fedora" ]]; then
+                echo "Docker not found."
+                echo "Automatic Docker installation is only supported on Ubuntu/Debian/Fedora."
+                echo "Please install Docker manually from https://docs.docker.com/engine/install/"
+                exit 1
+            fi
+        fi
+    fi
+
     # Determine if we need sudo for docker commands (Git Bash never needs sudo)
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         NEED_SUDO="false"
         DOCKER_CMD="docker"
     else
-        NEED_SUDO=$(check_docker_sudo)
-        if [ "$NEED_SUDO" = "true" ]; then
-            DOCKER_CMD="sudo docker"
+        # If Docker is not installed, check if we can auto-install it
+        if ! command -v docker &> /dev/null; then
+            # For Ubuntu/Debian/Fedora, we can auto-install Docker - skip sudo check for now
+            if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
+                . /etc/os-release
+                if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
+                    echo "Docker not installed. Will offer to install Docker during setup."
+                    # Will check sudo requirement after Docker is installed
+                    NEED_SUDO="false"
+                    DOCKER_CMD="docker"
+                else
+                    # Non-Ubuntu/Debian/Fedora Linux - already handled above
+                    NEED_SUDO="false"
+                    DOCKER_CMD="docker"
+                fi
+            else
+                NEED_SUDO="false"
+                DOCKER_CMD="docker"
+            fi
+        else
+            # Docker is installed - check if we need sudo
+            NEED_SUDO=$(check_docker_sudo)
+            if [ "$NEED_SUDO" = "true" ]; then
+                DOCKER_CMD="sudo docker"
+            fi
         fi
     fi
 fi
@@ -425,10 +658,143 @@ fi
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
+    fi
+}
+
+# Function to check for Intel/AMD GPU (for Helix Code)
+check_intel_amd_gpu() {
+    # Check for /dev/dri devices, but only if NVIDIA is NOT present
+    # (NVIDIA also creates /dev/dri, so we check NVIDIA first in the calling code)
+    if [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to check if NVIDIA Docker runtime needs installation
+check_nvidia_runtime_needed() {
+    # Only relevant if we have an NVIDIA GPU
+    if ! check_nvidia_gpu; then
+        return 1  # No NVIDIA GPU, so no NVIDIA runtime needed
+    fi
+
+    # Check if NVIDIA runtime is already configured in Docker
+    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+        return 1  # Already configured
+    fi
+
+    # Check if nvidia-container-toolkit command exists
+    if command -v nvidia-container-toolkit &> /dev/null; then
+        return 1  # Already installed
+    fi
+
+    return 0  # NVIDIA GPU present but runtime not installed
+}
+
+# Function to install NVIDIA Docker runtime
+install_nvidia_docker() {
+    if ! check_nvidia_gpu; then
+        echo "NVIDIA GPU not detected. Skipping NVIDIA Docker runtime installation."
+        return
+    fi
+
+    # Git Bash: assume Docker Desktop handles NVIDIA support
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+            echo "NVIDIA Docker runtime not detected in Docker Desktop."
+            echo "Please ensure:"
+            echo "1. NVIDIA drivers are installed on Windows"
+            echo "2. Docker Desktop is configured with WSL 2 backend"
+            echo "3. GPU support is enabled in Docker Desktop settings"
+            echo ""
+            echo "For more information, see: https://docs.docker.com/desktop/gpu/"
+            exit 1
+        fi
+        return
+    fi
+
+    # Check if NVIDIA runtime needs installation
+    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && echo "true" || echo "false")
+    NVIDIA_CTK_EXISTS=$(command -v nvidia-container-toolkit &> /dev/null && echo "true" || echo "false")
+
+    echo "Checking NVIDIA Docker runtime status..."
+    echo "  - NVIDIA in docker info: $NVIDIA_IN_DOCKER"
+    echo "  - nvidia-container-toolkit installed: $NVIDIA_CTK_EXISTS"
+
+    if [ "$NVIDIA_IN_DOCKER" = "false" ] || [ "$NVIDIA_CTK_EXISTS" = "false" ]; then
+        # Skip NVIDIA Docker installation for WSL2 (should use Docker Desktop)
+        if [ "$ENVIRONMENT" = "wsl2" ]; then
+            echo "WSL2 detected. Please ensure NVIDIA Docker support is enabled in Docker Desktop."
+            echo "See: https://docs.docker.com/desktop/gpu/"
+            return
+        fi
+
+        check_wsl2_docker
+        echo "NVIDIA Docker runtime not found or incomplete. Installing NVIDIA Docker runtime..."
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case $ID in
+                ubuntu|debian)
+                    # Use nvidia-container-toolkit (modern method)
+                    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+                    sudo apt-get update
+                    sudo apt-get install -y nvidia-container-toolkit
+                    sudo nvidia-ctk runtime configure --runtime=docker
+                    echo "Restarting Docker to load NVIDIA runtime..."
+                    sudo systemctl restart docker
+                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
+                    echo "Waiting for Docker to restart..."
+                    sleep 5
+                    for i in {1..12}; do
+                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+                            echo "NVIDIA runtime successfully configured in Docker."
+                            break
+                        fi
+                        if [ $i -eq 12 ]; then
+                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
+                        fi
+                        sleep 5
+                    done
+                    ;;
+                fedora)
+                    # Use nvidia-container-toolkit for Fedora
+                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
+                        sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+                    sudo dnf install -y nvidia-container-toolkit
+                    sudo nvidia-ctk runtime configure --runtime=docker
+                    echo "Restarting Docker to load NVIDIA runtime..."
+                    sudo systemctl restart docker
+                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
+                    echo "Waiting for Docker to restart..."
+                    sleep 5
+                    for i in {1..12}; do
+                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+                            echo "NVIDIA runtime successfully configured in Docker."
+                            break
+                        fi
+                        if [ $i -eq 12 ]; then
+                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
+                        fi
+                        sleep 5
+                    done
+                    ;;
+                *)
+                    echo "Unsupported distribution for automatic NVIDIA Docker runtime installation. Please install NVIDIA Docker runtime manually."
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "Unable to determine OS distribution. Please install NVIDIA Docker runtime manually."
+            exit 1
+        fi
     fi
 }
 
@@ -500,6 +866,86 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; th
     exit 1
 fi
 
+if [ "$EXTERNAL_ZED_AGENT" = true ] && [ -z "$API_HOST" ]; then
+    echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
+    echo "to connect to an external controlplane, for example:"
+    echo
+    echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+    echo
+    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+    exit 1
+fi
+
+# Validate GPU requirements for --runner flag
+if [ "$RUNNER" = true ]; then
+    if ! check_nvidia_gpu; then
+        echo "┌───────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --runner requires NVIDIA GPU"
+        echo "│"
+        echo "│ No NVIDIA GPU detected. Helix Runner requires an NVIDIA GPU."
+        echo "│"
+        echo "│ If you have an NVIDIA GPU:"
+        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
+        echo "│      sudo ubuntu-drivers install"
+        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│"
+        echo "│   2. Reboot your system:"
+        echo "│      sudo reboot"
+        echo "│"
+        echo "│   3. Verify drivers are loaded:"
+        echo "│      nvidia-smi"
+        echo "│"
+        echo "│   4. Re-run this installer - it will automatically install Docker and"
+        echo "│      the NVIDIA Docker runtime for you."
+        echo "└───────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+    echo "NVIDIA GPU detected. Runner requirements satisfied."
+    if check_nvidia_runtime_needed; then
+        echo "Note: NVIDIA Docker runtime will be installed automatically."
+    fi
+fi
+
+# Validate GPU requirements for --code flag
+if [ "$CODE" = true ]; then
+    # Check NVIDIA first (most specific detection via nvidia-smi)
+    if check_nvidia_gpu; then
+        echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
+
+        if check_nvidia_runtime_needed; then
+            echo "Note: NVIDIA Docker runtime will be installed automatically."
+        fi
+    elif check_intel_amd_gpu; then
+        # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
+        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+    else
+        # No GPU detected
+        echo "┌───────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --code requires GPU support for desktop streaming"
+        echo "│"
+        echo "│ No compatible GPU detected. Helix Code requires a GPU with drivers installed."
+        echo "│"
+        echo "│ If you have an NVIDIA GPU:"
+        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
+        echo "│      sudo ubuntu-drivers install"
+        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│"
+        echo "│   2. Reboot your system:"
+        echo "│      sudo reboot"
+        echo "│"
+        echo "│   3. Verify drivers are loaded:"
+        echo "│      nvidia-smi"
+        echo "│"
+        echo "│   4. Re-run this installer - it will automatically install Docker and"
+        echo "│      the NVIDIA Docker runtime for you."
+        echo "│"
+        echo "│ For Intel/AMD GPUs, ensure /dev/dri devices exist (drivers usually included"
+        echo "│ in the kernel)."
+        echo "└───────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+fi
+
 # Function to gather planned modifications
 gather_modifications() {
     local modifications=""
@@ -508,17 +954,40 @@ gather_modifications() {
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
 
-    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+    # Check if Docker needs to be installed
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+        if check_docker_needed; then
+            # Only add Docker installation for Ubuntu/Debian/Fedora on Linux
+            if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
+                . /etc/os-release
+                if [[ "$ID" == "ubuntu" || "$ID" == "debian" || "$ID" == "fedora" ]]; then
+                    modifications+="  - Install Docker and Docker Compose plugin (Ubuntu/Debian/Fedora)\n"
+                fi
+            fi
+        fi
     fi
 
     if [ "$CONTROLPLANE" = true ]; then
-        modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
+        modifications+="  - Set up Docker Compose stack for Helix Control Plane ${LATEST_RELEASE}\n"
     fi
 
     if [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
-        modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
+        if check_nvidia_runtime_needed; then
+            modifications+="  - Install NVIDIA Docker runtime\n"
+        fi
+        modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
+    fi
+
+    # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
+    if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
+        if check_nvidia_runtime_needed; then
+            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
+        fi
+    fi
+
+    if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+        modifications+="  - Build Zed agent Docker image\n"
+        modifications+="  - Install External Zed Agent runner script\n"
     fi
 
     echo -e "$modifications"
@@ -554,6 +1023,30 @@ ask_for_approval() {
 
 # Ask for user approval before proceeding
 ask_for_approval
+
+# Install Docker if needed and approved (only after user approval)
+if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    if check_docker_needed; then
+        install_docker
+
+        # After installing Docker, check if we need sudo to run it
+        if [ "$ENVIRONMENT" != "gitbash" ]; then
+            NEED_SUDO=$(check_docker_sudo)
+            if [ "$NEED_SUDO" = "true" ]; then
+                DOCKER_CMD="sudo docker"
+            else
+                DOCKER_CMD="docker"
+            fi
+        fi
+    fi
+fi
+
+# Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
+if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
+    if check_nvidia_runtime_needed; then
+        install_nvidia_docker
+    fi
+fi
 
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
@@ -597,70 +1090,19 @@ generate_password() {
     fi
 }
 
-# Function to install NVIDIA Docker runtime
-install_nvidia_docker() {
-    if ! check_nvidia_gpu; then
-        echo "NVIDIA GPU not detected. Skipping NVIDIA Docker runtime installation."
-        return
-    fi
-
-    # Git Bash: assume Docker Desktop handles NVIDIA support
+# Function to generate random 4-digit PIN for Moonlight pairing
+generate_moonlight_pin() {
     if [ "$ENVIRONMENT" = "gitbash" ]; then
-        if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
-            echo "NVIDIA Docker runtime not detected in Docker Desktop."
-            echo "Please ensure:"
-            echo "1. NVIDIA drivers are installed on Windows"
-            echo "2. Docker Desktop is configured with WSL 2 backend"
-            echo "3. GPU support is enabled in Docker Desktop settings"
-            echo ""
-            echo "For more information, see: https://docs.docker.com/desktop/gpu/"
-            exit 1
-        fi
-        return
-    fi
-
-    if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
-        # Skip NVIDIA Docker installation for WSL2 (should use Docker Desktop)
-        if [ "$ENVIRONMENT" = "wsl2" ]; then
-            echo "WSL2 detected. Please ensure NVIDIA Docker support is enabled in Docker Desktop."
-            echo "See: https://docs.docker.com/desktop/gpu/"
-            return
-        fi
-        
-        check_wsl2_docker
-        echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            case $ID in
-                ubuntu|debian)
-                    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-                    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-                    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-                    sudo apt-get update
-                    sudo apt-get install -y nvidia-docker2
-                    sudo systemctl restart docker
-                    ;;
-                fedora)
-                    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-                    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.repo | sudo tee /etc/yum.repos.d/nvidia-docker.repo
-                    sudo dnf install -y nvidia-docker2
-                    sudo systemctl restart docker
-                    ;;
-                *)
-                    echo "Unsupported distribution for automatic NVIDIA Docker runtime installation. Please install NVIDIA Docker runtime manually."
-                    exit 1
-                    ;;
-            esac
-        else
-            echo "Unable to determine OS distribution. Please install NVIDIA Docker runtime manually."
-            exit 1
-        fi
+        # Generate random 4-digit number on Git Bash
+        echo $((RANDOM % 9000 + 1000))
+    else
+        # Use /dev/urandom for better randomness on Linux/macOS
+        echo $(($(od -An -N2 -i /dev/urandom) % 9000 + 1000))
     fi
 }
 
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
-    install_docker
     echo -e "\nDownloading docker-compose.yaml..."
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
@@ -746,6 +1188,11 @@ EOF
         RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
         PGVECTOR_PASSWORD=$(grep '^PGVECTOR_PASSWORD=' "$ENV_FILE" | sed 's/^PGVECTOR_PASSWORD=//' || generate_password)
 
+        # Preserve API keys if not provided as command line arguments
+        if [ -z "$ANTHROPIC_API_KEY" ]; then
+            ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | sed 's/^ANTHROPIC_API_KEY=//' || echo "")
+        fi
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
@@ -761,6 +1208,9 @@ EOF
     fi
     if [[ -n "$KODIT" ]]; then
         COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
+    fi
+    if [[ -n "$CODE" ]]; then
+        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
     fi
 
     # Set RAG provider
@@ -895,6 +1345,440 @@ INFERENCE_PROVIDER=helix
 EOF
     fi
 
+    # Add Helix Code configuration if --code flag is set
+    if [[ -n "$CODE" ]]; then
+        # Generate TURN password, moonlight credentials, and pairing PIN
+        TURN_PASSWORD=$(generate_password)
+        MOONLIGHT_CREDENTIALS=$(generate_password)
+        MOONLIGHT_PIN=$(generate_moonlight_pin)
+
+        # Extract hostname from API_HOST for TURN server
+        TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+
+        cat << EOF >> "$ENV_FILE"
+
+## Helix Code Configuration (External Agents / PDEs)
+# Wolf streaming platform
+WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
+HELIX_HOST_HOME=${INSTALL_DIR}
+
+# Moonlight Web credentials (secure random, shared between API and moonlight-web)
+MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
+
+# TURN server for WebRTC NAT traversal
+TURN_ENABLED=true
+TURN_PUBLIC_IP=${TURN_HOST}
+TURN_PORT=3478
+TURN_REALM=${TURN_HOST}
+TURN_USERNAME=helix
+TURN_PASSWORD=${TURN_PASSWORD}
+
+# Moonlight Web pairing (internal, secure random)
+MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
+EOF
+
+        # Generate moonlight-web config from template
+        echo "Generating Moonlight Web configuration..."
+        mkdir -p "$INSTALL_DIR/moonlight-web-config"
+
+        cat << EOF > "$INSTALL_DIR/moonlight-web-config/config.json"
+{
+  "bind_address": "0.0.0.0:8080",
+  "credentials": "${MOONLIGHT_CREDENTIALS}",
+  "webrtc_ice_servers": [
+    {
+      "urls": [
+        "stun:l.google.com:19302",
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
+      ]
+    },
+    {
+      "urls": [
+        "turn:${TURN_HOST}:3478?transport=udp"
+      ],
+      "username": "helix",
+      "credential": "${TURN_PASSWORD}"
+    }
+  ],
+  "webrtc_port_range": {
+    "min": 40000,
+    "max": 40010
+  },
+  "webrtc_network_types": [
+    "udp4",
+    "udp6"
+  ]
+}
+EOF
+        echo "Moonlight Web config created at $INSTALL_DIR/moonlight-web-config/config.json"
+
+        # Create Wolf directory and configuration
+        mkdir -p "$INSTALL_DIR/wolf"
+
+        # Extract hostname for Wolf display name
+        if [ -n "$API_HOST" ]; then
+            WOLF_HOSTNAME=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+        else
+            WOLF_HOSTNAME="local"
+        fi
+
+        # Create Wolf config.toml (version 6 with GStreamer encoders and dynamic apps support)
+        # Only create if it doesn't exist to preserve user modifications
+        if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
+            echo "Creating Wolf configuration..."
+            WOLF_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "00000000-0000-0000-0000-$(date +%s)")
+            cat << WOLFCONFIG > "$INSTALL_DIR/wolf/config.toml"
+apps = []
+config_version = 6
+hostname = 'Helix ($WOLF_HOSTNAME)'
+uuid = '$WOLF_UUID'
+paired_clients = []
+
+[gstreamer.audio]
+default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
+default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
+default_sink = '''rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
+appsink name=wolf_udp_sink'''
+default_source = 'interpipesrc name=interpipesrc_{}_audio listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false'
+
+[gstreamer.video]
+default_sink = '''rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
+appsink sync=false name=wolf_udp_sink
+'''
+default_source = 'interpipesrc name=interpipesrc_{}_video listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream'
+
+    [gstreamer.video.defaults.nvcodec]
+    video_params = '''cudaupload !
+cudaconvertscale add-borders=true !
+video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''cudaupload !
+cudaconvertscale add-borders=true !
+video/x-raw(memory:CUDAMemory),format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1
+'''
+
+    [gstreamer.video.defaults.qsv]
+    video_params = '''videoconvertscale !
+video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
+colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''vapostproc add-borders=true !
+video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
+
+    [gstreamer.video.defaults.va]
+    video_params = '''vapostproc add-borders=true !
+video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12,
+colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+    video_params_zero_copy = '''vapostproc add-borders=true !
+video/x-raw(memory:VAMemory), format=NV12, width={width}, height={height}, pixel-aspect-ratio=1/1'''
+
+    [[gstreamer.video.av1_encoders]]
+    check_elements = [ 'nvav1enc', 'cudaconvertscale', 'cudaupload' ]
+    encoder_pipeline = '''nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+av1parse !
+video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+    plugin_name = 'nvcodec'
+
+    [[gstreamer.video.av1_encoders]]
+    check_elements = [ 'qsvav1enc', 'vapostproc' ]
+    encoder_pipeline = '''qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+av1parse !
+video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+    plugin_name = 'qsv'
+
+    [[gstreamer.video.av1_encoders]]
+    check_elements = [ 'vaav1enc', 'vapostproc' ]
+    encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+av1parse !
+video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.av1_encoders]]
+    check_elements = [ 'vaav1lpenc', 'vapostproc' ]
+    encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+av1parse !
+video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.av1_encoders]]
+    check_elements = [ 'av1enc' ]
+    encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
+av1parse !
+video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+    plugin_name = 'aom'
+    video_params = '''videoconvertscale !
+videorate !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+chroma-site={color_range}, colorimetry={color_space}'''
+    video_params_zero_copy = '''videoconvertscale !
+videorate !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+chroma-site={color_range}, colorimetry={color_space}'''
+
+    [[gstreamer.video.h264_encoders]]
+    check_elements = [ 'nvh264enc', 'cudaconvertscale', 'cudaupload' ]
+    encoder_pipeline = '''nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
+h264parse !
+video/x-h264, profile=main, stream-format=byte-stream'''
+    plugin_name = 'nvcodec'
+
+    [[gstreamer.video.h264_encoders]]
+    check_elements = [ 'qsvh264enc', 'vapostproc' ]
+    encoder_pipeline = '''qsvh264enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6  !
+h264parse !
+video/x-h264, profile=main, stream-format=byte-stream'''
+    plugin_name = 'qsv'
+
+    [[gstreamer.video.h264_encoders]]
+    check_elements = [ 'vah264enc', 'vapostproc' ]
+    encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+h264parse !
+video/x-h264, profile=main, stream-format=byte-stream'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.h264_encoders]]
+    check_elements = [ 'vah264lpenc', 'vapostproc' ]
+    encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+h264parse !
+video/x-h264, profile=main, stream-format=byte-stream'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.h264_encoders]]
+    check_elements = [ 'x264enc' ]
+    encoder_pipeline = '''x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1
+sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0"
+b-adapt=false bitrate={bitrate} aud=false !
+video/x-h264, profile=high, stream-format=byte-stream'''
+    plugin_name = 'x264'
+
+    [[gstreamer.video.hevc_encoders]]
+    check_elements = [ 'nvh265enc', 'cudaconvertscale', 'cudaupload' ]
+    encoder_pipeline = '''nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+h265parse !
+video/x-h265, profile=main, stream-format=byte-stream'''
+    plugin_name = 'nvcodec'
+
+    [[gstreamer.video.hevc_encoders]]
+    check_elements = [ 'qsvh265enc', 'vapostproc' ]
+    encoder_pipeline = '''qsvh265enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+h265parse !
+video/x-h265, profile=main, stream-format=byte-stream'''
+    plugin_name = 'qsv'
+
+    [[gstreamer.video.hevc_encoders]]
+    check_elements = [ 'vah265enc', 'vapostproc' ]
+    encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+h265parse !
+video/x-h265, profile=main, stream-format=byte-stream'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.hevc_encoders]]
+    check_elements = [ 'vah265lpenc', 'vapostproc' ]
+    encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+h265parse !
+video/x-h265, profile=main, stream-format=byte-stream'''
+    plugin_name = 'va'
+
+    [[gstreamer.video.hevc_encoders]]
+    check_elements = [ 'x265enc' ]
+    encoder_pipeline = '''x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate}
+option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
+video/x-h265, profile=main, stream-format=byte-stream'''
+    plugin_name = 'x265'
+    video_params = '''videoconvertscale !
+videorate !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+chroma-site={color_range}, colorimetry={color_space}'''
+    video_params_zero_copy = '''videoconvertscale !
+videorate !
+video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+chroma-site={color_range}, colorimetry={color_space}'''
+WOLFCONFIG
+            echo "Wolf config created at $INSTALL_DIR/wolf/config.toml"
+        else
+            echo "Wolf config already exists at $INSTALL_DIR/wolf/config.toml (preserving existing)"
+        fi
+
+        # Generate self-signed certificates for Wolf HTTPS only if they don't exist
+        # IMPORTANT: Must use RSA 2048-bit for Moonlight protocol compatibility
+        # CRITICAL: Include SANs for both "localhost" AND "wolf" (Docker hostname)
+        # This allows moonlight-web to connect via "wolf" hostname without cert validation errors
+        if [ ! -f "$INSTALL_DIR/wolf/cert.pem" ] || [ ! -f "$INSTALL_DIR/wolf/key.pem" ]; then
+            echo "Generating Wolf SSL certificates..."
+            # Create temp config for SAN (Subject Alternative Names)
+            cat > /tmp/wolf-cert-san.conf <<EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = IT
+O = GamesOnWhales
+CN = localhost
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = wolf
+EOF
+            openssl req -x509 -newkey rsa:2048 -keyout "$INSTALL_DIR/wolf/key.pem" -out "$INSTALL_DIR/wolf/cert.pem" \
+                -days 365 -nodes -config /tmp/wolf-cert-san.conf -extensions v3_req 2>/dev/null
+            rm -f /tmp/wolf-cert-san.conf
+            echo "Wolf SSL certificates created at $INSTALL_DIR/wolf/ (with SANs: localhost, wolf)"
+        else
+            echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
+        fi
+
+        # Create initial moonlight-web data.json with Wolf host pre-registered
+        # This allows moonlight-web's per-session pairing to work (needs host_id 0 to exist)
+        echo "Creating moonlight-web data.json with Wolf host..."
+        cat << 'MOONLIGHTDATA' > "$INSTALL_DIR/moonlight-web-config/data.json"
+{
+  "hosts": [
+    {
+      "address": "wolf",
+      "http_port": 47989,
+      "unique_id": null,
+      "cache": {
+        "name": "Helix",
+        "mac": "00:11:22:33:44:55"
+      }
+    }
+  ]
+}
+MOONLIGHTDATA
+        echo "Moonlight-web data.json created at $INSTALL_DIR/moonlight-web-config/data.json"
+
+        # Create init script for moonlight-web
+        cat << 'MOONLIGHTINIT' > "$INSTALL_DIR/moonlight-web-config/init-moonlight-config.sh"
+#!/bin/bash
+
+# Initialize moonlight-web data.json and config.json from templates
+
+DATA_FILE="/app/server/data.json"
+DATA_TEMPLATE="/app/server/data.json.template"
+CONFIG_FILE="/app/server/config.json"
+CONFIG_TEMPLATE="/app/server/config.json.template"
+
+# Initialize data.json if it doesn't exist or is empty
+if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
+    echo "🔧 Initializing moonlight-web data.json from template..."
+    cp "$DATA_TEMPLATE" "$DATA_FILE"
+    echo "✅ moonlight-web data.json initialized"
+else
+    echo "ℹ️  moonlight-web data.json already exists, skipping initialization"
+fi
+
+# Initialize config.json with dynamic TURN server IP
+if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
+    echo "🔧 Initializing moonlight-web config.json from template..."
+
+    # Auto-detect public IP if TURN_PUBLIC_IP not set
+    if [ -z "$TURN_PUBLIC_IP" ]; then
+        echo "⏳ Auto-detecting public IP for TURN server..."
+        TURN_PUBLIC_IP=$(curl -s --max-time 2 https://api.ipify.org 2>/dev/null || echo "")
+
+        if [ -z "$TURN_PUBLIC_IP" ]; then
+            echo "❌ Could not auto-detect public IP. Please set TURN_PUBLIC_IP environment variable."
+            exit 1
+        fi
+
+        echo "✅ Auto-detected public IP: $TURN_PUBLIC_IP"
+    else
+        echo "✅ Using configured TURN_PUBLIC_IP: $TURN_PUBLIC_IP"
+    fi
+
+    # Substitute {{TURN_PUBLIC_IP}} in template
+    sed "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
+    echo "✅ moonlight-web config.json initialized with TURN server at $TURN_PUBLIC_IP"
+else
+    echo "ℹ️  moonlight-web config.json already exists, skipping initialization"
+fi
+
+# Start the web server in background
+echo "🚀 Starting moonlight-web server..."
+/app/web-server &
+WEB_SERVER_PID=$!
+
+# Wait for web server to be ready (poll until it responds)
+echo "⏳ Waiting for moonlight-web server to be ready..."
+for i in {1..30}; do
+    # Check if port 8080 is accepting connections (using bash built-in /dev/tcp)
+    if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8080' 2>/dev/null; then
+        echo "✅ moonlight-web server is ready"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "❌ moonlight-web server failed to start within 30 seconds"
+        exit 1
+    fi
+    sleep 1
+done
+
+# Auto-pair with Wolf if MOONLIGHT_INTERNAL_PAIRING_PIN is set and not already paired
+if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
+    # Check if data.json has a "paired" section
+    if ! grep -q '"paired"' "$DATA_FILE"; then
+        echo "🔗 Auto-pairing moonlight-web with Wolf (MOONLIGHT_INTERNAL_PAIRING_PIN is set)..."
+
+        # Wait for Wolf to be ready (check if port 47989 is accepting connections)
+        echo "⏳ Waiting for Wolf to be ready..."
+        for i in {1..60}; do
+            if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/wolf/47989' 2>/dev/null; then
+                echo "✅ Wolf port is responding"
+                # Wait additional 5 seconds for HTTPS endpoint to fully initialize
+                # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
+                echo "⏳ Waiting 5s for Wolf HTTPS endpoint to initialize..."
+                sleep 5
+                echo "✅ Wolf is ready for pairing"
+                break
+            fi
+            if [ $i -eq 60 ]; then
+                echo "❌ Wolf failed to start within 60 seconds, skipping auto-pair"
+                exit 0  # Don't fail the container, just skip pairing
+            fi
+            sleep 1
+        done
+
+        # Trigger pairing via internal API (Wolf will auto-accept with PIN)
+        # Use bash /dev/tcp since curl is not available in container
+        exec 3<>/dev/tcp/localhost/8080
+        {
+            echo -ne "POST /api/pair HTTP/1.1\r\n"
+            echo -ne "Host: localhost:8080\r\n"
+            echo -ne "Content-Type: application/json\r\n"
+            echo -ne "Authorization: Bearer ${MOONLIGHT_CREDENTIALS:-helix}\r\n"
+            echo -ne "Content-Length: 13\r\n"
+            echo -ne "\r\n"
+            echo -ne '{"host_id":0}'
+        } >&3
+        cat <&3 > /tmp/pair-response.log
+        exec 3<&-
+        exec 3>&-
+
+        if grep -q '"Paired"' /tmp/pair-response.log; then
+            echo "✅ Auto-pairing with Wolf completed successfully"
+        else
+            echo "⚠️  Auto-pairing may have failed, check logs: cat /tmp/pair-response.log"
+        fi
+    else
+        echo "ℹ️  moonlight-web already paired with Wolf, skipping auto-pair"
+    fi
+fi
+
+# Wait for web server process to keep container running
+wait $WEB_SERVER_PID
+MOONLIGHTINIT
+        chmod +x "$INSTALL_DIR/moonlight-web-config/init-moonlight-config.sh"
+        echo "Moonlight-web init script created at $INSTALL_DIR/moonlight-web-config/init-moonlight-config.sh"
+    fi
+
     # Continue with the rest of the .env file
     cat << EOF >> "$ENV_FILE"
 
@@ -989,6 +1873,19 @@ EOF"
         echo "│   - Create an A record for $(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||') pointing to your server's IP address"
     fi
     echo "│"
+    echo "│ ⚠️  Ensure the following firewall ports are open:"
+    if [[ "$API_HOST" == https* ]]; then
+        echo "│   - TCP 443: HTTPS (Caddy reverse proxy)"
+    else
+        echo "│   - TCP 8080: Main API"
+    fi
+    if [[ -n "$CODE" ]]; then
+        echo "│"
+        echo "│ ⚠️  Additional ports for desktop streaming (Helix Code):"
+        echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
+        echo "│   - UDP 40000-40010: WebRTC media ports"
+    fi
+    echo "│"
     echo "│ Start the Helix services by running:"
     echo "│"
     echo "│ cd $INSTALL_DIR"
@@ -1008,16 +1905,7 @@ fi
 
 # Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
-    install_docker
     install_nvidia_docker
-    # Check for NVIDIA GPU
-    if ! check_nvidia_gpu; then
-        echo "NVIDIA GPU not detected. Skipping runner installation."
-        echo "Set up a runner separately, per https://docs.helixml.tech/helix/private-deployment/controlplane/#attaching-a-runner"
-        exit 1
-    fi
-
-
 
     # Determine runner tag
     if [ "$LARGE" = true ]; then
@@ -1093,6 +1981,70 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
+# Install external Zed agent if requested
+if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    # Set default runner ID if not provided
+    if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
+        EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
+    fi
+
+    echo -e "\nInstalling External Zed Agent..."
+
+    # Download the external Zed agent scripts
+    echo "Downloading external Zed agent scripts..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
+        chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
+        sudo chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
+        # Change ownership to current user
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/run-external-zed-agent.sh"
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/external-zed-agent.env.example"
+        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/Dockerfile.zed-agent"
+    fi
+
+    # Create environment file with user settings
+    ENV_FILE="$INSTALL_DIR/external-zed-agent.env"
+    cat << EOF > "$ENV_FILE"
+# External Zed Agent Configuration
+API_HOST=$API_HOST
+API_TOKEN=$RUNNER_TOKEN
+RUNNER_ID=$EXTERNAL_ZED_RUNNER_ID
+CONCURRENCY=$EXTERNAL_ZED_CONCURRENCY
+MAX_TASKS=0
+SESSION_TIMEOUT=3600
+WORKSPACE_DIR=/tmp/zed-workspaces
+DISPLAY_NUM=1
+LOG_LEVEL=info
+DOCKER_IMAGE=helix-zed-agent:latest
+CONTAINER_NAME=helix-external-zed-agent
+EOF
+
+    echo "External Zed Agent has been installed to $INSTALL_DIR"
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ To complete the External Zed Agent setup:"
+    echo "│"
+    echo "│ 1. Build the Zed agent Docker image:"
+    echo "│    cd $INSTALL_DIR"
+    echo "│    # First, build Zed with external sync support (requires Helix source)"
+    echo "│    # ./stack build-zed"
+    echo "│    # docker build -f Dockerfile.zed-agent -t helix-zed-agent:latest ."
+    echo "│"
+    echo "│ 2. Start the external Zed agent:"
+    echo "│    source $INSTALL_DIR/external-zed-agent.env"
+    echo "│    $INSTALL_DIR/run-external-zed-agent.sh"
+    echo "│"
+    echo "│ The agent will connect to: $API_HOST"
+    echo "│ Runner ID: $EXTERNAL_ZED_RUNNER_ID"
+    echo "│ Concurrency: $EXTERNAL_ZED_CONCURRENCY"
+    echo "└───────────────────────────────────────────────────────────────────────────"
+fi
+
 if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
@@ -1100,6 +2052,9 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo "curl -Ls -O https://get.helixml.tech/install.sh"
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo
+    echo "To connect an external Zed agent to this controlplane:"
+    echo "./install.sh --external-zed-agent --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."

@@ -13,12 +13,13 @@ export const GET_SESSION_QUERY_KEY = (id: string) => [
   id
 ];
 
-export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string) => [
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string, questionSetExecutionId?: string) => [
   "sessions",
   orgId,
   page,
   pageSize,
-  search
+  search,
+  questionSetExecutionId
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -45,15 +46,16 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean }
   })
 }
 
-export function useListSessions(orgId?: string, search?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }) {
+export function useListSessions(orgId?: string, search?: string, questionSetExecutionId?: string, page?: number, pageSize?: number, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? '', questionSetExecutionId ?? ''),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
+      question_set_execution_id: questionSetExecutionId,
       page: page,
       page_size: pageSize,
     }),

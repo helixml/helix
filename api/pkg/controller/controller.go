@@ -10,9 +10,9 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -28,16 +28,16 @@ import (
 )
 
 type Options struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	ProviderManager   manager.ProviderManager // OpenAI client provider
+	Config                *config.ServerConfig
+	Store                 store.Store
+	PubSub                pubsub.PubSub
+	Extractor             extract.Extractor
+	RAG                   rag.RAG
+	ExternalAgentExecutor external_agent.Executor // Interface for external agents
+	Filestore             filestore.FileStore
+	Janitor               *janitor.Janitor
+	Notifier              notification.Notifier
+	ProviderManager       manager.ProviderManager // OpenAI client provider
 	// DataprepOpenAIClient openai.Client
 	Scheduler        *scheduler.Scheduler
 	RunnerController *scheduler.RunnerController
@@ -148,7 +148,7 @@ func NewController(
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, toolsOpenAIClient)
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, toolsOpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}

@@ -1,0 +1,32 @@
+{
+  "bind_address": "0.0.0.0:8080",
+  "credentials": "{{MOONLIGHT_CREDENTIALS}}",
+  "webrtc_ice_servers": [
+    {
+      "urls": [
+        "stun:l.google.com:19302",
+        "stun:stun.l.google.com:19302",
+        "stun:stun1.l.google.com:19302",
+        "stun:stun2.l.google.com:19302",
+        "stun:stun3.l.google.com:19302",
+        "stun:stun4.l.google.com:19302"
+      ]
+    },
+    {
+      "urls": [
+        "turn:{{TURN_PUBLIC_IP}}:3478?transport=udp",
+        "turn:{{TURN_PUBLIC_IP}}:3478?transport=tcp"
+      ],
+      "username": "helix",
+      "credential": "{{TURN_PASSWORD}}"
+    }
+  ],
+  "webrtc_port_range": {
+    "min": 40000,
+    "max": 40010
+  },
+  "webrtc_network_types": [
+    "udp4",
+    "udp6"
+  ]
+}

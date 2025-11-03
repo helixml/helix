@@ -1,0 +1,1 @@
+All resources are taken from the [official moonlight-qt repository](https://github.com/moonlight-stream/moonlight-qt/tree/master/app/res) and were not modified.

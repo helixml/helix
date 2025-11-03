@@ -46,6 +46,10 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     flatState.image = app.config.helix.image
     flatState.triggers = app.config.helix.triggers || []
     
+    // Extract app-level agent configuration
+    flatState.default_agent_type = app.config.helix.default_agent_type
+    flatState.external_agent_config = app.config.helix.external_agent_config
+    
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
     
@@ -96,6 +100,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
   
   return flatState
 }
+
+
 
 
 /**
@@ -171,8 +177,8 @@ export const validateApp = (app: IApp): string[] => {
     errors.push('At least one assistant is required')
   } else {
     const assistant = app.config.helix.assistants[0]
-    if (!assistant.model) {
-      errors.push('Assistant model is required')
+    if (!assistant.model || assistant.model.trim() === '') {
+      errors.push('Please select a model for the assistant')
     }
   }
 

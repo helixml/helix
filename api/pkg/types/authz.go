@@ -131,6 +131,9 @@ type User struct {
 	Email    string    `json:"email"`
 	Username string    `json:"username"`
 	FullName string    `json:"full_name"`
+
+	SB          bool `json:"sb"`
+	Deactivated bool `json:"deactivated"`
 }
 
 type UserSearchResponse struct {
@@ -183,6 +186,7 @@ type AccessGrantRoleBinding struct {
 // there might not be a record for every user
 type UserMeta struct {
 	ID     string     `json:"id"`
+	Slug   string     `json:"slug" gorm:"uniqueIndex"` // URL-friendly username slug for GitHub-style URLs
 	Config UserConfig `json:"config" gorm:"type:json"`
 }
 

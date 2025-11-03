@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -72,6 +73,8 @@ type Interaction struct {
 
 	Feedback        Feedback `json:"feedback" gorm:"index"`
 	FeedbackMessage string   `json:"feedback_message"`
+
+	QuestionSetID string `json:"question_set_id"` // The question set this session belongs to, if any
 }
 
 type FeedbackRequest struct {
@@ -347,6 +350,25 @@ type SessionMetadata struct {
 	SystemPrompt            string              `json:"system_prompt"`
 	HelixVersion            string              `json:"helix_version"`
 	Stream                  bool                `json:"stream"`
+	AgentType               string              `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
+
+	// Multi-session SpecTask context
+	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
+	WorkSessionID           string               `json:"work_session_id,omitempty"`           // ID of associated WorkSession
+	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination"
+	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
+	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
+	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
+	ExternalAgentID         string               `json:"external_agent_id,omitempty"`         // NEW: External agent ID for this session
+	ExternalAgentStatus     string               `json:"external_agent_status,omitempty"`     // NEW: External agent status (running, stopped, terminated_idle)
+	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
+	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
+	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	// Video settings for external agent sessions (Phase 3.5)
+	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
+	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
+	AgentVideoRefreshRate int `json:"agent_video_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -394,20 +416,122 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID          string      `json:"app_id"`          // Assign the session settings from the specified app
-	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
-	AssistantID    string      `json:"assistant_id"`    // Which assistant are we speaking to?
-	SessionID      string      `json:"session_id"`      // If empty, we will start a new session
-	InteractionID  string      `json:"interaction_id"`  // If empty, we will start a new interaction
-	Stream         bool        `json:"stream"`          // If true, we will stream the response
-	Type           SessionType `json:"type"`            // e.g. text, image
-	LoraDir        string      `json:"lora_dir"`
-	SystemPrompt   string      `json:"system"`     // System message, only applicable when starting a new session
-	Messages       []*Message  `json:"messages"`   // Initial messages
-	Tools          []string    `json:"tools"`      // Available tools to use in the session
-	Provider       Provider    `json:"provider"`   // The provider to use
-	Model          string      `json:"model"`      // The model to use
-	Regenerate     bool        `json:"regenerate"` // If true, we will regenerate the response for the last message
+	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
+	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	Type                SessionType          `json:"type"`            // e.g. text, image
+	LoraDir             string               `json:"lora_dir"`
+	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
+	Messages            []*Message           `json:"messages"`                        // Initial messages
+	AgentType           string               `json:"agent_type"`                      // Agent type: "helix" or "zed_external"
+	ExternalAgentConfig *ExternalAgentConfig `json:"external_agent_config,omitempty"` // Configuration for external agents
+	Tools               []string             `json:"tools"`                           // Available tools to use in the session
+	Provider            Provider             `json:"provider"`                        // The provider to use
+	Model               string               `json:"model"`                           // The model to use
+	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
+}
+
+// ExternalAgentConfig holds configuration for external agents like Zed
+type ExternalAgentConfig struct {
+	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
+	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
+	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
+	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
+	// Video settings for streaming (Phase 3.5) - matches PDE display settings
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+}
+
+// Validate checks if the external agent configuration is secure and valid
+func (c *ExternalAgentConfig) Validate() error {
+	// Validate workspace directory
+	if c.WorkspaceDir != "" {
+		if err := validateWorkspacePath(c.WorkspaceDir); err != nil {
+			return fmt.Errorf("invalid workspace directory: %w", err)
+		}
+	}
+
+	// Validate project path
+	if c.ProjectPath != "" {
+		if err := validateProjectPath(c.ProjectPath); err != nil {
+			return fmt.Errorf("invalid project path: %w", err)
+		}
+	}
+
+	// Validate environment variables
+	if len(c.EnvVars) > 0 {
+		if err := validateEnvironmentVariables(c.EnvVars); err != nil {
+			return fmt.Errorf("invalid environment variables: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateWorkspacePath ensures workspace directory is safe
+func validateWorkspacePath(workspaceDir string) error {
+	if len(workspaceDir) > 255 {
+		return errors.New("workspace directory path too long")
+	}
+
+	// Clean the path and check for traversal attempts
+	cleanPath := filepath.Clean(workspaceDir)
+
+	// Disallow absolute paths
+	if filepath.IsAbs(cleanPath) {
+		return errors.New("workspace directory must be relative")
+	}
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return errors.New("workspace directory cannot contain '..' path components")
+	}
+
+	return nil
+}
+
+// validateProjectPath ensures project path is safe
+func validateProjectPath(projectPath string) error {
+	return validateWorkspacePath(projectPath) // Same validation rules
+}
+
+// validateEnvironmentVariables ensures env vars are safe
+func validateEnvironmentVariables(envVars []string) error {
+	if len(envVars) > 50 {
+		return errors.New("too many environment variables (max 50)")
+	}
+
+	allowedEnvVars := map[string]bool{
+		"NODE_ENV":    true,
+		"ENVIRONMENT": true,
+		"DEBUG":       true,
+		"RUST_LOG":    true,
+		"EDITOR":      true,
+		"TERM":        true,
+	}
+
+	for _, envVar := range envVars {
+		if len(envVar) > 1024 {
+			return errors.New("environment variable too long")
+		}
+
+		// Check format
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid environment variable format: %s", envVar)
+		}
+
+		key := strings.ToUpper(parts[0])
+		if !allowedEnvVars[key] {
+			return fmt.Errorf("environment variable not allowed: %s", key)
+		}
+	}
+
+	return nil
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -587,6 +711,9 @@ type Session struct {
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 
+	QuestionSetID          string `json:"question_set_id"` // The question set this session belongs to, if any
+	QuestionSetExecutionID string `json:"question_set_execution_id"`
+
 	Trigger string `json:"trigger"`
 }
 
@@ -709,6 +836,7 @@ type StripeUser struct {
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
+	Slug   string     `json:"slug"` // User slug for GitHub-style URLs
 	Config UserConfig `json:"config"`
 }
 
@@ -870,6 +998,7 @@ type ServerConfigForFrontend struct {
 	DeploymentID                           string               `json:"deployment_id"`
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
+	MoonlightWebMode                       string               `json:"moonlight_web_mode"` // "single" or "multi" - determines streaming architecture
 }
 
 // a short version of a session that we keep for the dashboard
@@ -889,6 +1018,9 @@ type SessionSummary struct {
 	Priority       bool   `json:"priority"`
 	AppID          string `json:"app_id,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
+
+	QuestionSetID          string `json:"question_set_id"`
+	QuestionSetExecutionID string `json:"question_set_execution_id"`
 }
 
 type WorkloadSummary struct {
@@ -1188,7 +1320,6 @@ type ToolType string
 const (
 	ToolTypeAPI         ToolType = "api"
 	ToolTypeBrowser     ToolType = "browser"
-	ToolTypeGPTScript   ToolType = "gptscript"
 	ToolTypeZapier      ToolType = "zapier"
 	ToolTypeCalculator  ToolType = "calculator"
 	ToolTypeEmail       ToolType = "email"
@@ -1209,7 +1340,6 @@ type Tool struct {
 
 type ToolConfig struct {
 	API         *ToolAPIConfig         `json:"api"`
-	GPTScript   *ToolGPTScriptConfig   `json:"gptscript"`
 	Zapier      *ToolZapierConfig      `json:"zapier"`
 	Browser     *ToolBrowserConfig     `json:"browser"`
 	WebSearch   *ToolWebSearchConfig   `json:"web_search"`
@@ -1320,22 +1450,10 @@ type ToolAPIAction struct {
 	Path        string `json:"path" yaml:"path"`
 }
 
-type ToolGPTScriptConfig struct {
-	Script    string `json:"script"`     // Program code
-	ScriptURL string `json:"script_url"` // URL to download the script
-}
-
 type ToolZapierConfig struct {
 	APIKey        string `json:"api_key"`
 	Model         string `json:"model"`
 	MaxIterations int    `json:"max_iterations"`
-}
-
-type AssistantGPTScript struct {
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"` // When to use this tool (required)
-	File        string `json:"file" yaml:"file"`
-	Content     string `json:"content" yaml:"content"`
 }
 
 type AssistantZapier struct {
@@ -1404,9 +1522,11 @@ type AssistantConfig struct {
 	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
 	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
 
-	// AgentMode triggers the use of the agent loop
-	AgentMode     bool `json:"agent_mode" yaml:"agent_mode"`
-	MaxIterations int  `json:"max_iterations" yaml:"max_iterations"`
+	// AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)
+	AgentMode bool `json:"agent_mode" yaml:"agent_mode"`
+	// AgentType specifies the type of agent to use
+	AgentType     AgentType `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
+	MaxIterations int       `json:"max_iterations" yaml:"max_iterations"`
 
 	ReasoningModelProvider string `json:"reasoning_model_provider" yaml:"reasoning_model_provider"`
 	ReasoningModel         string `json:"reasoning_model" yaml:"reasoning_model"`
@@ -1469,10 +1589,10 @@ type AssistantConfig struct {
 	IsActionableTemplate      string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
 	IsActionableHistoryLength int    `json:"is_actionable_history_length,omitempty" yaml:"is_actionable_history_length,omitempty"` // Defaults to 4
 
-	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
-	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
-	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
-	MCPs       []AssistantMCP       `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	APIs []AssistantAPI `json:"apis,omitempty" yaml:"apis,omitempty"`
+
+	Zapier []AssistantZapier `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs   []AssistantMCP    `json:"mcps,omitempty" yaml:"mcps,omitempty"`
 
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
@@ -1530,7 +1650,14 @@ type AppHelixConfig struct {
 	ExternalURL       string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
 	Assistants        []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
 	Triggers          []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+
+	// Agent configuration
+	DefaultAgentType     AgentType            `json:"default_agent_type,omitempty" yaml:"default_agent_type,omitempty"`
+	ExternalAgentEnabled bool                 `json:"external_agent_enabled,omitempty" yaml:"external_agent_enabled,omitempty"`
+	ExternalAgentConfig  *ExternalAgentConfig `json:"external_agent_config,omitempty" yaml:"external_agent_config,omitempty"`
 }
+
+// Helper functions for agent type checking with backward compatibility
 
 type AppHelixConfigMetadata struct {
 	Name string `json:"name" yaml:"name"`
@@ -1609,12 +1736,15 @@ type AzureDevOpsTrigger struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
 
+// AgentWorkQueueTrigger represents a trigger for agent work queue items
+
 type Trigger struct {
-	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
-	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
-	Crisp       *CrispTrigger       `json:"crisp,omitempty" yaml:"crisp,omitempty"`
-	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Discord        *DiscordTrigger        `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack          *SlackTrigger          `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Cron           *CronTrigger           `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Crisp          *CrispTrigger          `json:"crisp,omitempty" yaml:"crisp,omitempty"`
+	AzureDevOps    *AzureDevOpsTrigger    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	AgentWorkQueue *AgentWorkQueueTrigger `json:"agent_work_queue,omitempty" yaml:"agent_work_queue,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
@@ -1685,63 +1815,80 @@ type KeyPair struct {
 }
 
 // the low level "please run me a gptsript" request
-type GptScript struct {
-	// if the script is inline then we use loader.ProgramFromSource
-	Source string `json:"source"`
-	// if we have a file path then we use loader.Program
-	// and gptscript will sort out relative paths
-	// if this script is part of a github app
-	// it will be a relative path inside the repo
-	FilePath string `json:"file_path"`
-	// if the script lives on a URL then we download it
-	URL string `json:"url"`
-	// the program inputs
-	Input string `json:"input"`
-	// this is the env passed into the program
-	Env []string `json:"env"`
-}
 
 // higher level "run a script inside this repo" request
-type GptScriptGithubApp struct {
-	Script     GptScript `json:"script"`
-	Repo       string    `json:"repo"`
-	CommitHash string    `json:"commit"`
-	// we will need this to clone the repo (in the case of private repos)
-	KeyPair KeyPair `json:"key_pair"`
-}
 
 // for an app, run which script with what input?
-type GptScriptRequest struct {
-	FilePath string `json:"file_path"`
-	Input    string `json:"input"`
+
+// ZedAgent represents a Zed editor instance configuration
+type ZedAgent struct {
+	// Session ID for tracking the Zed instance (agent/Wolf session ID)
+	SessionID string `json:"session_id"`
+	// Helix session ID - the actual Helix session this agent serves (if created by Helix)
+	HelixSessionID string `json:"helix_session_id,omitempty"`
+	// User ID for security validation and access control
+	UserID string `json:"user_id"`
+	// Initial prompt or task for the agent
+	Input string `json:"input"`
+	// Environment variables for the Zed instance
+	Env []string `json:"env"`
+	// Working directory for the Zed instance
+	WorkDir string `json:"work_dir"`
+	// Project path to open in Zed (optional)
+	ProjectPath string `json:"project_path"`
+	// Multi-session support
+	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
+	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
+	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
+	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
+	DisplayRefreshRate int `json:"display_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
 }
 
-type GptScriptResponse struct {
-	Output  string `json:"output"`
-	Error   string `json:"error"`
-	Retries int    `json:"retries"`
+// ZedAgentResponse represents the response from a Zed agent execution
+type ZedAgentResponse struct {
+	// Session ID of the Zed instance
+	SessionID string `json:"session_id"`
+	// Screenshot URL for viewing the desktop (read-only)
+	ScreenshotURL string `json:"screenshot_url"`
+	// Stream URL for Moonlight client (interactive)
+	StreamURL string `json:"stream_url"`
+	// Wolf app ID for the container (deprecated - use WolfLobbyID)
+	WolfAppID string `json:"wolf_app_id,omitempty"`
+	// Wolf lobby ID for the container (NEW - auto-start approach)
+	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
+	// Wolf lobby PIN for access control (NEW - Phase 3: Multi-tenancy)
+	WolfLobbyPIN string `json:"wolf_lobby_pin,omitempty"`
+	// Container name for direct access
+	ContainerName string `json:"container_name,omitempty"`
+	// WebSocket URL for thread sync connection
+	WebSocketURL string `json:"websocket_url,omitempty"`
+	// Auth token for WebSocket connection
+	AuthToken string `json:"auth_token,omitempty"`
+	// Error message if any
+	Error string `json:"error,omitempty"`
+	// Status of the Zed instance (starting, running, stopped, error)
+	Status string `json:"status"`
 }
 
-func (g GptScriptResponse) Value() (driver.Value, error) {
-	j, err := json.Marshal(g)
-	return j, err
+// ZedAgentRequest represents a request to execute a Zed agent
+type ZedAgentRequest struct {
+	Agent ZedAgent `json:"agent"`
 }
 
-func (g *GptScriptResponse) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result GptScriptResponse
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*g = result
-	return nil
+// ZedTaskMessage represents a task message sent via NATS to external agent runners
+type ZedTaskMessage struct {
+	Type      string   `json:"type"`       // "zed_task"
+	Agent     ZedAgent `json:"agent"`      // Agent configuration including RDP password
+	AuthToken string   `json:"auth_token"` // Authentication token for WebSocket
 }
 
-func (GptScriptResponse) GormDataType() string {
-	return "json"
+// ZedAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
+type ZedAgentRDPData struct {
+	SessionID string `json:"session_id"`
+	Type      string `json:"type"` // "rdp_data", "rdp_control", etc.
+	Data      []byte `json:"data"` // Raw RDP protocol data
+	Timestamp int64  `json:"timestamp"`
 }
 
 type DataEntityConfig struct {
@@ -1791,80 +1938,64 @@ type DataEntity struct {
 
 type ScriptRunType string
 
-const (
-	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
-	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
-	// TODO: add more types, like python script, etc.
-)
-
-// ScriptRun is an internal type that is used when GPTScript
-// tasks are invoked by the user and the runner runs
-type ScriptRun struct {
-	ID         string         `json:"id" gorm:"primaryKey"`
-	Created    time.Time      `json:"created"`
-	Updated    time.Time      `json:"updated"`
-	Owner      string         `json:"owner" gorm:"index"` // uuid of owner entity
-	OwnerType  OwnerType      `json:"owner_type"`         // e.g. user, system, org
-	AppID      string         `json:"app_id"`
-	State      ScriptRunState `json:"state"`
-	Type       ScriptRunType  `json:"type"`
-	Retries    int            `json:"retries"`
-	DurationMs int            `json:"duration_ms"`
-
-	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
-	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
-	SystemError string                  `json:"system_error"` // If we didn't get the response from the runner
-}
-
-type GptScriptRunsQuery struct {
+// ZedAgentRunsQuery represents a query for Zed agent runs
+type ZedAgentRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
-	AppID     string
-	State     ScriptRunState
+	SessionID string
+	Status    string
 }
 
-type GptScriptRunnerRequest struct {
-	GithubApp *GptScriptGithubApp `json:"github_app"`
+// ZedAgentRunnerRequest represents a request to run a Zed agent
+type ZedAgentRunnerRequest struct {
+	Agent *ZedAgent `json:"agent"`
 }
 
-func (r GptScriptRunnerRequest) Value() (driver.Value, error) {
-	j, err := json.Marshal(r)
-	return j, err
+// WebSocket sync message types for external agent communication
+type SyncMessage struct {
+	SessionID string                 `json:"session_id"`
+	EventType string                 `json:"event_type"`
+	Data      map[string]interface{} `json:"data"`
+	Timestamp time.Time              `json:"timestamp"`
 }
 
-func (r *GptScriptRunnerRequest) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result GptScriptRunnerRequest
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*r = result
-	return nil
+// Commands sent from Helix to external agents (Zed)
+type ExternalAgentCommand struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
 }
 
-func (GptScriptRunnerRequest) GormDataType() string {
-	return "json"
+// External agent connection info
+type ExternalAgentConnection struct {
+	SessionID   string    `json:"session_id"`
+	ConnectedAt time.Time `json:"connected_at"`
+	LastPing    time.Time `json:"last_ping"`
+	Status      string    `json:"status"`
+}
+
+// External agent auth token
+type ExternalAgentToken struct {
+	Token     string    `json:"token"`
+	SessionID string    `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type RunnerEventRequestType int
 
 func (r RunnerEventRequestType) String() string {
 	switch r {
-	case RunnerEventRequestTool:
-		return "tool"
-	case RunnerEventRequestApp:
-		return "app"
+	case RunnerEventRequestZedAgent:
+		return "zed_agent"
+	case RunnerEventRequestRDPData:
+		return "rdp_data"
 	default:
 		return "unknown"
 	}
 }
 
 const (
-	RunnerEventRequestTool RunnerEventRequestType = iota
-	RunnerEventRequestApp
+	RunnerEventRequestZedAgent RunnerEventRequestType = iota
+	RunnerEventRequestRDPData
 )
 
 type RunnerEventRequestEnvelope struct {
@@ -1878,6 +2009,70 @@ type RunnerEventResponseEnvelope struct {
 	RequestID string `json:"request_id"`
 	Reply     string `json:"reply"` // Where to send the reply
 	Payload   []byte `json:"payload"`
+}
+
+// SSHKey represents a user's SSH key for git operations in agent sandboxes
+type SSHKey struct {
+	ID                  string    `json:"id" gorm:"primaryKey"`
+	UserID              string    `json:"user_id" gorm:"index;not null"`
+	KeyName             string    `json:"key_name" gorm:"not null"`
+	PublicKey           string    `json:"public_key" gorm:"type:text;not null"`
+	PrivateKeyEncrypted string    `json:"-" gorm:"type:text;not null"` // Never expose in JSON
+	Created             time.Time `json:"created" gorm:"default:current_timestamp"`
+	LastUsed            time.Time `json:"last_used,omitempty"`
+}
+
+// TableName specifies the table name for SSHKey model
+func (SSHKey) TableName() string {
+	return "ssh_keys"
+}
+
+// SSHKeyCreateRequest is the request body for creating a new SSH key
+type SSHKeyCreateRequest struct {
+	KeyName    string `json:"key_name" binding:"required"`
+	PublicKey  string `json:"public_key" binding:"required"`
+	PrivateKey string `json:"private_key" binding:"required"`
+}
+
+// SSHKeyResponse is the response returned when creating/listing SSH keys
+type SSHKeyResponse struct {
+	ID        string    `json:"id"`
+	KeyName   string    `json:"key_name"`
+	PublicKey string    `json:"public_key"`
+	Created   time.Time `json:"created"`
+	LastUsed  time.Time `json:"last_used,omitempty"`
+}
+
+// SSHKeyGenerateRequest is the request to generate a new SSH key pair
+type SSHKeyGenerateRequest struct {
+	KeyName string `json:"key_name" binding:"required"`
+	KeyType string `json:"key_type"` // "ed25519" or "rsa", defaults to ed25519
+}
+
+// SSHKeyGenerateResponse contains the generated SSH key pair
+type SSHKeyGenerateResponse struct {
+	ID         string `json:"id"`
+	KeyName    string `json:"key_name"`
+	PublicKey  string `json:"public_key"`
+	PrivateKey string `json:"private_key"` // Only returned once during generation
+}
+
+// ZedSettingsOverride stores user's custom Zed settings that override Helix-managed settings
+type ZedSettingsOverride struct {
+	SessionID string          `json:"session_id" gorm:"primaryKey"`
+	Overrides json.RawMessage `json:"overrides" gorm:"type:jsonb;not null"`
+	UpdatedAt time.Time       `json:"updated_at" gorm:"default:current_timestamp"`
+}
+
+// ZedConfigResponse is returned from /api/v1/sessions/{id}/zed-config
+type ZedConfigResponse struct {
+	ContextServers map[string]interface{} `json:"context_servers"`
+	LanguageModels map[string]interface{} `json:"language_models,omitempty"`
+	Assistant      map[string]interface{} `json:"assistant,omitempty"`
+	ExternalSync   map[string]interface{} `json:"external_sync,omitempty"`
+	Agent          map[string]interface{} `json:"agent,omitempty"`
+	Theme          string                 `json:"theme,omitempty"`
+	Version        int64                  `json:"version"` // Unix timestamp of app config update
 }
 
 type RunnerLLMInferenceRequest struct {
@@ -2322,6 +2517,47 @@ type TriggerExecution struct {
 	SessionID              string                 `json:"session_id"`
 }
 
+// PersonalDevEnvironment represents a persistent personal development environment
+type PersonalDevEnvironment struct {
+	ID           string    `json:"id" gorm:"primaryKey"`
+	Created      time.Time `json:"created"`
+	Updated      time.Time `json:"updated"`
+	UserID       string    `json:"user_id" gorm:"index"`
+	AppID        string    `json:"app_id"`                                            // Helix App ID for configuration (MCP servers, tools, etc.)
+	WolfAppID    string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
+	WolfLobbyID  string    `json:"wolf_lobby_id" gorm:"index"`                        // NEW: Wolf lobby ID for auto-start
+	WolfLobbyPIN string    `json:"wolf_lobby_pin"`                                    // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
+
+	// User-facing configuration
+	EnvironmentName string `json:"environment_name"`
+
+	// Runtime state
+	Status       string    `json:"status"` // "starting", "running", "stopped"
+	LastActivity time.Time `json:"last_activity"`
+
+	// Streaming configuration
+	DisplayWidth  int `json:"display_width"`
+	DisplayHeight int `json:"display_height"`
+	DisplayFPS    int `json:"display_fps"`
+
+	// Container information
+	ContainerName string `json:"container_name"`
+	VNCPort       int    `json:"vnc_port"`
+	StreamURL     string `json:"stream_url"`
+	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
+}
+
+// StreamingTokenResponse contains token for accessing streaming session
+type StreamingTokenResponse struct {
+	StreamToken     string    `json:"stream_token"`
+	WolfLobbyID     string    `json:"wolf_lobby_id"`
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin"`
+	MoonlightHostID int       `json:"moonlight_host_id"`
+	MoonlightAppID  int       `json:"moonlight_app_id"`
+	AccessLevel     string    `json:"access_level"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
 // Memory provides agent user memories
 type Memory struct {
 	ID       string    `json:"id"`
@@ -2335,4 +2571,71 @@ type Memory struct {
 type ListMemoryRequest struct {
 	UserID string
 	AppID  string
+}
+
+// QuestionSet contains a set of questions that can be used to evaluate an agent's performance
+// or analyze documents. Users can create their own, share within organization, etc.
+type QuestionSet struct {
+	ID             string     `json:"id"`
+	Created        time.Time  `json:"created"`
+	Updated        time.Time  `json:"updated"`
+	UserID         string     `json:"user_id"`         // Creator of the question set
+	OrganizationID string     `json:"organization_id"` // The organization this session belongs to, if any
+	Name           string     `json:"name"`
+	Description    string     `json:"description"`
+	Questions      []Question `json:"questions" gorm:"type:jsonb;serializer:json"`
+}
+
+// Question - question that will be asked to the agent/model
+type Question struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	Question string    `json:"question"`
+}
+
+type ListQuestionSetsRequest struct {
+	UserID         string
+	OrganizationID string
+}
+
+type ExecuteQuestionSetRequest struct {
+	QuestionSetID string `json:"question_set_id"`
+	AppID         string `json:"app_id"`
+}
+
+// ExecuteQuestionSetResponse contains the response to each question in the question set
+// Each response is a unique session where users can drill down into the response and ask follow-up questions
+type ExecuteQuestionSetResponse struct {
+	Results []QuestionResponse `json:"results"`
+}
+
+type QuestionResponse struct {
+	QuestionID    string `json:"question_id"`    // ID of the question
+	Question      string `json:"question"`       // Original question
+	SessionID     string `json:"session_id"`     // Session ID
+	InteractionID string `json:"interaction_id"` // Interaction ID
+	Response      string `json:"response"`       // Response
+	Error         string `json:"error"`          // Error
+}
+
+type QuestionSetExecutionStatus string
+
+const (
+	QuestionSetExecutionStatusPending QuestionSetExecutionStatus = "pending"
+	QuestionSetExecutionStatusRunning QuestionSetExecutionStatus = "running"
+	QuestionSetExecutionStatusSuccess QuestionSetExecutionStatus = "success"
+	QuestionSetExecutionStatusError   QuestionSetExecutionStatus = "error"
+)
+
+type QuestionSetExecution struct {
+	ID            string                     `json:"id"`
+	Created       time.Time                  `json:"created"`
+	Updated       time.Time                  `json:"updated"`
+	QuestionSetID string                     `json:"question_set_id"`
+	AppID         string                     `json:"app_id"`
+	DurationMs    int64                      `json:"duration_ms"`
+	Status        QuestionSetExecutionStatus `json:"status"`
+	Error         string                     `json:"error"`
+	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
 }
