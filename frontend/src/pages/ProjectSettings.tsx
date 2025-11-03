@@ -254,16 +254,23 @@ const ProjectSettings: FC = () => {
   const handleConfirmTestStartupScript = async () => {
     setTestStartupScriptDialogOpen(false)
 
-    // If session already exists, delete it first to restart with fresh startup script
+    // If session already exists, try to delete it first to restart with fresh startup script
     if (exploratorySessionData) {
       try {
         await deleteSessionMutation.mutateAsync()
         // Short delay to let the delete complete
         await new Promise(resolve => setTimeout(resolve, 1000))
-      } catch (err) {
-        console.error('Failed to delete existing session:', err)
-        snackbar.error('Failed to delete existing session')
-        return
+      } catch (err: any) {
+        // If session doesn't exist (404/not found), that's fine - proceed with creating new one
+        const isNotFound = err?.response?.status === 404 ||
+                          err?.response?.status === 500 ||
+                          err?.message?.includes('not found');
+        if (!isNotFound) {
+          console.error('Failed to delete existing session:', err)
+          snackbar.error('Failed to delete existing session')
+          return
+        }
+        console.log('Session already deleted or not found, proceeding to create new one')
       }
     }
 
