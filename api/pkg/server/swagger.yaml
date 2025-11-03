@@ -10007,6 +10007,10 @@ paths:
         name: id
         required: true
         type: string
+      - description: 'Format, one of: json (default), markdown'
+        in: query
+        name: format
+        type: string
       responses:
         "200":
           description: OK
