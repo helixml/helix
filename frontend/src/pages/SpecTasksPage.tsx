@@ -433,6 +433,18 @@ const SpecTasksPage: FC = () => {
           >
             {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
           </Button>
+          {exploratorySessionData && (
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<RefreshIcon />}
+              onClick={handleStartExploratorySession}
+              disabled={startExploratorySessionMutation.isPending}
+              sx={{ flexShrink: 0 }}
+            >
+              {startExploratorySessionMutation.isPending ? 'Restarting...' : 'Restart Session'}
+            </Button>
+          )}
           <Button
             variant="outlined"
             startIcon={<SettingsIcon />}

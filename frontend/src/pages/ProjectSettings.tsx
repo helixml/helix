@@ -337,6 +337,17 @@ const ProjectSettings: FC = () => {
           >
             {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
           </Button>
+          {exploratorySessionData && (
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<RefreshIcon />}
+              onClick={handleStartExploratorySession}
+              disabled={startExploratorySessionMutation.isPending}
+            >
+              {startExploratorySessionMutation.isPending ? 'Restarting...' : 'Restart Session'}
+            </Button>
+          )}
           <Button
             variant="contained"
             color="primary"
