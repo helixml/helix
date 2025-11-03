@@ -2072,6 +2072,14 @@ type SpecTaskStatusResponse struct {
 	IdleMinutes      int        `json:"idle_minutes,omitempty"`
 }
 
+// SessionIdleStatus represents the idle status of an external agent session
+type SessionIdleStatus struct {
+	HasExternalAgent bool `json:"has_external_agent"`
+	IdleMinutes      int  `json:"idle_minutes,omitempty"`
+	WillTerminateIn  int  `json:"will_terminate_in,omitempty"`
+	WarningThreshold bool `json:"warning_threshold,omitempty"`
+}
+
 // DocumentUpdateResponse is the response from PUT /api/v1/spec-tasks/{id}/documents/{doc_id}
 type DocumentUpdateResponse struct {
 	DocumentID string `json:"document_id"`
