@@ -1562,7 +1562,7 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 		// Clone the repository
 		// Use git clone with --bare for the main repo, then set up worktrees
 		cloneCmd := fmt.Sprintf("git clone %s %s", repo.CloneURL, cloneDir)
-		output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
+		output, err := execCommand(ctx, workspaceDir, "sh", "-c", cloneCmd)
 		if err != nil {
 			log.Error().
 				Err(err).
