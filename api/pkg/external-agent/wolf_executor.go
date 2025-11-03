@@ -1405,13 +1405,13 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 }
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
-// Terminates external agents after 30min of inactivity across ALL sessions
+// Terminates external agents after 1min of inactivity (for testing, will be 30min in production)
 // Timeout is database-based (checks LastInteraction timestamp), so it survives API restarts
 func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds for faster cleanup in dev mode
 	defer ticker.Stop()
 
-	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout, checks every 30s)")
+	log.Info().Msg("Starting idle external agent cleanup loop (1min timeout for testing, checks every 30s)")
 
 	for {
 		select {
@@ -1425,9 +1425,9 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	}
 }
 
-// cleanupIdleExternalAgents terminates external agents that have been idle for >30min
+// cleanupIdleExternalAgents terminates external agents that have been idle for >1min (testing)
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
-	cutoff := time.Now().Add(-30 * time.Minute)
+	cutoff := time.Now().Add(-1 * time.Minute) // 1 minute for testing (will be 30min in production)
 
 	// Get idle external agents (SpecTask AND exploratory sessions)
 	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory"})
@@ -1455,15 +1455,34 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			Dur("idle_duration", time.Since(activity.LastInteraction)).
 			Msg("Terminating idle external agent")
 
-		// Stop Wolf app (terminates Zed container, frees GPU)
-		err := w.wolfClient.RemoveApp(ctx, activity.WolfAppID)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("wolf_app_id", activity.WolfAppID).
+		// For exploratory sessions, external_agent_id IS the Helix session ID
+		// For SpecTask agents, we need to look up the session from the agent
+		sessionIDToStop := ""
+		if activity.AgentType == "exploratory" {
+			sessionIDToStop = activity.ExternalAgentID // Session ID is the agent ID
+		} else {
+			// SpecTask: Look up which Helix session is associated with this agent
+			agent, err := w.store.GetSpecTaskExternalAgentByID(ctx, activity.ExternalAgentID)
+			if err == nil && len(agent.HelixSessionIDs) > 0 {
+				sessionIDToStop = agent.HelixSessionIDs[0] // Use first session
+			}
+		}
+
+		if sessionIDToStop != "" {
+			// Properly stop the agent (stops lobby, terminates containers)
+			err := w.StopZedAgent(ctx, sessionIDToStop)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("session_id", sessionIDToStop).
+					Str("external_agent_id", activity.ExternalAgentID).
+					Msg("Failed to stop idle Zed agent")
+				// Continue with cleanup even if stop fails
+			}
+		} else {
+			log.Warn().
 				Str("external_agent_id", activity.ExternalAgentID).
-				Msg("Failed to remove idle Wolf app")
-			// Continue with cleanup even if Wolf removal fails
+				Msg("No session ID found for idle agent, skipping container cleanup")
 		}
 
 		// Update external agent status to terminated
