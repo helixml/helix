@@ -413,15 +413,6 @@ const SpecTasksPage: FC = () => {
       showDrawerButton={false}
       topbarContent={
         <Stack direction="row" spacing={2} sx={{ justifyContent: 'flex-end', width: '100%', minWidth: 0, alignItems: 'center' }}>
-          {/* Repository Management Button */}
-          <Button
-            variant="outlined"
-            startIcon={<GitBranch size={20} />}
-            onClick={() => setRepoDialogOpen(!repoDialogOpen)}
-            sx={{ flexShrink: 0 }}
-          >
-            Repositories ({projectRepositories.length + (internalRepo ? 1 : 0)})
-          </Button>
           <Button
             variant="outlined"
             color="secondary"
@@ -451,6 +442,15 @@ const SpecTasksPage: FC = () => {
             sx={{ flexShrink: 0 }}
           >
             Refresh
+          </Button>
+          {/* Repository Management Button - positioned far right to align with right panel */}
+          <Button
+            variant="outlined"
+            startIcon={<GitBranch size={20} />}
+            onClick={() => setRepoDialogOpen(!repoDialogOpen)}
+            sx={{ flexShrink: 0 }}
+          >
+            Repositories ({projectRepositories.length + (internalRepo ? 1 : 0)})
           </Button>
         </Stack>
       }
