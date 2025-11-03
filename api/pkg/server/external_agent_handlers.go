@@ -52,10 +52,8 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		agent.SessionID = system.GenerateRequestID()
 	}
 
-	// Set default values if not provided
-	if agent.WorkDir == "" {
-		agent.WorkDir = fmt.Sprintf("/tmp/zed-workspaces/%s", agent.SessionID)
-	}
+	// WorkDir will be set by wolf_executor to use filestore path
+	// Don't override it here - let executor handle workspace management
 
 	// Validate required fields
 	if agent.Input == "" {
