@@ -1492,10 +1492,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
-              <ExternalAgentDesktopViewer
+              <ScreenshotViewer
                 sessionId={sessionID}
                 wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
                 height={rdpViewerHeight}
+                enableStreaming={true}
+                showToolbar={true}
               />
             </Box>
           )}

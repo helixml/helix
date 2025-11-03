@@ -15,6 +15,7 @@ import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/sett
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
+import { FRONTEND_INSTANCE_ID } from '../../utils/instanceId';
 
 interface MoonlightStreamViewerProps {
   sessionId: string;
@@ -184,7 +185,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       if (moonlightWebMode === 'multi') {
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
         // Connect to persistent streamer via peer endpoint
-        const streamerID = `agent-${sessionId}`;
+        // Include instance ID for multi-tab support
+        const streamerID = `agent-${sessionId}-${FRONTEND_INSTANCE_ID}`;
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
@@ -194,14 +196,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           [width, height],
           "peer", // Peer mode - connects to existing streamer
           undefined, // No session ID needed
-          streamerID // Streamer ID - connects to /api/streamers/{id}/peer
+          streamerID // Streamer ID - unique per browser tab
         );
       } else {
         // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
         // - Kickoff used: session="agent-{sessionId}-kickoff", client_unique_id="helix-agent-{sessionId}"
-        // - Browser uses: session="agent-{sessionId}", client_unique_id="helix-agent-{sessionId}"
+        // - Browser uses: session="agent-{sessionId}-{instanceId}", client_unique_id="helix-agent-{sessionId}-{instanceId}"
         // Different session_id → Fresh streamer process (no peer reuse)
-        // Same client_unique_id → Moonlight protocol auto-RESUME!
+        // Unique client_unique_id per browser tab → Multiple tabs can stream simultaneously!
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
@@ -210,9 +212,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           supportedFormats,
           [width, height],
           "create", // Create mode - fresh session/streamer (kickoff already terminated)
-          `agent-${sessionId}`, // Browser session ID (different from kickoff's "-kickoff" suffix)
+          `agent-${sessionId}-${FRONTEND_INSTANCE_ID}`, // Unique per browser tab
           undefined, // No streamer ID
-          `helix-agent-${sessionId}` // SAME client_unique_id as kickoff → enables RESUME
+          `helix-agent-${sessionId}-${FRONTEND_INSTANCE_ID}` // Unique per browser tab → enables multi-tab streaming
         );
       }
 
