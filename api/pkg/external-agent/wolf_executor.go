@@ -711,7 +711,49 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		log.Debug().Str("session_id", sessionID).Msg("Could not capture final screenshot (agent may already be stopped)")
 	}
 
-	// Stop the lobby (tears down container)
+	// CRITICAL: Stop Wolf-UI streaming sessions BEFORE stopping lobby
+	// Wolf-UI sessions persist after lobby stops, consuming 245MB GPU memory each
+	// Query all sessions and stop ones matching this Helix session ID
+	sessions, err := w.wolfClient.ListSessions(ctx)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
+	} else {
+		sessionPrefix := fmt.Sprintf("helix-agent-%s-", sessionID)
+		stoppedCount := 0
+
+		for _, session := range sessions {
+			// Match sessions by client_unique_id prefix (handles multiple browser tabs)
+			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, sessionPrefix) {
+				log.Info().
+					Str("client_id", session.ClientID).
+					Str("client_unique_id", session.ClientUniqueID).
+					Str("session_id", sessionID).
+					Msg("Stopping Wolf-UI streaming session before lobby teardown")
+
+				err := w.wolfClient.StopSession(ctx, session.ClientID)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("client_id", session.ClientID).
+						Msg("Failed to stop Wolf-UI session (will be orphaned)")
+				} else {
+					stoppedCount++
+					log.Info().
+						Str("client_id", session.ClientID).
+						Msg("✅ Stopped Wolf-UI streaming session")
+				}
+			}
+		}
+
+		if stoppedCount > 0 {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("stopped_count", stoppedCount).
+				Msg("Cleaned up Wolf-UI streaming sessions")
+		}
+	}
+
+	// Stop the lobby (tears down Zed container)
 	if wolfLobbyID != "" {
 		// CRITICAL: Must provide PIN to stop lobby
 		var lobbyPIN []int16

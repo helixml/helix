@@ -338,17 +338,19 @@ export const SessionToolbar: FC<{
             {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
               <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
                 <Tooltip title="Zoom Out">
-                  <IconButton
-                    size="small"
-                    onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
-                    disabled={rdpViewerHeight <= 300}
-                    sx={{
-                      p: 0.25,
-                      opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
-                    }}
-                  >
-                    <ZoomOut size={16} />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
+                      disabled={rdpViewerHeight <= 300}
+                      sx={{
+                        p: 0.25,
+                        opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
+                      }}
+                    >
+                      <ZoomOut size={16} />
+                    </IconButton>
+                  </span>
                 </Tooltip>
                 <Tooltip title="Zoom In">
                   <IconButton
