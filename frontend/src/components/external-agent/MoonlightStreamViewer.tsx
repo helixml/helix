@@ -364,7 +364,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Auto-connect on mount
   useEffect(() => {
     connect();
-  }, []);
+  }, [connect]);
 
   // Cleanup on unmount
   useEffect(() => {
