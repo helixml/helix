@@ -1491,16 +1491,16 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
-            <Box sx={{ px: 2, pb: 2 }}>
+            <Box sx={{ px: 2, pb: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
               <ScreenshotViewer
                 sessionId={sessionID}
                 isRunner={false}
                 wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
                 enableStreaming={true}
+                height={rdpViewerHeight}
                 onError={(error) => {
                   console.error('Screenshot viewer error:', error);
                 }}
-                height={rdpViewerHeight}
               />
             </Box>
           )}

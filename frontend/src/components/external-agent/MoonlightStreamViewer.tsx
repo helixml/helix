@@ -366,7 +366,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   // Auto-connect on mount
   useEffect(() => {
     connect();
-  }, [connect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps intentional - only connect once on mount
 
   // Cleanup on unmount
   useEffect(() => {
