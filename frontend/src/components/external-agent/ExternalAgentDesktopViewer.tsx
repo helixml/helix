@@ -3,6 +3,7 @@ import { Box, Button, Typography, CircularProgress } from '@mui/material';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 
 import MoonlightStreamViewer from './MoonlightStreamViewer';
+import ScreenshotViewer from './ScreenshotViewer';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 
@@ -39,12 +40,14 @@ interface ExternalAgentDesktopViewerProps {
   sessionId: string;
   wolfLobbyId?: string;
   height: number;
+  mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   sessionId,
   wolfLobbyId,
   height,
+  mode = 'stream', // Default to stream for floating window
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -98,7 +101,27 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     );
   }
 
-  // Floating window always shows live stream (no toggle)
+  // Render based on mode: screenshot for Kanban cards, stream for floating window
+  if (mode === 'screenshot') {
+    return (
+      <Box sx={{
+        height: height,
+        width: '100%',
+        overflow: 'hidden'
+      }}>
+        <ScreenshotViewer
+          sessionId={sessionId}
+          autoRefresh={true}
+          refreshInterval={3000}
+          enableStreaming={false}
+          showToolbar={false}
+          height={height}
+        />
+      </Box>
+    );
+  }
+
+  // Stream mode (default for floating window)
   return (
     <Box sx={{
       height: height,

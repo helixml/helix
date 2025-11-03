@@ -58,7 +58,7 @@ import { useTheme } from '@mui/material/styles';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
-import ScreenshotViewer from '../external-agent/ScreenshotViewer';
+import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -75,7 +75,8 @@ import gitRepositoryService, {
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
-// Minimal wrapper for ScreenshotViewer with custom overlay for Kanban cards
+// Minimal wrapper for desktop viewer with custom overlay for Kanban cards
+// Uses screenshot mode (not live stream) to avoid performance issues with many cards
 const LiveAgentScreenshot: React.FC<{
   sessionId: string;
   projectId?: string;
@@ -108,12 +109,10 @@ const LiveAgentScreenshot: React.FC<{
       onClick={handleClick}
     >
       <Box sx={{ position: 'relative', height: 150 }}>
-        <ScreenshotViewer
+        <ExternalAgentDesktopViewer
           sessionId={sessionId}
-          autoRefresh={true}
-          refreshInterval={3000}
-          enableStreaming={false}
-          showToolbar={false}
+          height={150}
+          mode="screenshot"
         />
       </Box>
       <Box
