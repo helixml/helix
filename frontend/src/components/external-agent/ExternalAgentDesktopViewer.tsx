@@ -2,7 +2,7 @@ import React, { FC, useState, useEffect, useCallback } from 'react';
 import { Box, Button, Typography, CircularProgress } from '@mui/material';
 import PlayArrow from '@mui/icons-material/PlayArrow';
 
-import ScreenshotViewer from './ScreenshotViewer';
+import MoonlightStreamViewer from './MoonlightStreamViewer';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 
@@ -98,23 +98,19 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
     );
   }
 
+  // Floating window always shows live stream (no toggle)
   return (
     <Box sx={{
       height: height,
-      border: '1px solid',
-      borderColor: 'divider',
-      borderRadius: 1,
+      width: '100%',
       overflow: 'hidden'
     }}>
-      <ScreenshotViewer
+      <MoonlightStreamViewer
         sessionId={sessionId}
-        isRunner={false}
-        wolfLobbyId={wolfLobbyId}
-        enableStreaming={true}
+        wolfLobbyId={wolfLobbyId || sessionId}
         onError={(error) => {
-          console.error('Screenshot viewer error:', error);
+          console.error('Stream viewer error:', error);
         }}
-        height={height}
       />
     </Box>
   );
