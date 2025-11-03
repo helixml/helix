@@ -207,8 +207,8 @@ const ProjectSettings: FC = () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync()
       snackbar.success('Exploratory session started')
-      // Navigate to the session
-      account.orgNavigate('session', { session_id: session.id })
+      // Navigate to the project-scoped session
+      account.orgNavigate('project-session', { id: projectId, session_id: session.id })
     } catch (err) {
       snackbar.error('Failed to start exploratory session')
     }

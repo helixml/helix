@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -351,37 +352,110 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError404("sample project not found")
 	}
 
-	// Generate project ID
-	projectID := fmt.Sprintf("proj_%s_%d", req.SampleProjectID, time.Now().Unix())
-
 	// Create project name
 	projectName := req.ProjectName
 	if projectName == "" {
-		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Username)
+		projectName = sampleProject.Name
+	}
+
+	description := req.Description
+	if description == "" {
+		description = sampleProject.Description
+	}
+
+	// Get user's organization
+	orgID := ""
+	memberships, err := s.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+		UserID: user.ID,
+	})
+	if err == nil && len(memberships) > 0 {
+		orgID = memberships[0].OrganizationID
 	}
 
 	log.Info().
 		Str("user_id", user.ID).
 		Str("sample_project_id", req.SampleProjectID).
 		Str("project_name", projectName).
+		Str("organization_id", orgID).
 		Msg("Forking simple sample project")
 
-	// Simulated GitHub repo URL (in real implementation, this would fork the actual repo)
-	forkedRepoURL := fmt.Sprintf("https://github.com/%s/helix-%s", user.Username, req.SampleProjectID)
+	// Create actual Project in database
+	project := &types.Project{
+		ID:             system.GenerateUUID(),
+		Name:           projectName,
+		Description:    description,
+		UserID:         user.ID,
+		OrganizationID: orgID,
+		Technologies:   sampleProject.Technologies,
+		Status:         "active",
+	}
+
+	createdProject, err := s.Store.CreateProject(ctx, project)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_name", projectName).
+			Msg("failed to create project for sample")
+		return nil, system.NewHTTPError500("failed to create project")
+	}
+
+	// Initialize internal Git repository for the project
+	internalRepoPath, err := s.projectInternalRepoService.InitializeProjectRepo(ctx, createdProject)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", createdProject.ID).
+			Msg("failed to initialize internal project repository")
+		// Continue anyway - project exists in DB, repo can be created later
+	} else {
+		// Update project with internal repo path
+		createdProject.InternalRepoPath = internalRepoPath
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Msg("failed to update project with internal repo path")
+		}
+
+		// Create a GitRepository entry for the internal repo
+		internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
+		internalRepo := &store.GitRepository{
+			ID:             internalRepoID,
+			Name:           fmt.Sprintf("%s-internal", createdProject.Name),
+			Description:    "Internal project repository for configuration and metadata",
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "helix_hosted",
+			Status:         "ready",
+			LocalPath:      internalRepoPath,
+			DefaultBranch:  "main",
+		}
+
+		err = s.Store.CreateGitRepository(ctx, internalRepo)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Msg("failed to create git repository entry for internal repo (continuing)")
+		}
+	}
 
 	// Create spec-driven tasks from the natural language prompts
 	tasksCreated := 0
-	for i, taskPrompt := range sampleProject.TaskPrompts {
+	for _, taskPrompt := range sampleProject.TaskPrompts {
 		task := &types.SpecTask{
-			ID:          fmt.Sprintf("spec_task_%s_%d", projectID, i),
-			ProjectID:   projectID,
+			ID:          system.GenerateUUID(),
+			ProjectID:   createdProject.ID,
 			Name:        generateTaskNameFromPrompt(taskPrompt.Prompt),
 			Description: taskPrompt.Prompt, // The description IS the prompt
 			Type:        inferTaskType(taskPrompt.Labels),
 			Priority:    taskPrompt.Priority,
 			Status:      "backlog",
 
-			// Kiro-style: store the original prompt, specs will be generated later
+			// Store the original prompt, specs will be generated later
 			OriginalPrompt:     taskPrompt.Prompt,
 			RequirementsSpec:   "", // Will be generated when agent picks up task
 			TechnicalDesign:    "", // Will be generated when agent picks up task
@@ -398,18 +472,15 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Store context and constraints in metadata (GORM serializer handles JSON conversion)
 		task.Metadata = map[string]interface{}{
-			"project_id":     projectID,
-			"github_repo":    forkedRepoURL,
 			"context":        taskPrompt.Context,
 			"constraints":    taskPrompt.Constraints,
 			"sample_project": sampleProject.ID,
 		}
 
-		// Store the task (assuming we have a spec tasks store method)
 		err := s.Store.CreateSpecTask(ctx, task)
 		if err != nil {
 			log.Warn().Err(err).
-				Str("project_id", projectID).
+				Str("project_id", createdProject.ID).
 				Str("task_prompt", taskPrompt.Prompt).
 				Msg("Failed to create spec task")
 		} else {
@@ -418,19 +489,18 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	}
 
 	log.Info().
-		Str("project_id", projectID).
+		Str("project_id", createdProject.ID).
 		Str("user_id", user.ID).
-		Str("repo_url", forkedRepoURL).
 		Int("tasks_created", tasksCreated).
 		Msg("Successfully forked simple sample project")
 
 	return &ForkSimpleProjectResponse{
-		ProjectID:     projectID,
-		GitHubRepoURL: forkedRepoURL,
+		ProjectID:     createdProject.ID,
+		GitHubRepoURL: sampleProject.GitHubRepo,
 		TasksCreated:  tasksCreated,
-		Message: fmt.Sprintf("🎉 Forked %s! Created %d tasks from natural language prompts. "+
-			"When you assign agents to these tasks, they'll automatically generate requirements, "+
-			"technical design, and implementation plans following spec-driven development.",
+		Message: fmt.Sprintf("Created %s with %d tasks from natural language prompts. "+
+			"Assign agents to these tasks to automatically generate requirements, "+
+			"technical design, and implementation plans.",
 			sampleProject.Name, tasksCreated),
 	}, nil
 }

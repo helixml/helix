@@ -180,16 +180,16 @@ export const useDetachRepositoryFromProject = (projectId: string) => {
 };
 
 /**
- * Hook to list all sample projects
+ * Hook to list all sample projects (using simple in-memory list)
  */
 export const useListSampleProjects = () => {
   const api = useApi();
   const apiClient = api.getApiClient();
 
-  return useQuery<TypesSampleProject[]>({
+  return useQuery<any[]>({
     queryKey: sampleProjectsListQueryKey(),
     queryFn: async () => {
-      const response = await apiClient.v1SampleProjectsV2List();
+      const response = await apiClient.v1SampleProjectsSimpleList();
       return response.data || [];
     },
   });
@@ -213,7 +213,7 @@ export const useGetSampleProject = (sampleId: string, enabled = true) => {
 };
 
 /**
- * Hook to instantiate a sample project
+ * Hook to instantiate a sample project (fork from simple in-memory list)
  */
 export const useInstantiateSampleProject = () => {
   const api = useApi();
@@ -221,8 +221,12 @@ export const useInstantiateSampleProject = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ sampleId, request }: { sampleId: string; request: TypesSampleProjectInstantiateRequest }) => {
-      const response = await apiClient.v1SampleProjectsV2InstantiateCreate(sampleId, request);
+    mutationFn: async ({ sampleId, request }: { sampleId: string; request: any }) => {
+      const response = await apiClient.v1SampleProjectsSimpleForkCreate({
+        sample_project_id: sampleId,
+        project_name: request.project_name,
+        description: request.description,
+      });
       return response.data;
     },
     onSuccess: () => {

@@ -20,6 +20,7 @@ import {
   ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import useApi from '../../hooks/useApi';
+import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import useSnackbar from '../../hooks/useSnackbar';
 
@@ -41,6 +42,7 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   onRequestChanges,
 }) => {
   const api = useApi();
+  const account = useAccount();
   const router = useRouter();
   const snackbar = useSnackbar();
   const [shareLink, setShareLink] = useState<string | null>(null);
@@ -75,7 +77,7 @@ const SpecTaskReviewPanel: FC<SpecTaskReviewPanelProps> = ({
   };
 
   const openPlanningSession = () => {
-    router.navigate(`/session/${specSessionId}`);
+    account.orgNavigate('session', { session_id: specSessionId });
   };
 
   const isInDesignPhase = status === 'spec_generation' || status === 'spec_review';

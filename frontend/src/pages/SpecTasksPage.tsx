@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -122,6 +122,9 @@ const SpecTasksPage: FC = () => {
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   // Repository configuration moved to project level - no task-level repo selection needed
 
+  // Ref for task prompt text field to manually focus
+  const taskPromptRef = useRef<HTMLTextAreaElement>(null);
+
   // Data hooks
   const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
 
@@ -160,6 +163,13 @@ const SpecTasksPage: FC = () => {
         // Agents exist but no default agent, select first one
         setSelectedHelixAgent(apps.apps[0]?.id || '__create_default__');
       }
+
+      // Focus the text field when dialog opens
+      setTimeout(() => {
+        if (taskPromptRef.current) {
+          taskPromptRef.current.focus();
+        }
+      }, 100);
     }
   }, [createDialogOpen, apps.apps]);
 
@@ -426,7 +436,7 @@ const SpecTasksPage: FC = () => {
           <Button
             variant="outlined"
             startIcon={<SettingsIcon />}
-            onClick={() => router.navigate('project-settings', { id: projectId })}
+            onClick={() => account.orgNavigate('project-settings', { id: projectId })}
             sx={{ flexShrink: 0 }}
           >
             Settings
@@ -468,7 +478,7 @@ const SpecTasksPage: FC = () => {
         {/* LEFT PANEL: New Spec Task - slides in from left, pushes content */}
         <Box
           sx={{
-            width: createDialogOpen ? { xs: '100%', sm: '500px', md: '600px' } : 0,
+            width: createDialogOpen ? { xs: '100%', sm: '450px', md: '500px' } : 0,
             flexShrink: 0,
             overflow: 'hidden',
             transition: 'width 0.3s ease-in-out',
@@ -486,9 +496,27 @@ const SpecTasksPage: FC = () => {
               <AddIcon />
               <Typography variant="h6">New SpecTask</Typography>
             </Box>
-            <IconButton onClick={() => setCreateDialogOpen(false)}>
-              <CloseIcon />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box
+                component="span"
+                sx={{
+                  fontSize: '0.75rem',
+                  opacity: 0.6,
+                  fontFamily: 'monospace',
+                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: '4px',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                Esc
+              </Box>
+              <IconButton onClick={() => setCreateDialogOpen(false)}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
           </Box>
 
           {/* Content */}
@@ -525,7 +553,7 @@ Examples:
 - Fix the user registration bug where emails aren't validated properly
 - Refactor the payment processing to use Stripe instead of PayPal"
                 helperText="The planning agent will extract task name, description, type, and generate full specifications from this"
-                autoFocus
+                inputRef={taskPromptRef}
               />
 
               {/* Repository configuration managed at project level - no task-level repo selection */}
@@ -631,7 +659,7 @@ Examples:
         {/* RIGHT PANEL: Repository Management - slides in from right, pushes content */}
         <Box
           sx={{
-            width: repoDialogOpen ? { xs: '100%', sm: '500px', md: '600px' } : 0,
+            width: repoDialogOpen ? { xs: '100%', sm: '450px', md: '500px' } : 0,
             flexShrink: 0,
             overflow: 'hidden',
             transition: 'width 0.3s ease-in-out',
@@ -642,7 +670,7 @@ Examples:
             backgroundColor: 'background.paper',
           }}
         >
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: { xs: '100%', sm: '500px', md: '600px' } }}>
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minWidth: { xs: '100%', sm: '450px', md: '500px' } }}>
           {/* Header - changes based on view */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -651,13 +679,31 @@ Examples:
                 {attachRepoDialogOpen ? 'Attach Repository' : 'Manage Repositories'}
               </Typography>
             </Box>
-            <IconButton onClick={() => {
-              setRepoDialogOpen(false);
-              setAttachRepoDialogOpen(false);
-              setSelectedRepoToAttach('');
-            }}>
-              <CloseIcon />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box
+                component="span"
+                sx={{
+                  fontSize: '0.75rem',
+                  opacity: 0.6,
+                  fontFamily: 'monospace',
+                  backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: '4px',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                Esc
+              </Box>
+              <IconButton onClick={() => {
+                setRepoDialogOpen(false);
+                setAttachRepoDialogOpen(false);
+                setSelectedRepoToAttach('');
+              }}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
           </Box>
 
           {/* Content - conditional based on view */}
