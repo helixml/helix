@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
+import { useRoute } from 'react-router5'
 
 import Page from '../components/system/Page'
 import QuestionSetsTable from '../components/questionSets/QuestionSetsTable'
@@ -21,6 +22,7 @@ const QuestionSets: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
   const apps = useApps()
+  const { route } = useRoute()
   const [deletingQuestionSet, setDeletingQuestionSet] = useState<TypesQuestionSet | undefined>()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingQuestionSetId, setEditingQuestionSetId] = useState<string | undefined>()
@@ -45,9 +47,18 @@ const QuestionSets: FC = () => {
   ])
 
   useEffect(() => {
+    const query = (route && (route as any).query) || {}
+    const questionSetIdParam = query?.questionSetId as string | undefined
+    if (questionSetIdParam) {
+      setEditingQuestionSetId(questionSetIdParam)
+      setDialogOpen(true)
+    }
+  }, [route])
+
+  useEffect(() => {
+    if (dialogOpen) return
     const urlParams = new URLSearchParams(window.location.search)
     const questionSetIdParam = urlParams.get('questionSetId')
-    
     if (questionSetIdParam) {
       setEditingQuestionSetId(questionSetIdParam)
       setDialogOpen(true)
