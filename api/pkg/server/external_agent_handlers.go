@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -657,6 +658,23 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
 		http.Error(res, "Forbidden", http.StatusForbidden)
 		return
+	}
+
+	// Check if agent is paused and has saved screenshot
+	if session.Metadata.PausedScreenshotPath != "" {
+		// Agent is paused - serve saved screenshot from filestore
+		screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
+		if err == nil {
+			defer screenshotFile.Close()
+			res.Header().Set("Content-Type", "image/png")
+			res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
+			res.WriteHeader(http.StatusOK)
+			io.Copy(res, screenshotFile)
+			return
+		}
+		// If file not found, fall through to try live screenshot
+		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
 	}
 
 	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
