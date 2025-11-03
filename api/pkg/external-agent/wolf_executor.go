@@ -1429,8 +1429,8 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	cutoff := time.Now().Add(-30 * time.Minute)
 
-	// Get idle external agents (not individual sessions - entire agents)
-	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask"})
+	// Get idle external agents (SpecTask AND exploratory sessions)
+	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory"})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get idle external agents")
 		return
@@ -1443,16 +1443,17 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("count", len(idleAgents)).
 		Time("cutoff", cutoff).
-		Msg("Found idle SpecTask external agents to terminate")
+		Msg("Found idle external agents to terminate (SpecTask + exploratory)")
 
 	for _, activity := range idleAgents {
 		log.Info().
 			Str("external_agent_id", activity.ExternalAgentID).
-			Str("spectask_id", activity.SpecTaskID).
+			Str("agent_type", activity.AgentType).
+			Str("spectask_id_or_project_id", activity.SpecTaskID).
 			Str("wolf_app_id", activity.WolfAppID).
 			Time("last_interaction", activity.LastInteraction).
 			Dur("idle_duration", time.Since(activity.LastInteraction)).
-			Msg("Terminating idle SpecTask external agent")
+			Msg("Terminating idle external agent")
 
 		// Stop Wolf app (terminates Zed container, frees GPU)
 		err := w.wolfClient.RemoveApp(ctx, activity.WolfAppID)
