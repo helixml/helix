@@ -69,35 +69,69 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   };
 
   if (isPaused) {
+    // Paused state - show saved screenshot with gray-out effect + Start button overlay
+    const screenshotUrl = `/api/v1/external-agents/${sessionId}/screenshot?t=${Date.now()}`;
+
     return (
       <Box
         sx={{
           width: '100%',
           height: height,
-          backgroundColor: '#1a1a1a',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          position: 'relative',
           border: '1px solid',
           borderColor: 'divider',
           borderRadius: 1,
-          gap: 2,
+          overflow: 'hidden',
+          backgroundColor: '#1a1a1a',
         }}
       >
-        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
-          Desktop Paused
-        </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          size="large"
-          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
-          onClick={handleResume}
-          disabled={isResuming}
+        {/* Paused screenshot with gray-out effect */}
+        <Box
+          component="img"
+          src={screenshotUrl}
+          alt="Paused Desktop"
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            filter: 'grayscale(0.5) brightness(0.7) blur(1px)',
+            opacity: 0.6,
+          }}
+          onError={(e) => {
+            // If screenshot fails to load, hide the image
+            e.currentTarget.style.display = 'none';
+          }}
+        />
+        {/* Overlay with Start button */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2,
+            backgroundColor: 'rgba(0,0,0,0.3)',
+          }}
         >
-          {isResuming ? 'Starting...' : 'Start Desktop'}
-        </Button>
+          <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+            Desktop Paused
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+            onClick={handleResume}
+            disabled={isResuming}
+          >
+            {isResuming ? 'Starting...' : 'Start Desktop'}
+          </Button>
+        </Box>
       </Box>
     );
   }
