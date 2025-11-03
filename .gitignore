@@ -18,6 +18,7 @@ build-errors.log
 .DS_Store
 vendor
 */**/out.md
+charts/helix-controlplane/charts/*.tgz
 helix-runner
 zed-build
 helix

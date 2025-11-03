@@ -433,7 +433,7 @@ spec:
                   key: {{ .Values.pgvector.external.existingSecretDatabaseKey | default "database" }}
             {{- else }}
             - name: PGVECTOR_DSN
-              value: "postgresql://{{ .Values.pgvector.external.user }}:{{ .Values.pgvector.external.password }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.external.database }}"
+              value: "postgresql://{{ .Values.pgvector.auth.username | default "postgres" }}:{{ .Values.pgvector.auth.password | default "pgvector" }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.auth.database | default "postgres" }}"
             {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}
