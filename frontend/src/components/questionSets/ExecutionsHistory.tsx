@@ -84,15 +84,11 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ questionSetId, qu
   };
 
   const handleExecutionClick = (execution: TypesQuestionSetExecution) => {
-    const firstResult = execution.results && execution.results.length > 0 ? execution.results[0] : null;
-    if (firstResult?.session_id) {
-      let sessionUrl = `/session/${firstResult.session_id}`;
-
-      if (account.organizationTools.organization) {
-        sessionUrl = `/org/${account.organizationTools.organization.name}/${sessionUrl}`;
-      }
-
-      window.open(sessionUrl, '_blank');
+    if (execution.id && questionSetId) {
+      account.orgNavigate('qa-results', { 
+        question_set_id: questionSetId, 
+        execution_id: execution.id 
+      });
     }
   };
 
@@ -159,8 +155,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ questionSetId, qu
             },
           }}>
             {executionsList.map((execution: TypesQuestionSetExecution, index: number) => {
-              const firstResult = execution.results && execution.results.length > 0 ? execution.results[0] : null;
-              const hasSession = !!firstResult?.session_id;
+              const isClickable = !!execution.id;
 
               return (
                 <Box 
@@ -171,8 +166,8 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ questionSetId, qu
                     gap: 2,
                     p: 2,
                     borderRadius: 1,
-                    cursor: hasSession ? 'pointer' : 'default',
-                    '&:hover': hasSession ? {
+                    cursor: isClickable ? 'pointer' : 'default',
+                    '&:hover': isClickable ? {
                       backgroundColor: '#374151',
                       transition: 'background-color 0.2s ease'
                     } : {},
