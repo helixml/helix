@@ -282,6 +282,22 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to initialize stream';
       console.error('Stream connection error:', errorMsg);
+
+      // Check if error is AlreadyStreaming - retry in 5 seconds instead of permanent failure
+      if (errorMsg.includes('AlreadyStreaming') || errorMsg.includes('already streaming')) {
+        console.warn('[MoonlightStreamViewer] AlreadyStreaming error detected, will retry in 5 seconds...');
+        setError('Stream busy - retrying in 5 seconds...');
+        setIsConnecting(false);
+
+        // Retry after 5 seconds
+        setTimeout(() => {
+          console.log('[MoonlightStreamViewer] Retrying connection after AlreadyStreaming error');
+          connect();
+        }, 5000);
+        return;
+      }
+
+      // Permanent error - not AlreadyStreaming
       setError(errorMsg);
       setIsConnecting(false);
       onError?.(errorMsg);
