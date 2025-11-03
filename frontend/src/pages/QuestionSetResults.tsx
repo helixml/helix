@@ -275,7 +275,14 @@ const QuestionSetResults: FC = () => {
                             <Tooltip title="Open session">
                               <IconButton
                                 size="small"
-                                onClick={() => account.orgNavigate('session', { session_id: sessionId })}
+                                onClick={() => {
+                                  let sessionUrl = `/session/${sessionId}`
+                                  const org = account.organizationTools.organization
+                                  if (org) {
+                                    sessionUrl = `/org/${org.name}${sessionUrl}`
+                                  }
+                                  window.open(sessionUrl, '_blank')
+                                }}
                               >
                                 <Info size={16} />
                               </IconButton>
