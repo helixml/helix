@@ -237,8 +237,11 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	// Lobbies mode doesn't need health monitoring or reconciliation
 	// Lobbies persist naturally across Wolf restarts
 
-	// Start idle external agent cleanup loop (30min timeout)
+	// Start idle external agent cleanup loop (5min timeout)
 	go executor.idleExternalAgentCleanupLoop(context.Background())
+
+	// Start orphaned Wolf-UI session cleanup loop (cleans up streaming sessions without active containers)
+	go executor.cleanupOrphanedWolfUISessionsLoop(context.Background())
 
 	return executor
 }
@@ -1644,6 +1647,94 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("terminated_count", len(idleAgents)).
 		Msg("Completed idle external agent cleanup")
+}
+
+// cleanupOrphanedWolfUISessionsLoop runs periodically to cleanup Wolf-UI streaming sessions
+// that don't have a corresponding active Zed container (orphaned after crashes, etc.)
+func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Minute) // Check every 2 minutes
+	defer ticker.Stop()
+
+	log.Info().Msg("Starting orphaned Wolf-UI session cleanup loop (checks every 2 minutes)")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Orphaned Wolf-UI cleanup loop context canceled")
+			return
+		case <-ticker.C:
+			w.cleanupOrphanedWolfUISessions(ctx)
+		}
+	}
+}
+
+// cleanupOrphanedWolfUISessions removes Wolf-UI streaming sessions without active Zed containers
+func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
+	// Get all Wolf-UI streaming sessions
+	sessions, err := w.wolfClient.ListSessions(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Wolf sessions for orphan cleanup")
+		return
+	}
+
+	if len(sessions) == 0 {
+		return // No sessions to check
+	}
+
+	log.Info().Int("total_sessions", len(sessions)).Msg("Checking for orphaned Wolf-UI sessions")
+
+	stoppedCount := 0
+
+	for _, session := range sessions {
+		// Only check sessions with our helix-agent prefix
+		if !strings.HasPrefix(session.ClientUniqueID, "helix-agent-") {
+			continue
+		}
+
+		// Extract session ID from client_unique_id: helix-agent-{session_id}-{instance_id}
+		parts := strings.Split(session.ClientUniqueID, "-")
+		if len(parts) < 3 {
+			continue // Invalid format
+		}
+
+		// Session ID is part after "helix-agent-"
+		sessionID := strings.TrimPrefix(session.ClientUniqueID, "helix-agent-")
+		// Remove instance ID suffix (everything after last hyphen for long IDs)
+		if idx := strings.LastIndex(sessionID, "-"); idx > 20 { // Session IDs are ~30 chars
+			sessionID = sessionID[:idx]
+		}
+
+		// Check if container exists for this session
+		_, err := w.FindContainerBySessionID(ctx, sessionID)
+		if err != nil {
+			// No container found - this is an orphaned session
+			log.Info().
+				Str("client_id", session.ClientID).
+				Str("client_unique_id", session.ClientUniqueID).
+				Str("session_id", sessionID).
+				Msg("🧹 Found orphaned Wolf-UI session (no Zed container), stopping...")
+
+			err := w.wolfClient.StopSession(ctx, session.ClientID)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("client_id", session.ClientID).
+					Msg("Failed to stop orphaned Wolf-UI session")
+			} else {
+				stoppedCount++
+				log.Info().
+					Str("client_id", session.ClientID).
+					Str("session_id", sessionID).
+					Msg("✅ Stopped orphaned Wolf-UI session")
+			}
+		}
+	}
+
+	if stoppedCount > 0 {
+		log.Info().
+			Int("stopped_count", stoppedCount).
+			Msg("Completed orphaned Wolf-UI session cleanup")
+	}
 }
 
 // setupGitRepositories clones git repositories and sets up design docs worktree for SpecTask agents
