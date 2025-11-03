@@ -159,7 +159,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.AgentSessionStatus{},
 		&types.HelpRequest{},
 		&types.JobCompletion{},
-		&DBGitRepository{},
+		&GitRepository{},
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
 		&types.PersonalDevEnvironment{}, // DEPRECATED - stub for backward compatibility
@@ -555,8 +555,8 @@ func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) err
 }
 
 // GetProjectRepositories gets all repositories attached to a project
-func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*DBGitRepository, error) {
-	var repos []*DBGitRepository
+func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error) {
+	var repos []*GitRepository
 	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&repos).Error
 	if err != nil {
 		return nil, fmt.Errorf("error getting project repositories: %w", err)
@@ -575,7 +575,7 @@ func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, project
 
 // AttachRepositoryToProject attaches a repository to a project
 func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
-	err := s.gdb.WithContext(ctx).Model(&DBGitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	err := s.gdb.WithContext(ctx).Model(&GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
 	if err != nil {
 		return fmt.Errorf("error attaching repository to project: %w", err)
 	}
@@ -584,7 +584,7 @@ func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID
 
 // DetachRepositoryFromProject detaches a repository from its project
 func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
-	err := s.gdb.WithContext(ctx).Model(&DBGitRepository{}).Where("id = ?", repoID).Update("project_id", "").Error
+	err := s.gdb.WithContext(ctx).Model(&GitRepository{}).Where("id = ?", repoID).Update("project_id", "").Error
 	if err != nil {
 		return fmt.Errorf("error detaching repository from project: %w", err)
 	}

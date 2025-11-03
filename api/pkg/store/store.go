@@ -489,7 +489,7 @@ type Store interface {
 	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
-	GetProjectRepositories(ctx context.Context, projectID string) ([]*DBGitRepository, error)
+	GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error)
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, repoID string) error

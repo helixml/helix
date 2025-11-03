@@ -1906,7 +1906,7 @@ definitions:
         description: Valid is true if String is not NULL
         type: boolean
     type: object
-  store.DBGitRepository:
+  store.GitRepository:
     properties:
       cloneURL:
         description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
@@ -1942,6 +1942,10 @@ definitions:
       localPath:
         description: Local filesystem path for Helix-hosted repos (empty for external)
         type: string
+      metadata:
+        additionalProperties: true
+        description: Transient field, not persisted (used by services)
+        type: object
       metadataJSON:
         description: Stores Metadata as JSON
         type: string
@@ -9884,7 +9888,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/store.DBGitRepository'
+              $ref: '#/definitions/store.GitRepository'
             type: array
         "401":
           description: Unauthorized

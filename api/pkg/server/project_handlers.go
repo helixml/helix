@@ -155,7 +155,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 				Msg("Internal project repository initialized and linked")
 		}
 
-		// Create a DBGitRepository entry for the internal repo so it can be browsed
+		// Create a GitRepository entry for the internal repo so it can be browsed
 		internalRepoID := fmt.Sprintf("%s-internal", created.ID)
 		internalRepo := &store.GitRepository{
 			ID:             internalRepoID,
@@ -375,7 +375,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 // @Accept json
 // @Produce json
 // @Param id path string true "Project ID"
-// @Success 200 {array} store.DBGitRepository
+// @Success 200 {array} store.GitRepository
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError

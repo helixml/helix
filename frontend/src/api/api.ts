@@ -1130,7 +1130,7 @@ export interface SqlNullString {
   valid?: boolean;
 }
 
-export interface StoreDBGitRepository {
+export interface StoreGitRepository {
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   cloneURL?: string;
   createdAt?: string;
@@ -1152,6 +1152,8 @@ export interface StoreDBGitRepository {
   lastActivity?: string;
   /** Local filesystem path for Helix-hosted repos (empty for external) */
   localPath?: string;
+  /** Transient field, not persisted (used by services) */
+  metadata?: Record<string, any>;
   /** Stores Metadata as JSON */
   metadataJSON?: string;
   name?: string;
@@ -6683,7 +6685,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ProjectsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<StoreDBGitRepository[], SystemHTTPError>({
+      this.request<StoreGitRepository[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories`,
         method: "GET",
         secure: true,
