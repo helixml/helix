@@ -470,11 +470,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     event.preventDefault();
+    event.stopPropagation(); // Prevent event from bubbling to window listeners
     streamRef.current?.getInput().onKeyDown(event.nativeEvent);
   }, []);
 
   const handleKeyUp = useCallback((event: React.KeyboardEvent) => {
     event.preventDefault();
+    event.stopPropagation(); // Prevent event from bubbling to window listeners
     streamRef.current?.getInput().onKeyUp(event.nativeEvent);
   }, []);
 
