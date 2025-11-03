@@ -228,8 +228,9 @@ postgresql:
   enabled: true
   image:
     registry: docker.io
-    repository: bitnami/postgresql
-    tag: latest
+    repository: bitnamilegacy/postgresql
+    tag: "16.3.0-debian-12-r14"
+    pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
     username: helix
