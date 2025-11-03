@@ -4058,266 +4058,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/personal-dev-environments": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Get all personal development environments for the current user",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "List personal development environments",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Create a new personal development environment with the specified configuration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Create a personal development environment",
-                "parameters": [
-                    {
-                        "description": "Personal dev environment configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreatePersonalDevEnvironmentRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}": {
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Delete a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Delete a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No Content"
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}/start": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Start a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Start a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/personal-dev-environments/{environmentID}/stop": {
-            "post": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "Stop a personal development environment by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "PersonalDevEnvironments"
-                ],
-                "summary": "Stop a personal development environment",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/projects": {
             "get": {
                 "security": [
@@ -6883,7 +6623,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
                     "500": {
@@ -6918,7 +6658,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     }
                 ],
@@ -6926,7 +6666,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.BoardSettings"
+                            "$ref": "#/definitions/types.BoardSettings"
                         }
                     },
                     "400": {
@@ -11398,17 +11138,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.BoardSettings": {
-            "type": "object",
-            "properties": {
-                "wip_limits": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
         "server.CloneCommandResponse": {
             "type": "object",
             "properties": {
@@ -11484,32 +11213,6 @@ const docTemplate = `{
                 },
                 "total_events": {
                     "type": "integer"
-                }
-            }
-        },
-        "server.CreatePersonalDevEnvironmentRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Default: 120",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Default: 1640 (iPad Pro)",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for the streaming session",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "type": "string"
                 }
             }
         },
@@ -11810,97 +11513,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PersonalDevEnvironmentResponse": {
-            "type": "object",
-            "properties": {
-                "appID": {
-                    "description": "Helix App ID for configuration (MCP servers, tools, etc.)",
-                    "type": "string"
-                },
-                "configured_tools": {
-                    "description": "MCP servers enabled",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "container_name": {
-                    "description": "Container information for direct network access",
-                    "type": "string"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "data_sources": {
-                    "description": "Connected data sources",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Streaming framerate",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Streaming resolution height",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for streaming",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "description": "User-friendly name",
-                    "type": "string"
-                },
-                "instanceID": {
-                    "type": "string"
-                },
-                "instanceType": {
-                    "description": "\"spec_task\", \"personal_dev\", \"shared_workspace\"",
-                    "type": "string"
-                },
-                "is_personal_env": {
-                    "description": "Personal dev environment specific",
-                    "type": "boolean"
-                },
-                "lastActivity": {
-                    "type": "string"
-                },
-                "projectPath": {
-                    "type": "string"
-                },
-                "specTaskID": {
-                    "description": "Optional - null for personal dev environments",
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "stream_url": {
-                    "type": "string"
-                },
-                "threadCount": {
-                    "type": "integer"
-                },
-                "userID": {
-                    "description": "Always required",
-                    "type": "string"
-                },
-                "vnc_port": {
-                    "description": "VNC port inside container (5901)",
-                    "type": "integer"
-                },
-                "wolf_session_id": {
-                    "description": "Wolf's numeric session ID for API calls",
                     "type": "string"
                 }
             }
@@ -14665,6 +14277,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.BoardSettings": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -17128,6 +16751,14 @@ const docTemplate = `{
                 "default_repo_id": {
                     "description": "Project-level repository management",
                     "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft delete timestamp",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/gorm.DeletedAt"
+                        }
+                    ]
                 },
                 "description": {
                     "type": "string"
@@ -20066,18 +19697,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
