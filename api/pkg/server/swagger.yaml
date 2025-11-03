@@ -6726,18 +6726,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -9925,6 +9925,34 @@ paths:
       tags:
       - question-sets
   /api/v1/question-sets/{id}/executions:
+    get:
+      description: List executions for the question set
+      parameters:
+      - description: Question set ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Limit
+        in: query
+        name: limit
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.QuestionSetExecution'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List question set executions
+      tags:
+      - question-sets
     post:
       consumes:
       - application/json
@@ -9970,33 +9998,23 @@ paths:
       summary: Execute a question set
       tags:
       - question-sets
-  /api/v1/question-sets/{question_set_id}/executions:
+  /api/v1/question-sets/{question_set_id}/executions/{id}:
     get:
-      description: List executions for the question set
+      description: Get results for a question set execution
       parameters:
-      - description: Question set ID
+      - description: Question set execution ID
         in: path
-        name: question_set_id
+        name: id
         required: true
         type: string
-      - description: Offset
-        in: query
-        name: offset
-        type: integer
-      - description: Limit
-        in: query
-        name: limit
-        type: integer
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.QuestionSetExecution'
-            type: array
+            $ref: '#/definitions/types.QuestionSetExecution'
       security:
       - BearerAuth: []
-      summary: List question set executions
+      summary: Get question set execution results
       tags:
       - question-sets
   /api/v1/sample-projects:

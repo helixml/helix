@@ -3886,11 +3886,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -6743,6 +6743,33 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List executions for the question set
+     *
+     * @tags question-sets
+     * @name V1QuestionSetsExecutionsDetail
+     * @summary List question set executions
+     * @request GET:/api/v1/question-sets/{id}/executions
+     * @secure
+     */
+    v1QuestionSetsExecutionsDetail: (
+      id: string,
+      query?: {
+        /** Offset */
+        offset?: number;
+        /** Limit */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesQuestionSetExecution[], any>({
+        path: `/api/v1/question-sets/${id}/executions`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Execute a question set, this is a blocking operation and will return a response for each question in the question set
      *
      * @tags question-sets
@@ -6767,28 +6794,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List executions for the question set
+     * @description Get results for a question set execution
      *
      * @tags question-sets
-     * @name V1QuestionSetsExecutionsDetail
-     * @summary List question set executions
-     * @request GET:/api/v1/question-sets/{question_set_id}/executions
+     * @name V1QuestionSetsExecutionsDetail2
+     * @summary Get question set execution results
+     * @request GET:/api/v1/question-sets/{question_set_id}/executions/{id}
+     * @originalName v1QuestionSetsExecutionsDetail
+     * @duplicate
      * @secure
      */
-    v1QuestionSetsExecutionsDetail: (
-      questionSetId: string,
-      query?: {
-        /** Offset */
-        offset?: number;
-        /** Limit */
-        limit?: number;
-      },
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesQuestionSetExecution[], any>({
-        path: `/api/v1/question-sets/${questionSetId}/executions`,
+    v1QuestionSetsExecutionsDetail2: (id: string, questionSetId: string, params: RequestParams = {}) =>
+      this.request<TypesQuestionSetExecution, any>({
+        path: `/api/v1/question-sets/${questionSetId}/executions/${id}`,
         method: "GET",
-        query: query,
         secure: true,
         ...params,
       }),

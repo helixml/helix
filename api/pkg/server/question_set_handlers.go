@@ -269,10 +269,10 @@ func (s *HelixAPIServer) listQuestionSets(_ http.ResponseWriter, req *http.Reque
 // @Description List executions for the question set
 // @Tags    question-sets
 // @Success 200 {array} types.QuestionSetExecution
-// @Param question_set_id path string true "Question set ID"
+// @Param id path string true "Question set ID"
 // @Param offset query int false "Offset"
 // @Param limit query int false "Limit"
-// @Router /api/v1/question-sets/{question_set_id}/executions [get]
+// @Router /api/v1/question-sets/{id}/executions [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listQuestionSetExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.QuestionSetExecution, *system.HTTPError) {
 	ctx := r.Context()
@@ -328,6 +328,48 @@ func (s *HelixAPIServer) listQuestionSetExecutions(_ http.ResponseWriter, r *htt
 	}
 
 	return executions, nil
+}
+
+// getQuestionSetExecutionResults godoc
+// @Summary Get question set execution results
+// @Description Get results for a question set execution
+// @Tags    question-sets
+// @Success 200 {object} types.QuestionSetExecution
+// @Param id path string true "Question set execution ID"
+// @Router /api/v1/question-sets/{question_set_id}/executions/{id} [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getQuestionSetExecutionResults(_ http.ResponseWriter, req *http.Request) (*types.QuestionSetExecution, *system.HTTPError) {
+	ctx := req.Context()
+	id := mux.Vars(req)["id"]
+	questionSetID := mux.Vars(req)["question_set_id"]
+
+	if id == "" {
+		return nil, system.NewHTTPError400("question set execution id is required")
+	}
+
+	user := getRequestUser(req)
+
+	questionSet, err := s.Store.GetQuestionSet(ctx, questionSetID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, system.NewHTTPError404(fmt.Sprintf("question set not found: %s", questionSetID))
+		}
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get question set: %s", questionSetID))
+	}
+
+	if !s.canAccessQuestionSet(ctx, user, questionSet) {
+		return nil, system.NewHTTPError403("you are not allowed to access this question set")
+	}
+
+	execution, err := s.Store.GetQuestionSetExecution(ctx, id)
+	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, system.NewHTTPError404(fmt.Sprintf("question set execution not found: %s", id))
+		}
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get question set execution: %s", err))
+	}
+
+	return execution, nil
 }
 
 // executeQuestionSet godoc
