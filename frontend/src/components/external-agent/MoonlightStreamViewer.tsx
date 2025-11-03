@@ -375,6 +375,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     };
   }, [disconnect]);
 
+  // Auto-focus container when stream connects for keyboard input
+  useEffect(() => {
+    if (isConnected && containerRef.current) {
+      containerRef.current.focus();
+    }
+  }, [isConnected]);
+
   // Handle video/audio toggle
   useEffect(() => {
     if (videoRef.current) {
@@ -471,6 +478,13 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     streamRef.current?.getInput().onKeyUp(event.nativeEvent);
   }, []);
 
+  // Focus container when clicking anywhere in the viewer
+  const handleContainerClick = useCallback(() => {
+    if (containerRef.current) {
+      containerRef.current.focus();
+    }
+  }, []);
+
   return (
     <Box
       ref={containerRef}
@@ -478,6 +492,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
+      onClick={handleContainerClick}
       sx={{
         position: 'relative',
         width: '100%',
@@ -487,6 +502,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         display: 'flex',
         flexDirection: 'column',
         outline: 'none',
+        cursor: 'default',
       }}
     >
       {/* Toolbar */}
@@ -589,6 +605,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           if (videoRef.current) {
             videoRef.current.muted = false;
           }
+          // Focus container for keyboard input
+          if (containerRef.current) {
+            containerRef.current.focus();
+          }
         }}
       />
 
@@ -612,26 +632,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         id="custom-cursor"
       />
 
-      {/* Input Hint */}
-      {isConnected && (
-        <Typography
-          variant="caption"
-          sx={{
-            position: 'absolute',
-            bottom: 8,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            color: 'rgba(255,255,255,0.5)',
-            fontSize: '0.65rem',
-            pointerEvents: 'none',
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            padding: '4px 8px',
-            borderRadius: '4px',
-          }}
-        >
-          💡 Fullscreen for keyboard input
-        </Typography>
-      )}
+      {/* Input Hint - removed since auto-focus handles keyboard input */}
     </Box>
   );
 };
