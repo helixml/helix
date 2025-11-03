@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Box, Chip, CircularProgress, Tooltip } from '@mui/material';
 import { Computer, PlayArrow, Pause, Info } from '@mui/icons-material';
 import useApi from '../../hooks/useApi';
@@ -19,8 +19,8 @@ const WolfAppStateIndicator: React.FC<WolfAppStateIndicatorProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch Wolf app state
-  const fetchState = async () => {
+  // Fetch Wolf app state - memoized to prevent recreating on every render
+  const fetchState = useCallback(async () => {
     try {
       const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
       if (response.data) {
@@ -35,18 +35,14 @@ const WolfAppStateIndicator: React.FC<WolfAppStateIndicatorProps> = ({
       setError(err.message || 'Failed to fetch state');
       setLoading(false);
     }
-  };
+  }, [sessionId]); // Only sessionId needed - getApiClient() is stable
 
-  // Initial fetch
+  // Initial fetch and polling interval combined
   useEffect(() => {
-    fetchState();
-  }, [sessionId]);
-
-  // Polling interval
-  useEffect(() => {
+    fetchState(); // Initial fetch
     const interval = setInterval(fetchState, refreshInterval);
     return () => clearInterval(interval);
-  }, [sessionId, refreshInterval]);
+  }, [sessionId, refreshInterval, fetchState]);
 
   if (loading) {
     return (

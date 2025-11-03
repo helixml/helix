@@ -86,9 +86,10 @@ const LiveAgentScreenshot: React.FC<{
 
   // Fetch Wolf app state
   React.useEffect(() => {
+    const apiClient = api.getApiClient();
     const fetchState = async () => {
       try {
-        const response = await api.getApiClient().v1SessionsWolfAppStateDetail(sessionId);
+        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
         if (response.data) {
           setWolfState(response.data.state || 'absent');
           setHasWebsocket(response.data.has_websocket || false);
@@ -101,7 +102,7 @@ const LiveAgentScreenshot: React.FC<{
     fetchState();
     const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
-  }, [sessionId, api]);
+  }, [sessionId]); // Removed 'api' - getApiClient() is stable
 
   // Determine if agent is running
   const isRunning = wolfState === 'running' || wolfState === 'resumable';
