@@ -1,10 +1,11 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useEffect, useState } from 'react'
 import Typography from '@mui/material/Typography'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
+import Link from '@mui/material/Link'
 import { useTheme } from '@mui/material/styles'
 import { Edit, Info } from 'lucide-react'
 
@@ -29,6 +30,9 @@ const QuestionSetResults: FC = () => {
   const questionSetId = router.params.question_set_id
   const executionId = router.params.execution_id
 
+  const [activeSection, setActiveSection] = useState<string>('')
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
+
   const { data: questionSet } = useQuestionSet(questionSetId || '', {
     enabled: !!questionSetId && !!executionId,
   })
@@ -39,6 +43,59 @@ const QuestionSetResults: FC = () => {
     undefined,
     { enabled: !!questionSetId && !!executionId }
   )
+
+  useEffect(() => {
+    if (window.location.hash && executionResults?.results && scrollContainerRef.current) {
+      const hash = window.location.hash.substring(1)
+      const element = document.getElementById(hash)
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          setActiveSection(hash)
+        }, 100)
+      }
+    }
+  }, [executionResults])
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current
+    if (!scrollContainer) return
+
+    const handleScroll = () => {
+      if (!executionResults?.results) return
+      
+      const sections = executionResults.results.map((_, index) => ({
+        id: `question-${index}`,
+        element: document.getElementById(`question-${index}`),
+      }))
+
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const scrollTop = scrollContainer.scrollTop
+      const containerTop = containerRect.top
+
+      for (let i = sections.length - 1; i >= 0; i--) {
+        const section = sections[i]
+        if (section.element) {
+          const elementRect = section.element.getBoundingClientRect()
+          const elementTop = elementRect.top - containerTop + scrollTop
+          
+          if (elementTop <= scrollTop + 150) {
+            setActiveSection(section.id)
+            return
+          }
+        }
+      }
+      
+      if (sections.length > 0) {
+        setActiveSection(sections[0].id)
+      }
+    }
+
+    scrollContainer.addEventListener('scroll', handleScroll)
+    handleScroll()
+
+    return () => scrollContainer.removeEventListener('scroll', handleScroll)
+  }, [executionResults])
 
   if (!executionId || !questionSetId) {
     return (
@@ -154,19 +211,18 @@ const QuestionSetResults: FC = () => {
           sx={{
             flexGrow: 1,
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
             minHeight: 0,
             overflow: 'hidden',
+            position: 'relative',
           }}
         >
           <Box
+            ref={scrollContainerRef}
             sx={{
               flexGrow: 1,
-              display: 'flex',
-              flexDirection: 'column',
               overflowY: 'auto',
               pr: 3,
-              minHeight: 0,
               ...lightTheme.scrollbar,
             }}
           >
@@ -197,15 +253,18 @@ const QuestionSetResults: FC = () => {
                 ) : (
                   executionResults.results.map((res, index) => {
                     const sessionId = res.session_id
+                    const anchorId = `question-${index}`
                     return (
                       <Box
                         key={res.question_id || index}
+                        id={anchorId}
                         sx={{
                           width: '100%',
                           p: 3,
                           display: 'flex',
                           flexDirection: 'column',
                           gap: 2,
+                          scrollMarginTop: '100px',
                         }}
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -246,6 +305,94 @@ const QuestionSetResults: FC = () => {
               </Box>
             </Container>
           </Box>
+
+          {executionResults?.results && executionResults.results.length > 0 && (
+            <Box
+              sx={{
+                width: 280,
+                flexShrink: 0,
+                display: { xs: 'none', lg: 'block' },
+                position: 'sticky',
+                top: 0,
+                alignSelf: 'flex-start',
+                height: 'fit-content',
+                maxHeight: '100vh',
+                overflowY: 'auto',
+                pr: 3,
+                pl: 2,
+                py: 2,
+                ...lightTheme.scrollbar,
+              }}
+            >
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 600,
+                  mb: 2,
+                  color: 'text.secondary',
+                  textTransform: 'uppercase',
+                  fontSize: '0.75rem',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                Questions
+              </Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 1,
+                }}
+              >
+                {executionResults.results.map((res, index) => {
+                  const anchorId = `question-${index}`
+                  const isActive = activeSection === anchorId
+                  const truncatedQuestion = res.question.length > 60 
+                    ? res.question.substring(0, 60) + '...' 
+                    : res.question
+                  
+                  return (
+                    <Link
+                      key={index}
+                      href={`#${anchorId}`}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        const element = document.getElementById(anchorId)
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          setActiveSection(anchorId)
+                          window.history.pushState(null, '', `#${anchorId}`)
+                        }
+                      }}
+                      sx={{
+                        fontSize: '0.875rem',
+                        textDecoration: 'none',
+                        color: isActive ? 'primary.main' : 'text.secondary',
+                        borderLeft: isActive ? '2px solid' : '2px solid transparent',
+                        borderColor: isActive ? 'primary.main' : 'transparent',
+                        pl: 1.5,
+                        py: 0.5,
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          color: 'primary.main',
+                          borderColor: 'primary.main',
+                        },
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Tooltip title={res.question} placement="left">
+                        <span>{truncatedQuestion}</span>
+                      </Tooltip>
+                    </Link>
+                  )
+                })}
+              </Box>
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>
