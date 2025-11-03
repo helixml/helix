@@ -422,6 +422,21 @@ const SpecTasksPage: FC = () => {
     }
   };
 
+  const handleResumeExploratorySession = async (e: React.MouseEvent) => {
+    try {
+      const session = await startExploratorySessionMutation.mutateAsync();
+      snackbar.success('Exploratory session resumed');
+      // Open floating window instead of navigating
+      floatingModal.showFloatingModal({
+        type: 'exploratory_session',
+        sessionId: session.id,
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+      }, { x: e.clientX, y: e.clientY });
+    } catch (err) {
+      snackbar.error('Failed to resume exploratory session');
+    }
+  };
+
   const handleStopExploratorySession = async () => {
     try {
       await stopExploratorySessionMutation.mutateAsync();
@@ -463,7 +478,7 @@ const SpecTasksPage: FC = () => {
               variant="outlined"
               color="secondary"
               startIcon={<ExploreIcon />}
-              onClick={handleStartExploratorySession}
+              onClick={handleResumeExploratorySession}
               disabled={startExploratorySessionMutation.isPending}
               sx={{ flexShrink: 0 }}
             >
