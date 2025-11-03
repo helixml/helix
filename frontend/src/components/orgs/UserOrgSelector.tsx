@@ -25,6 +25,7 @@ import {
   Kanban,
   Activity,
   GitBranch,
+  FileQuestionMark,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -389,6 +390,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('git-repos'),
         onClick: () => orgNavigateTo('git-repos'),
         label: "Repos",
+      },
+      {
+        icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
+        tooltip: "View Q&A",
+        isActive: isActive('qa'),
+        onClick: () => orgNavigateTo('qa'),
+        label: "Q&A",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,

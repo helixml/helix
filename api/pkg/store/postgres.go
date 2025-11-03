@@ -163,6 +163,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},
+		&types.QuestionSet{},
+		&types.QuestionSetExecution{},
 	)
 	if err != nil {
 		return err
@@ -234,6 +236,10 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.QuestionSetExecution{}, types.QuestionSet{}, "question_set_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
