@@ -29,6 +29,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { useGetSession, useUpdateSession } from '../services/sessionService'
+import { useStopProjectExploratorySession } from '../services'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -57,6 +58,8 @@ import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
 import PlayArrow from '@mui/icons-material/PlayArrow'
 import CircularProgress from '@mui/material/CircularProgress'
+import StopIcon from '@mui/icons-material/Stop'
+import IconButton from '@mui/material/IconButton'
 
 // Hook to track Wolf app state for external agent sessions
 const useWolfAppState = (sessionId: string) => {
@@ -336,6 +339,26 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   })
 
   const isOwner = account.user?.id == session?.data?.owner
+
+  // Check if this is an exploratory session
+  const isExploratorySession = session?.data?.config?.session_role === 'exploratory'
+  const exploratoryProjectId = session?.data?.config?.project_id as string | undefined
+
+  // Stop exploratory session hook (only for exploratory sessions)
+  const stopExploratorySessionMutation = useStopProjectExploratorySession(exploratoryProjectId || '')
+
+  const handleStopExploratorySession = async () => {
+    if (!exploratoryProjectId) return
+
+    try {
+      await stopExploratorySessionMutation.mutateAsync()
+      snackbar.success('Exploratory session stopped')
+      // Refresh session data to update UI
+      refetchSession()
+    } catch (err) {
+      snackbar.error('Failed to stop exploratory session')
+    }
+  }
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
@@ -1497,6 +1520,19 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       Desktop State:
                     </Typography>
                     <WolfAppStateIndicator sessionId={sessionID} />
+                    {isExploratorySession && exploratoryProjectId && (
+                      <Tooltip title="Stop desktop environment">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={handleStopExploratorySession}
+                          disabled={stopExploratorySessionMutation.isPending}
+                          sx={{ ml: 0.5 }}
+                        >
+                          <StopIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </Box>
                   <ResumeAgentButton sessionId={sessionID} />
                 </Box>
