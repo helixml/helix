@@ -4348,6 +4348,430 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/question-sets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List question sets for the current user or organization",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question sets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID or slug",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSet"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Create a new question set",
+                "parameters": [
+                    {
+                        "description": "Question set to create",
+                        "name": "questionSet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a question set by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Get a question set by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Update a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question set to update",
+                        "name": "questionSet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSet"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Delete a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List executions for the question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question set executions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSetExecution"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Execute a question set, this is a blocking operation and will return a response for each question in the question set",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Execute a question set",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Request to execute a question set",
+                        "name": "executeQuestionSetRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ExecuteQuestionSetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/question-sets/{question_set_id}/executions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get results for a question set execution",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "Get question set execution results",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set execution ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Format, one of: json (default), markdown",
+                        "name": "format",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.QuestionSetExecution"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sample-projects": {
             "get": {
                 "security": [
@@ -4912,6 +5336,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Organization slug or ID",
                         "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "question_set_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Question set execution ID",
+                        "name": "question_set_execution_id",
                         "in": "query"
                     },
                     {
@@ -13556,6 +13992,28 @@ const docTemplate = `{
                 "EffectDeny"
             ]
         },
+        "types.ExecuteQuestionSetRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ExecuteQuestionSetResponse": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                }
+            }
+        },
         "types.ExternalAgentConfig": {
             "type": "object",
             "properties": {
@@ -14214,6 +14672,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
+                },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
+                    "type": "string"
                 },
                 "rag_results": {
                     "type": "array",
@@ -15786,6 +16248,136 @@ const docTemplate = `{
                 "ProviderEndpointTypeTeam"
             ]
         },
+        "types.Question": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "question": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error",
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Interaction ID",
+                    "type": "string"
+                },
+                "question": {
+                    "description": "Original question",
+                    "type": "string"
+                },
+                "question_id": {
+                    "description": "ID of the question",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Response",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "Session ID",
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSet": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "The organization this session belongs to, if any",
+                    "type": "string"
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Question"
+                    }
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "Creator of the question set",
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSetExecution": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.QuestionResponse"
+                    }
+                },
+                "status": {
+                    "$ref": "#/definitions/types.QuestionSetExecutionStatus"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.QuestionSetExecutionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "success",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "QuestionSetExecutionStatusPending",
+                "QuestionSetExecutionStatusRunning",
+                "QuestionSetExecutionStatusSuccess",
+                "QuestionSetExecutionStatusError"
+            ]
+        },
         "types.RAGSettings": {
             "type": "object",
             "properties": {
@@ -16493,6 +17085,13 @@ const docTemplate = `{
                     "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
                     "type": "string"
                 },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "description": "The question set this session belongs to, if any",
+                    "type": "string"
+                },
                 "trigger": {
                     "type": "string"
                 },
@@ -16845,6 +17444,12 @@ const docTemplate = `{
                 },
                 "priority": {
                     "type": "boolean"
+                },
+                "question_set_execution_id": {
+                    "type": "string"
+                },
+                "question_set_id": {
+                    "type": "string"
                 },
                 "session_id": {
                     "type": "string"
@@ -18406,18 +19011,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
@@ -18507,6 +19112,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
+                "deactivated": {
+                    "type": "boolean"
+                },
                 "deleted_at": {
                     "$ref": "#/definitions/gorm.DeletedAt"
                 },
@@ -18518,6 +19126,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "sb": {
+                    "type": "boolean"
                 },
                 "token": {
                     "description": "the actual token used and its type",

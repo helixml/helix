@@ -101,11 +101,11 @@ type HelixAPIServer struct {
 	externalAgentExecutor       external_agent.Executor
 	externalAgentWSManager      *ExternalAgentWSManager
 	externalAgentRunnerManager  *ExternalAgentRunnerManager
-	contextMappings              map[string]string // Zed context_id -> Helix session_id mapping
-	sessionToWaitingInteraction  map[string]string // Helix session_id -> current waiting interaction_id
-	requestToSessionMapping      map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
-	externalAgentSessionMapping  map[string]string // External agent session_id -> Helix session_id mapping
-	externalAgentUserMapping     map[string]string // External agent session_id -> user_id mapping
+	contextMappings             map[string]string // Zed context_id -> Helix session_id mapping
+	sessionToWaitingInteraction map[string]string // Helix session_id -> current waiting interaction_id
+	requestToSessionMapping     map[string]string // request_id -> Helix session_id mapping (for chat_message routing)
+	externalAgentSessionMapping map[string]string // External agent session_id -> Helix session_id mapping
+	externalAgentUserMapping    map[string]string // External agent session_id -> user_id mapping
 	inferenceServer             *openai.InternalHelixServer
 	knowledgeManager            knowledge.Manager
 	skillManager                *api_skill.Manager
@@ -587,6 +587,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/wolf-app-state", apiServer.getSessionWolfAppState).Methods(http.MethodGet)
+
+	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.getQuestionSet)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.updateQuestionSet)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/question-sets/{id}", system.Wrapper(apiServer.deleteQuestionSet)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.executeQuestionSet)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/question-sets/{id}/executions", system.Wrapper(apiServer.listQuestionSetExecutions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/question-sets/{question_set_id}/executions/{id}", apiServer.getQuestionSetExecutionResults).Methods(http.MethodGet)
 
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.listSecrets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/secrets", system.Wrapper(apiServer.createSecret)).Methods(http.MethodPost)
