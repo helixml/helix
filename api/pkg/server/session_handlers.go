@@ -1796,7 +1796,7 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		Input:           "Resume session",
 		ProjectPath:     "workspace",
 		SpecTaskID:      specTaskID,
-		WorkDir:         fmt.Sprintf("/tmp/zed-workspaces/%s", id),
+		// WorkDir left empty - wolf_executor will use filestore path for persistence
 	}
 
 	// If this is a spec task session, load the spec task to get repository info
