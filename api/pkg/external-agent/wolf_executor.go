@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -681,6 +683,33 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 	// Get PIN from database
 	wolfLobbyPIN = dbSession.Metadata.WolfLobbyPIN
+
+	// Save final screenshot before stopping (for paused state preview)
+	screenshotPath := ""
+	containerName := fmt.Sprintf("zed-external-%s_%s", sessionID, wolfLobbyID)
+	screenshotBytes, err := w.getContainerScreenshot(ctx, containerName)
+	if err == nil && len(screenshotBytes) > 0 {
+		// Save to filestore
+		screenshotPath = filepath.Join(w.workspaceBasePath, "paused-screenshots", fmt.Sprintf("%s.png", sessionID))
+		screenshotDir := filepath.Dir(screenshotPath)
+		if err := os.MkdirAll(screenshotDir, 0755); err == nil {
+			if err := os.WriteFile(screenshotPath, screenshotBytes, 0644); err == nil {
+				// Update session metadata with paused screenshot path
+				dbSession.Metadata.PausedScreenshotPath = screenshotPath
+				_, err = w.store.UpdateSession(ctx, *dbSession)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to update session with paused screenshot path")
+				}
+
+				log.Info().
+					Str("session_id", sessionID).
+					Str("screenshot_path", screenshotPath).
+					Msg("Saved final screenshot for paused state preview")
+			}
+		}
+	} else {
+		log.Debug().Str("session_id", sessionID).Msg("Could not capture final screenshot (agent may already be stopped)")
+	}
 
 	// Stop the lobby (tears down container)
 	if wolfLobbyID != "" {
@@ -1732,4 +1761,36 @@ func execCommand(ctx context.Context, dir string, name string, args ...string) (
 	cmd.Dir = dir
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+// getContainerScreenshot fetches a screenshot from the container's screenshot server
+func (w *WolfExecutor) getContainerScreenshot(ctx context.Context, containerName string) ([]byte, error) {
+	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
+
+	screenshotReq, err := http.NewRequestWithContext(ctx, "GET", screenshotURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create screenshot request: %w", err)
+	}
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	screenshotResp, err := httpClient.Do(screenshotReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get screenshot from container: %w", err)
+	}
+	defer screenshotResp.Body.Close()
+
+	if screenshotResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("screenshot server returned status %d", screenshotResp.StatusCode)
+	}
+
+	// Read screenshot bytes
+	screenshotBytes, err := io.ReadAll(screenshotResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read screenshot data: %w", err)
+	}
+
+	return screenshotBytes, nil
 }

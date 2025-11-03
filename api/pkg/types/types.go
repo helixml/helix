@@ -364,6 +364,7 @@ type SessionMetadata struct {
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth      int `json:"agent_video_width,omitempty"`       // Streaming resolution width (default: 2560)
 	AgentVideoHeight     int `json:"agent_video_height,omitempty"`      // Streaming resolution height (default: 1600)
