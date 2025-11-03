@@ -1872,22 +1872,41 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	// This tells Zed to open the last thread in the AgentPanel UI
 	if session.Metadata.ZedThreadID != "" {
 		go func() {
-			// Wait a bit for Zed WebSocket to connect
-			time.Sleep(2 * time.Second)
+			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
+			// Retry mechanism: try multiple times with delays
+			maxRetries := 5
+			retryDelay := 2 * time.Second
 
-			err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID)
-			if err != nil {
-				log.Error().
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				time.Sleep(retryDelay)
+
+				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID)
+				if err == nil {
+					// Success - command sent
+					log.Info().
+						Str("session_id", id).
+						Str("thread_id", session.Metadata.ZedThreadID).
+						Int("attempt", attempt).
+						Msg("✅ Sent open_thread command to Zed")
+					return
+				}
+
+				// Log retry attempt
+				log.Warn().
 					Err(err).
 					Str("session_id", id).
 					Str("thread_id", session.Metadata.ZedThreadID).
-					Msg("Failed to send open_thread command to Zed")
-			} else {
-				log.Info().
-					Str("session_id", id).
-					Str("thread_id", session.Metadata.ZedThreadID).
-					Msg("✅ Sent open_thread command to Zed")
+					Int("attempt", attempt).
+					Int("max_retries", maxRetries).
+					Msg("Retrying open_thread command (WebSocket not connected yet)")
 			}
+
+			// All retries exhausted - log final failure
+			log.Error().
+				Str("session_id", id).
+				Str("thread_id", session.Metadata.ZedThreadID).
+				Int("retries", maxRetries).
+				Msg("❌ Failed to send open_thread command after all retries - WebSocket never connected")
 		}()
 	}
 

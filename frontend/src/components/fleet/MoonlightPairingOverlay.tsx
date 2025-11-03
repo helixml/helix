@@ -164,7 +164,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
           </Alert>
         ) : (
           <>
-            <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>
+            <Alert severity="error" sx={{ mb: 2, fontWeight: 'bold' }}>
               <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
                 ⚠️ CRITICAL: Your Moonlight client MUST connect at 4K resolution @ 60Hz (3840x2160 @ 60fps)
               </Typography>

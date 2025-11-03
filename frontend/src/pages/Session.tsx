@@ -368,6 +368,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
   })
 
+  // Get Wolf app state to check if desktop is running
+  const { isRunning: isDesktopRunning } = useWolfAppState(sessionID || '')
+
   const handleStopExternalAgent = () => {
     setShowStopConfirm(true)
   }
@@ -1553,8 +1556,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 </Box>
               )}
 
-              {/* Idle timeout warning for external agent sessions */}
-              {isExternalAgent && idleStatus?.data?.warning_threshold && (
+              {/* Idle timeout warning for external agent sessions - only show when desktop is running */}
+              {isExternalAgent && idleStatus?.data?.warning_threshold && isDesktopRunning && (
                 <Box sx={{ px: 2, pt: 1, pb: 1 }}>
                   <Alert severity="warning" sx={{ py: 0.5 }}>
                     <AlertTitle sx={{ fontSize: '0.875rem', mb: 0.5 }}>Idle Session Warning</AlertTitle>
