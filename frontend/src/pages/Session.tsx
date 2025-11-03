@@ -1526,16 +1526,18 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               {/* Show desktop state for external agent sessions */}
               {isExternalAgent && (
                 <Box sx={{ px: 2, pt: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
                       Desktop:
                     </Typography>
                     <WolfAppStateIndicator sessionId={sessionID} />
-                    <DesktopControls
-                      sessionId={sessionID}
-                      onStop={handleStopExternalAgent}
-                      isStopping={stopExternalAgentMutation.isPending}
-                    />
+                    <Box sx={{ ml: 'auto' }}>
+                      <DesktopControls
+                        sessionId={sessionID}
+                        onStop={handleStopExternalAgent}
+                        isStopping={stopExternalAgentMutation.isPending}
+                      />
+                    </Box>
                   </Box>
                 </Box>
               )}
