@@ -4754,6 +4754,12 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Format, one of: json (default), markdown",
+                        "name": "format",
+                        "in": "query"
                     }
                 ],
                 "responses": {
