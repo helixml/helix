@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -984,14 +985,16 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
 			wolfUISessions = append(wolfUISessions, sessionInfo)
 
-			// SECURITY: Match by client_unique_id pattern only (no fallback)
+			// SECURITY: Match by client_unique_id prefix pattern (handles FRONTEND_INSTANCE_ID suffix)
+			// Expected: "helix-agent-{sessionID}" but actual may be "helix-agent-{sessionID}-{instanceID}"
 			// Wolf now properly exposes client_unique_id in /api/v1/sessions
-			if session.ClientUniqueID != "" && session.ClientUniqueID == expectedUniqueID {
+			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, expectedUniqueID) {
 				moonlightSessionID = session.ClientID
 				log.Info().
 					Str("matched_client_id", session.ClientID).
 					Str("matched_unique_id", session.ClientUniqueID).
-					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id (secure)")
+					Str("expected_prefix", expectedUniqueID).
+					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id prefix (secure)")
 			}
 		}
 	}
