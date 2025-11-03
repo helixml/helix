@@ -1497,12 +1497,13 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			Dur("idle_duration", time.Since(activity.LastInteraction)).
 			Msg("Terminating idle external agent")
 
-		// For exploratory sessions, external_agent_id IS the Helix session ID
-		// For SpecTask agents, we need to look up the session from the agent
+		// Map external_agent_id to session ID based on agent type:
+		// - exploratory/agent: external_agent_id IS the Helix session ID
+		// - spectask: Need to look up session from SpecTaskExternalAgent record
 		sessionIDToStop := ""
-		if activity.AgentType == "exploratory" {
+		if activity.AgentType == "exploratory" || activity.AgentType == "agent" {
 			sessionIDToStop = activity.ExternalAgentID // Session ID is the agent ID
-		} else {
+		} else if activity.AgentType == "spectask" {
 			// SpecTask: Look up which Helix session is associated with this agent
 			agent, err := w.store.GetSpecTaskExternalAgentByID(ctx, activity.ExternalAgentID)
 			if err == nil && len(agent.HelixSessionIDs) > 0 {
