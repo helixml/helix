@@ -258,27 +258,38 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		return nil, system.NewHTTPError403("access denied")
 	}
 
-	// Get Helix config
-	app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
-	if err != nil {
-		log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
-		return nil, system.NewHTTPError500("failed to get app")
-	}
+	var zedConfig *external_agent.ZedMCPConfig
 
-	helixAPIURL := apiServer.Cfg.WebServer.URL
-	if helixAPIURL == "" {
-		helixAPIURL = "http://api:8080"
-	}
+	// If session has no parent app (e.g., exploratory sessions), return empty config
+	if session.ParentApp == "" {
+		log.Debug().Str("session_id", sessionID).Msg("Session has no parent app - returning empty Zed config")
+		zedConfig = &external_agent.ZedMCPConfig{
+			ContextServers: make(map[string]external_agent.ContextServerConfig),
+		}
+	} else {
+		// Get Helix config for app-based sessions
+		app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
+			return nil, system.NewHTTPError500("failed to get app")
+		}
 
-	helixToken := apiServer.Cfg.WebServer.RunnerToken
-	if helixToken == "" {
-		log.Warn().Msg("RUNNER_TOKEN not configured")
-	}
+		helixAPIURL := apiServer.Cfg.WebServer.URL
+		if helixAPIURL == "" {
+			helixAPIURL = "http://api:8080"
+		}
 
-	zedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to generate Zed config")
-		return nil, system.NewHTTPError500("failed to generate Zed config")
+		helixToken := apiServer.Cfg.WebServer.RunnerToken
+		if helixToken == "" {
+			log.Warn().Msg("RUNNER_TOKEN not configured")
+		}
+
+		generatedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to generate Zed config")
+			return nil, system.NewHTTPError500("failed to generate Zed config")
+		}
+		zedConfig = generatedConfig
 	}
 
 	// Get user overrides
