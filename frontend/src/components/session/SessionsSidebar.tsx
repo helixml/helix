@@ -256,7 +256,7 @@ export const SessionsSidebar: FC<{
     return new Date(Math.min(...sessions.map(s => new Date(s.created || 0).getTime())))
   }
 
-  const renderExecutionGroupHeader = (executionId: string, sessions: TypesSessionSummary[]) => {
+  const renderExecutionGroupHeader = (questionSetId: string, executionId: string, sessions: TypesSessionSummary[]) => {
     const isExpanded = expandedExecutionIds.has(executionId)
     const sessionId = sessions[0]?.session_id
     const isActive = params["execution_id"] === executionId
@@ -272,7 +272,7 @@ export const SessionsSidebar: FC<{
         }}
         key={`header-${executionId}`}
         onClick={() => {
-          account.orgNavigate('qa-results', {execution_id: executionId})
+          account.orgNavigate('qa-results', {question_set_id: questionSetId, execution_id: executionId})
           onOpenSession()
         }}
       >
@@ -328,12 +328,12 @@ export const SessionsSidebar: FC<{
     )
   }
 
-  const renderExecutionGroup = (executionId: string, sessions: TypesSessionSummary[]) => {
+  const renderExecutionGroup = (questionSetId: string, executionId: string, sessions: TypesSessionSummary[]) => {
     const isExpanded = expandedExecutionIds.has(executionId)
 
     return (
       <Fragment key={executionId}>
-        {renderExecutionGroupHeader(executionId, sessions)}
+        {renderExecutionGroupHeader(questionSetId, executionId, sessions)}
         <Collapse in={isExpanded} timeout="auto" unmountOnExit>
           <Box
             sx={{
@@ -353,14 +353,15 @@ export const SessionsSidebar: FC<{
   const { grouped: executionGroups, standalone } = groupSessionsByExecutionId(allSessions || [])
 
   type MixedItem = 
-    | { type: 'execution'; executionId: string; sessions: TypesSessionSummary[] }
+    | { type: 'execution'; questionSetId: string; executionId: string; sessions: TypesSessionSummary[] }
     | { type: 'session'; session: TypesSessionSummary }
 
   const createMixedList = (): MixedItem[] => {
     const items: MixedItem[] = []
     
     Array.from(executionGroups.entries()).forEach(([executionId, sessions]) => {
-      items.push({ type: 'execution', executionId, sessions })
+      const questionSetId = sessions[0]?.question_set_id || ''
+      items.push({ type: 'execution', questionSetId, executionId, sessions })
     })
     
     standalone.forEach(session => {
@@ -411,7 +412,7 @@ export const SessionsSidebar: FC<{
 
   const renderMixedItem = (item: MixedItem) => {
     if (item.type === 'execution') {
-      return renderExecutionGroup(item.executionId, item.sessions)
+      return renderExecutionGroup(item.questionSetId, item.executionId, item.sessions)
     }
     return renderSession(item.session)
   }
