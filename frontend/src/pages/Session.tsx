@@ -1494,10 +1494,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             <Box sx={{ px: 2, pb: 2 }}>
               <ScreenshotViewer
                 sessionId={sessionID}
+                isRunner={false}
                 wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
-                height={rdpViewerHeight}
                 enableStreaming={true}
-                showToolbar={true}
+                onError={(error) => {
+                  console.error('Screenshot viewer error:', error);
+                }}
+                height={rdpViewerHeight}
               />
             </Box>
           )}
