@@ -18,14 +18,22 @@ export {
   useDeleteProject,
   useGetProjectRepositories,
   useSetProjectPrimaryRepository,
+  useAttachRepositoryToProject,
+  useDetachRepositoryFromProject,
   useListSampleProjects,
   useGetSampleProject,
   useInstantiateSampleProject,
+  useGetBoardSettings,
+  useUpdateBoardSettings,
+  useGetProjectExploratorySession,
+  useStartProjectExploratorySession,
   projectsListQueryKey,
   projectQueryKey,
   projectRepositoriesQueryKey,
   sampleProjectsListQueryKey,
   sampleProjectQueryKey,
+  boardSettingsQueryKey,
+  projectExploratorySessionQueryKey,
 } from './projectService';
 
 // Re-export types for convenience

@@ -51,6 +51,10 @@ import {
   useAttachRepositoryToProject,
   useDetachRepositoryFromProject,
   useDeleteProject,
+  useGetBoardSettings,
+  useUpdateBoardSettings,
+  useGetProjectExploratorySession,
+  useStartProjectExploratorySession,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import {
@@ -58,12 +62,12 @@ import {
   useCreateProjectAccessGrant,
   useDeleteProjectAccessGrant,
 } from '../services/projectAccessGrantService'
+import { useDeleteSession } from '../services/sessionService'
 
 const ProjectSettings: FC = () => {
   const account = useAccount()
   const { params, navigate } = useRouter()
   const snackbar = useSnackbar()
-  const api = useApi()
   const projectId = params.id as string
 
   const { data: project, isLoading, error } = useGetProject(projectId)
@@ -84,19 +88,26 @@ const ProjectSettings: FC = () => {
   const createAccessGrantMutation = useCreateProjectAccessGrant(projectId)
   const deleteAccessGrantMutation = useDeleteProjectAccessGrant(projectId)
 
+  // Board settings
+  const { data: boardSettingsData } = useGetBoardSettings()
+  const updateBoardSettingsMutation = useUpdateBoardSettings()
+
+  // Exploratory session
+  const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
+  const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
+  const deleteSessionMutation = useDeleteSession(exploratorySessionData?.id || '')
+
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
-  const [startingExploratorySession, setStartingExploratorySession] = useState(false)
-  const [existingExploratorySession, setExistingExploratorySession] = useState<any>(null)
-  const [checkingExploratorySession, setCheckingExploratorySession] = useState(false)
   const [testStartupScriptDialogOpen, setTestStartupScriptDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false)
   const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('')
+  const [savingProject, setSavingProject] = useState(false)
 
-  // Board settings state
+  // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
     planning: 3,
     review: 2,
@@ -111,27 +122,22 @@ const ProjectSettings: FC = () => {
     }
   }, [project])
 
-  // Load board settings on mount
+  // Load board settings from query data
   useEffect(() => {
-    const loadBoardSettings = async () => {
-      try {
-        const response = await api.get('/api/v1/spec-tasks/board-settings');
-        if (response.data && response.data.wip_limits) {
-          setWipLimits({
-            planning: response.data.wip_limits.planning || 3,
-            review: response.data.wip_limits.review || 2,
-            implementation: response.data.wip_limits.implementation || 5,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to load board settings:', error);
-      }
-    };
-    loadBoardSettings();
-  }, [])
+    if (boardSettingsData?.wip_limits) {
+      setWipLimits({
+        planning: boardSettingsData.wip_limits.planning || 3,
+        review: boardSettingsData.wip_limits.review || 2,
+        implementation: boardSettingsData.wip_limits.implementation || 5,
+      })
+    }
+  }, [boardSettingsData])
 
-  const handleSave = async () => {
+  const handleSave = async (showSuccessMessage = true) => {
+    if (savingProject) return // Prevent concurrent saves
+
     try {
+      setSavingProject(true)
       // Save project basic settings
       await updateProjectMutation.mutateAsync({
         name,
@@ -140,14 +146,22 @@ const ProjectSettings: FC = () => {
       })
 
       // Save board settings
-      await api.put('/api/v1/spec-tasks/board-settings', {
+      await updateBoardSettingsMutation.mutateAsync({
         wip_limits: wipLimits,
       })
 
-      snackbar.success('Project settings saved')
+      if (showSuccessMessage) {
+        snackbar.success('Project settings saved')
+      }
     } catch (err) {
       snackbar.error('Failed to save project settings')
+    } finally {
+      setSavingProject(false)
     }
+  }
+
+  const handleFieldBlur = () => {
+    handleSave(false) // Auto-save without showing success message
   }
 
   const handleSetPrimaryRepo = async (repoId: string) => {
@@ -186,52 +200,39 @@ const ProjectSettings: FC = () => {
 
   const handleStartExploratorySession = async () => {
     try {
-      setStartingExploratorySession(true)
-      const response = await api.post(`/api/v1/projects/${projectId}/exploratory-session`)
-      const session = response.data
+      const session = await startExploratorySessionMutation.mutateAsync()
       snackbar.success('Exploratory session started')
       // Navigate to the session
       account.orgNavigate('session', { session_id: session.id })
     } catch (err) {
       snackbar.error('Failed to start exploratory session')
-    } finally {
-      setStartingExploratorySession(false)
     }
   }
 
   const handleTestStartupScript = async () => {
-    // Check if an exploratory session already exists
-    setCheckingExploratorySession(true)
-    try {
-      const response = await api.get(`/api/v1/projects/${projectId}/exploratory-session`)
-      if (response.data) {
-        setExistingExploratorySession(response.data)
-      } else {
-        setExistingExploratorySession(null)
-      }
-    } catch (err: any) {
-      // 204 means no session exists, which is fine
-      if (err?.response?.status === 204) {
-        setExistingExploratorySession(null)
-      } else {
-        console.error('Failed to check for exploratory session:', err)
-      }
-    } finally {
-      setCheckingExploratorySession(false)
-    }
+    // First, ensure all changes are saved
+    await handleSave(false)
+    // Open dialog - exploratorySessionData will already be set from the query
     setTestStartupScriptDialogOpen(true)
   }
 
   const handleConfirmTestStartupScript = async () => {
     setTestStartupScriptDialogOpen(false)
 
-    // If session already exists, just navigate to it
-    if (existingExploratorySession) {
-      account.orgNavigate('session', { session_id: existingExploratorySession.id })
-      return
+    // If session already exists, delete it first to restart with fresh startup script
+    if (exploratorySessionData) {
+      try {
+        await deleteSessionMutation.mutateAsync()
+        // Short delay to let the delete complete
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      } catch (err) {
+        console.error('Failed to delete existing session:', err)
+        snackbar.error('Failed to delete existing session')
+        return
+      }
     }
 
-    // Otherwise start a new session
+    // Start a new session (with the updated startup script from the saved project)
     await handleStartExploratorySession()
   }
 
@@ -327,18 +328,18 @@ const ProjectSettings: FC = () => {
             color="secondary"
             startIcon={<ExploreIcon />}
             onClick={handleStartExploratorySession}
-            disabled={startingExploratorySession}
+            disabled={startExploratorySessionMutation.isPending}
           >
-            {startingExploratorySession ? 'Starting...' : 'Explore Project'}
+            {startExploratorySessionMutation.isPending ? 'Starting...' : 'Explore Project'}
           </Button>
           <Button
             variant="contained"
             color="primary"
             startIcon={<SaveIcon />}
             onClick={handleSave}
-            disabled={updateProjectMutation.isPending}
+            disabled={updateProjectMutation.isPending || updateBoardSettingsMutation.isPending}
           >
-            {updateProjectMutation.isPending ? 'Saving...' : 'Save Changes'}
+            {updateProjectMutation.isPending || updateBoardSettingsMutation.isPending ? 'Saving...' : 'Save Changes'}
           </Button>
         </Box>
       )}
@@ -357,6 +358,7 @@ const ProjectSettings: FC = () => {
                 fullWidth
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onBlur={handleFieldBlur}
                 required
               />
               <TextField
@@ -366,6 +368,7 @@ const ProjectSettings: FC = () => {
                 rows={3}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                onBlur={handleFieldBlur}
               />
             </Box>
           </Paper>
@@ -387,7 +390,7 @@ const ProjectSettings: FC = () => {
               value={startupScript}
               onChange={setStartupScript}
               onTest={handleTestStartupScript}
-              testDisabled={startingExploratorySession || checkingExploratorySession}
+              testDisabled={startExploratorySessionMutation.isPending}
               projectId={projectId}
             />
           </Paper>
@@ -468,26 +471,26 @@ const ProjectSettings: FC = () => {
               Configure work-in-progress (WIP) limits for the Kanban board columns.
             </Typography>
             <Divider sx={{ mb: 3 }} />
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
               <TextField
                 label="Planning Column Limit"
-                fullWidth
                 value={wipLimits.planning}
                 onChange={(e) => setWipLimits({ ...wipLimits, planning: parseInt(e.target.value) || 0 })}
+                onBlur={handleFieldBlur}
                 helperText="Maximum tasks allowed in Planning column"
               />
               <TextField
                 label="Review Column Limit"
-                fullWidth
                 value={wipLimits.review}
                 onChange={(e) => setWipLimits({ ...wipLimits, review: parseInt(e.target.value) || 0 })}
+                onBlur={handleFieldBlur}
                 helperText="Maximum tasks allowed in Review column"
               />
               <TextField
                 label="Implementation Column Limit"
-                fullWidth
                 value={wipLimits.implementation}
                 onChange={(e) => setWipLimits({ ...wipLimits, implementation: parseInt(e.target.value) || 0 })}
+                onBlur={handleFieldBlur}
                 helperText="Maximum tasks allowed in Implementation column"
               />
             </Box>
@@ -573,40 +576,65 @@ const ProjectSettings: FC = () => {
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <ExploreIcon color="primary" />
-            <span>Test Startup Script</span>
+            <span>{exploratorySessionData ? 'Join Exploratory Session' : 'Test Startup Script'}</span>
           </Box>
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            This will create a new exploratory session for this project with the current startup script.
-          </Typography>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2">
-              The startup script will run when the agent environment launches. You'll be able to connect and verify it worked correctly.
-            </Typography>
-          </Alert>
-          {startupScript.trim() ? (
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                Current startup script:
+          {exploratorySessionData ? (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  This will restart the existing exploratory session
+                </Typography>
+                <Typography variant="body2">
+                  The current session will be stopped and a new one will be started with the updated startup script. Any unsaved work in the session will be lost.
+                </Typography>
+              </Alert>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Current Session:</strong> {exploratorySessionData.name}
               </Typography>
-              <Box sx={{
-                p: 1.5,
-                backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                borderRadius: 1,
-                fontFamily: 'monospace',
-                fontSize: '0.75rem',
-                maxHeight: 200,
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap'
-              }}>
-                {startupScript}
-              </Box>
-            </Box>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Created:</strong> {new Date(exploratorySessionData.created).toLocaleString()}
+              </Typography>
+            </>
           ) : (
-            <Alert severity="warning">
-              No startup script configured. The session will start without any initialization.
-            </Alert>
+            <>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                This will create a new exploratory session for this project with the current startup script.
+              </Typography>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  The startup script will run when the agent environment launches. You'll be able to connect and verify it worked correctly.
+                </Typography>
+              </Alert>
+            </>
+          )}
+          {!exploratorySessionData && (
+            <>
+              {startupScript.trim() ? (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    Current startup script:
+                  </Typography>
+                  <Box sx={{
+                    p: 1.5,
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    borderRadius: 1,
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    maxHeight: 200,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {startupScript}
+                  </Box>
+                </Box>
+              ) : (
+                <Alert severity="warning">
+                  No startup script configured. The session will start without any initialization.
+                </Alert>
+              )}
+            </>
           )}
         </DialogContent>
         <DialogActions>
@@ -616,10 +644,10 @@ const ProjectSettings: FC = () => {
           <Button
             onClick={handleConfirmTestStartupScript}
             variant="contained"
-            color="primary"
+            color={exploratorySessionData ? 'warning' : 'primary'}
             startIcon={<ExploreIcon />}
           >
-            Start Exploratory Session
+            {exploratorySessionData ? 'Restart Session' : 'Start Session'}
           </Button>
         </DialogActions>
       </Dialog>

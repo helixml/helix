@@ -42,6 +42,39 @@ The Helix development stack has hot reloading enabled in multiple components for
 
 This means you often don't need to rebuild containers - just save files and changes are picked up automatically.
 
+## CRITICAL: ALWAYS Verify Build Status Before Declaring Victory
+
+**MANDATORY: NEVER declare a task complete without checking build status**
+
+After making ANY code changes, you MUST:
+
+1. **Check API hot reload logs**:
+   ```bash
+   docker compose -f docker-compose.dev.yaml logs --tail 30 api
+   ```
+   - Look for "building..." followed by "running..." (success)
+   - Look for "failed to build, error:" (failure)
+   - Fix ALL compilation errors before continuing
+
+2. **Check frontend build status**:
+   ```bash
+   docker compose -f docker-compose.dev.yaml logs --tail 30 frontend
+   ```
+   - Look for Vite HMR updates: "hmr update /src/..."
+   - Check for TypeScript errors: "Type error", "Cannot find", "does not provide"
+   - Look for successful builds: "✓ built in XXms"
+   - Verify no syntax errors or missing imports
+
+3. **ONLY THEN** can you declare the task complete
+
+**Why this is CRITICAL:**
+- Hot reload errors are immediate feedback that code is broken
+- Compilation errors mean your changes don't work
+- Declaring victory with broken code wastes user time
+- The user should NEVER have to point out compilation errors
+
+**If you catch yourself saying "done" or "complete" without checking logs, STOP and check them immediately.**
+
 ## CRITICAL: Zed Editor Build Process
 
 **ALWAYS use the stack command for building Zed - NEVER use cargo directly**
@@ -118,6 +151,54 @@ docker build -f Dockerfile.sway-helix -t helix-sway:latest .
 
 **After rebuilding, NEW external agent sessions will use the updated image automatically.**
 Existing containers will NOT pick up changes - you must create a new session to test.
+
+## CRITICAL: Testing and Mocking
+
+**MANDATORY: ALWAYS use gomock/mockgen for generating test mocks - NEVER use manual mocks**
+
+```bash
+# ✅ CORRECT: Generate mocks using mockgen
+mockgen -source api/pkg/external-agent/wolf_client_interface.go -destination api/pkg/external-agent/wolf_client_interface_mocks.go -package external_agent
+
+# ❌ WRONG: Manually creating mock structs with testify/mock
+type MockStore struct {
+    mock.Mock
+}
+```
+
+**Why this is CRITICAL:**
+- The codebase uses gomock consistently throughout
+- Generated mocks are type-safe and automatically stay in sync with interfaces
+- Manual mocks require maintenance and can drift from actual interfaces
+- Generated mocks provide better compile-time safety
+
+**How to generate mocks:**
+1. Define an interface for the component you want to mock
+2. Run mockgen to generate the mock file:
+   ```bash
+   mockgen -source <source_file>.go -destination <source_file>_mocks.go -package <package_name>
+   ```
+3. Use the generated mock in your tests with gomock.Controller
+
+**Example test setup with gomock:**
+```go
+import (
+    "testing"
+    "go.uber.org/mock/gomock"
+)
+
+func TestMyFunction(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    defer ctrl.Finish()
+
+    mockStore := store.NewMockStore(ctrl)
+    mockStore.EXPECT().GetSomething(gomock.Any(), "param").Return(nil, nil)
+
+    // Test code using mockStore
+}
+```
+
+**If you catch yourself using `testify/mock` or manually writing mock structs, STOP and use mockgen instead.**
 
 ## Key Development Rules (from design.md)
 
@@ -226,7 +307,37 @@ This is required because Wolf's internal API is only accessible via Unix socket 
 
 ## Using Generated TypeScript Client and React Query
 
-**IMPORTANT: Always use the generated TypeScript client instead of manual API calls**
+**CRITICAL: NEVER WRITE MANUAL API CALLS IN FRONTEND CODE**
+
+**MANDATORY: ALL frontend API interactions MUST:**
+1. Use the generated TypeScript client from `frontend/src/api/api.ts`
+2. Be wrapped in React Query hooks (useQuery/useMutation)
+3. Be placed in service files (`frontend/src/services/*Service.ts`)
+4. Never use `api.get()`, `api.post()`, `api.put()`, or `api.delete()` directly in components
+
+**❌ WRONG - Manual API calls:**
+```typescript
+const response = await api.get('/api/v1/spec-tasks/board-settings')
+await api.put('/api/v1/spec-tasks/board-settings', { wip_limits: wipLimits })
+```
+
+**✅ CORRECT - Generated client with React Query:**
+```typescript
+// In services/projectService.ts:
+export const useGetBoardSettings = () => {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: ['board-settings'],
+    queryFn: () => apiClient.v1SpecTasksBoardSettingsList(),
+  })
+}
+
+// In component:
+const { data: boardSettings } = useGetBoardSettings()
+const updateBoardSettingsMutation = useUpdateBoardSettings()
+await updateBoardSettingsMutation.mutateAsync({ wip_limits: wipLimits })
+```
 
 ### Regenerating the TypeScript Client
 When adding new API endpoints with swagger annotations:
@@ -652,3 +763,120 @@ db.AutoMigrate(&StreamingAccessGrant{})
 4. No manual migration files needed
 
 **If you catch yourself writing a SQL migration for schema changes, STOP and use GORM structs instead.**
+
+## CRITICAL: RBAC and Access Control - Always Use AccessGrants
+
+**MANDATORY: ALWAYS use the AccessGrant system for resource authorization - NEVER create separate membership tables**
+
+Helix has ONE unified RBAC system: **AccessGrants + Roles + RoleBindings**
+
+```go
+// ✅ CORRECT: Use AccessGrants for project/repository access control
+// Resources define what can have access granted to them
+const (
+    ResourceProject       Resource = "Project"
+    ResourceGitRepository Resource = "GitRepository"
+)
+
+// Authorization uses the existing authorizeUserToResource function
+err := apiServer.authorizeUserToResource(ctx, user, orgID, projectID, types.ResourceProject, types.ActionUpdate)
+
+// ❌ WRONG: Creating separate membership tables
+type ProjectMembership struct {
+    UserID    string
+    ProjectID string
+    Role      ProjectRole  // DON'T DO THIS
+}
+```
+
+**Why this is CRITICAL:**
+- AccessGrants provide team-based access with custom roles
+- Organization and Team memberships are IMPLEMENTATION DETAILS of the AccessGrant system
+- Creating separate membership tables breaks the unified RBAC model
+- Users should be able to grant access to ANY resource (apps, projects, repos) consistently
+
+**The ONLY membership tables are:**
+- `OrganizationMembership` - who belongs to which organization (owner/member)
+- `TeamMembership` - who belongs to which team within an organization
+- These exist ONLY to enable team-based AccessGrants
+
+**How access control works:**
+1. User creates a resource (app, project, repository)
+2. User creates an AccessGrant to share it with a team or individual user
+3. AccessGrant binds one or more Roles (with permissions) to that resource
+4. Authorization checks AccessGrants to determine if user can perform action
+
+**When adding new resource types:**
+1. Add the resource type to `types.Resource` constants
+2. Use `authorizeUserToResource()` for authorization checks
+3. Create access grant handlers (see `access_grant_handlers.go`)
+4. NEVER create separate membership tables
+
+**Step-by-step guide to add RBAC for a new resource type (e.g., "Project"):**
+
+1. **Add resource type constant** in `api/pkg/types/authz.go`:
+   ```go
+   const (
+       ResourceProject Resource = "Project"
+   )
+   ```
+
+2. **Create authorization helper** in `api/pkg/server/{resource}_access_grant_handlers.go`:
+   ```go
+   func (apiServer *HelixAPIServer) authorizeUserTo{Resource}AccessGrants(
+       ctx context.Context, user *types.User, resource *types.{Resource}, action types.Action
+   ) error {
+       // Check org membership
+       orgMembership, err := apiServer.authorizeOrgMember(ctx, user, resource.OrganizationID)
+       if err != nil {
+           return err
+       }
+
+       // Resource owner always has access
+       if user.ID == resource.UserID {
+           return nil
+       }
+
+       // Org owner always has access
+       if orgMembership.Role == types.OrganizationRoleOwner {
+           return nil
+       }
+
+       // Check access grants
+       return apiServer.authorizeUserToResource(ctx, user, resource.OrganizationID, resource.ID, types.ResourceAccessGrants, action)
+   }
+   ```
+
+3. **Create access grant handlers** following the pattern from `access_grant_handlers.go`:
+   - `list{Resource}AccessGrants` - GET `/api/v1/{resources}/{id}/access-grants`
+   - `create{Resource}AccessGrant` - POST `/api/v1/{resources}/{id}/access-grants`
+   - `update{Resource}AccessGrant` - PUT `/api/v1/{resources}/{id}/access-grants/{grant_id}`
+   - `delete{Resource}AccessGrant` - DELETE `/api/v1/{resources}/{id}/access-grants/{grant_id}`
+
+4. **Register routes** in `api/pkg/server/server.go`:
+   ```go
+   authRouter.HandleFunc("/projects/{id}/access-grants", system.Wrapper(apiServer.listProjectAccessGrants)).Methods(http.MethodGet)
+   authRouter.HandleFunc("/projects/{id}/access-grants", system.Wrapper(apiServer.createProjectAccessGrant)).Methods(http.MethodPost)
+   authRouter.HandleFunc("/projects/{project_id}/access-grants/{grant_id}", system.Wrapper(apiServer.updateProjectAccessGrant)).Methods(http.MethodPut)
+   authRouter.HandleFunc("/projects/{project_id}/access-grants/{grant_id}", system.Wrapper(apiServer.deleteProjectAccessGrant)).Methods(http.MethodDelete)
+   ```
+
+5. **Add Swagger docs** to all handlers (see example above)
+
+6. **Update frontend API client**: Run `./stack update_openapi`
+
+7. **Create React Query hooks** in `frontend/src/services/{resource}Service.ts`:
+   ```typescript
+   export const useListProjectAccessGrants = (projectId: string) => {
+     const api = useApi()
+     return useQuery({
+       queryKey: ['project-access-grants', projectId],
+       queryFn: () => api.getApiClient().v1ProjectsAccessGrantsList(projectId),
+       select: (response) => response.data || []
+     })
+   }
+   ```
+
+8. **Implement frontend UI** following the pattern from organization member management
+
+**If you catch yourself creating ProjectMembership, RepositoryMembership, or similar tables, STOP and use AccessGrants instead.**
