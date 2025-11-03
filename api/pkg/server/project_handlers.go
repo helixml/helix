@@ -870,20 +870,8 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		return nil, system.NewHTTPError500("failed to start exploratory agent")
 	}
 
-	// Track activity for idle cleanup (same pattern as SpecTask agents)
-	err = s.Store.UpsertExternalAgentActivity(r.Context(), &types.ExternalAgentActivity{
-		ExternalAgentID: createdSession.ID, // Use session ID as agent ID for exploratory sessions
-		SpecTaskID:      projectID,         // Track by project ID instead of task ID
-		LastInteraction: time.Now(),
-		AgentType:       "exploratory",
-		WolfAppID:       agentResp.WolfAppID,
-		WorkspaceDir:    fmt.Sprintf("/workspaces/exploratory/%s", createdSession.ID),
-		UserID:          user.ID,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to track exploratory session activity")
-		// Non-fatal - session is already created
-	}
+	// Activity tracking now happens in StartZedAgent (wolf_executor.go)
+	// for all external agent types (exploratory, spectask, regular agents)
 
 	log.Info().
 		Str("session_id", createdSession.ID).
