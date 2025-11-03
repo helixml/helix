@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -150,6 +152,30 @@ func (s *HelixAPIServer) instantiateSampleProject(_ http.ResponseWriter, r *http
 					Str("project_id", created.ID).
 					Msg("failed to update project with internal repo path")
 			}
+
+			// Create a GitRepository entry for the internal repo
+			internalRepoID := fmt.Sprintf("%s-internal", created.ID)
+			internalRepo := &store.GitRepository{
+				ID:             internalRepoID,
+				Name:           fmt.Sprintf("%s-internal", created.Name),
+				Description:    "Internal project repository for configuration and metadata",
+				OwnerID:        user.ID,
+				OrganizationID: created.OrganizationID,
+				ProjectID:      created.ID,
+				RepoType:       "helix_hosted",
+				Status:         "ready",
+				LocalPath:      internalRepoPath,
+				DefaultBranch:  "main",
+				MetadataJSON:   "{}",
+			}
+
+			err = s.Store.CreateGitRepository(r.Context(), internalRepo)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to create git repository entry for internal repo (continuing)")
+			}
 		}
 	} else {
 		// No real sample URL, create empty internal repo
@@ -166,6 +192,30 @@ func (s *HelixAPIServer) instantiateSampleProject(_ http.ResponseWriter, r *http
 					Err(err).
 					Str("project_id", created.ID).
 					Msg("failed to update project with internal repo path")
+			}
+
+			// Create a GitRepository entry for the internal repo
+			internalRepoID := fmt.Sprintf("%s-internal", created.ID)
+			internalRepo := &store.GitRepository{
+				ID:             internalRepoID,
+				Name:           fmt.Sprintf("%s-internal", created.Name),
+				Description:    "Internal project repository for configuration and metadata",
+				OwnerID:        user.ID,
+				OrganizationID: created.OrganizationID,
+				ProjectID:      created.ID,
+				RepoType:       "helix_hosted",
+				Status:         "ready",
+				LocalPath:      internalRepoPath,
+				DefaultBranch:  "main",
+				MetadataJSON:   "{}",
+			}
+
+			err = s.Store.CreateGitRepository(r.Context(), internalRepo)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("project_id", created.ID).
+					Msg("failed to create git repository entry for internal repo (continuing)")
 			}
 		}
 	}

@@ -432,6 +432,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      internalRepoPath,
 			DefaultBranch:  "main",
+			MetadataJSON:   "{}",
 		}
 
 		err = s.Store.CreateGitRepository(ctx, internalRepo)

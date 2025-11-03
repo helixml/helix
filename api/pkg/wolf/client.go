@@ -255,6 +255,39 @@ func (c *Client) CreateSession(ctx context.Context, session *Session) (string, e
 	return result.SessionID, nil
 }
 
+// ListSessions returns all active streaming sessions
+func (c *Client) ListSessions(ctx context.Context) ([]WolfStreamSession, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/v1/sessions", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success  bool                `json:"success"`
+		Sessions []WolfStreamSession `json:"sessions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return result.Sessions, nil
+}
+
 // StopSession stops a streaming session
 func (c *Client) StopSession(ctx context.Context, sessionID string) error {
 	body, err := json.Marshal(map[string]string{"session_id": sessionID})
