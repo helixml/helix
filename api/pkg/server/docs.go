@@ -4622,6 +4622,50 @@ const docTemplate = `{
             }
         },
         "/api/v1/question-sets/{id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List executions for the question set",
+                "tags": [
+                    "question-sets"
+                ],
+                "summary": "List question set executions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Question set ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.QuestionSetExecution"
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -4691,47 +4735,32 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/question-sets/{question_set_id}/executions": {
+        "/api/v1/question-sets/{question_set_id}/executions/{id}": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "List executions for the question set",
+                "description": "Get results for a question set execution",
                 "tags": [
                     "question-sets"
                 ],
-                "summary": "List question set executions",
+                "summary": "Get question set execution results",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Question set ID",
-                        "name": "question_set_id",
+                        "description": "Question set execution ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Offset",
-                        "name": "offset",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Limit",
-                        "name": "limit",
-                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.QuestionSetExecution"
-                            }
+                            "$ref": "#/definitions/types.QuestionSetExecution"
                         }
                     }
                 }
@@ -18976,18 +19005,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
