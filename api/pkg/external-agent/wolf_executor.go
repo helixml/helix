@@ -631,19 +631,46 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 	// Stop the lobby (tears down container)
 	if session.WolfLobbyID != "" {
+		// CRITICAL: Must provide PIN to stop lobby - read from database session
+		var lobbyPIN []int16
+
+		// Get PIN from database session (stored in Metadata.WolfLobbyPIN)
+		dbSession, err := w.store.GetSession(ctx, session.HelixSessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("session_id", session.HelixSessionID).Msg("Failed to get session for PIN, attempting stop without PIN")
+		} else if dbSession.Metadata.WolfLobbyPIN != "" {
+			// PIN is stored as "1234" string in database, convert to [1,2,3,4] slice
+			pinStr := dbSession.Metadata.WolfLobbyPIN
+			if len(pinStr) == 4 {
+				lobbyPIN = make([]int16, 4)
+				for i, ch := range pinStr {
+					lobbyPIN[i] = int16(ch - '0')
+				}
+				log.Debug().
+					Str("lobby_id", session.WolfLobbyID).
+					Str("lobby_pin", pinStr).
+					Msg("Retrieved lobby PIN from database session for stop request")
+			}
+		}
+
 		stopReq := &wolf.StopLobbyRequest{
 			LobbyID: session.WolfLobbyID,
-			// PIN not needed - Helix created the lobby, can stop it without PIN
+			PIN:     lobbyPIN, // CRITICAL: Wolf requires PIN to stop lobbies
 		}
-		err := w.wolfClient.StopLobby(ctx, stopReq)
+		err = w.wolfClient.StopLobby(ctx, stopReq)
 		if err != nil {
-			log.Error().Err(err).Str("lobby_id", session.WolfLobbyID).Msg("Failed to stop Wolf lobby")
+			log.Error().
+				Err(err).
+				Str("lobby_id", session.WolfLobbyID).
+				Interface("lobby_pin", lobbyPIN).
+				Msg("Failed to stop Wolf lobby")
 			// Continue with cleanup even if stop fails
+		} else {
+			log.Info().
+				Str("lobby_id", session.WolfLobbyID).
+				Str("session_id", sessionID).
+				Msg("Wolf lobby stopped successfully")
 		}
-		log.Info().
-			Str("lobby_id", session.WolfLobbyID).
-			Str("session_id", sessionID).
-			Msg("Wolf lobby stopped successfully")
 	} else {
 		// Fallback for old app-based sessions (backward compatibility during migration)
 		appID := fmt.Sprintf("zed-agent-%s", sessionID)

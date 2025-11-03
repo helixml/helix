@@ -75,38 +75,17 @@ import gitRepositoryService, {
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
-// Wrapper for ScreenshotViewer with custom overlay for Kanban cards
+// Minimal wrapper for ScreenshotViewer with custom overlay for Kanban cards
 const LiveAgentScreenshot: React.FC<{
   sessionId: string;
-  onNavigate: () => void;
-}> = ({ sessionId, onNavigate }) => {
-  const api = useApi();
-  const [wolfState, setWolfState] = React.useState<string>('loading');
-  const [hasWebsocket, setHasWebsocket] = React.useState<boolean>(false);
+  projectId?: string;
+}> = React.memo(({ sessionId, projectId }) => {
+  const account = useAccount();
 
-  // Fetch Wolf app state
-  React.useEffect(() => {
-    const apiClient = api.getApiClient();
-    const fetchState = async () => {
-      try {
-        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
-        if (response.data) {
-          setWolfState(response.data.state || 'absent');
-          setHasWebsocket(response.data.has_websocket || false);
-        }
-      } catch (err) {
-        console.error('Failed to fetch Wolf state:', err);
-      }
-    };
-
-    fetchState();
-    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [sessionId]); // Removed 'api' - getApiClient() is stable
-
-  // Determine if agent is running
-  const isRunning = wolfState === 'running' || wolfState === 'resumable';
-  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+  const handleClick = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    account.orgNavigate('project-session', { id: projectId, session_id: sessionId });
+  }, [account, projectId, sessionId]);
 
   return (
     <Box
@@ -125,43 +104,17 @@ const LiveAgentScreenshot: React.FC<{
           boxShadow: 2,
         },
         transition: 'all 0.2s',
-        // Hide "Loading desktop..." text that might flicker during refresh
-        '& > div > div': {
-          '&:has(> p)': {
-            display: 'none !important',
-          },
-        },
       }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onNavigate();
-      }}
+      onClick={handleClick}
     >
       <Box sx={{ position: 'relative', height: 150 }}>
-        {isRunning ? (
-          <ScreenshotViewer
-            sessionId={sessionId}
-            autoRefresh={true}
-            refreshInterval={3000}
-            enableStreaming={false}
-            showToolbar={false}
-          />
-        ) : (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              backgroundColor: '#1a1a1a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
-              Desktop Paused
-            </Typography>
-          </Box>
-        )}
+        <ScreenshotViewer
+          sessionId={sessionId}
+          autoRefresh={true}
+          refreshInterval={3000}
+          enableStreaming={false}
+          showToolbar={false}
+        />
       </Box>
       <Box
         sx={{
@@ -185,21 +138,10 @@ const LiveAgentScreenshot: React.FC<{
             Planning Agent
           </Typography>
         </Box>
-        <Chip
-          size="small"
-          label={isPaused ? 'PAUSED' : 'LIVE'}
-          sx={{
-            backgroundColor: isPaused ? 'grey.600' : 'error.main',
-            color: 'white',
-            height: 18,
-            fontSize: '0.65rem',
-            fontWeight: 600,
-          }}
-        />
       </Box>
     </Box>
   );
-};
+});
 
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
@@ -241,124 +183,140 @@ interface SpecTaskKanbanBoardProps {
   // repositories prop removed - repos are now managed at project level
 }
 
+// TaskCard component - moved outside to prevent recreation on every render
+const TaskCard: React.FC<{
+  task: SpecTaskWithExtras;
+  index: number;
+  columns: KanbanColumn[];
+  onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  projectId?: string;
+}> = ({ task, index, columns, onStartPlanning, onArchiveTask, projectId }) => {
+  const account = useAccount();
+
+  // Check if planning column is full
+  const planningColumn = columns.find(col => col.id === 'planning');
+  const isPlanningFull = planningColumn && planningColumn.limit
+    ? planningColumn.tasks.length >= planningColumn.limit
+    : false;
+
+  const handleStartPlanning = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onStartPlanning) {
+      await onStartPlanning(task);
+    }
+  };
+
+  return (
+    <Card
+      sx={{
+        mb: 1,
+        backgroundColor: 'background.paper',
+      }}
+    >
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', flex: 1 }}>
+            {task.name}
+          </Typography>
+          <Tooltip title={task.archived ? "Restore" : "Archive"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onArchiveTask) {
+                  onArchiveTask(task, !task.archived);
+                }
+              }}
+              sx={{ ml: 1 }}
+            >
+              {task.archived ? <RestoreIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Session chips - repositories managed at project level */}
+        {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
+            {(task.activeSessionsCount ?? 0) > 0 && (
+              <Chip
+                size="small"
+                label={`${task.activeSessionsCount ?? 0} Active`}
+                color="warning"
+              />
+            )}
+
+            {(task.completedSessionsCount ?? 0) > 0 && (
+              <Chip
+                size="small"
+                label={`${task.completedSessionsCount ?? 0} Done`}
+                color="success"
+              />
+            )}
+          </Box>
+        )}
+
+        {/* Live screenshot widget for active planning sessions */}
+        {task.spec_session_id && (
+          <LiveAgentScreenshot
+            sessionId={task.spec_session_id}
+            projectId={projectId}
+          />
+        )}
+
+        {/* Show "Start Planning" button only for backlog tasks */}
+        {task.phase === 'backlog' && (
+          <Box sx={{ mt: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              startIcon={<PlayIcon />}
+              onClick={handleStartPlanning}
+              disabled={isPlanningFull}
+              fullWidth
+            >
+              {isPlanningFull ? 'Planning Full' : 'Start Planning'}
+            </Button>
+            {isPlanningFull && (
+              <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
+                Planning column full ({planningColumn?.limit} max)
+              </Typography>
+            )}
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 const DroppableColumn: React.FC<{
   column: KanbanColumn;
   columns: KanbanColumn[];
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  projectId?: string;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, projectId, theme }): JSX.Element => {
   const router = useRouter();
+  const account = useAccount();
 
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
   // Render task card wrapper - simplified
   const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
-    const TaskCard: React.FC<{ task: SpecTaskWithExtras; index: number }> = ({ task, index }) => {
-      // Removed drag and drop functionality
-      const style = {
-        opacity: 1,
-      };
-
-      // Check if planning column is full
-      const planningColumn = columns.find(col => col.id === 'planning');
-      const isPlanningFull = planningColumn && planningColumn.limit
-        ? planningColumn.tasks.length >= planningColumn.limit
-        : false;
-
-      const handleStartPlanning = async (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent card click
-        if (onStartPlanning) {
-          await onStartPlanning(task);
-        }
-      };
-
-      return (
-        <Card
-          style={style}
-          sx={{
-            mb: 1,
-            backgroundColor: 'background.paper',
-          }}
-        >
-          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', flex: 1 }}>
-                {task.name}
-              </Typography>
-              <Tooltip title={task.archived ? "Restore" : "Archive"}>
-                <IconButton
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onArchiveTask) {
-                      onArchiveTask(task, !task.archived);
-                    }
-                  }}
-                  sx={{ ml: 1 }}
-                >
-                  {task.archived ? <RestoreIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-            </Box>
-
-            {/* Session chips - repositories managed at project level */}
-            {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
-                {(task.activeSessionsCount ?? 0) > 0 && (
-                  <Chip
-                    size="small"
-                    label={`${task.activeSessionsCount ?? 0} Active`}
-                    color="warning"
-                  />
-                )}
-
-                {(task.completedSessionsCount ?? 0) > 0 && (
-                  <Chip
-                    size="small"
-                    label={`${task.completedSessionsCount ?? 0} Done`}
-                    color="success"
-                  />
-                )}
-              </Box>
-            )}
-
-            {/* Live screenshot widget for active planning sessions */}
-            {task.spec_session_id && (
-              <LiveAgentScreenshot
-                sessionId={task.spec_session_id}
-                onNavigate={() => account.orgNavigate('session', { session_id: task.spec_session_id })}
-              />
-            )}
-
-            {/* Show "Start Planning" button only for backlog tasks */}
-            {task.phase === 'backlog' && (
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="warning"
-                  startIcon={<PlayIcon />}
-                  onClick={handleStartPlanning}
-                  disabled={isPlanningFull}
-                  fullWidth
-                >
-                  {isPlanningFull ? 'Planning Full' : 'Start Planning'}
-                </Button>
-                {isPlanningFull && (
-                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
-                    Planning column full ({planningColumn?.limit} max)
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      );
-    };
-
-    return <TaskCard key={task.id || `task-${index}`} task={task} index={index} />;
+    return (
+      <TaskCard
+        key={task.id || `task-${index}`}
+        task={task}
+        index={index}
+        columns={columns}
+        onStartPlanning={onStartPlanning}
+        onArchiveTask={onArchiveTask}
+        projectId={projectId}
+      />
+    );
   };
 
     return (
@@ -1268,6 +1226,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             columns={columns}
             onStartPlanning={handleStartPlanning}
             onArchiveTask={handleArchiveTask}
+            projectId={projectId}
             theme={theme}
           />
         ))}
