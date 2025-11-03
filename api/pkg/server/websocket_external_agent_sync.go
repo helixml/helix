@@ -484,6 +484,20 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Str("event_type", syncMsg.EventType).
 		Msg("Processing external agent sync message")
 
+	// Update activity tracking to prevent idle timeout for active sessions
+	// Get activity record to update last_interaction timestamp
+	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sessionID)
+	if err == nil && activity != nil {
+		// Activity record exists - update it to extend idle timeout
+		activity.LastInteraction = time.Now()
+		err = apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to update activity for WebSocket message")
+			// Non-fatal - continue processing message
+		}
+	}
+	// If no activity record exists, that's OK - might be an old session or non-external-agent session
+
 	// Process sync message directly
 	switch syncMsg.EventType {
 	case "thread_created":
