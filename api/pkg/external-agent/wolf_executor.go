@@ -64,7 +64,9 @@ func (w *WolfExecutor) getDesktopImage(desktop DesktopType) string {
 	case DesktopXFCE:
 		return "helix-xfce:latest"
 	case DesktopZorin:
-		return "helix-zorin:latest"
+		// TESTING: Use baseline GOW Zorin image to verify Wolf + GNOME works
+		// Once confirmed working, switch back to "helix-zorin:latest" and add Helix customizations
+		return "ghcr.io/mollomm1/gow-zorin-18:latest"
 	default:
 		return w.zedImage // Default to Sway (helix-sway:latest)
 	}
@@ -210,12 +212,14 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 				fmt.Sprintf("%s/wolf/xfce-config/xfce-settings.xml:/opt/gow/xfce-settings.xml:ro", helixHostHome),
 			)
 		case DesktopZorin:
-			mounts = append(mounts,
-				// startup.sh needs rw mount so entrypoint can chmod it (even though it's already executable)
-				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:rw", helixHostHome),
-				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
-			)
+			// TESTING: Commented out to use baseline GOW image's built-in startup scripts
+			// Once baseline image is confirmed working, uncomment these for Helix customizations
+			// mounts = append(mounts,
+			// 	// startup.sh needs rw mount so entrypoint can chmod it (even though it's already executable)
+			// 	fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:rw", helixHostHome),
+			// 	fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			// 	fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+			// )
 		}
 	} else {
 		log.Debug().
@@ -1763,15 +1767,15 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 				Strs("xfce_config_mounts", xfceMounts).
 				Msg("Added XFCE desktop config mounts")
 		case DesktopZorin:
-			zorinMounts := []string{
-				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
-				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
-			}
-			mounts = append(mounts, zorinMounts...)
-			log.Info().
-				Strs("zorin_config_mounts", zorinMounts).
-				Msg("Added Zorin/GNOME desktop config mounts")
+			// TESTING: Commented out to use baseline GOW image's built-in startup scripts
+			// Once baseline image is confirmed working, uncomment these for Helix customizations
+			// zorinMounts := []string{
+			// 	fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
+			// 	fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			// 	fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+			// }
+			// mounts = append(mounts, zorinMounts...)
+			log.Info().Msg("Using baseline GOW Zorin image with built-in scripts (testing mode)")
 		}
 	} else {
 		log.Info().Msg("Production mode - using files baked into desktop image")

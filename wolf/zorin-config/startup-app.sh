@@ -182,14 +182,24 @@ EOF
 
 echo "✅ GNOME autostart entries created"
 
-# Source GOW's launch-comp.sh and use Zorin's default startup flow
-# This will start: Xwayland → D-Bus → GNOME desktop (via /opt/gow/xorg.sh)
-echo "Starting GNOME via Zorin's default startup mechanism..."
+# ============================================================================
+# GNOME Session Startup via GOW xorg.sh
+# ============================================================================
+# CRITICAL: Must start Xwayland BEFORE launching GNOME
+# GOW's xorg.sh script handles:
+# 1. Starting Xwayland on display :9
+# 2. Waiting for X server to be ready
+# 3. Configuring display resolution
+# 4. Starting D-Bus daemon
+# 5. Launching GNOME desktop via desktop.sh
+#
+# We cannot launch GNOME directly because display :9 doesn't exist yet.
+# Wolf provides Wayland compositor, but Xwayland (for X11 apps) must be started by container.
 
-# CRITICAL: Unset RUN_SWAY to prevent GOW launcher from starting Sway
-# The base Zorin image includes both GNOME and Sway
-# GOW's launcher checks "if [ -n $RUN_SWAY ]" and starts Sway if set
-unset RUN_SWAY
+echo "Launching GNOME via GOW xorg.sh (starts Xwayland + GNOME desktop)..."
 
-source /opt/gow/launch-comp.sh
-launcher /opt/gow/xorg.sh
+# GOW's xorg.sh will handle the rest:
+# - Start Xwayland and wait for it
+# - Start D-Bus
+# - Call desktop.sh which launches gnome-session with proper environment
+exec /opt/gow/xorg.sh

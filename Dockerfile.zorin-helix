@@ -23,6 +23,22 @@ FROM ghcr.io/mollomm1/gow-zorin-18:latest
 ENV XDG_RUNTIME_DIR=/run/user/1000
 RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
 
+# CRITICAL FIX: Disable systemd-logind (not available in containers)
+# GNOME session manager tries to connect to systemd-logind for session management
+# In containers without systemd, this causes GNOME to fail and enter "failed session" mode
+# This workaround renames login1 files so GNOME falls back to working without systemd
+RUN for file in $(find /usr -type f -iname "*login1*" 2>/dev/null); do \
+    mv -v "$file" "$file.back" 2>/dev/null || true; \
+    done
+
+# Enable bubblewrap (bwrap) for application sandboxing - needed by GNOME
+RUN chmod u+s /usr/bin/bwrap 2>/dev/null || true
+
+# Ensure dbus-x11 is installed (required for D-Bus in X11 sessions)
+RUN apt-get update && \
+    apt-get install -y dbus-x11 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Add passwordless sudo and basic tools
 RUN apt-get update && \
     apt-get install -y sudo wget curl ca-certificates gnupg software-properties-common && \
