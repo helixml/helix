@@ -76,10 +76,10 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     echo "Configured git user.email: $GIT_USER_EMAIL"
 fi
 
-# Execute project startup script if provided
+# Execute project startup script if provided - run in terminal window
 if [ -n "$HELIX_PROJECT_STARTUP_SCRIPT" ]; then
     echo "========================================="
-    echo "Running project startup script..."
+    echo "Running project startup script in terminal..."
     echo "========================================="
 
     # Write startup script to temp file
@@ -87,27 +87,52 @@ if [ -n "$HELIX_PROJECT_STARTUP_SCRIPT" ]; then
     echo "$HELIX_PROJECT_STARTUP_SCRIPT" > "$STARTUP_SCRIPT_FILE"
     chmod +x "$STARTUP_SCRIPT_FILE"
 
-    # Execute startup script with timeout (5 minutes max)
-    if timeout 300 bash "$STARTUP_SCRIPT_FILE"; then
-        echo "========================================="
-        echo "✅ Project startup script completed successfully"
-        echo "========================================="
-    else
-        EXIT_CODE=$?
-        if [ $EXIT_CODE -eq 124 ]; then
-            echo "========================================="
-            echo "⚠️ Project startup script timed out after 5 minutes"
-            echo "========================================="
-        else
-            echo "========================================="
-            echo "⚠️ Project startup script failed with exit code $EXIT_CODE"
-            echo "Continuing anyway..."
-            echo "========================================="
-        fi
-    fi
+    # Create wrapper script that runs the startup script and handles errors
+    WRAPPER_SCRIPT="$WORK_DIR/.helix-startup-wrapper.sh"
+    cat > "$WRAPPER_SCRIPT" << 'WRAPPER_EOF'
+#!/bin/bash
+echo "========================================="
+echo "Running Project Startup Script..."
+echo "========================================="
+echo ""
 
-    # Clean up script file
-    rm -f "$STARTUP_SCRIPT_FILE"
+# Run the startup script with timeout (5 minutes max)
+if timeout 300 bash "$WORK_DIR/.helix-startup.sh"; then
+    echo ""
+    echo "========================================="
+    echo "✅ Startup script completed successfully"
+    echo "========================================="
+    echo ""
+    echo "Press Enter to close this window..."
+    read
+else
+    EXIT_CODE=$?
+    echo ""
+    echo "========================================="
+    if [ $EXIT_CODE -eq 124 ]; then
+        echo "⚠️ Startup script timed out after 5 minutes"
+    else
+        echo "❌ Startup script failed with exit code $EXIT_CODE"
+    fi
+    echo "========================================="
+    echo ""
+    echo "Waiting 60 seconds so you can see the error..."
+    for i in $(seq 60 -1 1); do
+        echo -ne "Closing in $i seconds... \r"
+        sleep 1
+    done
+    echo ""
+fi
+WRAPPER_EOF
+    chmod +x "$WRAPPER_SCRIPT"
+
+    # Launch terminal in background to run the wrapper script
+    # Use ghostty terminal emulator
+    ghostty --title="Project Startup Script" \
+            --working-directory="$WORK_DIR" \
+            bash "$WRAPPER_SCRIPT" &
+
+    echo "Startup script terminal launched (check right side of screen)"
 fi
 
 # Wait for settings-sync-daemon to create configuration
