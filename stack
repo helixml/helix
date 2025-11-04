@@ -254,7 +254,7 @@ EOF
   echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
   echo "  2. Build desktop container with Zed:"
   echo "     - XFCE (traditional overlapping windows): ./stack build-xfce"
-  echo "     - GNOME (full-featured desktop): ./stack build-gnome"
+  echo "     - GNOME (full-featured desktop): ./stack build-zorin"
   echo "     - Sway (lightweight tiling): ./stack build-sway"
   echo "  3. Start services: ./stack start"
 }
@@ -876,7 +876,7 @@ function build-xfce() {
   echo "✅ XFCE container build completed"
 }
 
-function build-gnome() {
+function build-zorin() {
   echo "🪟  Building GNOME/Zorin desktop container for Personal Dev Environments..."
 
   # Production mode: Always rebuild Zed from latest source in release mode
@@ -901,25 +901,25 @@ function build-gnome() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  echo "🔨 Building helix-gnome:latest container with Zed..."
+  echo "🔨 Building helix-zorin:latest container with Zed..."
 
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.zorin-helix \
-      -t helix-gnome:latest \
-      -t "registry.helixml.tech/helix/gnome-agent:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/gnome-agent:${GIT_TAG}" \
+      -t helix-zorin:latest \
+      -t "registry.helixml.tech/helix/zorin-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/zorin-agent:${GIT_TAG}" \
       .
   else
     docker build -f Dockerfile.zorin-helix \
-      -t helix-gnome:latest \
-      -t "registry.helixml.tech/helix/gnome-agent:${COMMIT_HASH}" \
+      -t helix-zorin:latest \
+      -t "registry.helixml.tech/helix/zorin-agent:${COMMIT_HASH}" \
       .
   fi
 
   if [ $? -eq 0 ]; then
     echo "✅ GNOME container built successfully"
-    echo "🪟  Custom GNOME image ready: helix-gnome:latest"
+    echo "🪟  Custom Zorin image ready: helix-zorin:latest"
     echo ""
     echo "Features added:"
     echo "  - GNOME desktop environment (full-featured with Zorin OS)"
@@ -935,16 +935,16 @@ function build-gnome() {
 
   # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/gnome-agent"
+    local IMAGE_BASE="registry.helixml.tech/helix/zorin-agent"
     if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ GNOME agent images pushed to registry successfully"
+      echo "✅ zorin agent images pushed to registry successfully"
     else
-      echo "⚠️  Failed to push GNOME agent images to registry (continuing anyway)"
+      echo "⚠️  Failed to push zorin agent images to registry (continuing anyway)"
     fi
     echo "📦 Registry images pushed"
   fi
 
-  echo "✅ GNOME container build completed"
+  echo "✅ zorin container build completed"
 }
 
 function build-moonlight-web() {
@@ -1517,7 +1517,7 @@ function help() {
   echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
   echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
   echo "  build-xfce         - Build XFCE desktop+Zed container and push to registry (traditional overlapping windows)"
-  echo "  build-gnome        - Build GNOME desktop+Zed container and push to registry (full-featured with Zorin)"
+  echo "  build-zorin        - Build GNOME desktop+Zed container and push to registry (full-featured with Zorin)"
   echo "  build-sway         - Build Sway desktop+Zed container and push to registry (lightweight tiling)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""

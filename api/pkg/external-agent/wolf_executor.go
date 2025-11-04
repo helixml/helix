@@ -25,7 +25,7 @@ type DesktopType string
 const (
 	DesktopSway  DesktopType = "sway"  // Lightweight tiling compositor (default)
 	DesktopXFCE  DesktopType = "xfce"  // Traditional desktop with overlapping windows
-	DesktopGnome DesktopType = "gnome" // Full GNOME desktop (Zorin)
+	DesktopZorin DesktopType = "zorin" // Full Zorin desktop (GNOME)
 )
 
 // WolfExecutor implements the Executor interface using Wolf API
@@ -63,8 +63,8 @@ func (w *WolfExecutor) getDesktopImage(desktop DesktopType) string {
 	switch desktop {
 	case DesktopXFCE:
 		return "helix-xfce:latest"
-	case DesktopGnome:
-		return "helix-gnome:latest"
+	case DesktopZorin:
+		return "helix-zorin:latest"
 	default:
 		return w.zedImage // Default to Sway (helix-sway:latest)
 	}
@@ -76,8 +76,8 @@ func parseDesktopType(desktopStr string) DesktopType {
 	switch strings.ToLower(desktopStr) {
 	case "xfce":
 		return DesktopXFCE
-	case "gnome", "zorin":
-		return DesktopGnome
+	case "zorin":
+		return DesktopZorin
 	case "sway", "":
 		return DesktopSway
 	default:
@@ -93,6 +93,9 @@ func parseDesktopType(desktopStr string) DesktopType {
 func getDesktopTypeFromEnv() DesktopType {
 	desktopEnv := os.Getenv("HELIX_DESKTOP")
 	if desktopEnv == "" {
+		log.Info().
+			Str("desktop_type", string(DesktopSway)).
+			Msg("HELIX_DESKTOP not set, using default Sway desktop")
 		return DesktopSway // Default to Sway
 	}
 	desktop := parseDesktopType(desktopEnv)
@@ -206,11 +209,11 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 				fmt.Sprintf("%s/wolf/xfce-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 				fmt.Sprintf("%s/wolf/xfce-config/xfce-settings.xml:/opt/gow/xfce-settings.xml:ro", helixHostHome),
 			)
-		case DesktopGnome:
+		case DesktopZorin:
 			mounts = append(mounts,
-				fmt.Sprintf("%s/wolf/gnome-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-				fmt.Sprintf("%s/wolf/gnome-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-				fmt.Sprintf("%s/wolf/gnome-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
 			)
 		}
 	} else {
@@ -1663,13 +1666,31 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	// Use consistent ID generation
 	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
 
+	log.Info().
+		Str("user_id", instance.UserID).
+		Str("environment_name", instance.EnvironmentName).
+		Str("instance_id", instance.InstanceID).
+		Str("wolf_app_id", wolfAppID).
+		Int("display_width", instance.DisplayWidth).
+		Int("display_height", instance.DisplayHeight).
+		Int("display_fps", instance.DisplayFPS).
+		Msg("Starting recreateWolfAppForInstance")
+
 	// Get workspace directory (should already exist)
 	workspaceDir := filepath.Join(w.workspaceBasePath, instance.InstanceID)
+	log.Debug().
+		Str("workspace_dir", workspaceDir).
+		Msg("Workspace directory path")
 
-	// Create Wolf app using the same Sway configuration as the main creation function
+	// Determine desktop type from environment variable
+	desktop := getDesktopTypeFromEnv()
+	log.Info().
+		Str("desktop_type", string(desktop)).
+		Msg("Desktop type determined for container")
+
+	// Create Wolf app using desktop-specific configuration
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		fmt.Sprintf("OPENAI_API_KEY=%s", os.Getenv("OPENAI_API_KEY")),
@@ -1683,23 +1704,83 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		// Enable user startup script execution
 		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
 	}
+
+	// Add desktop-specific environment variables
+	if desktop == DesktopSway {
+		// Sway needs RUN_SWAY flag for GOW launcher
+		env = append(env, "RUN_SWAY=1")
+		log.Info().Msg("Added RUN_SWAY=1 environment variable for Sway desktop")
+	} else {
+		log.Info().
+			Str("desktop_type", string(desktop)).
+			Msg("Skipping RUN_SWAY for non-Sway desktop (XFCE/GNOME detect automatically)")
+	}
+
+	log.Debug().
+		Strs("environment_variables", env).
+		Msg("Environment variables configured for container")
+
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
 	}
+	log.Debug().
+		Str("workspace_mount", mounts[0]).
+		Msg("Base workspace mount configured")
 
 	// Development mode: mount host files for hot-reloading
-	// Production mode: use files baked into helix-sway image
+	// Production mode: use files baked into desktop image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
 		helixHostHome := os.Getenv("HELIX_HOST_HOME")
-		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-		)
+		log.Info().
+			Str("helix_host_home", helixHostHome).
+			Msg("Development mode enabled - mounting host files for hot-reloading")
+
+		// Always mount Zed binary for all desktops
+		zedMount := fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome)
+		mounts = append(mounts, zedMount)
+		log.Debug().Str("zed_mount", zedMount).Msg("Added Zed binary mount")
+
+		// Mount desktop-specific config files based on desktop type
+		switch desktop {
+		case DesktopSway:
+			swayMounts := []string{
+				fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			}
+			mounts = append(mounts, swayMounts...)
+			log.Info().
+				Strs("sway_config_mounts", swayMounts).
+				Msg("Added Sway desktop config mounts")
+		case DesktopXFCE:
+			xfceMounts := []string{
+				fmt.Sprintf("%s/wolf/xfce-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/xfce-settings.xml:/opt/gow/xfce-settings.xml:ro", helixHostHome),
+			}
+			mounts = append(mounts, xfceMounts...)
+			log.Info().
+				Strs("xfce_config_mounts", xfceMounts).
+				Msg("Added XFCE desktop config mounts")
+		case DesktopZorin:
+			zorinMounts := []string{
+				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+			}
+			mounts = append(mounts, zorinMounts...)
+			log.Info().
+				Strs("zorin_config_mounts", zorinMounts).
+				Msg("Added Zorin/GNOME desktop config mounts")
+		}
+	} else {
+		log.Info().Msg("Production mode - using files baked into desktop image")
 	}
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
+	log.Info().
+		Str("container_hostname", containerHostname).
+		Msg("Container hostname configured")
 
 	baseCreateJSON := fmt.Sprintf(`{
   "Hostname": "%s",
@@ -1720,15 +1801,29 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
   }
 }`, containerHostname)
 
+	log.Debug().
+		Str("base_create_json", baseCreateJSON).
+		Msg("Container base configuration JSON")
+
 	// Use Wolf app ID as container name - matches the app ID for consistency
 	containerName := containerHostname
+
+	// Select appropriate desktop image based on desktop type
+	desktopImage := w.getDesktopImage(desktop)
+
+	log.Info().
+		Str("desktop_type", string(desktop)).
+		Str("image", desktopImage).
+		Str("container_name", containerName).
+		Str("instance_id", instance.InstanceID).
+		Msg("Creating Wolf app for instance with desktop environment")
 
 	// Use minimal app creation that exactly matches the working XFCE configuration
 	app := wolf.NewMinimalDockerApp(
 		wolfAppID, // ID
 		fmt.Sprintf("Personal Dev %s", instance.EnvironmentName), // Title (no colon to avoid Docker volume syntax issues)
-		containerName,       // URL-friendly name with hyphens
-		"helix-sway:latest", // Custom Sway image with modern Wayland support and Helix branding
+		containerName, // URL-friendly name with hyphens
+		desktopImage,  // Desktop-specific image (helix-sway, helix-xfce, or helix-zorin)
 		env,
 		mounts,
 		baseCreateJSON,
@@ -1737,21 +1832,42 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 		instance.DisplayFPS,    // Use stored display configuration
 	)
 
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Msg("Wolf app configuration prepared, attempting to remove existing app if present")
+
 	// Try to remove any existing app first to avoid conflicts
 	err := w.wolfClient.RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
+	} else {
+		log.Info().Str("wolf_app_id", wolfAppID).Msg("Removed existing Wolf app")
 	}
+
+	log.Info().
+		Str("wolf_app_id", wolfAppID).
+		Str("image", desktopImage).
+		Int("mount_count", len(mounts)).
+		Int("env_count", len(env)).
+		Msg("Adding Wolf app via Wolf API")
 
 	// Add the app to Wolf
 	err = w.wolfClient.AddApp(ctx, app)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("wolf_app_id", wolfAppID).
+			Str("image", desktopImage).
+			Str("desktop_type", string(desktop)).
+			Msg("Failed to add Wolf app")
 		return fmt.Errorf("failed to recreate Wolf app: %w", err)
 	}
 
 	log.Info().
 		Str("instance_id", instance.InstanceID).
 		Str("wolf_app_id", wolfAppID).
+		Str("desktop_type", string(desktop)).
+		Str("image", desktopImage).
 		Msg("Successfully recreated Wolf app for personal dev environment")
 
 	return nil

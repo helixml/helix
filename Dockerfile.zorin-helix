@@ -84,15 +84,16 @@ RUN mkdir -p /usr/share/backgrounds && \
 
 # Copy GNOME custom configuration (placed in image, GOW will set up proper user directories at runtime)
 RUN mkdir -p /cfg/gnome
-ADD wolf/gnome-config/dconf-settings.ini /cfg/gnome/dconf-settings.ini
+ADD wolf/zorin-config/dconf-settings.ini /cfg/gnome/dconf-settings.ini
 
 # Copy and setup Zed startup script
-ADD wolf/gnome-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
+ADD wolf/zorin-config/start-zed-helix.sh /usr/local/bin/start-zed-helix.sh
 RUN chmod +x /usr/local/bin/start-zed-helix.sh
 
 # Copy GOW startup script
-ADD wolf/gnome-config/startup-app.sh /opt/gow/startup-app.sh
-RUN chmod +x /opt/gow/startup-app.sh
+# Note: Zorin image calls /opt/gow/startup.sh (not startup-app.sh like other GOW images)
+ADD wolf/zorin-config/startup-app.sh /opt/gow/startup.sh
+RUN chmod +x /opt/gow/startup.sh
 
 # Copy welcome README template for workspace initialization
 RUN mkdir -p /opt/helix

@@ -61,7 +61,7 @@ type DesktopType string
 const (
     DesktopSway  DesktopType = "sway"  // Lightweight tiling compositor (default)
     DesktopXFCE  DesktopType = "xfce"  // Traditional desktop with overlapping windows
-    DesktopGnome DesktopType = "gnome" // Full GNOME desktop (Zorin)
+    DesktopZorin DesktopType = "zorin" // Full GNOME desktop (Zorin)
 )
 ```
 
@@ -74,8 +74,8 @@ func (w *WolfExecutor) getDesktopImage(desktop DesktopType) string {
     switch desktop {
     case DesktopXFCE:
         return "helix-xfce:latest"
-    case DesktopGnome:
-        return "helix-gnome:latest"
+    case DesktopZorin:
+        return "helix-zorin:latest"
     default:
         return w.zedImage // Default to Sway (helix-sway:latest)
     }
@@ -108,7 +108,7 @@ wolf/
 │   ├── startup-app.sh          # XFCE initialization
 │   ├── start-zed-helix.sh      # Zed launcher for XFCE
 │   └── xfce-settings.xml       # XFCE panel configuration
-└── gnome-config/
+└── zorin-config/
     ├── startup-app.sh          # GNOME initialization
     ├── start-zed-helix.sh      # Zed launcher for GNOME
     └── dconf-settings.ini      # GNOME dconf settings
@@ -186,7 +186,7 @@ wolf/
 
 **Configuration Files**:
 
-**`wolf/gnome-config/startup-app.sh`**:
+**`wolf/zorin-config/startup-app.sh`**:
 - Creates Zed state symlinks BEFORE desktop starts
 - Applies dconf settings from `/cfg/gnome/dconf-settings.ini`
 - Sets Helix wallpaper via gsettings
@@ -196,12 +196,12 @@ wolf/
 - Sources GOW's launch-comp.sh for GNOME launcher
 - Executes start-zed-helix.sh
 
-**`wolf/gnome-config/start-zed-helix.sh`**:
+**`wolf/zorin-config/start-zed-helix.sh`**:
 - Similar to XFCE version, but expects Wayland only (GNOME requires Wayland)
 - No X11 fallback (GNOME/Zorin is Wayland-native)
 - Errors if WAYLAND_DISPLAY not set
 
-**`wolf/gnome-config/dconf-settings.ini`**:
+**`wolf/zorin-config/dconf-settings.ini`**:
 ```ini
 # Desktop Background - Helix Logo
 [org/gnome/desktop/background]
@@ -237,7 +237,7 @@ exec='ghostty'
 1. **Added DesktopType enum and helpers** (lines 22-104):
    - `DesktopType` type with three constants
    - `getDesktopImage()` - Maps desktop type to Docker image name
-   - `parseDesktopType()` - Parses desktop type string (supports "gnome", "zorin" → DesktopGnome)
+   - `parseDesktopType()` - Parses desktop type string
    - `getDesktopTypeFromEnv()` - Reads HELIX_DESKTOP environment variable
 
 2. **Updated SwayWolfAppConfig** (line 115):
@@ -251,7 +251,7 @@ exec='ghostty'
    - Mounts desktop-specific config files in dev mode:
      - Sway: `wolf/sway-config/*`
      - XFCE: `wolf/xfce-config/*`
-     - GNOME: `wolf/gnome-config/*`
+     - Zorin: `wolf/zorin-config/*`
    - Passes desktop image to `wolf.NewMinimalDockerApp()`
 
 4. **Updated callers to use desktop selection**:
@@ -277,10 +277,10 @@ exec='ghostty'
 - Also tags with commit hash and git tag (for registry)
 - Optionally pushes to registry in production mode
 
-**`build-gnome()`**:
+**`build-zorin()`**:
 - Same structure as build-xfce
 - Builds Docker image from `Dockerfile.zorin-helix`
-- Tags as `helix-gnome:latest`
+- Tags as `helix-zorin:latest`
 - Also tags with commit hash and git tag (for registry)
 - Optionally pushes to registry in production mode
 
@@ -301,7 +301,7 @@ export HELIX_DESKTOP=xfce
 ./stack start
 
 # Use GNOME (full-featured desktop)
-export HELIX_DESKTOP=gnome
+export HELIX_DESKTOP=zorin
 ./stack start
 
 # Use Sway (lightweight tiling - default)
@@ -313,12 +313,12 @@ export HELIX_DESKTOP=sway  # or omit for default
 ```yaml
 api:
   environment:
-    - HELIX_DESKTOP=xfce  # or gnome, or sway
+    - HELIX_DESKTOP=xfce  # or zorin, or sway
 ```
 
 **Accepted values**:
 - `xfce` → XFCE desktop
-- `gnome` or `zorin` → GNOME desktop
+- `zorin` → Zorin desktop
 - `sway` or empty → Sway (default)
 - Unknown values → Logs warning, defaults to Sway
 
@@ -328,7 +328,7 @@ api:
 ```bash
 ./stack build-sway   # Sway tiling compositor
 ./stack build-xfce   # XFCE traditional desktop
-./stack build-gnome  # GNOME/Zorin full desktop
+./stack build-zorin  # GNOME/Zorin full desktop
 ```
 
 **Build workflow**:
@@ -341,7 +341,7 @@ api:
 **Image sizes** (approximate):
 - helix-sway:latest → ~2.5GB
 - helix-xfce:latest → ~2.8GB
-- helix-gnome:latest → ~3.5GB
+- helix-zorin:latest → ~3.5GB
 
 ### Development Mode
 
@@ -364,9 +364,9 @@ $HELIX_HOST_HOME/wolf/xfce-config/xfce-settings.xml → /opt/gow/xfce-settings.x
 
 **GNOME**:
 ```
-$HELIX_HOST_HOME/wolf/gnome-config/startup-app.sh → /opt/gow/startup-app.sh
-$HELIX_HOST_HOME/wolf/gnome-config/start-zed-helix.sh → /usr/local/bin/start-zed-helix.sh
-$HELIX_HOST_HOME/wolf/gnome-config/dconf-settings.ini → /cfg/gnome/dconf-settings.ini
+$HELIX_HOST_HOME/wolf/zorin-config/startup-app.sh → /opt/gow/startup-app.sh
+$HELIX_HOST_HOME/wolf/zorin-config/start-zed-helix.sh → /usr/local/bin/start-zed-helix.sh
+$HELIX_HOST_HOME/wolf/zorin-config/dconf-settings.ini → /cfg/gnome/dconf-settings.ini
 ```
 
 **Benefits**:
@@ -386,12 +386,12 @@ $HELIX_HOST_HOME/wolf/gnome-config/dconf-settings.ini → /cfg/gnome/dconf-setti
 
 1. **Build the desktop image**:
    ```bash
-   ./stack build-xfce  # or build-gnome
+   ./stack build-xfce  # or build-zorin
    ```
 
 2. **Set environment variable**:
    ```bash
-   export HELIX_DESKTOP=xfce  # or gnome
+   export HELIX_DESKTOP=xfce  # or zorin
    ```
 
 3. **Start Helix stack**:
@@ -504,7 +504,7 @@ $HELIX_HOST_HOME/wolf/gnome-config/dconf-settings.ini → /cfg/gnome/dconf-setti
 
 **Mitigation**:
 - User explicitly requested higher resource usage as acceptable
-- GNOME only used when HELIX_DESKTOP=gnome
+- GNOME only used when HELIX_DESKTOP=zorin
 - XFCE middle ground at ~250MB
 - Sway remains default for resource-constrained deployments
 
@@ -561,7 +561,7 @@ Allow specifying desktop when creating PDE or external agent:
 ```typescript
 createPersonalDevEnvironment({
     name: "My PDE",
-    desktop: "xfce",  // or "gnome", "sway"
+    desktop: "xfce",  // or "zorin", "sway"
 })
 ```
 

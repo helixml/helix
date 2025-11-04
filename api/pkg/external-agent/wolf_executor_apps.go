@@ -1153,9 +1153,15 @@ sudo chown -R retro:retro ~/work
 }
 
 func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPIToken string) *wolf.App {
+	// Determine desktop type (use from config if set, otherwise default to Sway)
+	desktop := config.Desktop
+	if desktop == "" {
+		desktop = DesktopSway
+	}
+
+	// Build base environment variables
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
@@ -1167,6 +1173,14 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 		fmt.Sprintf("HELIX_API_TOKEN=%s", helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
 	}
+
+	// Add desktop-specific environment variables
+	if desktop == DesktopSway {
+		// Sway needs RUN_SWAY flag for GOW launcher
+		env = append(env, "RUN_SWAY=1")
+	}
+	// XFCE and GNOME don't need special flags - GOW detects them automatically
+
 	env = append(env, config.ExtraEnv...)
 
 	mounts := []string{
@@ -1175,21 +1189,42 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 	}
 
 	// Development mode: bind-mount Zed build and startup scripts from host
-	// Production mode: these are baked into the ZED_IMAGE
+	// Production mode: these are baked into the desktop image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
 		helixHostHome := os.Getenv("HELIX_HOST_HOME")
 		log.Info().
 			Str("helix_host_home", helixHostHome).
+			Str("desktop_type", string(desktop)).
 			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
 
-		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-		)
+		// Always mount Zed binary for all desktops
+		mounts = append(mounts, fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome))
+
+		// Mount desktop-specific config files based on desktop type
+		switch desktop {
+		case DesktopSway:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
+		case DesktopXFCE:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/xfce-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/xfce-settings.xml:/opt/gow/xfce-settings.xml:ro", helixHostHome),
+			)
+		case DesktopZorin:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+			)
+		}
 	} else {
-		log.Debug().Msg("Production mode - using files baked into helix-sway image")
+		log.Debug().
+			Str("desktop_type", string(desktop)).
+			Msg("Production mode - using files baked into desktop image")
 	}
 
 	// Add SSH keys if available
