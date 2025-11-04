@@ -19,6 +19,15 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// DesktopType represents the desktop environment to use for streaming
+type DesktopType string
+
+const (
+	DesktopSway  DesktopType = "sway"  // Lightweight tiling compositor (default)
+	DesktopXFCE  DesktopType = "xfce"  // Traditional desktop with overlapping windows
+	DesktopGnome DesktopType = "gnome" // Full GNOME desktop (Zorin)
+)
+
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
 	wolfClient WolfClientInterface
@@ -49,6 +58,51 @@ func (w *WolfExecutor) generateWolfAppID(userID, environmentName string) string 
 	return fmt.Sprintf("%d", numericHash%1000000000) // Max 9 digits
 }
 
+// getDesktopImage returns the Docker image name for the specified desktop type
+func (w *WolfExecutor) getDesktopImage(desktop DesktopType) string {
+	switch desktop {
+	case DesktopXFCE:
+		return "helix-xfce:latest"
+	case DesktopGnome:
+		return "helix-gnome:latest"
+	default:
+		return w.zedImage // Default to Sway (helix-sway:latest)
+	}
+}
+
+// parseDesktopType parses a desktop type string and returns the DesktopType enum
+// Returns DesktopSway if the string is empty or unknown
+func parseDesktopType(desktopStr string) DesktopType {
+	switch strings.ToLower(desktopStr) {
+	case "xfce":
+		return DesktopXFCE
+	case "gnome", "zorin":
+		return DesktopGnome
+	case "sway", "":
+		return DesktopSway
+	default:
+		log.Warn().
+			Str("desktop_type", desktopStr).
+			Msg("Unknown desktop type, defaulting to Sway")
+		return DesktopSway
+	}
+}
+
+// getDesktopTypeFromEnv reads HELIX_DESKTOP environment variable and returns the desktop type
+// Defaults to Sway if not set or invalid
+func getDesktopTypeFromEnv() DesktopType {
+	desktopEnv := os.Getenv("HELIX_DESKTOP")
+	if desktopEnv == "" {
+		return DesktopSway // Default to Sway
+	}
+	desktop := parseDesktopType(desktopEnv)
+	log.Info().
+		Str("helix_desktop_env", desktopEnv).
+		Str("desktop_type", string(desktop)).
+		Msg("Desktop type selected from HELIX_DESKTOP environment variable")
+	return desktop
+}
+
 // generateLobbyPIN generates a random 4-digit PIN for lobby access control
 func generateLobbyPIN() ([]int16, string) {
 	pin := make([]int16, 4)
@@ -73,14 +127,30 @@ type SwayWolfAppConfig struct {
 	DisplayWidth      int
 	DisplayHeight     int
 	DisplayFPS        int
+	Desktop           DesktopType // Desktop environment to use (Sway, XFCE, Gnome)
 }
 
-// createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
+// createSwayWolfApp creates a Wolf app with specified desktop compositor (shared between PDEs and external agents)
+// Note: Function name kept as createSwayWolfApp for backward compatibility, but now supports multiple desktops
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
-	// Build base environment variables (common to all Sway apps)
+	// Determine desktop type (default to Sway if not specified)
+	desktop := config.Desktop
+	if desktop == "" {
+		desktop = DesktopSway
+	}
+
+	// Select appropriate Docker image for desktop type
+	desktopImage := w.getDesktopImage(desktop)
+
+	log.Info().
+		Str("desktop_type", string(desktop)).
+		Str("image", desktopImage).
+		Str("wolf_app_id", config.WolfAppID).
+		Msg("Creating Wolf app with desktop environment")
+
+	// Build base environment variables (common to all desktop environments)
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
-		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
@@ -95,30 +165,58 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"SETTINGS_SYNC_PORT=9877",
 	}
 
+	// Add desktop-specific environment variables
+	if desktop == DesktopSway {
+		// Sway needs RUN_SWAY flag for GOW launcher
+		env = append(env, "RUN_SWAY=1")
+	}
+	// XFCE and GNOME don't need special flags - GOW detects them automatically
+
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
 
-	// Build standard mounts (common to all Sway apps)
+	// Build standard mounts (common to all desktop environments)
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", config.WorkspaceDir),
 		"/var/run/docker.sock:/var/run/docker.sock",
 	}
 
 	// Development mode: mount host files for hot-reloading
-	// Production mode: use files baked into helix-sway image
+	// Production mode: use files baked into desktop image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
 		helixHostHome := os.Getenv("HELIX_HOST_HOME")
 		log.Info().
 			Str("helix_host_home", helixHostHome).
+			Str("desktop_type", string(desktop)).
 			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
 
-		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
-		)
+		// Always mount Zed binary for all desktops
+		mounts = append(mounts, fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome))
+
+		// Mount desktop-specific config files based on desktop type
+		switch desktop {
+		case DesktopSway:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
+		case DesktopXFCE:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/xfce-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/xfce-config/xfce-settings.xml:/opt/gow/xfce-settings.xml:ro", helixHostHome),
+			)
+		case DesktopGnome:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/gnome-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/gnome-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/gnome-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
+			)
+		}
 	} else {
-		log.Debug().Msg("Production mode - using files baked into helix-sway image")
+		log.Debug().
+			Str("desktop_type", string(desktop)).
+			Msg("Production mode - using files baked into desktop image")
 	}
 
 	// Add SSH keys mount if user has SSH keys
@@ -153,12 +251,12 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
   }
 }`, config.ContainerHostname)
 
-	// Create Wolf app
+	// Create Wolf app with selected desktop image
 	return wolf.NewMinimalDockerApp(
 		config.WolfAppID,
 		config.Title,
 		config.ContainerHostname,
-		w.zedImage, // Now uses helix-sway:latest for both PDEs and external agents
+		desktopImage, // Uses image based on desktop type (Sway/XFCE/Gnome)
 		env,
 		mounts,
 		baseCreateJSON,
@@ -388,6 +486,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
+	// Determine desktop type from environment variable
+	desktop := getDesktopTypeFromEnv()
+
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
@@ -418,6 +519,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
+			Desktop:           desktop, // Use desktop type from environment
 		}).Runner, // Use the runner config from the app
 	}
 
@@ -741,6 +843,9 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
+	// Determine desktop type from environment variable
+	desktop := getDesktopTypeFromEnv()
+
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
@@ -771,6 +876,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayFPS,
+			Desktop:           desktop, // Use desktop type from environment
 		}).Runner,
 	}
 
@@ -1488,6 +1594,9 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 	// Generate new PIN since we don't have the old one
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
 
+	// Determine desktop type from environment variable
+	desktop := getDesktopTypeFromEnv()
+
 	// Create lobby request
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
@@ -1518,6 +1627,7 @@ func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.Perso
 			DisplayWidth:      pde.DisplayWidth,
 			DisplayHeight:     pde.DisplayHeight,
 			DisplayFPS:        pde.DisplayFPS,
+			Desktop:           desktop, // Use desktop type from environment
 		}).Runner,
 	}
 

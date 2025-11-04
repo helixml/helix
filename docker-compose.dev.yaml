@@ -277,6 +277,8 @@ services:
         - WOLF_USE_ZERO_COPY=TRUE
         # Internal moonlight-web pairing PIN (secure random, shared via env)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        # which desktop environment to use
+        - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         # Mount init script into container init directory

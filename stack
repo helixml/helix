@@ -252,7 +252,10 @@ EOF
   echo ""
   echo "Next steps:"
   echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
-  echo "  2. Build Sway container with Zed: ./stack build-sway"
+  echo "  2. Build desktop container with Zed:"
+  echo "     - XFCE (traditional overlapping windows): ./stack build-xfce"
+  echo "     - GNOME (full-featured desktop): ./stack build-gnome"
+  echo "     - Sway (lightweight tiling): ./stack build-sway"
   echo "  3. Start services: ./stack start"
 }
 
@@ -800,6 +803,148 @@ function build-sway() {
   fi
 
   echo "✅ Sway container build completed"
+}
+
+function build-xfce() {
+  echo "🪟  Building XFCE desktop container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom XFCE image
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-xfce:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.xfce-helix \
+      -t helix-xfce:latest \
+      -t "registry.helixml.tech/helix/xfce-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/xfce-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.xfce-helix \
+      -t helix-xfce:latest \
+      -t "registry.helixml.tech/helix/xfce-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ XFCE container built successfully"
+    echo "🪟  Custom XFCE image ready: helix-xfce:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - XFCE desktop environment (traditional overlapping windows)"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
+  else
+    echo "❌ Failed to build XFCE container"
+    exit 1
+  fi
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/xfce-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ XFCE agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push XFCE agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  echo "✅ XFCE container build completed"
+}
+
+function build-gnome() {
+  echo "🪟  Building GNOME/Zorin desktop container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom GNOME image
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-gnome:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.zorin-helix \
+      -t helix-gnome:latest \
+      -t "registry.helixml.tech/helix/gnome-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/gnome-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.zorin-helix \
+      -t helix-gnome:latest \
+      -t "registry.helixml.tech/helix/gnome-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ GNOME container built successfully"
+    echo "🪟  Custom GNOME image ready: helix-gnome:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - GNOME desktop environment (full-featured with Zorin OS)"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
+  else
+    echo "❌ Failed to build GNOME container"
+    exit 1
+  fi
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/gnome-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ GNOME agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push GNOME agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  echo "✅ GNOME container build completed"
 }
 
 function build-moonlight-web() {
@@ -1371,8 +1516,9 @@ function help() {
   echo "Production build commands:"
   echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
   echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
-  echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
-  echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
+  echo "  build-xfce         - Build XFCE desktop+Zed container and push to registry (traditional overlapping windows)"
+  echo "  build-gnome        - Build GNOME desktop+Zed container and push to registry (full-featured with Zorin)"
+  echo "  build-sway         - Build Sway desktop+Zed container and push to registry (lightweight tiling)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
   echo "Zed Agent commands:"
