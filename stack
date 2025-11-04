@@ -823,13 +823,13 @@ function build-moonlight-web() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  # Determine build mode: always use release (fast, optimized)
-  # Set BUILD_MODE=debug to override for debugging purposes
-  local BUILD_MODE="${BUILD_MODE:-release}"
-  if [ "$BUILD_MODE" = "release" ]; then
+  # Determine build mode: production mode always uses release, dev mode uses debug
+  local BUILD_MODE="debug"
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    BUILD_MODE="release"
     echo "🔨 Building Moonlight Web container from source (RELEASE MODE)..."
   else
-    echo "🔨 Building Moonlight Web container from source (DEBUG MODE)..."
+    echo "🔨 Building Moonlight Web container from source (debug mode)..."
   fi
   cd ../moonlight-web-stream
 
