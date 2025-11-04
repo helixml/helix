@@ -18,7 +18,7 @@ we need to run `sudo modprobe vgem` before running `./stack start` inside Helix.
 ## dev machine
 
 ```
-ssh kai@code.helix.ml
+ssh kai@dev.code.helix.ml
 ```
 
 From local:

@@ -216,6 +216,25 @@ EOF
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+o exec onlyoffice-desktopeditors" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+    echo "# Keyboard resize mode (alternative to Alt+Right-click mouse resize)" >> $HOME/.config/sway/config
+    echo "# Press Super+r to enter resize mode, use arrows/hjkl to resize, Escape to exit" >> $HOME/.config/sway/config
+    echo "mode \"resize\" {" >> $HOME/.config/sway/config
+    echo "    # Vim-style resize bindings" >> $HOME/.config/sway/config
+    echo "    bindsym h resize shrink width 10px" >> $HOME/.config/sway/config
+    echo "    bindsym j resize grow height 10px" >> $HOME/.config/sway/config
+    echo "    bindsym k resize shrink height 10px" >> $HOME/.config/sway/config
+    echo "    bindsym l resize grow width 10px" >> $HOME/.config/sway/config
+    echo "    # Arrow key resize bindings" >> $HOME/.config/sway/config
+    echo "    bindsym Left resize shrink width 10px" >> $HOME/.config/sway/config
+    echo "    bindsym Down resize grow height 10px" >> $HOME/.config/sway/config
+    echo "    bindsym Up resize shrink height 10px" >> $HOME/.config/sway/config
+    echo "    bindsym Right resize grow width 10px" >> $HOME/.config/sway/config
+    echo "    # Exit resize mode" >> $HOME/.config/sway/config
+    echo "    bindsym Return mode \"default\"" >> $HOME/.config/sway/config
+    echo "    bindsym Escape mode \"default\"" >> $HOME/.config/sway/config
+    echo "}" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+r mode \"resize\"" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     # echo "# Window management keybindings" >> $HOME/.config/sway/config
     # echo "bindsym \$mod+f fullscreen toggle" >> $HOME/.config/sway/config
     # echo "bindsym \$mod+Shift+space floating toggle" >> $HOME/.config/sway/config

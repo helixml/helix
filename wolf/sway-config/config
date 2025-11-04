@@ -143,6 +143,34 @@ titlebar_separator disable
 # }
 
 # ===================================================================
+# Window Dragging and Resizing (Mouse Interaction)
+# ===================================================================
+
+# Enable Alt+click dragging for all windows (both floating and tiling)
+# Alt+Left-click: Drag window to move
+# Alt+Right-click: Drag to resize from ANY POINT on window (not just borders!)
+# NOTE: Sway has NO "resize grab area" setting - border thickness is purely visual.
+# Use Alt+Right-click for easy resizing instead of trying to target tiny border edges.
+floating_modifier Mod1 normal
+
+# Moderate border thickness for visibility (not resize targeting)
+default_border pixel 3
+
+# Floating windows get normal borders with title bars
+default_floating_border normal
+
+# Visual gaps between windows to improve resize targeting
+# Space between adjacent windows
+gaps inner 6
+
+# Space at screen edges
+gaps outer 2
+
+# Smart border behavior: hide when single window, show when multiple
+# Provides clean look for focused work, organized look for multitasking
+smart_borders no_gaps
+
+# ===================================================================
 # Floating Window Configuration (Traditional Desktop Behavior)
 # ===================================================================
 
