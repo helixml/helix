@@ -17,6 +17,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ====================================================================
 FROM ghcr.io/mollomm1/gow-zorin-18:latest
 
+# CRITICAL FIX: Zorin base image init script expects XDG_RUNTIME_DIR but doesn't set it
+# This causes "chown: cannot access '': No such file or directory" and container exits
+# Set the environment variable and create the directory with proper permissions
+ENV XDG_RUNTIME_DIR=/run/user/1000
+RUN mkdir -p /run/user/1000 && chmod 700 /run/user/1000
+
 # Add passwordless sudo and basic tools
 RUN apt-get update && \
     apt-get install -y sudo wget curl ca-certificates gnupg software-properties-common && \

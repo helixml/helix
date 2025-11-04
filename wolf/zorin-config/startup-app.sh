@@ -1,7 +1,59 @@
 #!/bin/bash
 # GOW GNOME startup script for Helix Personal Dev Environment
+
+# ============================================================================
+# CRITICAL DEBUG SECTION - MUST BE FIRST (before set -e)
+# ============================================================================
+# This debug wrapper ensures we can see what's happening even if script crashes
+# Writes to both stdout (Wolf logs) AND file (for container inspection)
+
+DEBUG_LOG=/tmp/zorin-startup-debug.log
+
+# Redirect all output to both stdout and debug log file
+exec 1> >(tee -a "$DEBUG_LOG")
+exec 2>&1
+
+echo "=== ZORIN STARTUP DEBUG START $(date) ==="
+echo "User: $(whoami)"
+echo "UID: $(id -u)"
+echo "GID: $(id -g)"
+echo "Groups: $(groups)"
+echo "Home: $HOME"
+echo "PWD: $PWD"
+echo "Shell: $SHELL"
+
+echo ""
+echo "=== ENVIRONMENT VARIABLES ==="
+echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-NOT SET}"
+echo "HELIX_SESSION_ID: ${HELIX_SESSION_ID:-NOT SET}"
+echo "HELIX_API_URL: ${HELIX_API_URL:-NOT SET}"
+echo "HELIX_API_TOKEN: ${HELIX_API_TOKEN:+[REDACTED]}"
+
+echo ""
+echo "=== CRITICAL FILE CHECKS ==="
+echo "Zed binary exists: $([ -f /zed-build/zed ] && echo YES || echo NO)"
+echo "Zed binary executable: $([ -x /zed-build/zed ] && echo YES || echo NO)"
+echo "Workspace mount exists: $([ -d /home/retro/work ] && echo YES || echo NO)"
+echo "GOW launch script exists: $([ -f /opt/gow/launch-comp.sh ] && echo YES || echo NO)"
+echo "GOW xorg script exists: $([ -f /opt/gow/xorg.sh ] && echo YES || echo NO)"
+
+echo ""
+echo "=== DIRECTORY PERMISSIONS ==="
+ls -la /home/retro/ 2>&1 || echo "Cannot list /home/retro/"
+ls -la /home/retro/work 2>&1 || echo "Cannot list /home/retro/work"
+
+# Trap EXIT to show exit code and keep container alive for debugging
+# Container will stay alive 5 minutes for log inspection
+trap 'EXIT_CODE=$?; echo ""; echo "=== SCRIPT EXITING WITH CODE $EXIT_CODE at $(date) ==="; echo "Container will stay alive 5 minutes for log inspection..."; sleep 300' EXIT
+
+echo ""
+echo "=== DEBUG SETUP COMPLETE - NOW ENABLING STRICT ERROR CHECKING ==="
+
+# NOW enable strict error checking (after debug setup is complete)
 set -e
 
+echo ""
+echo "=== NORMAL STARTUP BEGINS ==="
 echo "Starting Helix Personal Dev Environment with GNOME/Zorin..."
 
 # Create symlink to Zed binary if not exists

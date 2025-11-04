@@ -211,7 +211,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 			)
 		case DesktopZorin:
 			mounts = append(mounts,
-				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:ro", helixHostHome),
+				// startup.sh needs rw mount so entrypoint can chmod it (even though it's already executable)
+				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:rw", helixHostHome),
 				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
 			)
