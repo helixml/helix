@@ -124,7 +124,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	// Build environment variables
 	extraEnv := []string{
 		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=zed-session-%s", agent.SessionID),
-		fmt.Sprintf("HELIX_SCOPE_TYPE=session"),
+		"HELIX_SCOPE_TYPE=session",
 		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
 		fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID),
 		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
@@ -135,11 +135,11 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	// Display settings with defaults
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 3840  // 4K width
+		displayWidth = 3840 // 4K width
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 2160  // 4K height
+		displayHeight = 2160 // 4K height
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
@@ -269,7 +269,7 @@ func (w *AppWolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAge
 	response := &types.ZedAgentResponse{
 		SessionID:     agent.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
+		StreamURL:     "moonlight://localhost:47989",
 		Status:        "starting",
 		ContainerName: containerHostname,
 		WolfAppID:     wolfAppID,
@@ -497,7 +497,7 @@ func (w *AppWolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Co
 		DisplayFPS:      displayFPS,
 		ContainerName:   containerHostname,
 		VNCPort:         5901,
-		StreamURL:       fmt.Sprintf("moonlight://localhost:47989"),
+		StreamURL:       "moonlight://localhost:47989",
 	}
 
 	pde, err = w.store.CreatePersonalDevEnvironment(ctx, pde)
@@ -728,7 +728,7 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppMulti(ctx context.Conte
 		"video_sample_queue_size": 10,
 		"play_audio_local":        false,
 		"audio_sample_queue_size": 10,
-		"video_supported_formats": 1,        // H264 only
+		"video_supported_formats": 1, // H264 only
 		"video_colorspace":        "Rec709",
 		"video_color_range_full":  false,
 	}
@@ -851,17 +851,17 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 	// - Browser: "agent-{sessionID}" → Fresh session/streamer, but same client_unique_id → auto-RESUME!
 	authMsg := map[string]interface{}{
 		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),                      // Use MOONLIGHT_CREDENTIALS for auth
-			"session_id":              fmt.Sprintf("agent-%s-kickoff", sessionID),              // KICKOFF session ID (separate from browser)
-			"mode":                    "keepalive",                                             // Keepalive mode (no WebRTC)
-			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),                // SAME client ID as browser → enables RESUME
-			"host_id":                 0,                                                       // Local Wolf instance
-			"app_id":                  uint32(appIDUint),                                       // Connect to the Wolf app (u32)
-			"bitrate":                 20000,                                                   // Match agent display settings
+			"credentials":             os.Getenv("MOONLIGHT_CREDENTIALS"),         // Use MOONLIGHT_CREDENTIALS for auth
+			"session_id":              fmt.Sprintf("agent-%s-kickoff", sessionID), // KICKOFF session ID (separate from browser)
+			"mode":                    "keepalive",                                // Keepalive mode (no WebRTC)
+			"client_unique_id":        fmt.Sprintf("helix-agent-%s", sessionID),   // SAME client ID as browser → enables RESUME
+			"host_id":                 0,                                          // Local Wolf instance
+			"app_id":                  uint32(appIDUint),                          // Connect to the Wolf app (u32)
+			"bitrate":                 20000,                                      // Match agent display settings
 			"packet_size":             1024,
-			"fps":                     displayFPS,     // Use agent's configured FPS
-			"width":                   displayWidth,   // Use agent's configured width
-			"height":                  displayHeight,  // Use agent's configured height
+			"fps":                     displayFPS,    // Use agent's configured FPS
+			"width":                   displayWidth,  // Use agent's configured width
+			"height":                  displayHeight, // Use agent's configured height
 			"video_sample_queue_size": 10,
 			"play_audio_local":        false,
 			"audio_sample_queue_size": 10,

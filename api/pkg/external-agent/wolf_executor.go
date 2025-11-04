@@ -120,8 +120,8 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string   // User ID for SSH key mounting
-	SessionID         string   // Session ID for settings sync daemon
+	UserID            string // User ID for SSH key mounting
+	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	DisplayWidth      int
@@ -457,7 +457,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	extraEnv := []string{
 		// Agent identification (used for WebSocket connection)
 		fmt.Sprintf("HELIX_AGENT_INSTANCE_ID=%s", agentInstanceID),
-		fmt.Sprintf("HELIX_SCOPE_TYPE=session"),
+		"HELIX_SCOPE_TYPE=session",
 		fmt.Sprintf("HELIX_SCOPE_ID=%s", agent.SessionID),
 
 		// CRITICAL: Use actual Helix session ID for WebSocket communication
@@ -494,7 +494,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Agent must keep running when no Moonlight clients connected!
+		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
@@ -557,11 +557,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	response := &types.ZedAgentResponse{
 		SessionID:     agent.SessionID,
 		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
+		StreamURL:     "moonlight://localhost:47989",
 		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
 		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString, // NEW: Return PIN for storage in Helix session
+		WolfLobbyPIN:  lobbyPINString,    // NEW: Return PIN for storage in Helix session
 	}
 
 	log.Info().
@@ -851,7 +851,7 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("PDE: %s", environmentName),
 		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
+		StopWhenEveryoneLeaves: false,    // CRITICAL: Keep running when clients disconnect
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
@@ -896,10 +896,10 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 	pde := &types.PersonalDevEnvironment{
 		ID:              instanceID,
 		UserID:          userID,
-		AppID:           appID, // Original Helix App ID for configuration
-		WolfAppID:       wolfAppID, // Keep for backward compatibility
+		AppID:           appID,             // Original Helix App ID for configuration
+		WolfAppID:       wolfAppID,         // Keep for backward compatibility
 		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
-		WolfLobbyPIN:    lobbyPINString, // NEW: Store PIN for access control
+		WolfLobbyPIN:    lobbyPINString,    // NEW: Store PIN for access control
 		EnvironmentName: environmentName,
 		Status:          "running", // Container is running immediately with lobbies
 		LastActivity:    time.Now(),
@@ -908,8 +908,8 @@ func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Conte
 		DisplayFPS:      displayFPS,
 		ContainerName:   containerName,
 		VNCPort:         5901,
-		StreamURL:       fmt.Sprintf("moonlight://localhost:47989"), // Moonlight streaming
-		WolfSessionID:   "", // No longer used with lobbies
+		StreamURL:       "moonlight://localhost:47989", // Moonlight streaming
+		WolfSessionID:   "",                            // No longer used with lobbies
 	}
 
 	pde, err = w.store.CreatePersonalDevEnvironment(ctx, pde)
@@ -960,8 +960,8 @@ func (w *WolfExecutor) buildPersonalDevZedCommand(userID, appID, instanceID stri
 		fmt.Sprintf("ZED_INSTANCE_ID=%s", instanceID),
 		fmt.Sprintf("ZED_USER_ID=%s", userID),
 		fmt.Sprintf("ZED_APP_ID=%s", appID),
-		fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
-		fmt.Sprintf("ZED_WORK_DIR=/workspace"),
+		"ZED_INSTANCE_TYPE=personal_dev",
+		"ZED_WORK_DIR=/workspace",
 		"DISPLAY=:0",
 		"WAYLAND_DISPLAY=wayland-1",
 	}
@@ -2015,22 +2015,22 @@ func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID,
 	// mode=keepalive: creates session without WebRTC peer (headless)
 	authMsg := map[string]interface{}{
 		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":                "helix",                          // From moonlight-web config
-			"session_id":                 fmt.Sprintf("agent-%s", sessionID), // NEW: persistent session ID
-			"mode":                       "keepalive",                      // NEW: keepalive mode (no WebRTC)
-			"host_id":                    0,                                // Local Wolf instance
-			"app_id":                     wolfAppID,                        // Connect to lobby's Wolf app
-			"bitrate":                    5000,                             // Minimal bitrate for keepalive
-			"packet_size":                1024,
-			"fps":                        30,
-			"width":                      1280,
-			"height":                     720,
-			"video_sample_queue_size":    10,
-			"play_audio_local":           false,
-			"audio_sample_queue_size":    10,
-			"video_supported_formats":    1,     // H264 only
-			"video_colorspace":           "Rec709", // String format for new API
-			"video_color_range_full":     false,
+			"credentials":             "helix",                            // From moonlight-web config
+			"session_id":              fmt.Sprintf("agent-%s", sessionID), // NEW: persistent session ID
+			"mode":                    "keepalive",                        // NEW: keepalive mode (no WebRTC)
+			"host_id":                 0,                                  // Local Wolf instance
+			"app_id":                  wolfAppID,                          // Connect to lobby's Wolf app
+			"bitrate":                 5000,                               // Minimal bitrate for keepalive
+			"packet_size":             1024,
+			"fps":                     30,
+			"width":                   1280,
+			"height":                  720,
+			"video_sample_queue_size": 10,
+			"play_audio_local":        false,
+			"audio_sample_queue_size": 10,
+			"video_supported_formats": 1,        // H264 only
+			"video_colorspace":        "Rec709", // String format for new API
+			"video_color_range_full":  false,
 		},
 	}
 
