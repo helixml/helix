@@ -323,7 +323,8 @@ services:
         - default
       environment:
         # Enable trace logging for debugging UDP/streaming issues
-        - RUST_LOG=moonlight_common=trace,moonlight_web=trace
+        # Reduce webrtc_sctp noise to warn level (debug floods logs with peer_last_tsn messages)
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,webrtc_sctp=warn
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
         # Moonlight credentials for API authentication (must match config.json)
