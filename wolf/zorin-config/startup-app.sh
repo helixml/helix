@@ -79,13 +79,29 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 echo "✅ Zed state symlinks created"
 
 # ============================================================================
+# Incremental Feature Addition: screenshot-server
+# ============================================================================
+# Create GNOME autostart directory
+mkdir -p ~/.config/autostart
+
+# Create autostart entry for screenshot server
+cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Screenshot Server
+Exec=/usr/local/bin/screenshot-server
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3
+NoDisplay=true
+EOF
+
+echo "✅ screenshot-server autostart entry created"
+
+# ============================================================================
 # GNOME Session Startup via GOW xorg.sh
 # ============================================================================
 # Launch GNOME via GOW's proven xorg.sh script
 # This handles: Xwayland startup → D-Bus → GNOME session
-#
-# NO CUSTOM AUTOSTART ENTRIES IN THIS MINIMAL VERSION
-# Once this baseline works, we can add features incrementally
 
-echo "Launching GNOME via GOW xorg.sh (MINIMAL - no custom autostart)..."
+echo "Launching GNOME via GOW xorg.sh..."
 exec /opt/gow/xorg.sh

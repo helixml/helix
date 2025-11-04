@@ -45,9 +45,9 @@ RUN apt-get update && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     rm -rf /var/lib/apt/lists/*
 
-# Install grim for Wayland screenshots (required by screenshot-server)
+# Install screenshot tools: grim for Wayland/Sway, scrot for X11/GNOME
 RUN apt-get update && \
-    apt-get install -y grim && \
+    apt-get install -y grim scrot && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy settings-sync-daemon and screenshot-server binaries from Go build stage
