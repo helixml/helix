@@ -45,6 +45,7 @@ type VLLMRuntime struct {
 	ready              bool                           // True when vLLM is ready to handle requests
 	processTracker     *ProcessTracker                // Process tracker for monitoring
 	slotID             *uuid.UUID                     // Associated slot ID
+	originalCtx        context.Context                // Context passed to most recent Start() call
 }
 
 type VLLMRuntimeParams struct {
@@ -175,9 +176,17 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("cache dir is not writable: %s", v.cacheDir)
 	}
 
-	// Prepare vLLM cmd context (a cancel context)
+	// Store context from most recent Start() call for runtime lifecycle operations
+	// This ensures that long-running operations (like model downloads) are not
+	// cancelled when the client request context times out
+	v.originalCtx = ctx
+	originalCtx := v.originalCtx
+
+	// Prepare vLLM cmd context (a cancel context derived from original)
+	// This child context is used for the command process itself and can be
+	// cancelled independently without affecting the original context
 	log.Debug().Msg("Preparing vLLM context")
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(originalCtx)
 	v.cancel = cancel
 	var err error
 	defer func() {
@@ -187,7 +196,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start vLLM cmd
+	// Start vLLM cmd - uses child context so it can be cancelled independently
 	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
@@ -239,6 +248,9 @@ func (v *VLLMRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUI
 
 func (v *VLLMRuntime) Stop() error {
 	defer v.cancel() // Cancel the context no matter what
+
+	// Clear original context so future Start() calls can use a new context
+	v.originalCtx = nil
 
 	// Mark as not ready when stopping
 	v.ready = false
