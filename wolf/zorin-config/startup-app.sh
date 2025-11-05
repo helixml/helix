@@ -79,10 +79,44 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 echo "✅ Zed state symlinks created"
 
 # ============================================================================
-# Incremental Feature Addition: screenshot-server
+# GNOME Autostart Entries Configuration
 # ============================================================================
 # Create GNOME autostart directory
 mkdir -p ~/.config/autostart
+
+echo "Creating GNOME autostart entries for Helix services..."
+
+# Create script to configure GNOME display settings
+# This fixes HiDPI scaling artifacts by disabling experimental fractional scaling
+cat > /tmp/configure-gnome-display.sh <<'EOF'
+#!/bin/bash
+# Configure GNOME display settings for proper HiDPI scaling
+
+echo "Configuring GNOME display settings..."
+
+# Disable experimental fractional scaling to use true integer scaling
+# This fixes artifacts in Settings panel and other GTK apps at 200% scaling
+# Without this, GNOME treats even 200% as fractional and upscales from 100%
+gsettings set org.gnome.mutter experimental-features "[]"
+
+echo "✅ GNOME display settings configured (integer scaling enabled)"
+EOF
+
+sudo mv /tmp/configure-gnome-display.sh /usr/local/bin/configure-gnome-display.sh
+sudo chmod +x /usr/local/bin/configure-gnome-display.sh
+
+# Create autostart entry for GNOME display configuration (runs first)
+cat > ~/.config/autostart/helix-display-config.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Helix Display Configuration
+Exec=/usr/local/bin/configure-gnome-display.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1
+NoDisplay=true
+EOF
+
+echo "✅ GNOME display configuration autostart entry created"
 
 # Create autostart entry for screenshot server
 cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
@@ -96,6 +130,41 @@ NoDisplay=true
 EOF
 
 echo "✅ screenshot-server autostart entry created"
+
+# Create autostart entry for settings-sync-daemon
+# Pass environment variables via script wrapper
+cat > /tmp/start-settings-sync-daemon.sh <<EOF
+#!/bin/bash
+exec env HELIX_SESSION_ID="$HELIX_SESSION_ID" HELIX_API_URL="$HELIX_API_URL" HELIX_API_TOKEN="$HELIX_API_TOKEN" /usr/local/bin/settings-sync-daemon > /tmp/settings-sync.log 2>&1
+EOF
+sudo mv /tmp/start-settings-sync-daemon.sh /usr/local/bin/start-settings-sync-daemon.sh
+sudo chmod +x /usr/local/bin/start-settings-sync-daemon.sh
+
+cat > ~/.config/autostart/settings-sync-daemon.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Settings Sync Daemon
+Exec=/usr/local/bin/start-settings-sync-daemon.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3
+NoDisplay=true
+EOF
+
+echo "✅ settings-sync-daemon autostart entry created"
+
+# Create autostart entry for Zed (starts after settings are ready)
+cat > ~/.config/autostart/zed-helix.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Zed Helix Editor
+Exec=/usr/local/bin/start-zed-helix.sh
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5
+NoDisplay=false
+Icon=zed
+EOF
+
+echo "✅ Zed autostart entry created"
 
 # ============================================================================
 # GNOME Session Startup via GOW xorg.sh

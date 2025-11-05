@@ -1282,4 +1282,321 @@ Copy this for each stage:
 
 ---
 
+## Implementation Session: 2025-11-04 - Stage 1.5 Through Stage 2 Complete
+
+**Date**: November 4, 2025
+**Participants**: Kai, Claude
+**Goal**: Implement incremental Zorin/GNOME desktop integration with debugging
+
+### Stage 1: Minimal GNOME Fixes (COMPLETED ✅)
+
+**Changes Made**:
+1. **Backed up existing Dockerfile** → `Dockerfile.zorin-helix.old`
+2. **Created minimal Dockerfile.zorin-helix**:
+   - XDG_RUNTIME_DIR setup (prevents container exit)
+   - systemd-logind workaround (prevents "failed session")
+   - bwrap setuid (enables app sandboxing)
+   - dbus-x11 package (D-Bus session integration)
+   - Passwordless sudo (for future scripts)
+
+3. **Updated `wolf_executor.go`**:
+   - Changed from `ghcr.io/mollomm1/gow-zorin-18:latest` → `helix-zorin:latest`
+   - Config mounts remained commented out (using baseline GOW scripts)
+
+**Testing Results**:
+- ✅ GNOME desktop appeared without errors
+- ✅ No "failed session" or "login1" errors in logs
+- ✅ Desktop was fully interactive (Files, Settings worked)
+
+### Stage 1.5: Minimal Baseline for Incremental Testing (COMPLETED ✅)
+
+**Problem Identified**:
+Stage 2 attempt showed:
+1. Desktop stuck on blue/launch screen
+2. Screenshot server returning 500 errors
+3. Too many features added at once (hard to debug)
+
+**Solution: Strip Down to Minimal Baseline**
+
+Created minimal `startup-app.sh` with ONLY:
+- ✅ Debug logging
+- ✅ Zed binary symlink
+- ✅ Zed state persistence symlinks
+- ✅ Launch GNOME via GOW's xorg.sh
+
+**Removed for incremental re-addition**:
+- ❌ ALL autostart entries (GNOME settings, screenshot-server, settings-sync-daemon, Zed)
+
+**Documentation Created**:
+- `wolf/zorin-config/REMOVED_FEATURES.md` - Documents what was removed and how to add back incrementally
+
+**Testing Results**:
+- ✅ GNOME desktop appeared without errors
+- ✅ No screen lock warnings
+- ✅ Desktop fully usable
+- ✅ Clean baseline established
+
+### Screenshot Server Deep Dive & Fix (COMPLETED ✅)
+
+**Initial Problem**:
+```
+api-1  | 2025-11-04T17:02:25Z ERR pkg/server/external_agent_handlers.go:684 > Failed to get screenshot from container error="Get \"http://zed-external-01k97x1fw939nr9n37vvzz88ab:9876/screenshot\": dial tcp 172.19.0.15:9876: connect: connection refused"
+```
+
+**Investigation Process**:
+
+1. **Confirmed binaries exist**:
+   - ✅ `/usr/local/bin/screenshot-server` present (5.6MB)
+   - ✅ `grim` installed
+   - ❌ screenshot-server not running (removed autostart in minimal baseline)
+
+2. **Manual testing revealed root cause**:
+   ```bash
+   $ docker exec -u retro <container> bash -c "WAYLAND_DISPLAY=wayland-1 grim /tmp/test.png"
+   compositor doesn't support wlr-screencopy-unstable-v1
+   ```
+
+   **Critical Discovery**: `grim` only works with wlroots compositors (Sway), NOT with GNOME/Mutter!
+
+3. **Solution: Use scrot for X11/GNOME**:
+   ```bash
+   $ docker exec -u retro <container> bash -c "DISPLAY=:9 scrot /tmp/test.png"
+   # Created 9.4MB screenshot - SUCCESS!
+   ```
+
+**Changes Made**:
+
+1. **Modified `screenshot-server/main.go`** (api/cmd/screenshot-server/main.go:45-139):
+   - Auto-detects screenshot method
+   - **Tries X11/scrot first** (for GNOME/Zorin with DISPLAY=:9)
+   - **Falls back to Wayland/grim** (for Sway)
+   - Now works with both desktop environments!
+
+2. **Updated Dockerfile.zorin-helix** (line 48-51):
+   - Installs **both scrot and grim**
+   - Supports both X11 (GNOME) and Wayland (Sway) screenshots
+
+3. **Added screenshot-server autostart** to `startup-app.sh`:
+   - Creates GNOME autostart entry
+   - Launches 3 seconds after desktop
+
+4. **Fixed script permissions**:
+   - `chmod +x /home/kai/projects/helix/wolf/zorin-config/start-zed-helix.sh`
+   - Previously had 644 (not executable), preventing autostart
+
+**Testing Results**:
+- ✅ screenshot-server starts automatically
+- ✅ Port 9876 listening
+- ✅ Screenshots captured successfully via API
+- ✅ No more 500 errors in logs
+
+### XWayland vs Wayland Architecture Clarification (RESEARCH ✅)
+
+**User Question**: "Are we not able to get Zorin to run on Wayland rather than XWayland?"
+
+**Key Clarification**:
+- **GNOME session type**: Wayland vs X11 (the compositor/display server)
+- **Individual apps**: Native Wayland vs XWayland (compatibility layer for X11 apps)
+
+**The Architecture** (Zorin OS 18 default):
+
+```
+GNOME Session: WAYLAND MODE (using Mutter compositor)
+├─ Native Wayland App → Wayland Protocol → GNOME/Mutter ✅ SHARP
+└─ X11 App → XWayland → Wayland Protocol → GNOME/Mutter ❌ CAN BE BLURRY (Mutter 46)
+```
+
+**Which Apps are Wayland-Native?**
+
+All Zorin/GNOME core apps are **native Wayland**:
+- ✅ GNOME Settings: GTK4 + native Wayland (ported in GNOME 46)
+- ✅ GNOME Files, Terminal: GTK4/GTK3 + native Wayland
+- ✅ Dash-to-Panel extension: JavaScript + GNOME Shell (runs in compositor)
+- ✅ Tiling Shell extension: JavaScript + GNOME Shell
+- ✅ **Zed editor**: Blade backend with native Wayland support
+
+**Conclusion**: GNOME IS already running on Wayland! XWayland only affects legacy X11 apps. Since Zed is native Wayland, no blur issues for our primary application.
+
+### HiDPI Scaling Research & Display Artifacts (RESEARCH ✅)
+
+**User Observation**: Settings control panel shows artifacts at 200% scaling
+
+**Research Findings**:
+
+#### 1. Mutter Version Limitation
+- **Zorin OS 18**: Uses Mutter 46.2 (based on Ubuntu 24.04 LTS)
+- **Fix available in**: Mutter 47.0+ (`xwayland-native-scaling` experimental feature)
+- **Impact**: XWayland apps appear blurry with fractional scaling in Mutter 46.x
+
+#### 2. The "200% Problem"
+When GNOME's **experimental fractional scaling** is enabled:
+- Even 200% is treated as fractional scaling
+- GNOME renders at 100% then upscales
+- This causes artifacts even in native Wayland apps!
+
+**Solution**: Disable experimental fractional scaling
+```bash
+gsettings set org.gnome.mutter experimental-features "[]"
+```
+This makes 200% use **true 2x integer scaling** (sharp, no upscaling)
+
+#### 3. GTK4 Cursor/Scaling Bug
+- **Reported**: GTK4 apps on HiDPI scaling (125%, 150%, 200%)
+- **Symptoms**: Cursor artifacts, rendering glitches
+- **Error**: "cursor image size is not an integer multiple of theme size"
+- **Fix**: Expected in GTK 4.18 (due March 2025)
+
+#### 4. Dynamic Scaling Issues
+Switching between 100%, 200%, etc. at runtime has known issues:
+- Some users report **shell freezing** when changing scale factors
+- May require restarting GNOME Shell or logging out/in
+- Can cause screen tearing and visual glitches
+- Particularly problematic with Nvidia GPUs on Wayland
+
+#### 5. Wolf Streaming & Scaling
+Scaling happens **before** Wolf captures:
+```
+GNOME @ 200% scale → Rendered framebuffer (4K pixels) → Wolf captures → WebRTC encode → Client
+```
+- ✅ Scaling happens server-side (no client performance penalty)
+- ✅ Client receives final rendered image
+- ✅ Better than client-side scaling (which would compress then upscale)
+
+### Stage 2 Complete: Full Integration with Display Fixes (COMPLETED ✅)
+
+**Final Changes to `startup-app.sh`**:
+
+1. **GNOME Display Configuration** (runs first, delay: 1s):
+   - Creates `/usr/local/bin/configure-gnome-display.sh`
+   - Disables experimental fractional scaling: `gsettings set org.gnome.mutter experimental-features "[]"`
+   - **Fixes artifacts** by enabling true integer 2x scaling at 200%
+
+2. **screenshot-server** (delay: 3s):
+   - Launches screenshot capture service
+   - Uses scrot for X11/GNOME, grim for Wayland/Sway
+
+3. **settings-sync-daemon** (delay: 3s):
+   - Creates `/usr/local/bin/start-settings-sync-daemon.sh` wrapper
+   - Passes environment variables (HELIX_SESSION_ID, HELIX_API_URL, HELIX_API_TOKEN)
+   - Syncs Zed configuration from Helix API
+
+4. **Zed Editor** (delay: 5s):
+   - Launches Zed automatically via `/usr/local/bin/start-zed-helix.sh`
+   - Waits for settings-sync-daemon to create config
+   - Auto-restarts on window close (development hot-reload)
+
+**Autostart Entry Timing**:
+```
+T+0s:  GNOME session starts
+T+1s:  configure-gnome-display.sh (disable fractional scaling)
+T+3s:  screenshot-server + settings-sync-daemon (parallel)
+T+5s:  Zed launches (after config synced)
+```
+
+### Key Learnings & Decisions
+
+#### 1. Screenshot Tools by Desktop Environment
+- **Sway (Wayland)**: `grim` (wlr-screencopy protocol)
+- **GNOME (XWayland)**: `scrot` (X11 screenshots)
+- **Solution**: screenshot-server auto-detects and tries both
+
+#### 2. HiDPI Scaling Best Practices
+- **Integer scaling (100%, 200%)**: Always sharp
+- **Fractional scaling (125%, 150%, 175%)**: Blurry in XWayland apps (Mutter 46)
+- **Recommendation**: Use 200% with experimental fractional scaling DISABLED
+
+#### 3. Incremental Development Critical
+- Starting with minimal baseline (Stage 1.5) made debugging possible
+- Adding features one at a time identifies exact breakage point
+- Documentation (REMOVED_FEATURES.md) guides incremental additions
+
+#### 4. Native Wayland Apps Win
+- Zed editor (native Wayland) = perfect HiDPI at any scale
+- GNOME apps (GTK4, native Wayland) = mostly perfect
+- XWayland apps (legacy X11) = can be blurry with fractional scaling
+
+### Testing Checklist for Next Session
+
+**Build & Deploy**:
+```bash
+# Rebuild image with all Stage 2 changes
+./stack build-zorin
+
+# Restart Wolf to use new image
+docker compose -f docker-compose.dev.yaml down wolf
+docker compose -f docker-compose.dev.yaml up -d wolf
+
+# Create NEW Zorin session (existing containers won't pick up changes)
+```
+
+**Verification Steps**:
+- [ ] GNOME desktop appears without errors
+- [ ] Screenshots work (no 500 errors in API logs)
+- [ ] Settings panel has no artifacts at 200% scaling
+- [ ] Zed launches automatically within ~10 seconds
+- [ ] Zed connects to WebSocket
+- [ ] settings-sync-daemon syncs config
+- [ ] Bidirectional message sync works (Helix UI ↔ Zed)
+
+### Files Modified This Session
+
+1. **Dockerfile.zorin-helix**:
+   - Added Go build stage for daemons
+   - Installed scrot + grim (dual screenshot support)
+   - Copied binaries and scripts
+
+2. **api/cmd/screenshot-server/main.go**:
+   - Added auto-detection for screenshot method
+   - Tries scrot (X11) first, falls back to grim (Wayland)
+
+3. **wolf/zorin-config/startup-app.sh**:
+   - Created minimal baseline
+   - Added GNOME display configuration
+   - Added 4 autostart entries (display config, screenshot, sync daemon, Zed)
+
+4. **wolf/zorin-config/start-zed-helix.sh**:
+   - Fixed permissions (chmod +x)
+
+5. **api/pkg/external-agent/wolf_executor.go**:
+   - Changed to use helix-zorin:latest
+   - Uncommented Zorin config mounts
+
+6. **wolf/zorin-config/REMOVED_FEATURES.md** (NEW):
+   - Documents incremental feature addition strategy
+
+### Next Steps (Stage 3+)
+
+**Stage 3: Developer Tools**
+- Git, SSH, Docker CLI
+- Git/SSH configuration
+
+**Stage 4: User Applications**
+- Firefox, Ghostty, OnlyOffice
+- Add one at a time, test each
+
+**Stage 5: Visual Customization**
+- Helix logo background
+- Dark theme
+- Disable screen blanking
+
+**Stage 6: Optional Enhancements**
+- Additional GNOME settings
+- Performance tuning
+
+### Research References
+
+**HiDPI & Scaling**:
+- GNOME Settings ported to GTK4 in GNOME 46 (March 2024)
+- Mutter 47.0 introduced `xwayland-native-scaling` (not in Zorin OS 18)
+- GTK4 cursor bug fix expected in GTK 4.18 (March 2025)
+- Zorin OS 18 uses Mutter 46.2 from Ubuntu 24.04 LTS
+
+**XWayland Architecture**:
+- XWayland is compatibility layer, not session type
+- GNOME runs in Wayland mode by default
+- Native Wayland apps bypass XWayland entirely
+- All GNOME/GTK4 apps are native Wayland
+
+---
+
 **END OF GUIDE**
