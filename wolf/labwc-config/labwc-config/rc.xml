@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<labwc_config>
+
+  <!-- Window behavior -->
+  <core>
+    <decoration>server</decoration>
+    <gap>10</gap>
+  </core>
+
+  <!-- Theme -->
+  <theme>
+    <name>Adwaita-dark</name>
+    <cornerRadius>8</cornerRadius>
+    <font place="ActiveWindow">
+      <name>Ubuntu</name>
+      <size>11</size>
+      <slant>normal</slant>
+      <weight>bold</weight>
+    </font>
+  </theme>
+
+  <!-- Keyboard shortcuts -->
+  <keyboard>
+    <!-- Window management -->
+    <keybind key="W-q">
+      <action name="Close"/>
+    </keybind>
+
+    <keybind key="A-F4">
+      <action name="Close"/>
+    </keybind>
+
+    <keybind key="W-f">
+      <action name="ToggleFullscreen"/>
+    </keybind>
+
+    <keybind key="W-m">
+      <action name="ToggleMaximize"/>
+    </keybind>
+
+    <!-- Applications -->
+    <keybind key="W-Return">
+      <action name="Execute" command="ghostty"/>
+    </keybind>
+
+    <keybind key="W-d">
+      <action name="Execute" command="rofi -show drun -show-icons"/>
+    </keybind>
+
+    <keybind key="W-e">
+      <action name="Execute" command="zed"/>
+    </keybind>
+
+    <keybind key="W-w">
+      <action name="Execute" command="firefox"/>
+    </keybind>
+
+    <!-- Workspace switching -->
+    <keybind key="W-1">
+      <action name="GoToDesktop" to="1"/>
+    </keybind>
+
+    <keybind key="W-2">
+      <action name="GoToDesktop" to="2"/>
+    </keybind>
+
+    <keybind key="W-3">
+      <action name="GoToDesktop" to="3"/>
+    </keybind>
+
+    <keybind key="W-4">
+      <action name="GoToDesktop" to="4"/>
+    </keybind>
+
+    <!-- Window snapping -->
+    <keybind key="W-Left">
+      <action name="SnapToEdge" direction="left"/>
+    </keybind>
+
+    <keybind key="W-Right">
+      <action name="SnapToEdge" direction="right"/>
+    </keybind>
+
+    <keybind key="W-Up">
+      <action name="SnapToEdge" direction="up"/>
+    </keybind>
+
+    <keybind key="W-Down">
+      <action name="SnapToEdge" direction="down"/>
+    </keybind>
+
+    <!-- Window cycling -->
+    <keybind key="A-Tab">
+      <action name="NextWindow"/>
+    </keybind>
+
+    <keybind key="A-S-Tab">
+      <action name="PreviousWindow"/>
+    </keybind>
+  </keyboard>
+
+  <!-- Mouse bindings -->
+  <mouse>
+    <default/>
+    <context name="TitleBar">
+      <mousebind button="Left" action="Drag">
+        <action name="Move"/>
+      </mousebind>
+      <mousebind button="Left" action="DoubleClick">
+        <action name="ToggleMaximize"/>
+      </mousebind>
+      <mousebind button="Right" action="Press">
+        <action name="ShowMenu" menu="client-menu"/>
+      </mousebind>
+    </context>
+    <context name="Client">
+      <mousebind button="W-Left" action="Drag">
+        <action name="Move"/>
+      </mousebind>
+      <mousebind button="W-Right" action="Drag">
+        <action name="Resize"/>
+      </mousebind>
+    </context>
+  </mouse>
+
+  <!-- Workspaces -->
+  <desktops>
+    <number>4</number>
+  </desktops>
+
+  <!-- Window rules -->
+  <windowRules>
+    <!-- Make dialogs float and center -->
+    <windowRule type="dialog">
+      <action name="MoveTo" x="center" y="center"/>
+    </windowRule>
+  </windowRules>
+
+</labwc_config>

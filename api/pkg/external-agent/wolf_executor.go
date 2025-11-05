@@ -23,9 +23,11 @@ import (
 type DesktopType string
 
 const (
-	DesktopSway  DesktopType = "sway"  // Lightweight tiling compositor (default)
-	DesktopXFCE  DesktopType = "xfce"  // Traditional desktop with overlapping windows
-	DesktopZorin DesktopType = "zorin" // Full Zorin desktop (GNOME)
+	DesktopSway    DesktopType = "sway"    // Lightweight tiling compositor (default)
+	DesktopXFCE    DesktopType = "xfce"    // Traditional desktop with overlapping windows
+	DesktopZorin   DesktopType = "zorin"   // Full Zorin desktop (GNOME)
+	DesktopLabwc   DesktopType = "labwc"   // Lightweight floating compositor (Openbox-style Wayland)
+	DesktopWayfire DesktopType = "wayfire" // 3D Wayland compositor with effects (Compiz-style)
 )
 
 // WolfExecutor implements the Executor interface using Wolf API
@@ -66,6 +68,10 @@ func (w *WolfExecutor) getDesktopImage(desktop DesktopType) string {
 	case DesktopZorin:
 		// Stage 1: Using custom helix-zorin image with GNOME container fixes
 		return "helix-zorin:latest"
+	case DesktopLabwc:
+		return "helix-labwc:latest"
+	case DesktopWayfire:
+		return "helix-wayfire:latest"
 	default:
 		return w.zedImage // Default to Sway (helix-sway:latest)
 	}
@@ -79,6 +85,10 @@ func parseDesktopType(desktopStr string) DesktopType {
 		return DesktopXFCE
 	case "zorin":
 		return DesktopZorin
+	case "labwc":
+		return DesktopLabwc
+	case "wayfire":
+		return DesktopWayfire
 	case "sway", "":
 		return DesktopSway
 	default:
@@ -216,6 +226,18 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 				// startup.sh needs rw mount so entrypoint can chmod it (even though it's already executable)
 				fmt.Sprintf("%s/wolf/zorin-config/startup-app.sh:/opt/gow/startup.sh:rw", helixHostHome),
 				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
+		case DesktopLabwc:
+			// labwc uses GOW standard path /opt/gow/startup-app.sh
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/labwc-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/labwc-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
+		case DesktopWayfire:
+			// Wayfire uses GOW standard path /opt/gow/startup-app.sh
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/wayfire-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/wayfire-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 			)
 		}
 	} else {
@@ -1773,6 +1795,24 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 			log.Info().
 				Strs("zorin_config_mounts", zorinMounts).
 				Msg("Added Zorin/GNOME desktop config mounts")
+		case DesktopLabwc:
+			labwcMounts := []string{
+				fmt.Sprintf("%s/wolf/labwc-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/labwc-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			}
+			mounts = append(mounts, labwcMounts...)
+			log.Info().
+				Strs("labwc_config_mounts", labwcMounts).
+				Msg("Added labwc desktop config mounts")
+		case DesktopWayfire:
+			wayfireMounts := []string{
+				fmt.Sprintf("%s/wolf/wayfire-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/wayfire-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			}
+			mounts = append(mounts, wayfireMounts...)
+			log.Info().
+				Strs("wayfire_config_mounts", wayfireMounts).
+				Msg("Added Wayfire desktop config mounts")
 		}
 	} else {
 		log.Info().Msg("Production mode - using files baked into desktop image")

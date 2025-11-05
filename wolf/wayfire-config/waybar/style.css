@@ -1,0 +1,64 @@
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "Ubuntu", "Font Awesome 6 Free";
+    font-size: 14px;
+    min-height: 0;
+}
+
+window#waybar {
+    background-color: rgba(30, 30, 46, 0.95);
+    color: #cdd6f4;
+}
+
+#workspaces button {
+    padding: 0 10px;
+    color: #cdd6f4;
+    background-color: transparent;
+}
+
+#workspaces button.active {
+    background-color: rgba(180, 190, 254, 0.3);
+    color: #b4befe;
+}
+
+#workspaces button:hover {
+    background-color: rgba(108, 112, 134, 0.3);
+}
+
+#clock,
+#cpu,
+#memory,
+#network,
+#pulseaudio,
+#tray {
+    padding: 0 12px;
+    margin: 0 2px;
+    background-color: rgba(49, 50, 68, 0.8);
+    border-radius: 8px;
+}
+
+#clock {
+    color: #f9e2af;
+    font-weight: bold;
+}
+
+#cpu {
+    color: #a6e3a1;
+}
+
+#memory {
+    color: #89b4fa;
+}
+
+#network {
+    color: #f5c2e7;
+}
+
+#pulseaudio {
+    color: #cba6f7;
+}
+
+#tray {
+    padding: 0 8px;
+}

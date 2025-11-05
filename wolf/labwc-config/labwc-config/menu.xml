@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<openbox_menu>
+  <menu id="client-menu">
+    <item label="Minimize">
+      <action name="Iconify"/>
+    </item>
+    <item label="Maximize">
+      <action name="ToggleMaximize"/>
+    </item>
+    <item label="Fullscreen">
+      <action name="ToggleFullscreen"/>
+    </item>
+    <separator/>
+    <item label="Move">
+      <action name="Move"/>
+    </item>
+    <item label="Resize">
+      <action name="Resize"/>
+    </item>
+    <separator/>
+    <item label="Close">
+      <action name="Close"/>
+    </item>
+  </menu>
+
+  <menu id="root-menu">
+    <item label="Terminal">
+      <action name="Execute" command="ghostty"/>
+    </item>
+    <item label="Zed Editor">
+      <action name="Execute" command="zed"/>
+    </item>
+    <item label="Firefox">
+      <action name="Execute" command="firefox"/>
+    </item>
+    <separator/>
+    <item label="Application Launcher">
+      <action name="Execute" command="rofi -show drun -show-icons"/>
+    </item>
+  </menu>
+</openbox_menu>

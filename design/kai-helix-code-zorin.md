@@ -454,6 +454,225 @@ Track which desktops users prefer and which have best performance/reliability.
 
 ---
 
+### Phase 6: X11 vs Wayland Discovery & Scaling Configuration
+
+**Date**: November 4, 2025 (continued session)
+
+**Critical Discovery**: The GOW Zorin base image runs in **X11-only mode**, not Wayland as initially assumed.
+
+#### Investigation: Is Wayland Enabled?
+
+**Question from user**: "Can you confirm that the Zorin inside Wolf does not force everything into X11 mode?"
+
+**Research target**: https://github.com/Mollomm1/gow-desktops/tree/main/desktops/zorin-18
+
+**Finding**: The base image's `/opt/gow/desktop.sh` startup script **explicitly disables Wayland**:
+
+```bash
+export DISPLAY=:9
+unset WAYLAND_DISPLAY              # ← Explicitly disables Wayland
+export XDG_SESSION_TYPE=x11        # ← Forces X11 session type
+export GDK_BACKEND=x11             # ← Forces GTK apps to use X11
+export QT_QPA_PLATFORM=xcb         # ← Forces Qt apps to use X11
+export MOZ_ENABLE_WAYLAND=0        # ← Disables Wayland for Firefox
+```
+
+**Verdict**: ❌ **Wayland is completely disabled**. The entire GNOME session runs on X11.
+
+#### Implications of X11-Only Mode
+
+This discovery fundamentally changes our understanding of the architecture:
+
+**Previous Assumption** (INCORRECT):
+```
+GNOME Session: WAYLAND MODE
+├─ Zed (native Wayland) → Direct to Mutter ✅ Sharp
+├─ GNOME Settings (native Wayland) → Direct to Mutter ✅ Sharp
+└─ Legacy X11 apps → XWayland bridge → Mutter ⚠️ Potential blur
+```
+
+**Actual Architecture** (CORRECT):
+```
+GNOME Session: X11 MODE ONLY
+├─ Zed → X11 backend (via GTK/Xwayland compat)
+├─ GNOME Settings → X11 backend (GTK's X11 support)
+├─ All apps → X11 protocol → GNOME Mutter (X11 mode)
+└─ No Wayland compositor → No native Wayland benefits
+```
+
+**Key Realizations**:
+
+1. **scrot works perfectly** because it's a true X11 session (not XWayland compatibility layer)
+2. **"Native Wayland apps" discussion is irrelevant** - no apps run on Wayland in this setup
+3. **All scaling artifacts** come from X11's scaling mechanisms, not Wayland/XWayland interactions
+4. **Mutter 47's xwayland-native-scaling is irrelevant** - we're not using Wayland at all
+5. **All earlier Wayland research** (from kai-helix-code-zorin3.md) doesn't apply to this image
+
+**Trade-offs**:
+
+✅ **Benefits of X11-only**:
+- Simpler configuration (no Wayland/XWayland compatibility concerns)
+- Better compatibility with remote desktop tools (VNC, etc.)
+- Mature, well-tested X11 scaling mechanisms
+- scrot screenshot tool works perfectly
+
+❌ **Missing Wayland Benefits**:
+- No modern security isolation between apps
+- No variable refresh rate (VRR) support
+- No per-monitor fractional scaling
+- Missing Wayland's smoother compositing on modern GPUs
+
+#### Default 200% Scaling Configuration
+
+**Question from user**: "Are we able to fix the scaling of our desktop to 200% by default?"
+
+**Answer**: ✅ YES - Multiple methods available for X11 sessions.
+
+**Method 1: Environment Variables (Simplest)**
+
+Add to `startup-app.sh` before GNOME session launches:
+
+```bash
+# Enable 200% UI scaling for HiDPI displays
+export GDK_SCALE=2          # Scales GTK apps to 200%
+export GDK_DPI_SCALE=1      # Keeps fonts at normal DPI (prevents double-scaling)
+```
+
+**Method 2: GNOME Settings (Most Comprehensive)**
+
+Add to `startup-app.sh` after D-Bus starts, before GNOME session:
+
+```bash
+# Set GNOME scaling to 200%
+gsettings set org.gnome.desktop.interface scaling-factor 2
+gsettings set org.gnome.settings-daemon.plugins.xsettings overrides "{'Gdk/WindowScalingFactor': <2>}"
+```
+
+**Method 3: System-Wide dconf (Most Persistent)**
+
+Create `/etc/dconf/db/local.d/01-scaling` in Dockerfile:
+
+```ini
+[org/gnome/desktop/interface]
+scaling-factor=uint32 2
+
+[org/gnome/settings-daemon/plugins/xsettings]
+overrides={'Gdk/WindowScalingFactor': <2>}
+```
+
+Then run `dconf update` during image build.
+
+**Recommended Implementation**:
+
+Combine all three methods in `startup-app.sh` for maximum compatibility:
+
+```bash
+# Location: After D-Bus init, before exec /opt/gow/xorg.sh
+
+# Method 1: Environment variables (immediate effect)
+export GDK_SCALE=2
+export GDK_DPI_SCALE=1
+
+# Method 2: GNOME settings (persistent across sessions)
+gsettings set org.gnome.desktop.interface scaling-factor 2
+gsettings set org.gnome.settings-daemon.plugins.xsettings overrides "{'Gdk/WindowScalingFactor': <2>}"
+
+# Then launch GNOME
+exec /opt/gow/xorg.sh
+```
+
+**Why This Works in X11 Mode**:
+- `GDK_SCALE=2` tells GTK to render at 2x size
+- `GDK_DPI_SCALE=1` prevents fonts from being scaled again (avoiding 4x text)
+- `gsettings` configures GNOME Shell and system UI
+- X11's simpler architecture makes scaling more straightforward than Wayland
+
+**Comparison to Our Previous Fix**:
+
+In `kai-helix-code-zorin3.md`, we disabled experimental fractional scaling to fix artifacts:
+```bash
+gsettings set org.gnome.mutter experimental-features "[]"
+```
+
+**This fix is STILL VALID** for X11 mode because:
+- GNOME's experimental fractional scaling can apply even in X11 sessions
+- Disabling it ensures 200% uses true integer (2x) scaling
+- Prevents the compositor from render-at-100%-then-upscale behavior
+
+**Combined approach** (both fixes together):
+```bash
+# Disable experimental fractional scaling (use true integer 2x)
+gsettings set org.gnome.mutter experimental-features "[]"
+
+# Set 200% scaling
+export GDK_SCALE=2
+export GDK_DPI_SCALE=1
+gsettings set org.gnome.desktop.interface scaling-factor 2
+gsettings set org.gnome.settings-daemon.plugins.xsettings overrides "{'Gdk/WindowScalingFactor': <2>}"
+```
+
+#### Options for Future Consideration
+
+**Option A: Stay with X11, add scaling** (RECOMMENDED)
+- ✅ Simplest path forward
+- ✅ Works with existing infrastructure
+- ✅ No compatibility concerns
+- ✅ Mature and stable
+- ❌ Miss out on Wayland benefits
+
+**Option B: Enable Wayland in base image**
+- Modify `/opt/gow/desktop.sh` to remove X11-forcing exports
+- Enable `WAYLAND_DISPLAY`, remove `GDK_BACKEND=x11`, etc.
+- Test GNOME on Wayland with Wolf streaming
+- ✅ Get modern Wayland benefits
+- ❌ More complex (need to verify Wolf/GStreamer compatibility)
+- ❌ Might break existing streaming setup
+- ❌ Requires upstream changes or forked base image
+
+**Option C: Wait for upstream improvements**
+- Community Zorin image maintainer may add Wayland support
+- Wait for official GOW Wayland support
+- ✅ No work required
+- ❌ Timeline unknown
+- ❌ May never happen
+
+**Recommendation**: **Option A** - Stay with X11 and add 200% scaling configuration. The X11 session is stable, well-tested, and works perfectly with Wolf streaming. Wayland support can be revisited later if needed.
+
+#### Lessons Learned
+
+**1. Don't Assume Wayland by Default**
+
+Modern GNOME supports both Wayland and X11 sessions. Just because GNOME 46 prefers Wayland doesn't mean container images use it. Always verify with:
+```bash
+echo $XDG_SESSION_TYPE
+echo $WAYLAND_DISPLAY
+```
+
+**2. Base Image Configuration Matters**
+
+The GOW base images make opinionated choices about display servers for compatibility with streaming. Understanding these choices is critical for:
+- Troubleshooting display issues
+- Choosing correct screenshot tools (scrot vs grim)
+- Understanding scaling behavior
+
+**3. Research Can Be Based on Wrong Assumptions**
+
+Our extensive Wayland/XWayland research in `kai-helix-code-zorin3.md` was valuable for understanding the technology, but didn't apply to this specific setup. When troubleshooting:
+- ✅ Verify assumptions first (check actual env vars)
+- ✅ Don't rely solely on "what should be"
+- ✅ Test actual behavior in the real environment
+
+**4. X11 vs Wayland Affects Tool Selection**
+
+Knowing the display server type is critical for choosing tools:
+- **Screenshots**: `scrot` (X11) vs `grim` (Wayland)
+- **Screen recording**: `ffmpeg -f x11grab` vs `wf-recorder`
+- **Remote desktop**: Traditional VNC works better on X11
+
+Our hybrid `screenshot-server` approach (try scrot, fall back to grim) handles both cases elegantly.
+
+---
+
 ## Summary
 
 Getting Zorin/GNOME desktop working required:

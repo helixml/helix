@@ -1,0 +1,61 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 40,
+    "spacing": 4,
+    "modules-left": ["wlr/workspaces"],
+    "modules-center": ["clock"],
+    "modules-right": ["pulseaudio", "network", "cpu", "memory", "tray"],
+
+    "wlr/workspaces": {
+        "format": "{name}",
+        "on-click": "activate",
+        "all-outputs": true,
+        "active-only": false
+    },
+
+    "clock": {
+        "format": "{:%I:%M %p}",
+        "format-alt": "{:%A, %B %d, %Y (%I:%M %p)}",
+        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>"
+    },
+
+    "cpu": {
+        "format": "  {usage}%",
+        "tooltip": true,
+        "interval": 2
+    },
+
+    "memory": {
+        "format": "  {used:0.1f}G",
+        "tooltip": true,
+        "interval": 2
+    },
+
+    "network": {
+        "format-wifi": "  {essid}",
+        "format-ethernet": "  Connected",
+        "format-disconnected": "  Disconnected",
+        "tooltip-format": "{ifname}: {ipaddr}/{cidr}"
+    },
+
+    "pulseaudio": {
+        "format": "{icon} {volume}%",
+        "format-muted": "  Muted",
+        "format-icons": {
+            "headphone": "",
+            "hands-free": "",
+            "headset": "",
+            "phone": "",
+            "portable": "",
+            "car": "",
+            "default": ["", "", ""]
+        },
+        "on-click": "pavucontrol"
+    },
+
+    "tray": {
+        "icon-size": 18,
+        "spacing": 10
+    }
+}

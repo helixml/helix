@@ -1220,6 +1220,16 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 				fmt.Sprintf("%s/wolf/zorin-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 				fmt.Sprintf("%s/wolf/zorin-config/dconf-settings.ini:/cfg/gnome/dconf-settings.ini:ro", helixHostHome),
 			)
+		case DesktopLabwc:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/labwc-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/labwc-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
+		case DesktopWayfire:
+			mounts = append(mounts,
+				fmt.Sprintf("%s/wolf/wayfire-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
+				fmt.Sprintf("%s/wolf/wayfire-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			)
 		}
 	} else {
 		log.Debug().

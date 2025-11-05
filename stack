@@ -255,6 +255,8 @@ EOF
   echo "  2. Build desktop container with Zed:"
   echo "     - XFCE (traditional overlapping windows): ./stack build-xfce"
   echo "     - GNOME (full-featured desktop): ./stack build-zorin"
+  echo "     - labwc (Openbox-style Wayland floating): ./stack build-labwc"
+  echo "     - Wayfire (3D Wayland with effects): ./stack build-wayfire"
   echo "     - Sway (lightweight tiling): ./stack build-sway"
   echo "  3. Start services: ./stack start"
 }
@@ -947,6 +949,151 @@ function build-zorin() {
   echo "✅ zorin container build completed"
 }
 
+function build-labwc() {
+  echo "🪟  Building labwc desktop container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom labwc image
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-labwc:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.labwc-helix \
+      -t helix-labwc:latest \
+      -t "registry.helixml.tech/helix/labwc-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/labwc-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.labwc-helix \
+      -t helix-labwc:latest \
+      -t "registry.helixml.tech/helix/labwc-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ labwc container built successfully"
+    echo "🪟  Custom labwc image ready: helix-labwc:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - labwc floating window compositor (Openbox-style Wayland)"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - waybar panel with rofi launcher"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
+  else
+    echo "❌ Failed to build labwc container"
+    exit 1
+  fi
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/labwc-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ labwc agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push labwc agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  echo "✅ labwc container build completed"
+}
+
+function build-wayfire() {
+  echo "🪟  Building Wayfire desktop container for Personal Dev Environments..."
+
+  # Production mode: Always rebuild Zed from latest source in release mode
+  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "🔨 Production mode: Building fresh Zed release from latest source..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  # Dev mode: Only build if binary doesn't exist
+  elif [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Building in release mode first..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed binary"
+      exit 1
+    fi
+  else
+    echo "✅ Using existing Zed binary at ./zed-build/zed (dev mode)"
+  fi
+
+  # Build the custom Wayfire image
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  echo "🔨 Building helix-wayfire:latest container with Zed..."
+
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.wayfire-helix \
+      -t helix-wayfire:latest \
+      -t "registry.helixml.tech/helix/wayfire-agent:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/wayfire-agent:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.wayfire-helix \
+      -t helix-wayfire:latest \
+      -t "registry.helixml.tech/helix/wayfire-agent:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -eq 0 ]; then
+    echo "✅ Wayfire container built successfully"
+    echo "🪟  Custom Wayfire image ready: helix-wayfire:latest"
+    echo ""
+    echo "Features added:"
+    echo "  - Wayfire 3D compositor (Compiz-style Wayland with effects)"
+    echo "  - Zed editor with External WebSocket Thread Sync"
+    echo "  - Firefox, Ghostty terminal, OnlyOffice"
+    echo "  - waybar panel with rofi launcher"
+    echo "  - Wobbly windows, cube desktop, animations"
+    echo "  - Screenshot server (grim-based) for Moonlight streaming"
+    echo "  - Passwordless sudo for development"
+    echo "  - Docker CLI for container-in-container workflows"
+  else
+    echo "❌ Failed to build Wayfire container"
+    exit 1
+  fi
+
+  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    local IMAGE_BASE="registry.helixml.tech/helix/wayfire-agent"
+    if push_image_tags "$IMAGE_BASE"; then
+      echo "✅ Wayfire agent images pushed to registry successfully"
+    else
+      echo "⚠️  Failed to push Wayfire agent images to registry (continuing anyway)"
+    fi
+    echo "📦 Registry images pushed"
+  fi
+
+  echo "✅ Wayfire container build completed"
+}
+
 function build-moonlight-web() {
   echo "🌙 Building Moonlight Web container..."
 
@@ -1518,6 +1665,8 @@ function help() {
   echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
   echo "  build-xfce         - Build XFCE desktop+Zed container and push to registry (traditional overlapping windows)"
   echo "  build-zorin        - Build GNOME desktop+Zed container and push to registry (full-featured with Zorin)"
+  echo "  build-labwc        - Build labwc desktop+Zed container and push to registry (Openbox-style Wayland floating)"
+  echo "  build-wayfire      - Build Wayfire desktop+Zed container and push to registry (3D Wayland with effects)"
   echo "  build-sway         - Build Sway desktop+Zed container and push to registry (lightweight tiling)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"
   echo ""
