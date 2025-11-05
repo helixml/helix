@@ -129,7 +129,7 @@ const GitRepos: FC = () => {
         name: repoName,
         description: repoDescription,
         owner_id: ownerId,
-        repo_type: 'project' as any,
+        repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
         metadata: {
           kodit_indexing: koditIndexing,

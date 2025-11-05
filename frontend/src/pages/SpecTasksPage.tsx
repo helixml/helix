@@ -36,6 +36,7 @@ import { GitBranch } from 'lucide-react';
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
+import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList';
 import LoadingSpinner from '../components/widgets/LoadingSpinner';
 
 import useAccount from '../hooks/useAccount';
@@ -54,6 +55,7 @@ import {
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
+  useResumeProjectExploratorySession,
 } from '../services';
 import { useGitRepositories } from '../services/gitRepositoryService';
 import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
@@ -88,6 +90,7 @@ const SpecTasksPage: FC = () => {
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId || '', !!projectId);
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId || '');
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId || '');
+  const resumeExploratorySessionMutation = useResumeProjectExploratorySession(projectId || '');
 
   // Get all user repositories for attach dialog
   const currentOrg = account.organizationTools.organization;
@@ -415,10 +418,16 @@ const SpecTasksPage: FC = () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync();
       snackbar.success('Exploratory session started');
-      // Navigate to the project session page
-      account.orgNavigate('project-session', { id: projectId, session_id: session.id });
-    } catch (err) {
-      snackbar.error('Failed to start exploratory session');
+      // Open in floating window instead of navigating
+      floatingModal.showFloatingModal({
+        type: 'exploratory_session',
+        sessionId: session.id,
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+      }, { x: window.innerWidth - 400, y: 100 });
+    } catch (err: any) {
+      // Extract error message from API response
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session';
+      snackbar.error(errorMessage);
     }
   };
 
@@ -426,14 +435,14 @@ const SpecTasksPage: FC = () => {
     if (!exploratorySessionData) return;
 
     try {
-      // Call the resume endpoint to restart the stopped Wolf container
-      await api.post(`/api/v1/sessions/${exploratorySessionData.id}/resume`);
+      // Use the mutation hook which properly invalidates the cache
+      const session = await resumeExploratorySessionMutation.mutateAsync();
       snackbar.success('Exploratory session resumed');
       // Open floating window
       floatingModal.showFloatingModal({
         type: 'exploratory_session',
-        sessionId: exploratorySessionData.id,
-        wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
+        sessionId: session.id,
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id
       }, { x: e.clientX, y: e.clientY });
     } catch (err) {
       snackbar.error('Failed to resume exploratory session');
@@ -482,10 +491,10 @@ const SpecTasksPage: FC = () => {
               color="secondary"
               startIcon={<ExploreIcon />}
               onClick={handleResumeExploratorySession}
-              disabled={startExploratorySessionMutation.isPending}
+              disabled={resumeExploratorySessionMutation.isPending}
               sx={{ flexShrink: 0 }}
             >
-              {startExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
+              {resumeExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
             </Button>
           ) : (
             <>
@@ -523,18 +532,6 @@ const SpecTasksPage: FC = () => {
             sx={{ flexShrink: 0 }}
           >
             Settings
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
-            onClick={() => {
-              setRefreshing(true);
-              setTimeout(() => setRefreshing(false), 2000);
-            }}
-            disabled={refreshing}
-            sx={{ flexShrink: 0 }}
-          >
-            Refresh
           </Button>
           {/* Repository Management Button - positioned far right to align with right panel */}
           <Button
@@ -733,6 +730,11 @@ Examples:
               userId={account.user?.id}
               projectId={projectId}
               onCreateTask={() => setCreateDialogOpen(true)}
+              onRefresh={() => {
+                setRefreshing(true);
+                setTimeout(() => setRefreshing(false), 2000);
+              }}
+              refreshing={refreshing}
               refreshTrigger={refreshTrigger}
               wipLimits={wipLimits}
             />
@@ -820,44 +822,16 @@ Examples:
               </Box>
             ) : (
               <>
-                <List>
-                  {projectRepositories.map((repo) => (
-                    <ListItem key={repo.id} divider>
-                      <ListItemText
-                        primary={repo.name}
-                        secondary={repo.clone_url}
-                      />
-                      <ListItemSecondaryAction>
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                          {project?.default_repo_id === repo.id ? (
-                            <Chip
-                              icon={<StarIcon />}
-                              label="Primary"
-                              color="primary"
-                              size="small"
-                            />
-                          ) : (
-                            <IconButton
-                              onClick={() => handleSetPrimaryRepo(repo.id)}
-                              disabled={setPrimaryRepoMutation.isPending}
-                              title="Set as primary"
-                            >
-                              <StarBorderIcon />
-                            </IconButton>
-                          )}
-                          <IconButton
-                            onClick={() => handleDetachRepository(repo.id)}
-                            disabled={detachRepoMutation.isPending}
-                            title="Detach from project"
-                            color="error"
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  ))}
-                </List>
+                <ProjectRepositoriesList
+                  repositories={projectRepositories}
+                  internalRepo={internalRepo}
+                  primaryRepoId={project?.default_repo_id}
+                  onSetPrimaryRepo={handleSetPrimaryRepo}
+                  onDetachRepo={handleDetachRepository}
+                  setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
+                  detachRepoPending={detachRepoMutation.isPending}
+                  onClose={() => setRepoDialogOpen(false)}
+                />
                 <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
                   <Button
                     variant="outlined"
@@ -869,46 +843,6 @@ Examples:
                     Attach Another Repository
                   </Button>
                 </Box>
-              </>
-            )}
-
-            {/* Internal Repository Section - MOVED TO BOTTOM */}
-            {internalRepo && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
-                  Internal Repository
-                </Typography>
-                <List>
-                  <ListItem
-                    sx={{
-                      border: 1,
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                      },
-                    }}
-                    onClick={() => {
-                      setRepoDialogOpen(false);
-                      account.orgNavigate('git-repo-detail', { repoId: internalRepo.id });
-                    }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {internalRepo.name}
-                          </Typography>
-                          <Chip label="Project Config" size="small" variant="outlined" />
-                        </Box>
-                      }
-                      secondary="Stores .helix/project.json and .helix/startup.sh"
-                    />
-                  </ListItem>
-                </List>
               </>
             )}
           </>

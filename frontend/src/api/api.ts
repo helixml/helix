@@ -494,10 +494,14 @@ export interface ServerAgentProgressItem {
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
+  /** GPU encoder stats from Wolf (via nvidia-smi) */
+  gpu_stats?: ServerGPUStats;
+  /** Actual pipeline count from Wolf */
+  gstreamer_pipelines?: ServerGStreamerPipelineStats;
   /** Lobbies mode */
   lobbies?: ServerWolfLobbyInfo[];
   memory?: ServerWolfSystemMemory;
-  /** NEW: moonlight-web client connections */
+  /** moonlight-web client connections */
   moonlight_clients?: ServerMoonlightClientInfo[];
   sessions?: ServerWolfSessionInfo[];
   /** Current Wolf mode ("apps" or "lobbies") */
@@ -623,6 +627,33 @@ export interface ServerForkSimpleProjectResponse {
   message?: string;
   project_id?: string;
   tasks_created?: number;
+}
+
+export interface ServerGPUStats {
+  /** false if nvidia-smi failed */
+  available?: boolean;
+  encoder_average_fps?: number;
+  encoder_average_latency_us?: number;
+  encoder_session_count?: number;
+  encoder_utilization_percent?: number;
+  error?: string;
+  gpu_name?: string;
+  gpu_utilization_percent?: number;
+  memory_total_mb?: number;
+  memory_used_mb?: number;
+  memory_utilization_percent?: number;
+  /** How long nvidia-smi took in Wolf */
+  query_duration_ms?: number;
+  temperature_celsius?: number;
+}
+
+export interface ServerGStreamerPipelineStats {
+  /** Video + audio consumers (2 per session) */
+  consumer_pipelines?: number;
+  /** Video + audio producers (2 per lobby) */
+  producer_pipelines?: number;
+  /** Sum of producers + consumers */
+  total_pipelines?: number;
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
@@ -901,7 +932,11 @@ export interface ServerWolfSystemMemory {
   /** Apps mode */
   apps?: ServerWolfAppMemory[];
   clients?: ServerWolfClientConnection[];
+  /** From Wolf's nvidia-smi query */
+  gpu_stats?: ServerGPUStats;
   gstreamer_buffer_bytes?: number;
+  /** From Wolf's state */
+  gstreamer_pipelines?: ServerGStreamerPipelineStats;
   /** Lobbies mode */
   lobbies?: ServerWolfLobbyMemory[];
   process_rss_bytes?: number;
@@ -1000,10 +1035,20 @@ export interface ServicesGitRepositoryCreateRequest {
   spec_task_id?: string;
 }
 
+export interface ServicesGitRepositoryFileResponse {
+  content?: string;
+  path?: string;
+}
+
 export enum ServicesGitRepositoryStatus {
   GitRepositoryStatusActive = "active",
   GitRepositoryStatusArchived = "archived",
   GitRepositoryStatusDeleted = "deleted",
+}
+
+export interface ServicesGitRepositoryTreeResponse {
+  entries?: ServicesTreeEntry[];
+  path?: string;
 }
 
 export enum ServicesGitRepositoryType {
@@ -1093,6 +1138,13 @@ export interface ServicesSpecDocumentResult {
   warnings?: string[];
 }
 
+export interface ServicesTreeEntry {
+  is_dir?: boolean;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
 export interface ServicesZedSessionCreationResult {
   /** "spawned", "planned", "ad_hoc" */
   creation_method?: string;
@@ -1132,39 +1184,39 @@ export interface SqlNullString {
 
 export interface StoreGitRepository {
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
-  cloneURL?: string;
-  createdAt?: string;
+  clone_url?: string;
+  created_at?: string;
   /** Reference to stored credentials (SSH key, OAuth token, etc.) */
-  credentialRef?: string;
-  defaultBranch?: string;
+  credential_ref?: string;
+  default_branch?: string;
   description?: string;
   /** External platform's repository ID */
-  externalRepoID?: string;
+  external_repo_id?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
-  externalType?: string;
+  external_type?: string;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
-  externalURL?: string;
+  external_url?: string;
   id?: string;
   /** External repository fields */
-  isExternal?: boolean;
+  is_external?: boolean;
   /** Code intelligence fields */
-  koditIndexing?: boolean;
-  lastActivity?: string;
+  kodit_indexing?: boolean;
+  last_activity?: string;
   /** Local filesystem path for Helix-hosted repos (empty for external) */
-  localPath?: string;
+  local_path?: string;
   /** Transient field, not persisted (used by services) */
   metadata?: Record<string, any>;
   /** Stores Metadata as JSON */
-  metadataJSON?: string;
+  metadata_json?: string;
   name?: string;
   /** Organization ID - will be backfilled for existing repos */
-  organizationID?: string;
-  ownerID?: string;
-  projectID?: string;
-  repoType?: string;
-  specTaskID?: string;
+  organization_id?: string;
+  owner_id?: string;
+  project_id?: string;
+  repo_type?: string;
+  spec_task_id?: string;
   status?: string;
-  updatedAt?: string;
+  updated_at?: string;
 }
 
 export enum StripeSubscriptionStatus {
@@ -2708,6 +2760,8 @@ export interface TypesPricing {
 }
 
 export interface TypesProject {
+  /** Automation settings */
+  auto_start_backlog_tasks?: boolean;
   created_at?: string;
   default_branch?: string;
   /** Project-level repository management */
@@ -2717,12 +2771,16 @@ export interface TypesProject {
   description?: string;
   github_repo_url?: string;
   id?: string;
-  /** Internal project Git repository (stores project config, tasks, design docs) */
+  /**
+   * Internal project Git repository (stores project config, tasks, design docs)
+   * IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
+   * It is NEVER stored in the database - Git is the single source of truth
+   */
   internal_repo_path?: string;
   metadata?: number[];
   name?: string;
   organization_id?: string;
-  /** Per-project startup script */
+  /** Transient field - loaded from Git, never persisted to database */
   startup_script?: string;
   /** "active", "archived", "completed" */
   status?: string;
@@ -2742,6 +2800,7 @@ export interface TypesProjectCreateRequest {
 }
 
 export interface TypesProjectUpdateRequest {
+  auto_start_backlog_tasks?: boolean;
   default_branch?: string;
   default_repo_id?: string;
   description?: string;
@@ -2981,7 +3040,7 @@ export interface TypesSampleProject {
   repository_url?: string;
   /** Array of {title, description, priority, type} */
   sample_tasks?: number[];
-  startup_script?: string;
+  /** NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database */
   thumbnail_url?: string;
 }
 
@@ -3902,11 +3961,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -5647,6 +5706,58 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the contents of a file at a specific path in a repository
+     *
+     * @tags git-repositories
+     * @name GetGitRepositoryFile
+     * @summary Get file contents
+     * @request GET:/api/v1/git/repositories/{id}/file
+     * @secure
+     */
+    getGitRepositoryFile: (
+      id: string,
+      query: {
+        /** File path */
+        path: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesGitRepositoryFileResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/file`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get list of files and directories at a specific path in a repository
+     *
+     * @tags git-repositories
+     * @name BrowseGitRepositoryTree
+     * @summary Browse repository tree
+     * @request GET:/api/v1/git/repositories/{id}/tree
+     * @secure
+     */
+    browseGitRepositoryTree: (
+      id: string,
+      query?: {
+        /** Path to browse (default: root) */
+        path?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesGitRepositoryTreeResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/tree`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List all available Helix models, optionally filtering by type, name, or runtime.
      *
      * @tags models
@@ -6706,12 +6817,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Get all repositories attached to a project
      *
      * @tags Projects
-     * @name V1ProjectsRepositoriesDetail
+     * @name GetProjectRepositories
      * @summary Get project repositories
      * @request GET:/api/v1/projects/{id}/repositories
      * @secure
      */
-    v1ProjectsRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+    getProjectRepositories: (id: string, params: RequestParams = {}) =>
       this.request<StoreGitRepository[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories`,
         method: "GET",

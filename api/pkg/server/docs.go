@@ -2532,6 +2532,113 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the contents of a file at a specific path in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get file contents",
+                "operationId": "getGitRepositoryFile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryFileResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/tree": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of files and directories at a specific path in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Browse repository tree",
+                "operationId": "browseGitRepositoryTree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Path to browse (default: root)",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryTreeResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/helix-models": {
             "get": {
                 "security": [
@@ -4567,6 +4674,7 @@ const docTemplate = `{
                     "Projects"
                 ],
                 "summary": "Get project repositories",
+                "operationId": "getProjectRepositories",
                 "parameters": [
                     {
                         "type": "string",
@@ -11191,6 +11299,22 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.WolfAppInfo"
                     }
                 },
+                "gpu_stats": {
+                    "description": "GPU encoder stats from Wolf (via nvidia-smi)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GPUStats"
+                        }
+                    ]
+                },
+                "gstreamer_pipelines": {
+                    "description": "Actual pipeline count from Wolf",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GStreamerPipelineStats"
+                        }
+                    ]
+                },
                 "lobbies": {
                     "description": "Lobbies mode",
                     "type": "array",
@@ -11202,7 +11326,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/server.WolfSystemMemory"
                 },
                 "moonlight_clients": {
-                    "description": "NEW: moonlight-web client connections",
+                    "description": "moonlight-web client connections",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.MoonlightClientInfo"
@@ -11541,6 +11665,69 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "tasks_created": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.GPUStats": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "false if nvidia-smi failed",
+                    "type": "boolean"
+                },
+                "encoder_average_fps": {
+                    "type": "number"
+                },
+                "encoder_average_latency_us": {
+                    "type": "integer"
+                },
+                "encoder_session_count": {
+                    "type": "integer"
+                },
+                "encoder_utilization_percent": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "gpu_name": {
+                    "type": "string"
+                },
+                "gpu_utilization_percent": {
+                    "type": "integer"
+                },
+                "memory_total_mb": {
+                    "type": "integer"
+                },
+                "memory_used_mb": {
+                    "type": "integer"
+                },
+                "memory_utilization_percent": {
+                    "type": "integer"
+                },
+                "query_duration_ms": {
+                    "description": "How long nvidia-smi took in Wolf",
+                    "type": "integer"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.GStreamerPipelineStats": {
+            "type": "object",
+            "properties": {
+                "consumer_pipelines": {
+                    "description": "Video + audio consumers (2 per session)",
+                    "type": "integer"
+                },
+                "producer_pipelines": {
+                    "description": "Video + audio producers (2 per lobby)",
+                    "type": "integer"
+                },
+                "total_pipelines": {
+                    "description": "Sum of producers + consumers",
                     "type": "integer"
                 }
             }
@@ -12275,8 +12462,24 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.WolfClientConnection"
                     }
                 },
+                "gpu_stats": {
+                    "description": "From Wolf's nvidia-smi query",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GPUStats"
+                        }
+                    ]
+                },
                 "gstreamer_buffer_bytes": {
                     "type": "integer"
+                },
+                "gstreamer_pipelines": {
+                    "description": "From Wolf's state",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GStreamerPipelineStats"
+                        }
+                    ]
                 },
                 "lobbies": {
                     "description": "Lobbies mode",
@@ -12547,6 +12750,17 @@ const docTemplate = `{
                 }
             }
         },
+        "services.GitRepositoryFileResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "services.GitRepositoryStatus": {
             "type": "string",
             "enum": [
@@ -12559,6 +12773,20 @@ const docTemplate = `{
                 "GitRepositoryStatusArchived",
                 "GitRepositoryStatusDeleted"
             ]
+        },
+        "services.GitRepositoryTreeResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.TreeEntry"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
         },
         "services.GitRepositoryType": {
             "type": "string",
@@ -12834,6 +13062,23 @@ const docTemplate = `{
                 }
             }
         },
+        "services.TreeEntry": {
+            "type": "object",
+            "properties": {
+                "is_dir": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "services.ZedSessionCreationResult": {
             "type": "object",
             "properties": {
@@ -12939,50 +13184,50 @@ const docTemplate = `{
         "store.GitRepository": {
             "type": "object",
             "properties": {
-                "cloneURL": {
+                "clone_url": {
                     "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
                     "type": "string"
                 },
-                "createdAt": {
+                "created_at": {
                     "type": "string"
                 },
-                "credentialRef": {
+                "credential_ref": {
                     "description": "Reference to stored credentials (SSH key, OAuth token, etc.)",
                     "type": "string"
                 },
-                "defaultBranch": {
+                "default_branch": {
                     "type": "string"
                 },
                 "description": {
                     "type": "string"
                 },
-                "externalRepoID": {
+                "external_repo_id": {
                     "description": "External platform's repository ID",
                     "type": "string"
                 },
-                "externalType": {
+                "external_type": {
                     "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
                     "type": "string"
                 },
-                "externalURL": {
+                "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "isExternal": {
+                "is_external": {
                     "description": "External repository fields",
                     "type": "boolean"
                 },
-                "koditIndexing": {
+                "kodit_indexing": {
                     "description": "Code intelligence fields",
                     "type": "boolean"
                 },
-                "lastActivity": {
+                "last_activity": {
                     "type": "string"
                 },
-                "localPath": {
+                "local_path": {
                     "description": "Local filesystem path for Helix-hosted repos (empty for external)",
                     "type": "string"
                 },
@@ -12991,33 +13236,33 @@ const docTemplate = `{
                     "type": "object",
                     "additionalProperties": true
                 },
-                "metadataJSON": {
+                "metadata_json": {
                     "description": "Stores Metadata as JSON",
                     "type": "string"
                 },
                 "name": {
                     "type": "string"
                 },
-                "organizationID": {
+                "organization_id": {
                     "description": "Organization ID - will be backfilled for existing repos",
                     "type": "string"
                 },
-                "ownerID": {
+                "owner_id": {
                     "type": "string"
                 },
-                "projectID": {
+                "project_id": {
                     "type": "string"
                 },
-                "repoType": {
+                "repo_type": {
                     "type": "string"
                 },
-                "specTaskID": {
+                "spec_task_id": {
                     "type": "string"
                 },
                 "status": {
                     "type": "string"
                 },
-                "updatedAt": {
+                "updated_at": {
                     "type": "string"
                 }
             }
@@ -16900,6 +17145,10 @@ const docTemplate = `{
         "types.Project": {
             "type": "object",
             "properties": {
+                "auto_start_backlog_tasks": {
+                    "description": "Automation settings",
+                    "type": "boolean"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -16928,7 +17177,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "internal_repo_path": {
-                    "description": "Internal project Git repository (stores project config, tasks, design docs)",
+                    "description": "Internal project Git repository (stores project config, tasks, design docs)\nIMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo\nIt is NEVER stored in the database - Git is the single source of truth",
                     "type": "string"
                 },
                 "metadata": {
@@ -16944,7 +17193,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "startup_script": {
-                    "description": "Per-project startup script",
+                    "description": "Transient field - loaded from Git, never persisted to database",
                     "type": "string"
                 },
                 "status": {
@@ -16997,6 +17246,9 @@ const docTemplate = `{
         "types.ProjectUpdateRequest": {
             "type": "object",
             "properties": {
+                "auto_start_backlog_tasks": {
+                    "type": "boolean"
+                },
                 "default_branch": {
                     "type": "string"
                 },
@@ -17609,10 +17861,8 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
-                "startup_script": {
-                    "type": "string"
-                },
                 "thumbnail_url": {
+                    "description": "NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database",
                     "type": "string"
                 }
             }
@@ -19866,18 +20116,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

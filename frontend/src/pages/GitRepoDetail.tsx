@@ -20,7 +20,22 @@ import {
   FormControlLabel,
   Switch,
 } from '@mui/material'
-import { GitBranch, Copy, ExternalLink, ArrowLeft, Edit, Brain, Link, Trash2, Plus } from 'lucide-react'
+import {
+  GitBranch,
+  Copy,
+  ExternalLink,
+  ArrowLeft,
+  Edit,
+  Brain,
+  Link,
+  Trash2,
+  Plus,
+  Folder,
+  File,
+  FileText,
+  ChevronRight,
+  X as CloseIcon,
+} from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -29,7 +44,11 @@ import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
-import { useGitRepository } from '../services/gitRepositoryService'
+import {
+  useGitRepository,
+  useBrowseRepositoryTree,
+  useGetRepositoryFile,
+} from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
   useCreateRepositoryAccessGrant,
@@ -63,6 +82,16 @@ const GitRepoDetail: FC = () => {
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
+  const [currentPath, setCurrentPath] = useState('.')
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+
+  // Browse repository tree
+  const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath)
+  const { data: fileData, isLoading: fileLoading } = useGetRepositoryFile(
+    repoId || '',
+    selectedFile || '',
+    !!selectedFile
+  )
 
   const handleOpenEdit = () => {
     if (repository) {
@@ -148,6 +177,33 @@ const GitRepoDetail: FC = () => {
       snackbar.error('Failed to remove access grant')
       return false
     }
+  }
+
+  const handleNavigateToDirectory = (path: string) => {
+    setCurrentPath(path)
+    setSelectedFile(null) // Clear file selection when navigating
+  }
+
+  const handleSelectFile = (path: string, isDir: boolean) => {
+    if (isDir) {
+      handleNavigateToDirectory(path)
+    } else {
+      setSelectedFile(path)
+    }
+  }
+
+  const handleNavigateUp = () => {
+    if (currentPath === '.') return
+    const parts = currentPath.split('/').filter(p => p !== '.')
+    parts.pop()
+    const newPath = parts.length === 0 ? '.' : parts.join('/')
+    setCurrentPath(newPath)
+    setSelectedFile(null)
+  }
+
+  const getPathBreadcrumbs = () => {
+    if (currentPath === '.') return []
+    return currentPath.split('/').filter(p => p !== '.')
   }
 
   if (isLoading) {
@@ -315,44 +371,19 @@ const GitRepoDetail: FC = () => {
                   </Button>
                 </Box>
               </>
-            ) : (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Clone this repository to your local machine using Git:
+            ) : isExternal ? (
+              <Alert severity="warning">
+                <Typography variant="body2">
+                  This external repository does not have a clone URL configured.
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                  <TextField
-                    fullWidth
-                    value={`git clone ${cloneUrl}`}
-                    InputProps={{
-                      readOnly: true,
-                      sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                    }}
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={copiedClone ? undefined : <Copy size={16} />}
-                    onClick={() => handleCopyCloneCommand(`git clone ${cloneUrl}`)}
-                  >
-                    {copiedClone ? 'Copied!' : 'Copy'}
-                  </Button>
-                </Box>
-
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-                    Setup Instructions:
-                  </Typography>
-                  <Typography variant="body2" component="div">
-                    1. Ensure you have Git installed on your machine
-                    <br />
-                    2. Configure your SSH key or Git credentials
-                    <br />
-                    3. Run the clone command above in your terminal
-                    <br />
-                    4. Navigate to the cloned directory: <code>cd {repository.name}</code>
-                  </Typography>
-                </Alert>
-              </>
+              </Alert>
+            ) : (
+              <Alert severity="info">
+                <Typography variant="body2">
+                  This is a Helix-hosted repository. It is automatically cloned by agents when working on tasks.
+                  You can browse files using the file browser below.
+                </Typography>
+              </Alert>
             )}
           </CardContent>
         </Card>
@@ -414,6 +445,166 @@ const GitRepoDetail: FC = () => {
                 </Box>
               )}
             </Stack>
+          </CardContent>
+        </Card>
+
+        {/* File Browser */}
+        <Card sx={{ mt: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+              Browse Files
+            </Typography>
+
+            {/* Breadcrumb navigation */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+              <Chip
+                label={repository.name}
+                size="small"
+                onClick={() => handleNavigateToDirectory('.')}
+                sx={{ cursor: 'pointer' }}
+              />
+              {getPathBreadcrumbs().map((part, index, arr) => {
+                const path = arr.slice(0, index + 1).join('/')
+                return (
+                  <React.Fragment key={path}>
+                    <ChevronRight size={16} color="#656d76" />
+                    <Chip
+                      label={part}
+                      size="small"
+                      onClick={() => handleNavigateToDirectory(path)}
+                      sx={{ cursor: 'pointer' }}
+                    />
+                  </React.Fragment>
+                )
+              })}
+            </Box>
+
+            <Divider sx={{ mb: 2 }} />
+
+            {treeLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                {/* File tree */}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {currentPath !== '.' && (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        p: 1,
+                        cursor: 'pointer',
+                        borderRadius: 1,
+                        '&:hover': {
+                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                        },
+                      }}
+                      onClick={handleNavigateUp}
+                    >
+                      <Folder size={16} color="#54aeff" />
+                      <Typography variant="body2">
+                        ..
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {treeData?.entries && treeData.entries.length > 0 ? (
+                    treeData.entries
+                      .sort((a, b) => {
+                        // Directories first, then files
+                        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+                        return (a.name || '').localeCompare(b.name || '')
+                      })
+                      .map((entry) => (
+                        <Box
+                          key={entry.path}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            p: 1,
+                            cursor: 'pointer',
+                            borderRadius: 1,
+                            backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+                            '&:hover': {
+                              backgroundColor: selectedFile === entry.path
+                                ? 'rgba(25, 118, 210, 0.12)'
+                                : 'rgba(0, 0, 0, 0.04)',
+                            },
+                          }}
+                          onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
+                        >
+                          {entry.is_dir ? (
+                            <Folder size={16} color="#54aeff" />
+                          ) : (
+                            <FileText size={16} color="#656d76" />
+                          )}
+                          <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {entry.name}
+                          </Typography>
+                          {!entry.is_dir && (
+                            <Typography variant="caption" color="text.secondary">
+                              {(entry.size || 0) > 1024
+                                ? `${Math.round((entry.size || 0) / 1024)} KB`
+                                : `${entry.size || 0} B`}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                      Empty directory
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* File viewer */}
+                {selectedFile && (
+                  <Box sx={{ flex: 2, minWidth: 0 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle2" sx={{ fontFamily: 'monospace' }}>
+                            {selectedFile}
+                          </Typography>
+                          <IconButton size="small" onClick={() => setSelectedFile(null)}>
+                            <CloseIcon />
+                          </IconButton>
+                        </Box>
+                        {fileLoading ? (
+                          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                            <CircularProgress size={20} />
+                          </Box>
+                        ) : (
+                          <Box
+                            component="pre"
+                            sx={{
+                              fontFamily: 'monospace',
+                              fontSize: '0.75rem',
+                              backgroundColor: 'background.paper',
+                              color: 'text.primary',
+                              padding: 2,
+                              borderRadius: 1,
+                              overflow: 'auto',
+                              maxHeight: '500px',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-all',
+                              border: 1,
+                              borderColor: 'divider',
+                            }}
+                          >
+                            {fileData?.content || 'No content'}
+                          </Box>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Box>
+                )}
+              </Box>
+            )}
           </CardContent>
         </Card>
 

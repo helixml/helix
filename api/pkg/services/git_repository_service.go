@@ -12,7 +12,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -54,10 +53,8 @@ type GitRepository struct {
 type GitRepositoryType string
 
 const (
-	GitRepositoryTypeProject  GitRepositoryType = "project"   // User project repository
-	GitRepositoryTypeSpecTask GitRepositoryType = "spec_task" // SpecTask-specific repository
-	GitRepositoryTypeSample   GitRepositoryType = "sample"    // Sample/demo repository
-	GitRepositoryTypeTemplate GitRepositoryType = "template"  // Template repository
+	GitRepositoryTypeInternal GitRepositoryType = "internal" // Internal project config repository
+	GitRepositoryTypeCode     GitRepositoryType = "code"     // Code repository (user projects, samples, external repos)
 )
 
 // GitRepositoryStatus defines the status of a repository
@@ -243,6 +240,17 @@ func (s *GitRepositoryService) CreateRepository(
 	// Create repository path
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 
+	// Determine clone URL - ONLY for external repos
+	// Internal repos get empty CloneURL (dynamically generated when needed)
+	cloneURL := ""
+	if request.Metadata != nil {
+		if isExternal, ok := request.Metadata["is_external"].(bool); ok && isExternal {
+			if externalURL, ok := request.Metadata["external_url"].(string); ok && externalURL != "" {
+				cloneURL = externalURL
+			}
+		}
+	}
+
 	// Create repository object
 	gitRepo := &GitRepository{
 		ID:             repoID,
@@ -254,7 +262,7 @@ func (s *GitRepositoryService) CreateRepository(
 		SpecTaskID:     request.SpecTaskID,
 		RepoType:       request.RepoType,
 		Status:         GitRepositoryStatusActive,
-		CloneURL:       s.generateCloneURL(repoID),
+		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
 		LocalPath:      repoPath,
 		DefaultBranch:  defaultBranch,
 		LastActivity:   time.Now(),
@@ -286,22 +294,37 @@ func (s *GitRepositoryService) CreateRepository(
 
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*GitRepository, error) {
-	repoPath := filepath.Join(s.gitRepoBase, repoID)
-
-	// Check if repository exists
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("repository not found: %s", repoID)
-	}
-
-	// Try to get metadata from store first
+	// Try to get metadata from store first (has correct LocalPath for all repo types)
 	gitRepo, err := s.getRepositoryMetadata(ctx, repoID)
 	if err != nil {
-		// If not in store, create from filesystem
+		// Not in store - fallback to default path under gitRepoBase
+		repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+		// Check if repository exists at default path
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("repository not found: %s", repoID)
+		}
+
+		// Create from filesystem
 		gitRepo = &GitRepository{
 			ID:        repoID,
 			LocalPath: repoPath,
 			CloneURL:  s.generateCloneURL(repoID),
 			Status:    GitRepositoryStatusActive,
+		}
+	} else {
+		// Got from database - verify the LocalPath exists
+		if gitRepo.LocalPath != "" {
+			if _, err := os.Stat(gitRepo.LocalPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+		} else {
+			// No LocalPath in DB - try default path
+			repoPath := filepath.Join(s.gitRepoBase, repoID)
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+			gitRepo.LocalPath = repoPath
 		}
 	}
 
@@ -444,44 +467,6 @@ func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID str
 	return repositories, nil
 }
 
-// CreateSpecTaskRepository creates a repository specifically for a SpecTask
-func (s *GitRepositoryService) CreateSpecTaskRepository(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	templateFiles map[string]string,
-) (*GitRepository, error) {
-	// Determine initial files for the repository
-	initialFiles := make(map[string]string)
-
-	// Add template files if provided
-	for path, content := range templateFiles {
-		initialFiles[path] = content
-	}
-
-	// Add basic project structure if no template provided
-	if len(initialFiles) == 0 {
-		initialFiles = s.getDefaultProjectFiles(specTask)
-	}
-
-	// Create repository request
-	request := &GitRepositoryCreateRequest{
-		Name:          fmt.Sprintf("%s-project", specTask.Name),
-		Description:   fmt.Sprintf("Project repository for SpecTask: %s", specTask.Name),
-		RepoType:      GitRepositoryTypeSpecTask,
-		OwnerID:       specTask.CreatedBy,
-		ProjectID:     specTask.ProjectID,
-		SpecTaskID:    specTask.ID,
-		InitialFiles:  initialFiles,
-		DefaultBranch: "main",
-		Metadata: map[string]interface{}{
-			"spec_task_name": specTask.Name,
-			"created_from":   "spec_task",
-		},
-	}
-
-	return s.CreateRepository(ctx, request)
-}
-
 // CreateSampleRepository creates a sample/demo repository
 func (s *GitRepositoryService) CreateSampleRepository(
 	ctx context.Context,
@@ -497,7 +482,7 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	request := &GitRepositoryCreateRequest{
 		Name:          name,
 		Description:   description,
-		RepoType:      GitRepositoryTypeSample,
+		RepoType:      GitRepositoryTypeCode,
 		OwnerID:       ownerID,
 		InitialFiles:  initialFiles,
 		DefaultBranch: "main",
@@ -649,67 +634,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *GitRepository) e
 	return nil
 }
 
-// getDefaultProjectFiles returns default files for a new project
-func (s *GitRepositoryService) getDefaultProjectFiles(specTask *types.SpecTask) map[string]string {
-	files := make(map[string]string)
-
-	// README.md
-	files["README.md"] = fmt.Sprintf(`# %s
-
-%s
-
-This project was created from SpecTask: %s
-
-## Getting Started
-
-<!-- Add your getting started instructions here -->
-
-## Development
-
-<!-- Add your development instructions here -->
-
-## License
-
-<!-- Add your license information here -->
-`, specTask.Name, specTask.Description, specTask.ID)
-
-	// .gitignore
-	files[".gitignore"] = `# Logs
-logs
-*.log
-npm-debug.log*
-
-# Dependencies
-node_modules/
-vendor/
-
-# Environment variables
-.env
-.env.local
-
-# Build outputs
-build/
-dist/
-target/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-`
-
-	// docs directory structure
-	files["docs/README.md"] = "# Project Documentation\n\nThis directory contains project documentation.\n"
-	files["src/README.md"] = "# Source Code\n\nThis directory contains the main source code.\n"
-	files["tests/README.md"] = "# Tests\n\nThis directory contains tests.\n"
-
-	return files
-}
 
 // getSampleProjectFiles returns sample files based on project type
 func (s *GitRepositoryService) getSampleProjectFiles(sampleType string) map[string]string {
@@ -1187,4 +1111,121 @@ func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID
 	}
 
 	return nil, fmt.Errorf("repository metadata not found in store")
+}
+
+// TreeEntry represents a file or directory in a repository
+type TreeEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
+
+// GitRepositoryTreeResponse represents the response for browsing repository tree
+type GitRepositoryTreeResponse struct {
+	Path    string      `json:"path"`
+	Entries []TreeEntry `json:"entries"`
+}
+
+// GitRepositoryFileResponse represents the response for getting file contents
+type GitRepositoryFileResponse struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// BrowseTree lists files and directories at a given path
+func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string) ([]TreeEntry, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Build full path
+	fullPath := filepath.Join(repo.LocalPath, path)
+
+	// Check if path exists
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("path not found: %w", err)
+	}
+
+	// If it's a file, return single entry
+	if !info.IsDir() {
+		return []TreeEntry{{
+			Name:  filepath.Base(path),
+			Path:  path,
+			IsDir: false,
+			Size:  info.Size(),
+		}}, nil
+	}
+
+	// Read directory contents
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	// Build tree entries
+	result := make([]TreeEntry, 0, len(entries))
+	for _, entry := range entries {
+		// Skip .git directory
+		if entry.Name() == ".git" {
+			continue
+		}
+
+		entryPath := filepath.Join(path, entry.Name())
+		entryInfo, err := entry.Info()
+		if err != nil {
+			log.Warn().Err(err).Str("path", entryPath).Msg("Failed to get entry info, skipping")
+			continue
+		}
+
+		result = append(result, TreeEntry{
+			Name:  entry.Name(),
+			Path:  entryPath,
+			IsDir: entry.IsDir(),
+			Size:  entryInfo.Size(),
+		})
+	}
+
+	return result, nil
+}
+
+// GetFileContents reads the contents of a file
+func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string) (string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return "", fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return "", fmt.Errorf("repository has no local path")
+	}
+
+	// Build full path
+	fullPath := filepath.Join(repo.LocalPath, path)
+
+	// Check if file exists and is not a directory
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %w", err)
+	}
+
+	if info.IsDir() {
+		return "", fmt.Errorf("path is a directory, not a file")
+	}
+
+	// Read file contents
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return string(content), nil
 }

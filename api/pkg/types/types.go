@@ -15,6 +15,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 type Interaction struct {
@@ -683,6 +684,7 @@ type Session struct {
 	Name          string    `json:"name"`
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
+	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
 	ParentSession string    `json:"parent_session"`
 	// the app this session was spawned from
 	// TODO: rename to AppID

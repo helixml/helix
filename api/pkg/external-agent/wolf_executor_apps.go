@@ -874,27 +874,6 @@ input * {
 	return os.WriteFile(swayConfigPath, []byte(swayConfig), 0644)
 }
 
-func createWorkspaceDirectory(instanceID, basePath string) (string, error) {
-	workspaceDir := filepath.Join(basePath, instanceID)
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		return "", err
-	}
-
-	// Create startup script
-	startupScriptPath := filepath.Join(workspaceDir, "startup.sh")
-	if _, err := os.Stat(startupScriptPath); os.IsNotExist(err) {
-		startupScript := `#!/bin/bash
-echo "Starting up workspace"
-sudo chown -R retro:retro ~/work
-`
-		if err := os.WriteFile(startupScriptPath, []byte(startupScript), 0755); err != nil {
-			return "", err
-		}
-	}
-
-	return workspaceDir, nil
-}
-
 func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPIToken string) *wolf.App {
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",

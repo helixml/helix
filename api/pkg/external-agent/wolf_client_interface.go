@@ -18,6 +18,7 @@ type WolfClientInterface interface {
 	ListLobbies(ctx context.Context) ([]wolf.Lobby, error)
 	ListSessions(ctx context.Context) ([]wolf.WolfStreamSession, error)
 	StopSession(ctx context.Context, clientID string) error
+	GetSystemMemory(ctx context.Context) (*wolf.SystemMemoryResponse, error)
 }
 
 // Ensure *wolf.Client implements WolfClientInterface at compile time

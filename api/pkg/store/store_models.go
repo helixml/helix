@@ -539,15 +539,7 @@ func (s *PostgresStore) seedSampleProjects(ctx context.Context) error {
 			Difficulty:  "beginner",
 			RepositoryURL: "https://github.com/helixml/sample-todo-app",
 			ThumbnailURL: "",
-			StartupScript: `#!/bin/bash
-# Install frontend dependencies
-cd frontend && npm install && npm run dev &
-
-# Install backend dependencies
-cd ../backend && pip install -r requirements.txt && uvicorn main:app --reload &
-
-echo "✅ Todo app started! Frontend: http://localhost:3000, Backend: http://localhost:8000"
-`,
+			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{
 					Title:       "Add user authentication",
@@ -583,15 +575,7 @@ echo "✅ Todo app started! Frontend: http://localhost:3000, Backend: http://loc
 			Difficulty:  "intermediate",
 			RepositoryURL: "https://github.com/helixml/sample-chat-app",
 			ThumbnailURL: "",
-			StartupScript: `#!/bin/bash
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev &
-
-echo "✅ Chat app started on http://localhost:3000"
-`,
+			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{
 					Title:       "Add private messaging",
@@ -627,15 +611,7 @@ echo "✅ Chat app started on http://localhost:3000"
 			Difficulty:  "beginner",
 			RepositoryURL: "https://github.com/helixml/sample-blog",
 			ThumbnailURL: "",
-			StartupScript: `#!/bin/bash
-# Install dependencies
-npm install
-
-# Start Next.js dev server
-npm run dev &
-
-echo "✅ Blog started on http://localhost:3000"
-`,
+			// StartupScript is in the Git repo at .helix/startup.sh
 			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
 				{
 					Title:       "Add tag filtering",

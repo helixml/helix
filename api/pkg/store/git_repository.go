@@ -10,33 +10,33 @@ import (
 // GitRepository represents a git repository
 // Supports both Helix-hosted repositories and external repositories (GitHub, GitLab, ADO, etc.)
 type GitRepository struct {
-	ID             string    `gorm:"type:varchar(255);primaryKey"`
-	Name           string    `gorm:"type:varchar(255);not null;index"`
-	Description    string    `gorm:"type:text"`
-	OwnerID        string    `gorm:"type:varchar(255);not null;index"`
-	OrganizationID string    `gorm:"type:varchar(255);index"` // Organization ID - will be backfilled for existing repos
-	ProjectID      string    `gorm:"type:varchar(255);index"`
-	SpecTaskID     string    `gorm:"type:varchar(255);index"`
-	RepoType       string    `gorm:"type:varchar(50);not null;index"`
-	Status         string    `gorm:"type:varchar(50);not null"`
-	CloneURL      string    `gorm:"type:text"` // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
-	LocalPath     string    `gorm:"type:text"` // Local filesystem path for Helix-hosted repos (empty for external)
-	DefaultBranch string    `gorm:"type:varchar(100)"`
-	LastActivity  time.Time `gorm:"index"`
-	CreatedAt     time.Time `gorm:"autoCreateTime;index"`
-	UpdatedAt     time.Time `gorm:"autoUpdateTime"`
-	MetadataJSON  string    `gorm:"type:jsonb"` // Stores Metadata as JSON
-	Metadata      map[string]interface{} `gorm:"-"` // Transient field, not persisted (used by services)
+	ID             string    `gorm:"type:varchar(255);primaryKey" json:"id"`
+	Name           string    `gorm:"type:varchar(255);not null;index" json:"name"`
+	Description    string    `gorm:"type:text" json:"description"`
+	OwnerID        string    `gorm:"type:varchar(255);not null;index" json:"owner_id"`
+	OrganizationID string    `gorm:"type:varchar(255);index" json:"organization_id"` // Organization ID - will be backfilled for existing repos
+	ProjectID      string    `gorm:"type:varchar(255);index" json:"project_id"`
+	SpecTaskID     string    `gorm:"type:varchar(255);index" json:"spec_task_id"`
+	RepoType       string    `gorm:"type:varchar(50);not null;index" json:"repo_type"`
+	Status         string    `gorm:"type:varchar(50);not null" json:"status"`
+	CloneURL      string    `gorm:"type:text" json:"clone_url"` // For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git
+	LocalPath     string    `gorm:"type:text" json:"local_path"` // Local filesystem path for Helix-hosted repos (empty for external)
+	DefaultBranch string    `gorm:"type:varchar(100)" json:"default_branch"`
+	LastActivity  time.Time `gorm:"index" json:"last_activity"`
+	CreatedAt     time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	MetadataJSON  string    `gorm:"type:jsonb" json:"metadata_json"` // Stores Metadata as JSON
+	Metadata      map[string]interface{} `gorm:"-" json:"metadata,omitempty"` // Transient field, not persisted (used by services)
 
 	// External repository fields
-	IsExternal     bool   `gorm:"type:boolean;default:false;index"` // True for GitHub/GitLab/ADO, false for Helix-hosted
-	ExternalURL    string `gorm:"type:text"`                        // Full URL to external repo (e.g., https://github.com/org/repo)
-	ExternalType   string `gorm:"type:varchar(50)"`                 // "github", "gitlab", "ado", "bitbucket", etc.
-	ExternalRepoID string `gorm:"type:varchar(255)"`                // External platform's repository ID
-	CredentialRef  string `gorm:"type:varchar(255)"`                // Reference to stored credentials (SSH key, OAuth token, etc.)
+	IsExternal     bool   `gorm:"type:boolean;default:false;index" json:"is_external"` // True for GitHub/GitLab/ADO, false for Helix-hosted
+	ExternalURL    string `gorm:"type:text" json:"external_url"`                        // Full URL to external repo (e.g., https://github.com/org/repo)
+	ExternalType   string `gorm:"type:varchar(50)" json:"external_type"`                 // "github", "gitlab", "ado", "bitbucket", etc.
+	ExternalRepoID string `gorm:"type:varchar(255)" json:"external_repo_id"`                // External platform's repository ID
+	CredentialRef  string `gorm:"type:varchar(255)" json:"credential_ref"`                // Reference to stored credentials (SSH key, OAuth token, etc.)
 
 	// Code intelligence fields
-	KoditIndexing bool `gorm:"type:boolean;default:false;index"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
+	KoditIndexing bool `gorm:"type:boolean;default:false;index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
 }
 
 // TableName overrides the table name

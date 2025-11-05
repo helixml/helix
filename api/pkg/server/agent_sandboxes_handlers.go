@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -17,12 +18,38 @@ import (
 // AgentSandboxesDebugResponse combines data from multiple Wolf endpoints
 // for comprehensive debugging of the agent streaming infrastructure
 type AgentSandboxesDebugResponse struct {
-	Memory           *WolfSystemMemory      `json:"memory"`
-	Apps             []WolfAppInfo          `json:"apps,omitempty"`    // Apps mode
-	Lobbies          []WolfLobbyInfo        `json:"lobbies,omitempty"` // Lobbies mode
-	Sessions         []WolfSessionInfo      `json:"sessions"`
-	MoonlightClients []MoonlightClientInfo  `json:"moonlight_clients"` // NEW: moonlight-web client connections
-	WolfMode         string                 `json:"wolf_mode"`         // Current Wolf mode ("apps" or "lobbies")
+	Memory            *WolfSystemMemory        `json:"memory"`
+	Apps              []WolfAppInfo            `json:"apps,omitempty"`    // Apps mode
+	Lobbies           []WolfLobbyInfo          `json:"lobbies,omitempty"` // Lobbies mode
+	Sessions          []WolfSessionInfo        `json:"sessions"`
+	MoonlightClients  []MoonlightClientInfo    `json:"moonlight_clients"`           // moonlight-web client connections
+	WolfMode          string                   `json:"wolf_mode"`                   // Current Wolf mode ("apps" or "lobbies")
+	GPUStats          *GPUStats                `json:"gpu_stats,omitempty"`         // GPU encoder stats from Wolf (via nvidia-smi)
+	GStreamerPipelines *GStreamerPipelineStats `json:"gstreamer_pipelines,omitempty"` // Actual pipeline count from Wolf
+}
+
+// GPUStats represents real-time GPU metrics from Wolf (via nvidia-smi)
+type GPUStats struct {
+	GPUName               string  `json:"gpu_name"`
+	EncoderSessionCount   int     `json:"encoder_session_count"`
+	EncoderAverageFps     float64 `json:"encoder_average_fps"`
+	EncoderAverageLatency int     `json:"encoder_average_latency_us"`
+	EncoderUtilization    int     `json:"encoder_utilization_percent"`
+	GPUUtilization        int     `json:"gpu_utilization_percent"`
+	MemoryUtilization     int     `json:"memory_utilization_percent"`
+	MemoryUsedMB          int     `json:"memory_used_mb"`
+	MemoryTotalMB         int     `json:"memory_total_mb"`
+	TemperatureC          int     `json:"temperature_celsius"`
+	QueryDurationMS       int     `json:"query_duration_ms"` // How long nvidia-smi took in Wolf
+	Available             bool    `json:"available"`         // false if nvidia-smi failed
+	Error                 string  `json:"error,omitempty"`
+}
+
+// GStreamerPipelineStats represents actual GStreamer pipeline counts from Wolf state
+type GStreamerPipelineStats struct {
+	ProducerPipelines int `json:"producer_pipelines"` // Video + audio producers (2 per lobby)
+	ConsumerPipelines int `json:"consumer_pipelines"` // Video + audio consumers (2 per session)
+	TotalPipelines    int `json:"total_pipelines"`    // Sum of producers + consumers
 }
 
 // MoonlightClientInfo represents a moonlight-web client connection
@@ -41,13 +68,15 @@ type WolfAppInfo struct {
 
 // WolfSystemMemory represents Wolf's system memory usage (supports both apps and lobbies modes)
 type WolfSystemMemory struct {
-	Success              bool                   `json:"success"`
-	ProcessRSSBytes      int64                  `json:"process_rss_bytes"`
-	GStreamerBufferBytes int64                  `json:"gstreamer_buffer_bytes"`
-	TotalMemoryBytes     int64                  `json:"total_memory_bytes"`
-	Apps                 []WolfAppMemory        `json:"apps,omitempty"`    // Apps mode
-	Lobbies              []WolfLobbyMemory      `json:"lobbies,omitempty"` // Lobbies mode
-	Clients              []WolfClientConnection `json:"clients"`
+	Success              bool                     `json:"success"`
+	ProcessRSSBytes      int64                    `json:"process_rss_bytes"`
+	GStreamerBufferBytes int64                    `json:"gstreamer_buffer_bytes"`
+	TotalMemoryBytes     int64                    `json:"total_memory_bytes"`
+	Apps                 []WolfAppMemory          `json:"apps,omitempty"`              // Apps mode
+	Lobbies              []WolfLobbyMemory        `json:"lobbies,omitempty"`           // Lobbies mode
+	Clients              []WolfClientConnection   `json:"clients"`
+	GPUStats             *GPUStats                `json:"gpu_stats,omitempty"`         // From Wolf's nvidia-smi query
+	GStreamerPipelines   *GStreamerPipelineStats  `json:"gstreamer_pipelines,omitempty"` // From Wolf's state
 }
 
 // WolfAppMemory represents per-app memory usage (apps mode)
@@ -91,12 +120,14 @@ type WolfLobbyInfo struct {
 // WolfSessionInfo represents a Wolf streaming session
 // Note: Wolf returns flat structure, we transform it for frontend
 type WolfSessionInfo struct {
-	SessionID       string `json:"session_id"` // Exposed as session_id for frontend
-	ClientIP        string `json:"client_ip"`
-	AppID           string `json:"app_id"`
-	VideoWidth      int    `json:"-"` // Internal field from Wolf
-	VideoHeight     int    `json:"-"` // Internal field from Wolf
-	VideoRefreshRate int   `json:"-"` // Internal field from Wolf
+	SessionID       string  `json:"session_id"` // Exposed as session_id for frontend (Wolf's client_id)
+	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Helix client ID (helix-agent-{session_id}-{instance_id})
+	ClientIP        string  `json:"client_ip"`
+	AppID           string  `json:"app_id"` // Wolf UI app ID in lobbies mode
+	LobbyID         *string `json:"lobby_id,omitempty"` // Which lobby this session is connected to (lobbies mode)
+	VideoWidth      int     `json:"-"` // Internal field from Wolf
+	VideoHeight     int     `json:"-"` // Internal field from Wolf
+	VideoRefreshRate int    `json:"-"` // Internal field from Wolf
 	DisplayMode     struct {
 		Width         int  `json:"width"`
 		Height        int  `json:"height"`
@@ -108,12 +139,13 @@ type WolfSessionInfo struct {
 
 // wolfSessionRaw matches Wolf's actual API response format
 type wolfSessionRaw struct {
-	ClientID        string `json:"client_id"`
-	ClientIP        string `json:"client_ip"`
-	AppID           string `json:"app_id"`
-	VideoWidth      int    `json:"video_width"`
-	VideoHeight     int    `json:"video_height"`
-	VideoRefreshRate int   `json:"video_refresh_rate"`
+	ClientID        string  `json:"client_id"`
+	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Helix session ID
+	ClientIP        string  `json:"client_ip"`
+	AppID           string  `json:"app_id"`
+	VideoWidth      int     `json:"video_width"`
+	VideoHeight     int     `json:"video_height"`
+	VideoRefreshRate int    `json:"video_refresh_rate"`
 }
 
 // @Summary Get Wolf debugging data
@@ -180,6 +212,63 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 		http.Error(rw, fmt.Sprintf("Failed to fetch Wolf sessions: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// In lobbies mode, match Wolf sessions with lobbies by extracting Helix session ID
+	// from client_unique_id and matching against lobby env vars
+	// We need the full lobby data with Runner object for this matching
+	if wolfMode == "lobbies" && len(response.Lobbies) > 0 {
+		// Fetch full lobby data with Runner object (not just WolfLobbyInfo)
+		rawLobbies, err := wolfClient.ListLobbies(ctx)
+		if err == nil {
+			for i := range sessionsData {
+				session := &sessionsData[i]
+				if session.ClientUniqueID == nil {
+					continue
+				}
+
+				// Extract Helix session ID from client_unique_id: helix-agent-{session_id}-{instance_id}
+				uniqueID := *session.ClientUniqueID
+				if !strings.HasPrefix(uniqueID, "helix-agent-") {
+					continue
+				}
+
+				// Remove "helix-agent-" prefix and instance ID suffix
+				parts := strings.Split(strings.TrimPrefix(uniqueID, "helix-agent-"), "-")
+				if len(parts) == 0 {
+					continue
+				}
+
+				// Helix session ID is everything except the last UUID part
+				// Session IDs are ~30 chars, UUIDs are 36 chars with hyphens
+				helixSessionID := strings.Join(parts[:len(parts)-1], "-")
+				if len(helixSessionID) < 20 {
+					continue // Too short to be a session ID
+				}
+
+				// Find lobby with matching HELIX_SESSION_ID in env vars
+				for _, lobby := range rawLobbies {
+					// Parse lobby.Runner to extract env vars
+					if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+						if envList, ok := runnerMap["env"].([]interface{}); ok {
+							for _, envVar := range envList {
+								if envStr, ok := envVar.(string); ok {
+									expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
+									if envStr == expectedEnv {
+										session.LobbyID = &lobby.ID
+										break
+									}
+								}
+							}
+						}
+					}
+					if session.LobbyID != nil {
+						break
+					}
+				}
+			}
+		}
+	}
+
 	response.Sessions = sessionsData
 
 	// Fetch moonlight-web client connections
@@ -194,6 +283,10 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 
 	// Set Wolf mode in response so frontend knows which mode is active
 	response.WolfMode = wolfMode
+
+	// GPU stats and pipeline stats are already included in memoryData from Wolf
+	response.GPUStats = memoryData.GPUStats
+	response.GStreamerPipelines = memoryData.GStreamerPipelines
 
 	// Return combined data
 	writeResponse(rw, response, http.StatusOK)
@@ -346,9 +439,11 @@ func fetchWolfSessions(ctx context.Context, wolfClient *wolf.Client) ([]WolfSess
 	sessions := make([]WolfSessionInfo, len(sessionsResponse.Sessions))
 	for i, raw := range sessionsResponse.Sessions {
 		sessions[i] = WolfSessionInfo{
-			SessionID: raw.ClientID,
-			ClientIP:  raw.ClientIP,
-			AppID:     raw.AppID,
+			SessionID:      raw.ClientID,
+			ClientUniqueID: raw.ClientUniqueID, // Helix session identifier (helix-agent-{session_id}-{instance_id})
+			ClientIP:       raw.ClientIP,
+			AppID:          raw.AppID,
+			LobbyID:        nil, // Will be populated below by matching against lobbies
 			DisplayMode: struct {
 				Width         int  `json:"width"`
 				Height        int  `json:"height"`
@@ -625,6 +720,15 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 	expectedMoonlightSessionID := fmt.Sprintf("agent-%s", sessionID)
 	expectedClientUniqueID := fmt.Sprintf("helix-agent-%s", sessionID)
 
+	// Generate Wolf app ID using same logic as wolf_executor.go
+	// wolfAppID = hash(userID + sessionID) % 1000000000
+	stableKey := fmt.Sprintf("%s-%s", user.ID, sessionID)
+	var numericHash uint64
+	for _, b := range []byte(stableKey) {
+		numericHash = numericHash*31 + uint64(b)
+	}
+	wolfAppID := fmt.Sprintf("%d", numericHash%1000000000)
+
 	// Query moonlight-web to check session state
 	moonlightClients, err := fetchMoonlightWebSessions(ctx)
 	if err != nil {
@@ -641,20 +745,23 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 		}
 	}
 
-	// Find this session's Wolf app/lobby ID from the external agent executor
-	type SessionProvider interface {
-		GetSession(sessionID string) (*external_agent.ZedSession, error)
-	}
-	sessionProvider, ok := apiServer.externalAgentExecutor.(SessionProvider)
-	var wolfAppID string
+	// CRITICAL: Always query Wolf as the single source of truth
+	// Never use in-memory maps - they can be stale, partial, or wrong
 	var wolfLobbyID string
 	var isLobbiesMode bool
-	if ok {
-		zedSession, err := sessionProvider.GetSession(sessionID)
-		if err == nil && zedSession != nil {
-			wolfAppID = zedSession.WolfAppID
-			wolfLobbyID = zedSession.WolfLobbyID
-			isLobbiesMode = wolfLobbyID != "" // If lobby ID exists, we're in lobbies mode
+
+	// Query Wolf API directly for lobbies (ONLY source of truth)
+	type LobbyFinderProvider interface {
+		FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error)
+	}
+	if provider, ok := apiServer.externalAgentExecutor.(LobbyFinderProvider); ok {
+		foundLobbyID, err := provider.FindExistingLobbyForSession(ctx, sessionID)
+		if err != nil {
+			// Wolf query failed - session will be reported as "absent"
+		} else if foundLobbyID != "" {
+			// Found existing lobby in Wolf
+			wolfLobbyID = foundLobbyID
+			isLobbiesMode = true
 		}
 	}
 
@@ -720,3 +827,4 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 
 	writeResponse(rw, response, http.StatusOK)
 }
+

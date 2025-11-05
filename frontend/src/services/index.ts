@@ -28,6 +28,7 @@ export {
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
+  useResumeProjectExploratorySession,
   projectsListQueryKey,
   projectQueryKey,
   projectRepositoriesQueryKey,

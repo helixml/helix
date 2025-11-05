@@ -15,6 +15,8 @@ interface MonacoEditorProps extends Omit<BoxProps, 'onChange'> {
   theme?: 'vs-dark' | 'vs-light' | 'hc-black' | 'helix-dark';
   options?: monaco.editor.IStandaloneEditorConstructionOptions;
   onMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
+  onSave?: () => void; // Called when user presses Cmd+S / Ctrl+S
+  onTest?: () => void; // Called when user presses Cmd+Enter / Ctrl+Enter
 }
 
 // Custom Helix theme for Monaco Editor
@@ -252,12 +254,23 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   theme = 'helix-dark',
   options = {},
   onMount,
+  onSave,
+  onTest,
   ...boxProps
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorInstanceRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [isEditorReady, setIsEditorReady] = useState(false);
   const themeConfig = useThemeConfig();
+
+  // Use refs to always call latest callbacks (avoids stale closures in Monaco commands)
+  const onSaveRef = useRef(onSave);
+  const onTestRef = useRef(onTest);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+    onTestRef.current = onTest;
+  }, [onSave, onTest]);
 
   useEffect(() => {
     if (!editorRef.current) return;
@@ -297,6 +310,22 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     // Call onMount callback if provided
     if (onMount) {
       onMount(editor);
+    }
+
+    // Register Cmd+S / Ctrl+S keyboard shortcut
+    // Use ref to always call latest callback (prevents stale closures)
+    if (onSave) {
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        onSaveRef.current?.();
+      });
+    }
+
+    // Register Cmd+Enter / Ctrl+Enter keyboard shortcut
+    // Use ref to always call latest callback (prevents stale closures)
+    if (onTest) {
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+        onTestRef.current?.();
+      });
     }
 
     return () => {

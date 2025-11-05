@@ -1799,39 +1799,51 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		// WorkDir left empty - wolf_executor will use filestore path for persistence
 	}
 
-	// If this is a spec task session, load the spec task to get repository info
+	// Load project context for both SpecTask AND exploratory sessions
+	// This ensures startup scripts run on resume for all project-scoped sessions
+	var projectID string
+
 	if specTaskID != "" {
+		// SpecTask session - get project from task
 		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("spec_task_id", specTaskID).
 				Msg("Failed to load spec task for resume, continuing without repository info")
-		} else {
-			// Load project repositories
-			if specTask.ProjectID != "" {
-				projectRepos, err := s.Controller.Options.Store.GetProjectRepositories(ctx, specTask.ProjectID)
-				if err == nil && len(projectRepos) > 0 {
-					agent.RepositoryIDs = make([]string, 0, len(projectRepos))
-					for _, repo := range projectRepos {
-						if repo.ID != "" {
-							agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
-						}
-					}
+		} else if specTask.ProjectID != "" {
+			projectID = specTask.ProjectID
+		}
+	} else if session.Metadata.ProjectID != "" {
+		// Exploratory session - get project from session metadata
+		projectID = session.Metadata.ProjectID
+		log.Info().
+			Str("session_id", id).
+			Str("project_id", projectID).
+			Msg("Loading project context for exploratory session resume")
+	}
 
-					// Set primary repository from project (repos are now managed at project level)
-					project, err := s.Controller.Options.Store.GetProject(ctx, specTask.ProjectID)
-					if err == nil && project.DefaultRepoID != "" {
-						agent.PrimaryRepositoryID = project.DefaultRepoID
-					} else if len(projectRepos) > 0 {
-						// Use first repo as fallback if no default set
-						agent.PrimaryRepositoryID = projectRepos[0].ID
-					}
+	// If we have a project, load repositories and startup script
+	if projectID != "" {
+		agent.ProjectID = projectID
+
+		projectRepos, err := s.Controller.Options.Store.GetProjectRepositories(ctx, projectID)
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
 				}
 			}
 
-			// Set project ID for loading startup script
-			agent.ProjectID = specTask.ProjectID
+			// Set primary repository from project (repos are now managed at project level)
+			project, err := s.Controller.Options.Store.GetProject(ctx, projectID)
+			if err == nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				// Use first repo as fallback if no default set
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
 		}
 	}
 
@@ -1851,9 +1863,14 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Update session metadata with new Wolf lobby info
-	session.Metadata.WolfLobbyID = response.WolfLobbyID
-	session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	// Update session metadata with new Wolf lobby info (only if non-empty)
+	// Don't overwrite existing metadata with empty values from lobby reuse
+	if response.WolfLobbyID != "" {
+		session.Metadata.WolfLobbyID = response.WolfLobbyID
+	}
+	if response.WolfLobbyPIN != "" {
+		session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	}
 	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		log.Error().
