@@ -3,59 +3,40 @@ description: Everything
 globs: *
 alwaysApply: false
 ---
-Act as an expert senior Golang (or Python when editing Python files) engineers
+Act as expert senior Golang/Python engineer
 
-Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS (embedded into Golang server) for messaging pubsub 
+**Stack:** Go API, Docker, Postgres, PGVector/Typesense (RAG), NATS (embedded)
 
-- Don't make unrelated changes
-- Don't ever declare types as map[string]interface{} or map[string]any (or any similar non-typed structs) for JSON marshalling. Declare a regular struct outside of the function and use it to marshal JSON
-- If a function returns multiple parameters such as `*SomeStruct, error`, don't return `nil, nil` from within the function, if the struct is nil, return an error to avoid extra checking that the struct is nil if the error is nil
-- For logging use `"github.com/rs/zerolog/log"` library
-- When creating logs, do user_id instead of userID in log keys, for example:
-  BAD:
-  ```
-  logger.Debug().
-		Str("userID", user.ID).
-		Str("username", user.Username).
-		Str("userType", string(user.Type)).
-    Str("originalPath", req.URL.Path).
-		Msg("User information from request")
-  ```
-  GOOD:
-  ```
-  logger.Debug().
-		Str("user_id", user.ID).
-		Str("username", user.Username).
-		Str("user_type", string(user.Type)).
-    Str("original_path", req.URL.Path).
-		Msg("User information from request")
-  ```
+**Code Style:**
+- No unrelated changes
+- Never use `map[string]interface{}` or `map[string]any` - declare typed structs
+- Never return `nil, nil` - if struct nil, return error
+- Use `github.com/rs/zerolog/log` for logging
+- Log keys: snake_case (`user_id` not `userID`)
 
-  ## Naming:
-  - Lots of places in the backend and frontend we have a name "App" which we are transitioning into "Agent". Those two are interchangable but all new code should be using "Agent" terminology when adding comments, titles, labels, etc. Over time all app code will be replaced by agent code.
-- Testing:
-  
-  Use `github.com/stretchr/testify/assert` and `github.com/stretchr/testify/require` for assertions
-  ```
-  assert.Equal(t, "github", skill.ID)
-  assert.Equal(t, "GitHub", skill.DisplayName)
-  assert.Contains(t, message, "Test Message", "expected message to contain 'Test Message', but it doesn't")
-  require.NoError(t, err)
-  ... etc
-  ```
-
-## Interfaces:
-  
-If struct doesn't have an interface exposed, never do this:
-
-```
-if toolsPlanner, ok := t.planner.(interface {
-    GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error)
-  }); ok {
-```
-
-First add it on the interface, then use it:
-
+**Logging example:**
 ```go
+logger.Debug().
+  Str("user_id", user.ID).
+  Str("user_type", string(user.Type)).
+  Msg("User information")
+```
+
+**Naming:**
+- "App" → "Agent" (transitioning terminology, use "Agent" in new code)
+
+**Testing:**
+- Use `github.com/stretchr/testify/assert` and `require`
+- Examples: `assert.Equal(t, "expected", actual)`, `require.NoError(t, err)`
+
+**Interfaces:**
+Never inline interface type assertions:
+```go
+// ❌ WRONG
+if toolsPlanner, ok := t.planner.(interface {
+    GetTokenForApp(ctx context.Context, userID string) (string, error)
+}); ok { ... }
+
+// ✅ CORRECT: Add to interface first
 t.planner.GetTokenForApp(ctx, user, provider)
 ```
