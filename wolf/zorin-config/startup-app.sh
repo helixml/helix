@@ -99,6 +99,17 @@ SCREENSAVER_EOF
 echo "✅ Screensaver proxy disabled"
 
 # ============================================================================
+# Disable IBus Input Method Framework
+# ============================================================================
+# IBus can interfere with keyboard input in remote streaming environments
+# This fixes Shift key and other modifier keys not working properly
+echo "Disabling IBus input method framework..."
+export GTK_IM_MODULE=gtk-im-context-simple
+export QT_IM_MODULE=gtk-im-context-simple
+export XMODIFIERS=@im=none
+echo "✅ IBus disabled (using simple input context)"
+
+# ============================================================================
 # GNOME Autostart Entries Configuration
 # ============================================================================
 # Create GNOME autostart directory
