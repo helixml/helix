@@ -50,6 +50,17 @@ RUN apt-get update && \
     apt-get install -y grim scrot && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Firefox browser from Mozilla repository (for taskbar and general use)
+RUN apt-get update && \
+    apt-get install -y wget gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" > /etc/apt/sources.list.d/mozilla.list && \
+    echo "Package: firefox*\nPin: origin packages.mozilla.org\nPin-Priority: 1000" > /etc/apt/preferences.d/mozilla-firefox && \
+    apt-get update && \
+    apt-get install -y firefox && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy settings-sync-daemon and screenshot-server binaries from Go build stage
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
@@ -70,7 +81,7 @@ RUN chmod +x /opt/gow/startup.sh
 
 # Copy Helix background image for desktop wallpaper
 RUN mkdir -p /usr/share/backgrounds
-COPY frontend/assets/img/helix-text-logo.png /usr/share/backgrounds/helix-logo.png
+COPY wolf/assets/images/helix_hero.png /usr/share/backgrounds/helix-hero.png
 
 # Copy GNOME dconf settings (background, theme, keyboard, power management)
 COPY wolf/zorin-config/dconf-settings.ini /opt/gow/dconf-settings.ini

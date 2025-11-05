@@ -167,14 +167,14 @@ EOF
 
 echo "✅ GNOME display configuration autostart entry created"
 
-# Create autostart entry for screenshot server
+# Create autostart entry for screenshot server (starts immediately for fast screenshots)
 cat > ~/.config/autostart/screenshot-server.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Screenshot Server
 Exec=/usr/local/bin/screenshot-server
 X-GNOME-Autostart-enabled=true
-X-GNOME-Autostart-Delay=3
+X-GNOME-Autostart-Delay=0
 NoDisplay=true
 EOF
 
