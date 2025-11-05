@@ -99,7 +99,12 @@ echo "Configuring GNOME display settings..."
 # Without this, GNOME treats even 200% as fractional and upscales from 100%
 gsettings set org.gnome.mutter experimental-features "[]"
 
-echo "✅ GNOME display settings configured (integer scaling enabled)"
+# Set 200% display scaling for X11 (avoids artifacts from dynamic scaling changes)
+# This must be set at boot to avoid compositor issues with runtime scale changes
+gsettings set org.gnome.settings-daemon.plugins.xsettings overrides "[{'Gdk/WindowScalingFactor', <2>}]"
+gsettings set org.gnome.desktop.interface scaling-factor 2
+
+echo "✅ GNOME display settings configured (200% integer scaling enabled)"
 EOF
 
 sudo mv /tmp/configure-gnome-display.sh /usr/local/bin/configure-gnome-display.sh
