@@ -110,7 +110,20 @@ EOF
 sudo mv /tmp/configure-gnome-display.sh /usr/local/bin/configure-gnome-display.sh
 sudo chmod +x /usr/local/bin/configure-gnome-display.sh
 
-# Create autostart entry for GNOME display configuration (runs first)
+# Create autostart entry for dconf settings loading (runs first, before other services)
+cat > ~/.config/autostart/helix-dconf-settings.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Helix GNOME Settings
+Exec=/bin/bash -c "dconf load / < /opt/gow/dconf-settings.ini"
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
+EOF
+
+echo "✅ dconf settings autostart entry created"
+
+# Create autostart entry for GNOME display configuration (runs after dconf)
 cat > ~/.config/autostart/helix-display-config.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
@@ -176,6 +189,7 @@ echo "✅ Zed autostart entry created"
 # ============================================================================
 # Launch GNOME via GOW's proven xorg.sh script
 # This handles: Xwayland startup → D-Bus → GNOME session
+# Note: dconf settings are loaded via autostart entry AFTER GNOME starts
 
 echo "Launching GNOME via GOW xorg.sh..."
 exec /opt/gow/xorg.sh

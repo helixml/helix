@@ -105,18 +105,29 @@ fi
 # Using signal numbers for compatibility: 15=TERM, 2=INT, 1=HUP
 trap 'echo "Caught signal, continuing restart loop..."' 15 2 1
 
-# GNOME/Zorin uses Wayland by default
-if [ -z "$WAYLAND_DISPLAY" ]; then
-    echo "ERROR: WAYLAND_DISPLAY not set! GNOME should set this automatically."
-    echo "Cannot start Zed without Wayland."
-    exit 1
+# Clear Zed's workspace state to prevent fullscreen mode restoration
+# Zed remembers fullscreen state in its workspace database
+# Deleting this file forces Zed to start in normal windowed mode with decorations
+if [ -f "$HOME/.local/share/zed/db/0-stable.db" ]; then
+    echo "Clearing Zed workspace state to prevent fullscreen mode..."
+    rm -f "$HOME/.local/share/zed/db/0-stable.db"
 fi
+
+# WORKAROUND: Force X11 backend for proper HiDPI scaling
+# Zed's Wayland backend doesn't respect GNOME text scaling (Zed issue #23610)
+# X11 backend with GPUI_X11_SCALE_FACTOR works correctly
+export GDK_BACKEND=x11
+export GPUI_X11_SCALE_FACTOR=2  # 200% scaling for HiDPI
+
+# Request native GNOME window decorations (titlebar with minimize/maximize/close buttons)
+export ZED_WINDOW_DECORATIONS=server
 
 # Launch Zed in a restart loop for development
 # When you close Zed (click X), it auto-restarts with the latest binary
 # Perfect for testing rebuilds without recreating the entire container
 echo "Starting Zed with auto-restart loop (close window to reload updated binary)"
-echo "Using Wayland backend (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
+echo "Using X11 backend with 200% HiDPI scaling (GDK_BACKEND=x11, GPUI_X11_SCALE_FACTOR=2)"
+echo "Window decorations: native GNOME (ZED_WINDOW_DECORATIONS=server)"
 
 while true; do
     echo "Launching Zed..."

@@ -67,3 +67,10 @@ RUN chmod +x /usr/local/bin/start-zed-helix.sh
 # Copy GOW startup script (creates autostart entries and state symlinks)
 ADD wolf/zorin-config/startup-app.sh /opt/gow/startup.sh
 RUN chmod +x /opt/gow/startup.sh
+
+# Copy Helix background image for desktop wallpaper
+RUN mkdir -p /usr/share/backgrounds
+COPY frontend/assets/img/helix-text-logo.png /usr/share/backgrounds/helix-logo.png
+
+# Copy GNOME dconf settings (background, theme, keyboard, power management)
+COPY wolf/zorin-config/dconf-settings.ini /opt/gow/dconf-settings.ini
