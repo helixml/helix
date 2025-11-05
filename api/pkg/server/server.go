@@ -1149,6 +1149,31 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 	// Create a new router for the socket server
 	router := mux.NewRouter()
 
+	router.Use(ErrorLoggingMiddleware)
+
+	// If configured, load user from database and set in request context
+	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
+		user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+			ID: apiServer.Cfg.WebServer.EmbeddingsSocketUserID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to get user for socket: %w", err)
+		}
+
+		log.Info().
+			Str("user_id", apiServer.Cfg.WebServer.EmbeddingsSocketUserID).
+			Str("user_email", user.Email).
+			Msg("setting user for embeddings socket")
+
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Set user to the request context
+				r = r.WithContext(setRequestUser(r.Context(), *user))
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
+
 	// Register only the necessary endpoints with no auth
 	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)
 
