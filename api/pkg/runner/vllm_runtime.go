@@ -461,17 +461,36 @@ func (v *VLLMRuntime) Status(ctx context.Context) string {
 	url := fmt.Sprintf("%s/v1/models", v.URL())
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "error"
+		return fmt.Sprintf("error: %s", err.Error())
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "error"
+		return fmt.Sprintf("error: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "error"
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("error: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Try to read the response body to get model info
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "running (unable to read model info)"
+	}
+
+	// Basic status with model name if available
+	if v.model != "" {
+		return fmt.Sprintf("running: %s", v.model)
+	}
+
+	// Try to extract model name from response (it's JSON with "data" array)
+	// This is best-effort - if it fails, just return "running"
+	bodyStr := string(bodyBytes)
+	if len(bodyStr) > 0 {
+		return fmt.Sprintf("running (%d bytes model info)", len(bodyBytes))
 	}
 
 	return "running"
