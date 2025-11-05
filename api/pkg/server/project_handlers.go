@@ -1,15 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/wolf"
 	"github.com/rs/zerolog/log"
 )
 
@@ -74,6 +77,22 @@ func (s *HelixAPIServer) getProject(_ http.ResponseWriter, r *http.Request) (*ty
 			Str("project_owner_id", project.UserID).
 			Msg("user not authorized to access project")
 		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Load startup script from internal Git repo (source of truth)
+	if project.InternalRepoPath != "" {
+		startupScript, err := s.projectInternalRepoService.LoadStartupScript(project.ID, project.InternalRepoPath)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("project_id", projectID).
+				Str("internal_repo_path", project.InternalRepoPath).
+				Msg("failed to load startup script from internal repo, using database value")
+			// Continue with database value if git repo read fails
+		} else {
+			// Git repo is source of truth - use loaded value
+			project.StartupScript = startupScript
+		}
 	}
 
 	return project, nil
@@ -159,12 +178,12 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 		internalRepoID := fmt.Sprintf("%s-internal", created.ID)
 		internalRepo := &store.GitRepository{
 			ID:             internalRepoID,
-			Name:           fmt.Sprintf("%s-internal", created.Name),
+			Name:           fmt.Sprintf("%s-internal", data.SlugifyName(created.Name)),
 			Description:    "Internal project repository for configuration and metadata",
 			OwnerID:        user.ID,
 			OrganizationID: created.OrganizationID,
 			ProjectID:      created.ID,
-			RepoType:       "helix_hosted",
+			RepoType:       "internal",
 			Status:         "ready",
 			LocalPath:      internalRepoPath,
 			DefaultBranch:  "main",
@@ -265,9 +284,12 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 	if req.DefaultRepoID != nil {
 		project.DefaultRepoID = *req.DefaultRepoID
 	}
-	if req.StartupScript != nil {
-		project.StartupScript = *req.StartupScript
+	if req.AutoStartBacklogTasks != nil {
+		project.AutoStartBacklogTasks = *req.AutoStartBacklogTasks
 	}
+
+	// DON'T update StartupScript in database - Git repo is source of truth
+	// It will be saved to git repo below and loaded from there on next fetch
 
 	err = s.Store.UpdateProject(r.Context(), project)
 	if err != nil {
@@ -289,7 +311,7 @@ func (s *HelixAPIServer) updateProject(_ http.ResponseWriter, r *http.Request) (
 				Msg("failed to update project config in internal repo (continuing)")
 		}
 
-		// If startup script was updated, sync to git
+		// If startup script was updated, save to Git repo (source of truth)
 		if req.StartupScript != nil {
 			if err := s.projectInternalRepoService.SaveStartupScript(projectID, project.InternalRepoPath, *req.StartupScript); err != nil {
 				log.Warn().
@@ -373,6 +395,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 // @Summary Get project repositories
 // @Description Get all repositories attached to a project
 // @Tags Projects
+// @ID getProjectRepositories
 // @Accept json
 // @Produce json
 // @Param id path string true "Project ID"
@@ -670,6 +693,36 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 	return map[string]string{"message": "repository detached successfully"}, nil
 }
 
+// checkWolfLobbyExists checks if a Wolf lobby exists by querying the Wolf API
+func (s *HelixAPIServer) checkWolfLobbyExists(ctx context.Context, lobbyID string) (bool, error) {
+	// Get Wolf client from executor
+	type WolfClientProvider interface {
+		GetWolfClient() *wolf.Client
+	}
+	provider, ok := s.externalAgentExecutor.(WolfClientProvider)
+	if !ok {
+		return false, fmt.Errorf("executor does not provide Wolf client")
+	}
+	wolfClient := provider.GetWolfClient()
+	if wolfClient == nil {
+		return false, fmt.Errorf("Wolf client is nil")
+	}
+
+	// List all lobbies and check if ours exists
+	lobbies, err := wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to list lobbies: %w", err)
+	}
+
+	for _, lobby := range lobbies {
+		if lobby.ID == lobbyID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // getProjectExploratorySession godoc
 // @Summary Get project exploratory session
 // @Description Get the active exploratory session for a project (returns null if none exists)
@@ -786,6 +839,84 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	// Check if an active exploratory session already exists for this project
 	existingSession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
 	if err == nil && existingSession != nil {
+		// Session exists - check if lobby is still running
+		// If lobby stopped, restart it with fresh startup script
+		lobbyID := existingSession.Metadata.WolfLobbyID
+		if lobbyID != "" {
+			// Check if lobby exists in Wolf
+			lobbyExists, checkErr := s.checkWolfLobbyExists(r.Context(), lobbyID)
+			if checkErr != nil {
+				log.Warn().Err(checkErr).Str("lobby_id", lobbyID).Msg("Failed to check lobby status")
+			}
+
+			if !lobbyExists {
+				// Lobby stopped - restart it
+				log.Info().
+					Str("session_id", existingSession.ID).
+					Str("project_id", projectID).
+					Str("lobby_id", lobbyID).
+					Msg("Exploratory session exists but lobby stopped - restarting with fresh startup script")
+
+				// Get project repositories for restarting
+				projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+				if err != nil {
+					log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
+					projectRepos = nil
+				}
+
+				// Build repository IDs
+				repositoryIDs := []string{}
+				for _, repo := range projectRepos {
+					if repo.ID != "" {
+						repositoryIDs = append(repositoryIDs, repo.ID)
+					}
+				}
+
+				// Determine primary repository
+				primaryRepoID := project.DefaultRepoID
+				if primaryRepoID == "" && len(projectRepos) > 0 {
+					primaryRepoID = projectRepos[0].ID
+				}
+
+				// Restart Zed agent with existing session
+				zedAgent := &types.ZedAgent{
+					SessionID:           existingSession.ID,
+					UserID:              user.ID,
+					Input:               fmt.Sprintf("Explore the %s project", project.Name),
+					ProjectPath:         "workspace",
+					SpecTaskID:          "",
+					ProjectID:           projectID,
+					PrimaryRepositoryID: primaryRepoID,
+					RepositoryIDs:       repositoryIDs,
+				}
+
+				agentResp, err := s.externalAgentExecutor.StartZedAgent(r.Context(), zedAgent)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("session_id", existingSession.ID).
+						Msg("Failed to restart exploratory session")
+					return nil, system.NewHTTPError500(fmt.Sprintf("failed to restart exploratory session: %v", err))
+				}
+
+				log.Info().
+					Str("session_id", existingSession.ID).
+					Str("lobby_id", agentResp.WolfLobbyID).
+					Msg("Exploratory session lobby restarted successfully")
+
+				// Reload session from database to get updated lobby ID/PIN
+				// StartZedAgent updates session metadata in DB, so we need fresh data
+				updatedSession, err := s.Store.GetSession(r.Context(), existingSession.ID)
+				if err != nil {
+					log.Error().Err(err).Str("session_id", existingSession.ID).Msg("Failed to reload session after restart")
+					return existingSession, nil // Return stale session rather than failing
+				}
+
+				return updatedSession, nil
+			}
+		}
+
+		// Session exists and lobby is running - return as-is
 		log.Info().
 			Str("session_id", existingSession.ID).
 			Str("project_id", projectID).

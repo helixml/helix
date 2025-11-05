@@ -76,63 +76,85 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     echo "Configured git user.email: $GIT_USER_EMAIL"
 fi
 
-# Execute project startup script if provided - run in terminal window
-if [ -n "$HELIX_PROJECT_STARTUP_SCRIPT" ]; then
-    echo "========================================="
-    echo "Running project startup script in terminal..."
-    echo "========================================="
+# Execute project startup script from internal Git repo - run in terminal window
+# Internal repo is always mounted at .helix-project (read-only)
+INTERNAL_REPO_PATH="$WORK_DIR/.helix-project"
+STARTUP_SCRIPT_PATH="$INTERNAL_REPO_PATH/.helix/startup.sh"
 
-    # Write startup script to temp file
-    STARTUP_SCRIPT_FILE="$WORK_DIR/.helix-startup.sh"
-    echo "$HELIX_PROJECT_STARTUP_SCRIPT" > "$STARTUP_SCRIPT_FILE"
-    chmod +x "$STARTUP_SCRIPT_FILE"
+if [ -f "$STARTUP_SCRIPT_PATH" ]; then
+    echo "========================================="
+    echo "Found project startup script in Git repo"
+    echo "Script: $STARTUP_SCRIPT_PATH"
+    echo "========================================="
 
     # Create wrapper script that runs the startup script and handles errors
     WRAPPER_SCRIPT="$WORK_DIR/.helix-startup-wrapper.sh"
-    cat > "$WRAPPER_SCRIPT" << 'WRAPPER_EOF'
+    cat > "$WRAPPER_SCRIPT" <<WRAPPER_EOF
 #!/bin/bash
 echo "========================================="
-echo "Running Project Startup Script..."
+echo "Running Project Startup Script from Git"
+echo "Script: $STARTUP_SCRIPT_PATH"
 echo "========================================="
 echo ""
 
-# Run the startup script with timeout (5 minutes max)
-if timeout 300 bash "$WORK_DIR/.helix-startup.sh"; then
+# Run the startup script in interactive mode (no timeout)
+# Interactive mode allows apt progress bars to work properly in the terminal
+if bash -i "$STARTUP_SCRIPT_PATH"; then
     echo ""
     echo "========================================="
     echo "✅ Startup script completed successfully"
     echo "========================================="
-    echo ""
-    echo "Press Enter to close this window..."
-    read
 else
-    EXIT_CODE=$?
+    EXIT_CODE=\$?
     echo ""
     echo "========================================="
-    if [ $EXIT_CODE -eq 124 ]; then
-        echo "⚠️ Startup script timed out after 5 minutes"
-    else
-        echo "❌ Startup script failed with exit code $EXIT_CODE"
-    fi
+    echo "❌ Startup script failed with exit code \$EXIT_CODE"
     echo "========================================="
     echo ""
-    echo "Waiting 60 seconds so you can see the error..."
-    for i in $(seq 60 -1 1); do
-        echo -ne "Closing in $i seconds... \r"
-        sleep 1
-    done
-    echo ""
+    echo "💡 To fix this:"
+    echo "   1. Edit the startup script in Project Settings"
+    echo "   2. Click 'Test Startup Script' to test your changes"
+    echo "   3. Iterate until it works, then save"
 fi
+
+echo ""
+echo "What would you like to do?"
+echo "  1) Close this window"
+echo "  2) Start an interactive shell"
+echo ""
+read -p "Enter choice [1-2]: " choice
+
+case "\$choice" in
+    1)
+        echo "Closing..."
+        exit 0
+        ;;
+    2)
+        echo ""
+        echo "Starting interactive shell in workspace..."
+        echo "Type 'exit' to close this window."
+        echo ""
+        cd "$WORK_DIR"
+        exec bash
+        ;;
+    *)
+        echo "Invalid choice. Starting interactive shell..."
+        cd "$WORK_DIR"
+        exec bash
+        ;;
+esac
 WRAPPER_EOF
     chmod +x "$WRAPPER_SCRIPT"
 
     # Launch terminal in background to run the wrapper script
-    # Use ghostty terminal emulator
+    # Use ghostty terminal emulator with -e flag for command execution
     ghostty --title="Project Startup Script" \
             --working-directory="$WORK_DIR" \
-            bash "$WRAPPER_SCRIPT" &
+            -e bash "$WRAPPER_SCRIPT" &
 
     echo "Startup script terminal launched (check right side of screen)"
+else
+    echo "No startup script found - .helix-project not mounted or missing .helix/startup.sh"
 fi
 
 # Wait for settings-sync-daemon to create configuration

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, Alert, CircularProgress, IconButton } from '@mui/material';
+import { Box, Typography, Alert, CircularProgress, IconButton, Button } from '@mui/material';
 import {
   Fullscreen,
   FullscreenExit,
@@ -23,6 +23,8 @@ interface MoonlightStreamViewerProps {
   hostId?: number;
   appId?: number;
   isPersonalDevEnvironment?: boolean;
+  showLoadingOverlay?: boolean; // Show loading overlay (for restart/reconnect scenarios)
+  isRestart?: boolean; // Whether this is a restart (vs first start)
   onConnectionChange?: (isConnected: boolean) => void;
   onError?: (error: string) => void;
   width?: number;
@@ -48,6 +50,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   hostId = 0,
   appId = 1,
   isPersonalDevEnvironment = false,
+  showLoadingOverlay = false,
+  isRestart = false,
   onConnectionChange,
   onError,
   width = 3840,
@@ -57,6 +61,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<any>(null); // Stream instance from moonlight-web
+  const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
+  const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -67,6 +73,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
 
   const helixApi = useApi();
   const account = useAccount();
@@ -153,7 +161,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       const settings = defaultStreamSettings();
       settings.videoSize = 'custom';
       settings.videoSizeCustom = { width: 3840, height: 2160 };  // 4K resolution
-      settings.bitrate = 50000;  // 50 Mbps for 4K quality
+      settings.bitrate = 80000;  // 80 Mbps for 4K quality (matches Moonlight Qt)
       settings.packetSize = 1024;
       settings.fps = 60;
       settings.playAudioLocal = !audioEnabled;
@@ -228,6 +236,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           setIsConnected(true);
           setIsConnecting(false);
           setStatus('Streaming active');
+          setError(null); // Clear any previous errors on successful connection
+          retryAttemptRef.current = 0; // Reset retry counter on successful connection
+          setRetryAttemptDisplay(0);
           onConnectionChange?.(true);
 
           // Auto-join lobby if in lobbies mode (after connection established)
@@ -257,9 +268,49 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             }, 1000); // Wait 1 second after connection complete
           }
         } else if (data.type === 'error') {
-          setError(data.message);
+          const errorMsg = data.message || 'Stream error';
+
+          // Check if error is AlreadyStreaming - retry instead of permanent failure
+          if (errorMsg.includes('AlreadyStreaming') || errorMsg.includes('already streaming')) {
+            setIsConnecting(false);
+
+            // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
+            // Use ref to avoid closure issues with event listeners
+            retryAttemptRef.current += 1;
+            const nextAttempt = retryAttemptRef.current;
+            const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
+
+            console.warn(`[MoonlightStreamViewer] AlreadyStreaming error from stream (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
+
+            setRetryAttemptDisplay(nextAttempt);
+            setRetryCountdown(retryDelaySeconds);
+
+            // Update countdown every second
+            const countdownInterval = setInterval(() => {
+              setRetryCountdown((prev) => {
+                if (prev === null || prev <= 1) {
+                  clearInterval(countdownInterval);
+                  return null;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+
+            // Retry after delay
+            setTimeout(() => {
+              console.log(`[MoonlightStreamViewer] Retrying connection after AlreadyStreaming stream error (attempt ${nextAttempt})`);
+              setRetryCountdown(null);
+              reconnect();
+            }, retryDelaySeconds * 1000);
+            return;
+          }
+
+          // Permanent error - not AlreadyStreaming
+          setError(errorMsg);
           setIsConnecting(false);
-          onError?.(data.message);
+          retryAttemptRef.current = 0; // Reset retry counter on different error
+          setRetryAttemptDisplay(0);
+          onError?.(errorMsg);
         } else if (data.type === 'connectionStatus') {
           setIsConnected(data.status === 'Connected');
         } else if (data.type === 'connectionTerminated') {
@@ -283,23 +334,46 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       const errorMsg = err.message || 'Failed to initialize stream';
       console.error('Stream connection error:', errorMsg);
 
-      // Check if error is AlreadyStreaming - retry in 5 seconds instead of permanent failure
+      // Check if error is AlreadyStreaming - retry instead of permanent failure
       if (errorMsg.includes('AlreadyStreaming') || errorMsg.includes('already streaming')) {
-        console.warn('[MoonlightStreamViewer] AlreadyStreaming error detected, will retry in 5 seconds...');
-        setError('Stream busy - retrying in 5 seconds...');
         setIsConnecting(false);
 
-        // Retry after 5 seconds
+        // Progressive retry: 2s, 3s, 4s, 5s... (capped at 10s)
+        // Use ref to avoid closure issues
+        retryAttemptRef.current += 1;
+        const nextAttempt = retryAttemptRef.current;
+        const retryDelaySeconds = Math.min(nextAttempt + 1, 10); // +1 to start at 2s
+
+        console.warn(`[MoonlightStreamViewer] AlreadyStreaming error detected (attempt ${nextAttempt}), will retry in ${retryDelaySeconds} seconds...`);
+
+        setRetryAttemptDisplay(nextAttempt);
+        setRetryCountdown(retryDelaySeconds);
+
+        // Update countdown every second
+        const countdownInterval = setInterval(() => {
+          setRetryCountdown((prev) => {
+            if (prev === null || prev <= 1) {
+              clearInterval(countdownInterval);
+              return null;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+
+        // Retry after delay
         setTimeout(() => {
-          console.log('[MoonlightStreamViewer] Retrying connection after AlreadyStreaming error');
+          console.log(`[MoonlightStreamViewer] Retrying connection after AlreadyStreaming error (attempt ${nextAttempt})`);
+          setRetryCountdown(null);
           connect();
-        }, 5000);
+        }, retryDelaySeconds * 1000);
         return;
       }
 
       // Permanent error - not AlreadyStreaming
       setError(errorMsg);
       setIsConnecting(false);
+      retryAttemptRef.current = 0; // Reset retry counter on different error
+      setRetryAttemptDisplay(0);
       onError?.(errorMsg);
     }
   }, [sessionId, hostId, appId, width, height, audioEnabled, onConnectionChange, onError, helixApi, account, isPersonalDevEnvironment]);
@@ -379,6 +453,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Detect lobby changes and reconnect (for test script restart scenarios)
+  useEffect(() => {
+    if (wolfLobbyId && previousLobbyIdRef.current && previousLobbyIdRef.current !== wolfLobbyId) {
+      console.log('[MoonlightStreamViewer] Lobby changed from', previousLobbyIdRef.current, 'to', wolfLobbyId);
+      console.log('[MoonlightStreamViewer] Disconnecting old stream and reconnecting to new lobby');
+      reconnect();
+    }
+    previousLobbyIdRef.current = wolfLobbyId;
+  }, [wolfLobbyId, reconnect]);
+
   // Auto-connect on mount
   useEffect(() => {
     connect();
@@ -400,6 +484,27 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       containerRef.current.focus();
     }
   }, [isConnected]);
+
+  // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const wheelHandler = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      // Send to stream
+      streamRef.current?.getInput().onMouseWheel(event);
+    };
+
+    // CRITICAL: Use { passive: false } to allow preventDefault() on wheel events
+    // Chrome makes wheel events passive by default, which prevents preventDefault()
+    container.addEventListener('wheel', wheelHandler, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', wheelHandler);
+    };
+  }, []);
 
   // Handle video/audio toggle
   useEffect(() => {
@@ -478,13 +583,51 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     streamRef.current?.getInput().onMouseMove(event.nativeEvent, getStreamRect());
   }, [getStreamRect, hasMouseMoved]);
 
-  const handleWheel = useCallback((event: React.WheelEvent) => {
-    event.preventDefault();
-    streamRef.current?.getInput().onMouseWheel(event.nativeEvent);
-  }, []);
-
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
+  }, []);
+
+  // Reset all input state - clears stuck modifiers and mouse buttons
+  const resetInputState = useCallback(() => {
+    const input = streamRef.current?.getInput();
+    if (!input) return;
+
+    console.log('[MoonlightStreamViewer] Resetting stuck input state (modifiers + mouse buttons)');
+
+    // Send key-up events for all modifier keys to clear stuck state
+    const modifierKeys = [
+      { code: 'ShiftLeft', key: 'Shift' },
+      { code: 'ShiftRight', key: 'Shift' },
+      { code: 'ControlLeft', key: 'Control' },
+      { code: 'ControlRight', key: 'Control' },
+      { code: 'AltLeft', key: 'Alt' },
+      { code: 'AltRight', key: 'Alt' },
+      { code: 'MetaLeft', key: 'Meta' },
+      { code: 'MetaRight', key: 'Meta' },
+      { code: 'CapsLock', key: 'CapsLock' },
+    ];
+
+    modifierKeys.forEach(({ code, key }) => {
+      const fakeEvent = new KeyboardEvent('keyup', {
+        code,
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      input.onKeyUp(fakeEvent);
+    });
+
+    // Send mouse-up events for all buttons to clear stuck mouse state
+    for (let button = 0; button < 5; button++) {
+      const fakeMouseEvent = new MouseEvent('mouseup', {
+        button,
+        bubbles: true,
+        cancelable: true,
+      });
+      input.onMouseUp(fakeMouseEvent);
+    }
+
+    console.log('[MoonlightStreamViewer] Input state reset complete');
   }, []);
 
   // Attach native keyboard event listeners when connected
@@ -493,35 +636,68 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
     const container = containerRef.current;
 
+    // Track last Escape press for double-Escape reset
+    let lastEscapeTime = 0;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       // Only process if container is focused
-      if (document.activeElement !== container) return;
+      if (document.activeElement !== container) {
+        console.log('[MoonlightStreamViewer] KeyDown ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
 
+      // Double-Escape to reset stuck modifiers (common workaround for Moonlight caps lock bug)
+      if (event.code === 'Escape') {
+        const now = Date.now();
+        if (now - lastEscapeTime < 500) { // 500ms window for double-press
+          console.log('[MoonlightStreamViewer] Double-Escape detected - resetting input state');
+          resetInputState();
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        lastEscapeTime = now;
+      }
+
+      console.log('[MoonlightStreamViewer] KeyDown captured:', event.key, event.code);
       streamRef.current?.getInput().onKeyDown(event);
-      // Only stop propagation (prevents window listener from firing)
-      // Don't preventDefault - let the stream library handle keyboard state properly
+      // Prevent browser default behavior (e.g., Tab moving focus, Ctrl+W closing tab)
+      // This ensures all keys are passed through to the remote desktop
+      event.preventDefault();
       event.stopPropagation();
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
       // Only process if container is focused
-      if (document.activeElement !== container) return;
+      if (document.activeElement !== container) {
+        console.log('[MoonlightStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
 
+      console.log('[MoonlightStreamViewer] KeyUp captured:', event.key, event.code);
       streamRef.current?.getInput().onKeyUp(event);
-      // Only stop propagation (prevents window listener from firing)
-      // Don't preventDefault - let the stream library handle keyboard state properly
+      // Prevent browser default behavior to ensure all keys are passed through
+      event.preventDefault();
       event.stopPropagation();
+    };
+
+    // Reset input state when window regains focus (prevents stuck modifiers after Alt+Tab)
+    const handleWindowFocus = () => {
+      console.log('[MoonlightStreamViewer] Window regained focus - resetting input state to prevent desync');
+      resetInputState();
     };
 
     // Attach to container, not document (so we only capture when focused)
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       container.removeEventListener('keydown', handleKeyDown);
       container.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [isConnected]);
+  }, [isConnected, resetInputState]);
 
   // Focus container when clicking anywhere in the viewer
   const handleContainerClick = useCallback(() => {
@@ -598,8 +774,38 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </IconButton>
       </Box>
 
+      {/* Loading Overlay - shown during restart/reconnect (hides error messages) */}
+      {showLoadingOverlay && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            zIndex: 2000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 3,
+          }}
+        >
+          <CircularProgress size={60} sx={{ color: 'primary.main' }} />
+          <Typography variant="h6" sx={{ color: 'white' }}>
+            {isRestart ? 'Restarting session...' : 'Starting session...'}
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'grey.400' }}>
+            {isRestart
+              ? 'Stopping old session and starting with fresh startup script'
+              : 'Creating new session and running startup script'}
+          </Typography>
+        </Box>
+      )}
+
       {/* Status Overlay */}
-      {(isConnecting || error) && (
+      {(isConnecting || error || retryCountdown !== null) && (
         <Box
           sx={{
             position: 'absolute',
@@ -617,8 +823,29 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
             </Box>
           )}
 
-          {error && (
-            <Alert severity="error" sx={{ maxWidth: 400 }}>
+          {retryCountdown !== null && (
+            <Alert severity="warning" sx={{ maxWidth: 400 }}>
+              Stream busy (attempt {retryAttemptDisplay}) - retrying in {retryCountdown} second{retryCountdown !== 1 ? 's' : ''}...
+            </Alert>
+          )}
+
+          {error && retryCountdown === null && (
+            <Alert
+              severity="error"
+              sx={{ maxWidth: 400 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    setError(null);
+                    connect();
+                  }}
+                >
+                  Reconnect
+                </Button>
+              }
+            >
               {error}
             </Alert>
           )}
@@ -634,7 +861,6 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
-        onWheel={handleWheel}
         onContextMenu={handleContextMenu}
         style={{
           width: '100%',

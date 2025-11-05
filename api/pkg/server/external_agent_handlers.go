@@ -974,7 +974,9 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		Msg("[AUTO-JOIN] Backend deriving Wolf client_id from client_unique_id pattern (secure)")
 
 	// Find the Wolf UI session with matching client_unique_id
+	// Prefer: Most recent session (last in list) since old sessions should be cleaned up
 	var moonlightSessionID string
+	var matchedCount int
 	var wolfUISessions []string
 
 	for _, session := range sessionsData.Sessions {
@@ -987,14 +989,32 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 			// Expected: "helix-agent-{sessionID}" but actual may be "helix-agent-{sessionID}-{instanceID}"
 			// Wolf now properly exposes client_unique_id in /api/v1/sessions
 			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, expectedUniqueID) {
+				matchedCount++
+				// Use last match (most recent in iteration order)
+				// Old sessions should have been cleaned up by moonlight-web on disconnect
 				moonlightSessionID = session.ClientID
 				log.Info().
 					Str("matched_client_id", session.ClientID).
 					Str("matched_unique_id", session.ClientUniqueID).
 					Str("expected_prefix", expectedUniqueID).
-					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id prefix (secure)")
+					Int("match_number", matchedCount).
+					Msg("[AUTO-JOIN] Found matching Wolf UI session by client_unique_id prefix")
 			}
 		}
+	}
+
+	// DEFENSIVE WARNING: Multiple matching sessions found
+	if matchedCount > 1 {
+		log.Warn().
+			Str("expected_unique_id", expectedUniqueID).
+			Int("match_count", matchedCount).
+			Strs("all_wolf_ui_sessions", wolfUISessions).
+			Str("selected_session", moonlightSessionID).
+			Msg("[AUTO-JOIN] ⚠️ Multiple matching sessions found - using last one (old sessions should have been cleaned up)")
+	} else if matchedCount == 1 {
+		log.Info().
+			Str("moonlight_session_id", moonlightSessionID).
+			Msg("[AUTO-JOIN] ✅ Found unique Wolf UI session match")
 	}
 
 	if moonlightSessionID == "" {
@@ -1006,20 +1026,74 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
 	}
 
-	// Log all available Wolf UI sessions for debugging
-	if len(wolfUISessions) > 1 {
-		log.Info().
-			Strs("all_wolf_ui_sessions", wolfUISessions).
-			Str("selected_session", moonlightSessionID).
-			Str("matched_by", "client_unique_id").
-			Int("session_count", len(wolfUISessions)).
-			Msg("[AUTO-JOIN] Multiple Wolf UI sessions exist - securely matched by client_unique_id pattern")
+	// DEFENSIVE CHECK: Verify Wolf-UI session still exists (not stopped/orphaned)
+	// Re-query Wolf sessions to ensure session wasn't stopped since we last checked
+	freshSessionsResp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+	if err != nil {
+		return fmt.Errorf("failed to re-query Wolf sessions: %w", err)
+	}
+	defer freshSessionsResp.Body.Close()
+
+	if freshSessionsResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(freshSessionsResp.Body)
+		return fmt.Errorf("Wolf sessions API returned status %d: %s", freshSessionsResp.StatusCode, string(body))
+	}
+
+	var freshSessionsData struct {
+		Success  bool `json:"success"`
+		Sessions []struct {
+			ClientID string `json:"client_id"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(freshSessionsResp.Body).Decode(&freshSessionsData); err != nil {
+		return fmt.Errorf("failed to parse fresh Wolf sessions response: %w", err)
+	}
+
+	// Verify the Wolf session we're trying to use still exists
+	sessionExists := false
+	for _, session := range freshSessionsData.Sessions {
+		if session.ClientID == moonlightSessionID {
+			sessionExists = true
+			break
+		}
+	}
+
+	if !sessionExists {
+		log.Warn().
+			Str("moonlight_session_id", moonlightSessionID).
+			Str("expected_unique_id", expectedUniqueID).
+			Msg("[AUTO-JOIN] Wolf-UI session no longer exists - may have been stopped")
+		return fmt.Errorf("Wolf-UI session %s no longer exists", moonlightSessionID)
 	}
 
 	log.Info().
 		Str("moonlight_session_id", moonlightSessionID).
-		Str("derived_by", "backend_client_unique_id_match").
-		Msg("[AUTO-JOIN] Using Wolf UI session for auto-join (backend-derived, secure)")
+		Msg("[AUTO-JOIN] ✅ Wolf-UI session exists")
+
+	// DEFENSIVE CHECK 2: Verify lobby exists before attempting join
+	lobbies, err := wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list lobbies: %w", err)
+	}
+
+	lobbyExists := false
+	for _, lobby := range lobbies {
+		if lobby.ID == lobbyID {
+			lobbyExists = true
+			break
+		}
+	}
+
+	if !lobbyExists {
+		log.Warn().
+			Str("lobby_id", lobbyID).
+			Msg("[AUTO-JOIN] Lobby does not exist - may have been stopped")
+		return fmt.Errorf("lobby %s does not exist", lobbyID)
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Msg("[AUTO-JOIN] ✅ Lobby exists, proceeding with join")
 
 	// Convert PIN string to array of int16 for Wolf API
 	var pinDigits []int16

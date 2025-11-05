@@ -171,6 +171,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
+	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error

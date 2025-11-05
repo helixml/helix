@@ -339,13 +339,18 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             if (!pos) return null
 
             // In apps mode, session.app_id is the direct connection (no interpipe needed)
-            // In lobbies mode, connectionMap tracks which lobby the session is connected to
-            const connectedContainerId = isAppsMode ? session.app_id : connectionMap.get(session.session_id)
+            // In lobbies mode, session.lobby_id shows which lobby the session is connected to
+            const connectedContainerId = isAppsMode ? session.app_id : (session.lobby_id || connectionMap.get(session.session_id))
             const isOrphaned = !connectedContainerId
 
             return (
               <g key={`session-${uniqueKey}`}>
-                <Tooltip title={`Session: ${session.session_id} | App: ${session.app_id} | IP: ${session.client_ip}`} arrow>
+                <Tooltip title={
+                  `Wolf-UI Session: ${session.session_id.slice(-8)}\n` +
+                  `Client ID: ${session.client_unique_id || 'N/A'}\n` +
+                  `Connected to: ${session.lobby_id ? `Lobby ${session.lobby_id.slice(-8)}` : session.app_id ? `App ${session.app_id}` : 'None (orphaned)'}\n` +
+                  `IP: ${session.client_ip}`
+                } arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
@@ -362,7 +367,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   fill="white"
                   fontSize="10"
                 >
-                  {session.session_id.slice(-4)}
+                  {session.client_unique_id ? session.client_unique_id.slice(-12) : session.session_id.slice(-4)}
                 </text>
                 <text
                   x={pos.x}
@@ -563,6 +568,119 @@ const AgentSandboxes: FC = () => {
       )}
 
       <Grid container spacing={3}>
+        {/* GPU Stats Panel - Only show if GPU is available */}
+        {data?.gpu_stats?.available && (
+          <Grid item xs={12}>
+            <Card>
+              <CardHeader
+                avatar={<MemoryIcon />}
+                title="GPU Encoder Stats"
+                subheader={
+                  <>
+                    {data.gpu_stats.gpu_name || 'NVIDIA GPU'}
+                    {data.gstreamer_pipelines && (
+                      <>
+                        {' • '}
+                        {data.gstreamer_pipelines.total_pipelines} GStreamer Pipelines
+                        {' ('}
+                        {data.gstreamer_pipelines.producer_pipelines} producers + {data.gstreamer_pipelines.consumer_pipelines} consumers)
+                      </>
+                    )}
+                    {data.gpu_stats.query_duration_ms > 0 && (
+                      <>
+                        {' • '}
+                        nvidia-smi: {data.gpu_stats.query_duration_ms}ms (cached 2s)
+                      </>
+                    )}
+                  </>
+                }
+                action={
+                  <Chip
+                    label="Available"
+                    color="success"
+                    size="small"
+                  />
+                }
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          NVENC Sessions
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_session_count}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder FPS
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_average_fps.toFixed(0)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder Latency
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_average_latency_us}µs
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          GPU Temperature
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.temperature_celsius}°C
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder Utilization
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.encoder_utilization_percent}%
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          GPU Utilization
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.gpu_utilization_percent}%
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          VRAM Usage
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.memory_used_mb} / {data.gpu_stats.memory_total_mb} MB
+                          ({Math.round((data.gpu_stats.memory_used_mb / data.gpu_stats.memory_total_mb) * 100)}%)
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         {/* Pipeline Network Visualization */}
         {data && (
           <Grid item xs={12}>

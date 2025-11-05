@@ -48,6 +48,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Close as CloseIcon,
+  Refresh as RefreshIcon,
   Restore as RestoreIcon,
   VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
@@ -173,6 +174,8 @@ interface SpecTaskKanbanBoardProps {
   userId?: string;
   projectId?: string; // Filter tasks by project ID
   onCreateTask?: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   refreshTrigger?: number;
   wipLimits?: {
     planning: number;
@@ -379,6 +382,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   userId,
   projectId,
   onCreateTask,
+  onRefresh,
+  refreshing = false,
   refreshTrigger,
   wipLimits = { planning: 3, review: 2, implementation: 5 },
 }) => {
@@ -1204,14 +1209,27 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             </Button>
           )}
         </Box>
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
-          onClick={() => setShowArchived(!showArchived)}
-        >
-          {showArchived ? 'Show Active' : 'Show Archived'}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {onRefresh && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
+              onClick={onRefresh}
+              disabled={refreshing}
+            >
+              Refresh
+            </Button>
+          )}
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
+            onClick={() => setShowArchived(!showArchived)}
+          >
+            {showArchived ? 'Show Active' : 'Show Archived'}
+          </Button>
+        </Box>
       </Box>
 
       {error && <Alert severity="error" sx={{ flexShrink: 0, mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}

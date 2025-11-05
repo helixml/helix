@@ -3,7 +3,6 @@ import {
   Container,
   Box,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   CardActions,
@@ -19,15 +18,13 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Tooltip,
 } from '@mui/material'
-import AddIcon from '@mui/icons-material/Add'
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
 import { Kanban } from 'lucide-react'
 
 import Page from '../components/system/Page'
+import CreateProjectButton from '../components/project/CreateProjectButton'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
@@ -54,9 +51,6 @@ const Projects: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectDescription, setNewProjectDescription] = useState('')
-
-  // New Project dropdown menu state
-  const [newProjectMenuAnchor, setNewProjectMenuAnchor] = useState<null | HTMLElement>(null)
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -115,15 +109,12 @@ const Projects: FC = () => {
   const handleNewProject = () => {
     if (!checkLoginStatus()) return
     setCreateDialogOpen(true)
-    setNewProjectMenuAnchor(null) // Close dropdown
   }
 
   const handleInstantiateSample = async (sampleId: string, sampleName: string) => {
     if (!checkLoginStatus()) return
 
     try {
-      setNewProjectMenuAnchor(null) // Close dropdown
-
       snackbar.info(`Creating ${sampleName}...`)
 
       const result = await instantiateSampleMutation.mutateAsync({
@@ -162,82 +153,14 @@ const Projects: FC = () => {
       breadcrumbTitle="Projects"
       orgBreadcrumbs={true}
       topbarContent={(
-        <ButtonGroup variant="contained" color="secondary">
-          <Button
-            startIcon={<AddIcon />}
-            onClick={handleNewProject}
-          >
-            New Project
-          </Button>
-          <Button
-            size="small"
-            onClick={(e) => setNewProjectMenuAnchor(e.currentTarget)}
-            sx={{ px: 1 }}
-          >
-            <ArrowDropDownIcon />
-          </Button>
-          <Menu
-            anchorEl={newProjectMenuAnchor}
-            open={Boolean(newProjectMenuAnchor)}
-            onClose={() => setNewProjectMenuAnchor(null)}
-            anchorOrigin={{
-              vertical: 'bottom',
-              horizontal: 'right',
-            }}
-            transformOrigin={{
-              vertical: 'top',
-              horizontal: 'right',
-            }}
-          >
-            <Tooltip
-              title="Create a blank project with no sample code or pre-configured tasks"
-              placement="right"
-              arrow
-            >
-              <MenuItem onClick={handleNewProject}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                  <AddIcon fontSize="small" />
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Empty Project
-                  </Typography>
-                </Box>
-              </MenuItem>
-            </Tooltip>
-            {sampleProjects.length > 0 && <MenuItem disabled><Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.6 }}>Sample Projects</Typography></MenuItem>}
-            {sampleProjects.map((sample) => (
-              <Tooltip
-                key={`tooltip-${sample.id}`}
-                title={
-                  <Box>
-                    <Typography variant="body2" sx={{ mb: 0.5 }}>
-                      {sample.description || 'Sample project with pre-configured tasks'}
-                    </Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                      {sample.category} • {sample.difficulty}
-                    </Typography>
-                  </Box>
-                }
-                placement="right"
-                arrow
-              >
-                <span>
-                  <MenuItem
-                    key={sample.id}
-                    onClick={() => handleInstantiateSample(sample.id || '', sample.name)}
-                    disabled={instantiateSampleMutation.isPending}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 200 }}>
-                      <Kanban size={18} />
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {sample.name}
-                      </Typography>
-                    </Box>
-                  </MenuItem>
-                </span>
-              </Tooltip>
-            ))}
-          </Menu>
-        </ButtonGroup>
+        <CreateProjectButton
+          onCreateEmpty={handleNewProject}
+          onCreateFromSample={handleInstantiateSample}
+          sampleProjects={sampleProjects}
+          isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
+          variant="contained"
+          color="secondary"
+        />
       )}
     >
       <Container maxWidth="lg">
@@ -250,21 +173,23 @@ const Projects: FC = () => {
 
           {projects.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
-              <Kanban size={80} color="currentColor" style={{ color: 'rgba(0, 0, 0, 0.6)', marginBottom: 16 }} />
+              <Box sx={{ color: 'text.disabled', mb: 2 }}>
+                <Kanban size={80} />
+              </Box>
               <Typography variant="h6" color="text.secondary" gutterBottom>
                 No projects yet
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Create your first project to get started
               </Typography>
-              <Button
+              <CreateProjectButton
+                onCreateEmpty={handleNewProject}
+                onCreateFromSample={handleInstantiateSample}
+                sampleProjects={sampleProjects}
+                isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
                 variant="contained"
                 color="primary"
-                endIcon={<AddIcon />}
-                onClick={handleNewProject}
-              >
-                Create Project
-              </Button>
+              />
             </Box>
           ) : (
             <Grid container spacing={3}>

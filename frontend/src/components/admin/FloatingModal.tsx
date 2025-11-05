@@ -47,7 +47,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const { size, setSize, isResizing, getResizeHandles } = useResize({
     initialSize: { width: 1000, height: 700 },
     minSize: { width: 600, height: 400 },
-    maxSize: { width: window.innerWidth - 40, height: window.innerHeight - 40 },
+    maxSize: { width: window.innerWidth, height: window.innerHeight },
     onResize: (newSize, direction, delta) => {
       // Adjust position when resizing from top or left edges
       if (direction.includes('w') || direction.includes('n')) {
@@ -89,10 +89,10 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
       setSize({ width: 1000, height: 700 })
       setPosition(getInitialPosition())
     } else {
-      // Maximize to full screen
+      // Maximize to full screen (no margins)
       setIsMaximized(true)
-      setSize({ width: window.innerWidth - 40, height: window.innerHeight - 40 })
-      setPosition({ x: 20, y: 20 })
+      setSize({ width: window.innerWidth, height: window.innerHeight })
+      setPosition({ x: 0, y: 0 })
     }
   }
 

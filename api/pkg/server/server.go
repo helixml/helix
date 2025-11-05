@@ -121,7 +121,6 @@ type HelixAPIServer struct {
 	specDrivenTaskService       *services.SpecDrivenTaskService
 	sampleProjectCodeService    *services.SampleProjectCodeService
 	gitRepositoryService        *services.GitRepositoryService
-	zedPlanningService          *services.ZedPlanningService
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
@@ -352,16 +351,6 @@ func NewServer(
 
 	// Set the request mapping callback for SpecDrivenTaskService
 	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
-
-	// Initialize Zed Planning Service
-	apiServer.zedPlanningService = services.NewZedPlanningService(
-		store,
-		controller,
-		ps,
-		apiServer.specDrivenTaskService.ZedIntegrationService,
-		apiServer.gitRepositoryService,
-		"/workspace", // Default workspace path for Zed agents
-	)
 
 	// Initialize SpecTask Orchestrator components
 	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
@@ -877,15 +866,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
 
-	// Sample project routes (database-backed v2)
-	authRouter.HandleFunc("/sample-projects-v2", system.Wrapper(apiServer.listSampleProjectsV2)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects-v2/{id}", system.Wrapper(apiServer.getSampleProjectByID)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects-v2/{id}/instantiate", system.Wrapper(apiServer.instantiateSampleProject)).Methods(http.MethodPost)
-
-	// Admin sample project management routes
-	authRouter.HandleFunc("/admin/sample-projects", system.Wrapper(apiServer.createSampleProject)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/admin/sample-projects/{id}", system.Wrapper(apiServer.deleteSampleProject)).Methods(http.MethodDelete)
-
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
@@ -932,11 +912,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-threads", apiServer.listZedThreads).Methods(http.MethodGet)
 	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
 
-	// Sample project code routes
-	authRouter.HandleFunc("/sample-projects", apiServer.listSampleProjects).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects/{projectId}/code", apiServer.getSampleProjectCode).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects/{projectId}/archive", apiServer.getSampleProjectCodeArchive).Methods(http.MethodGet)
-
 	// Git repository routes (actual git repository management)
 	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
@@ -944,6 +919,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.updateGitRepository).Methods(http.MethodPut)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.deleteGitRepository).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/tree", apiServer.browseGitRepositoryTree).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/file", apiServer.getGitRepositoryFile).Methods(http.MethodGet)
 
 	// Git repository access grant routes
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
@@ -952,7 +929,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
-	authRouter.HandleFunc("/specs/repositories", apiServer.createSpecTaskRepository).Methods(http.MethodPost)
 
 	// SpecTask orchestrator routes
 	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
@@ -971,14 +947,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/samples/initialize", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
-
-	// Zed planning routes
-	authRouter.HandleFunc("/zed/planning/sessions", apiServer.startZedPlanningSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/sessions", apiServer.listZedPlanningSessions).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}", apiServer.getZedPlanningSession).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}/complete", apiServer.completeZedPlanning).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}/cancel", apiServer.cancelZedPlanningSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/from-sample", apiServer.createZedPlanningFromSample).Methods(http.MethodPost)
 
 	apiServer.router = router
 
@@ -1726,4 +1694,30 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// The connection is now managed by connman
 		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
 	})
+}
+
+// getUserDefaultExternalAgentApp gets the user's default app for external agents (zed_external)
+// Returns the first app with zed_external agent type, or the first app if none found
+func (apiServer *HelixAPIServer) getUserDefaultExternalAgentApp(ctx context.Context, userID string) (*types.App, error) {
+	apps, err := apiServer.Store.ListApps(ctx, &store.ListAppsQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user apps: %w", err)
+	}
+
+	if len(apps) == 0 {
+		return nil, fmt.Errorf("user has no apps configured")
+	}
+
+	// Find the first app with zed_external default agent type
+	for _, app := range apps {
+		if app.Config.Helix.DefaultAgentType == "zed_external" {
+			return app, nil
+		}
+	}
+
+	// Fall back to first app if no zed_external app found
+	return apps[0], nil
 }

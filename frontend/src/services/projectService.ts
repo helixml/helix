@@ -77,6 +77,7 @@ export const useUpdateProject = (projectId: string) => {
       return response.data;
     },
     onSuccess: () => {
+      // Standard React Query pattern: invalidate to refetch latest data
       queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
       queryClient.invalidateQueries({ queryKey: projectsListQueryKey() });
     },
@@ -112,7 +113,7 @@ export const useGetProjectRepositories = (projectId: string, enabled = true) => 
   return useQuery<StoreDBGitRepository[]>({
     queryKey: projectRepositoriesQueryKey(projectId),
     queryFn: async () => {
-      const response = await apiClient.v1ProjectsRepositoriesList(projectId);
+      const response = await apiClient.getProjectRepositories(projectId);
       return (response.data as StoreDBGitRepository[]) || [];
     },
     enabled: enabled && !!projectId,
@@ -272,6 +273,7 @@ export const useUpdateBoardSettings = () => {
 
 /**
  * Hook to get project exploratory session
+ * Polls every 5 seconds to keep session status up to date (sessions can stop/crash in background)
  */
 export const useGetProjectExploratorySession = (projectId: string, enabled = true) => {
   const api = useApi();
@@ -292,6 +294,7 @@ export const useGetProjectExploratorySession = (projectId: string, enabled = tru
       }
     },
     enabled: enabled && !!projectId,
+    refetchInterval: 5000, // Poll every 5 seconds for real-time session status updates
   });
 };
 
@@ -328,6 +331,34 @@ export const useStopProjectExploratorySession = (projectId: string) => {
       return response.data;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
+    },
+  });
+};
+
+/**
+ * Hook to resume project exploratory session
+ */
+export const useResumeProjectExploratorySession = (projectId: string) => {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      // Get the current session first to get the session ID
+      const sessionResponse = await api.getApiClient().v1ProjectsExploratorySessionDetail(projectId);
+      const session = sessionResponse.data;
+
+      if (!session?.id) {
+        throw new Error('No session found to resume');
+      }
+
+      // Call the resume endpoint
+      const response = await api.post(`/api/v1/sessions/${session.id}/resume`);
+      return session;
+    },
+    onSuccess: () => {
+      // Invalidate the exploratory session query to refetch with updated status
       queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });

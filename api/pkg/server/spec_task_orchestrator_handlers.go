@@ -110,6 +110,14 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError500("failed to create demo repository")
 	}
 
+	// Get user's default external agent app for spec tasks
+	defaultApp, err := apiServer.getUserDefaultExternalAgentApp(ctx, user.ID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("user_id", user.ID).
+			Msg("Failed to get default external agent app, spec task may fail to start")
+	}
+
 	// Create SpecTask
 	task := &types.SpecTask{
 		ProjectID:      repo.ID,
@@ -120,6 +128,11 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: demoReq.Prompt,
 		CreatedBy:      user.ID,
+	}
+
+	// Set HelixAppID if we found a default app
+	if defaultApp != nil {
+		task.HelixAppID = defaultApp.ID
 	}
 
 	err = apiServer.Store.CreateSpecTask(ctx, task)

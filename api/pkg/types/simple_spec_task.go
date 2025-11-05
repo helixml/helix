@@ -198,6 +198,8 @@ type ExternalAgentActivity struct {
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
 	AgentType       string    `json:"agent_type" gorm:"size:50"`  // "spectask", "pde", "adhoc"
 	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"` // Wolf app ID for termination
+	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"size:255"` // Wolf lobby ID for cleanup even after session deleted
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"` // Wolf lobby PIN for cleanup
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 }

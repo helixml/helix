@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -171,11 +172,20 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 
 		err := o.processTask(ctx, task)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.ID).
-				Str("status", task.Status).
-				Msg("Failed to process task")
+			// Tasks with deleted projects are expected - don't spam logs
+			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+				log.Debug().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("status", task.Status).
+					Msg("Task references deleted project - skipping")
+			} else {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("status", task.Status).
+					Msg("Failed to process task")
+			}
 		}
 	}
 }
@@ -203,6 +213,52 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 
 // handleBacklog handles tasks in backlog state - creates external agent and starts planning
 func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.SpecTask) error {
+	// Check if project has auto-start enabled
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+
+	if !project.AutoStartBacklogTasks {
+		// Auto-start is disabled - don't process backlog tasks automatically
+		log.Debug().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Msg("Skipping backlog task - auto-start is disabled for this project")
+		return nil
+	}
+
+	// Check WIP limits for planning column before auto-starting
+	// Get default project to load board settings
+	defaultProject, err := o.store.GetProject(ctx, "default")
+	if err == nil && len(defaultProject.Metadata) > 0 {
+		var metadata types.ProjectMetadata
+		if err := json.Unmarshal(defaultProject.Metadata, &metadata); err == nil {
+			if metadata.BoardSettings != nil && metadata.BoardSettings.WIPLimits != nil {
+				planningLimit, ok := metadata.BoardSettings.WIPLimits["planning"]
+				if ok && planningLimit > 0 {
+					// Count tasks currently in planning for THIS project
+					planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+						ProjectID: task.ProjectID,
+						Status:    types.TaskStatusSpecGeneration,
+					})
+					if err != nil {
+						log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
+					} else if len(planningTasks) >= planningLimit {
+						// Planning column is at WIP limit - don't auto-start
+						log.Info().
+							Str("task_id", task.ID).
+							Str("project_id", task.ProjectID).
+							Int("planning_count", len(planningTasks)).
+							Int("wip_limit", planningLimit).
+							Msg("Skipping backlog task - planning column at WIP limit")
+						return nil
+					}
+				}
+			}
+		}
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
 		Str("helix_app_id", task.HelixAppID).
@@ -770,6 +826,7 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 	// Create session
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
+		Name:           fmt.Sprintf("Planning: %s", task.Name),
 		Owner:          task.CreatedBy,
 		OwnerType:      types.OwnerTypeUser,
 		ParentApp:      app.ID,

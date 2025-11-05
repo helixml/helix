@@ -23,10 +23,15 @@ type Project struct {
 	DefaultRepoID string `json:"default_repo_id" gorm:"type:varchar(255)"` // Primary repository for the project
 
 	// Internal project Git repository (stores project config, tasks, design docs)
+	// IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
+	// It is NEVER stored in the database - Git is the single source of truth
 	InternalRepoPath string `json:"internal_repo_path" gorm:"type:varchar(500)"` // Path to internal git repo in filestore
 
-	// Per-project startup script
-	StartupScript string `json:"startup_script" gorm:"type:text"` // Bash script to run when agent starts
+	// Transient field - loaded from Git, never persisted to database
+	StartupScript string `json:"startup_script" gorm:"-"` // Loaded from .helix/startup.sh in internal Git repo
+
+	// Automation settings
+	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
@@ -131,14 +136,15 @@ type ProjectCreateRequest struct {
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name          *string  `json:"name,omitempty"`
-	Description   *string  `json:"description,omitempty"`
-	GitHubRepoURL *string  `json:"github_repo_url,omitempty"`
-	DefaultBranch *string  `json:"default_branch,omitempty"`
-	Technologies  []string `json:"technologies,omitempty"`
-	Status        *string  `json:"status,omitempty"`
-	DefaultRepoID *string  `json:"default_repo_id,omitempty"`
-	StartupScript *string  `json:"startup_script,omitempty"`
+	Name                  *string  `json:"name,omitempty"`
+	Description           *string  `json:"description,omitempty"`
+	GitHubRepoURL         *string  `json:"github_repo_url,omitempty"`
+	DefaultBranch         *string  `json:"default_branch,omitempty"`
+	Technologies          []string `json:"technologies,omitempty"`
+	Status                *string  `json:"status,omitempty"`
+	DefaultRepoID         *string  `json:"default_repo_id,omitempty"`
+	StartupScript         *string  `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks *bool    `json:"auto_start_backlog_tasks,omitempty"`
 }
 
 // ProjectTaskCreateRequest represents a request to create a new project task
@@ -239,7 +245,7 @@ type SampleProject struct {
 	Category      string         `json:"category" gorm:"type:varchar(100)"` // 'web', 'mobile', 'api', 'ml', etc.
 	Difficulty    string         `json:"difficulty" gorm:"type:varchar(50)"` // 'beginner', 'intermediate', 'advanced'
 	RepositoryURL string         `json:"repository_url" gorm:"type:text;not null"`
-	StartupScript string         `json:"startup_script" gorm:"type:text"`
+	// NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database
 	ThumbnailURL  string         `json:"thumbnail_url" gorm:"type:text"`
 	SampleTasks   datatypes.JSON `json:"sample_tasks" gorm:"type:jsonb"` // Array of {title, description, priority, type}
 	CreatedAt     time.Time      `json:"created_at" gorm:"default:CURRENT_TIMESTAMP"`

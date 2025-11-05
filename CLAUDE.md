@@ -20,6 +20,29 @@ if err != nil {
 
 **Why:** Fallbacks hide problems, confuse debugging, waste time. This is customer-facing software.
 
+## CRITICAL: No Timeouts in Frontend Code
+
+**NEVER use setTimeout/delay for asynchronous operations - use event-driven patterns**
+
+```typescript
+// ❌ WRONG: Arbitrary timeout hoping things complete
+await new Promise(resolve => setTimeout(resolve, 500))
+setShowTestSession(true)
+
+// ✅ CORRECT: Event-driven - wait for actual event
+await queryClient.refetchQueries({ queryKey: sessionQueryKey(id) })
+setShowTestSession(true)
+
+// ✅ CORRECT: Use component lifecycle hooks
+useEffect(() => {
+  return () => cleanup() // Runs when component unmounts
+}, [])
+```
+
+**Why:** Timeouts are unreliable (race conditions, arbitrary delays), hide timing bugs, and make code fragile. Use promises, callbacks, or React lifecycle instead.
+
+**Exception:** Short delays for UI animations (< 100ms) are acceptable if there's no alternative.
+
 ## Documentation Organization
 
 - **`design/`**: LLM-generated docs, architecture decisions, debugging logs. Format: `YYYY-MM-DD-descriptive-name.md`
@@ -144,8 +167,54 @@ const { data } = useQuery({
 **React Query requirements:**
 - Use for ALL API calls (queries + mutations)
 - Proper query keys for cache management
-- Invalidate queries after mutations
+- Invalidate queries after mutations (standard pattern)
 - Handle loading/error states
+
+**React Query mutation pattern** (see `frontend/src/services/questionSetsService.ts`):
+```typescript
+// ✅ CORRECT: Always use invalidateQueries in onSuccess
+export function useUpdateResource(id: string) {
+  return useMutation({
+    mutationFn: async (request) => {
+      const response = await apiClient.v1ResourceUpdate(id, request);
+      return response.data;
+    },
+    onSuccess: () => {
+      // Standard React Query pattern: invalidate to refetch
+      queryClient.invalidateQueries({ queryKey: resourceQueryKey(id) });
+      queryClient.invalidateQueries({ queryKey: resourceListQueryKey() });
+    },
+  });
+}
+
+// ❌ WRONG: Don't use setQueryData (breaks form re-initialization)
+onSuccess: (data) => {
+  queryClient.setQueryData(key, data);
+}
+```
+
+**Forms with React Query - Standard Pattern:**
+```typescript
+// 1. Initialize form from server data (runs on load AND refetch)
+useEffect(() => {
+  if (data) {
+    setName(data.name || '')
+    setDescription(data.description || '')
+  }
+}, [data]) // Dependency on data, not data.id
+
+// 2. Add safety check in save handler
+const handleSave = async () => {
+  if (!data || !name) return // Don't save uninitialized form
+  await updateMutation.mutateAsync({ name, description })
+}
+```
+
+**Why this works:**
+- Form re-initializes after refetch with THE VALUES YOU JUST SAVED
+- User sees no change (saved "Foo" → refetch → form shows "Foo")
+- Loading guard prevents form rendering until data loads
+- Safety check prevents saving empty state
 
 ## Frontend UX
 

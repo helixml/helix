@@ -99,6 +99,25 @@ func (s *PostgresStore) GetSession(ctx context.Context, sessionID string) (*type
 	return &session, nil
 }
 
+// GetSessionIncludingDeleted retrieves a session including soft-deleted ones
+// Used by cleanup code to get lobby credentials even after session deletion
+func (s *PostgresStore) GetSessionIncludingDeleted(ctx context.Context, sessionID string) (*types.Session, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID cannot be empty")
+	}
+
+	var session types.Session
+	err := s.gdb.WithContext(ctx).Unscoped().Where("id = ?", sessionID).First(&session).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}
+
 func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session) (*types.Session, error) {
 	if session.ID == "" {
 		return nil, fmt.Errorf("id not specified")

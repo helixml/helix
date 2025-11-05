@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useRef } from 'react'
 import {
   Container,
   Box,
@@ -23,6 +23,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save'
 import StarIcon from '@mui/icons-material/Star'
@@ -41,11 +43,14 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import Page from '../components/system/Page'
 import AccessManagement from '../components/app/AccessManagement'
 import StartupScriptEditor from '../components/project/StartupScriptEditor'
+import ProjectRepositoriesList from '../components/project/ProjectRepositoriesList'
+import MoonlightStreamViewer from '../components/external-agent/MoonlightStreamViewer'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import { useFloatingModal } from '../contexts/floatingModal'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useGetProject,
   useUpdateProject,
@@ -59,6 +64,7 @@ import {
   useGetProjectExploratorySession,
   useStartProjectExploratorySession,
   useStopProjectExploratorySession,
+  projectExploratorySessionQueryKey,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
 import {
@@ -66,7 +72,6 @@ import {
   useCreateProjectAccessGrant,
   useDeleteProjectAccessGrant,
 } from '../services/projectAccessGrantService'
-import { useDeleteSession } from '../services/sessionService'
 
 const ProjectSettings: FC = () => {
   const account = useAccount()
@@ -74,6 +79,7 @@ const ProjectSettings: FC = () => {
   const snackbar = useSnackbar()
   const projectId = params.id as string
   const floatingModal = useFloatingModal()
+  const queryClient = useQueryClient()
 
   const { data: project, isLoading, error } = useGetProject(projectId)
   const { data: allRepositories = [] } = useGetProjectRepositories(projectId)
@@ -106,17 +112,19 @@ const ProjectSettings: FC = () => {
   const { data: exploratorySessionData } = useGetProjectExploratorySession(projectId)
   const startExploratorySessionMutation = useStartProjectExploratorySession(projectId)
   const stopExploratorySessionMutation = useStopProjectExploratorySession(projectId)
-  const deleteSessionMutation = useDeleteSession(exploratorySessionData?.id || '')
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [startupScript, setStartupScript] = useState('')
-  const [testStartupScriptDialogOpen, setTestStartupScriptDialogOpen] = useState(false)
+  const [autoStartBacklogTasks, setAutoStartBacklogTasks] = useState(false)
+  const [showTestSession, setShowTestSession] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const [attachRepoDialogOpen, setAttachRepoDialogOpen] = useState(false)
   const [selectedRepoToAttach, setSelectedRepoToAttach] = useState('')
   const [savingProject, setSavingProject] = useState(false)
+  const [testingStartupScript, setTestingStartupScript] = useState(false)
+  const [isSessionRestart, setIsSessionRestart] = useState(false)
 
   // Board settings state (initialized from query data)
   const [wipLimits, setWipLimits] = useState({
@@ -125,11 +133,14 @@ const ProjectSettings: FC = () => {
     implementation: 5,
   })
 
+  // Initialize form from server data
+  // This runs when project loads or refetches (standard React Query pattern)
   useEffect(() => {
     if (project) {
       setName(project.name || '')
       setDescription(project.description || '')
       setStartupScript(project.startup_script || '')
+      setAutoStartBacklogTasks(project.auto_start_backlog_tasks || false)
     }
   }, [project])
 
@@ -145,27 +156,54 @@ const ProjectSettings: FC = () => {
   }, [boardSettingsData])
 
   const handleSave = async (showSuccessMessage = true) => {
-    if (savingProject) return // Prevent concurrent saves
+    console.log('[ProjectSettings] handleSave called', {
+      showSuccessMessage,
+      savingProject,
+      hasProject: !!project,
+      hasName: !!name,
+      updatePending: updateProjectMutation.isPending,
+      boardPending: updateBoardSettingsMutation.isPending,
+    })
+
+    if (savingProject) {
+      console.warn('[ProjectSettings] Save already in progress, skipping')
+      return false // Indicate save didn't happen
+    }
+
+    // Safety check: don't save if form hasn't been initialized yet
+    if (!project || !name) {
+      console.warn('[ProjectSettings] Attempted to save before form initialized, ignoring')
+      return false // Indicate save didn't happen
+    }
 
     try {
       setSavingProject(true)
+      console.log('[ProjectSettings] Saving project settings...')
+
       // Save project basic settings
       await updateProjectMutation.mutateAsync({
         name,
         description,
         startup_script: startupScript,
+        auto_start_backlog_tasks: autoStartBacklogTasks,
       })
+      console.log('[ProjectSettings] Project settings saved to database')
 
       // Save board settings
       await updateBoardSettingsMutation.mutateAsync({
         wip_limits: wipLimits,
       })
+      console.log('[ProjectSettings] Board settings saved')
 
       if (showSuccessMessage) {
         snackbar.success('Project settings saved')
       }
+      console.log('[ProjectSettings] handleSave returning true')
+      return true // Indicate save succeeded
     } catch (err) {
+      console.error('[ProjectSettings] Failed to save:', err)
       snackbar.error('Failed to save project settings')
+      throw err // Re-throw so caller knows it failed
     } finally {
       setSavingProject(false)
     }
@@ -213,10 +251,16 @@ const ProjectSettings: FC = () => {
     try {
       const session = await startExploratorySessionMutation.mutateAsync()
       snackbar.success('Exploratory session started')
-      // Navigate to the project-scoped session
-      account.orgNavigate('project-session', { id: projectId, session_id: session.id })
-    } catch (err) {
-      snackbar.error('Failed to start exploratory session')
+      // Open in floating window instead of navigating
+      floatingModal.showFloatingModal({
+        type: 'exploratory_session',
+        sessionId: session.id,
+        wolfLobbyId: session.config?.wolf_lobby_id || session.id
+      }, { x: window.innerWidth - 400, y: 100 })
+    } catch (err: any) {
+      // Extract error message from API response
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session'
+      snackbar.error(errorMessage)
     }
   }
 
@@ -248,37 +292,54 @@ const ProjectSettings: FC = () => {
   }
 
   const handleTestStartupScript = async () => {
-    // First, ensure all changes are saved
-    await handleSave(false)
-    // Open dialog - exploratorySessionData will already be set from the query
-    setTestStartupScriptDialogOpen(true)
-  }
+    const isRestart = !!exploratorySessionData
+    setIsSessionRestart(isRestart)
+    setTestingStartupScript(true)
 
-  const handleConfirmTestStartupScript = async () => {
-    setTestStartupScriptDialogOpen(false)
-
-    // If session already exists, try to delete it first to restart with fresh startup script
-    if (exploratorySessionData) {
-      try {
-        await deleteSessionMutation.mutateAsync()
-        // Short delay to let the delete complete
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      } catch (err: any) {
-        // If session doesn't exist (404/not found), that's fine - proceed with creating new one
-        const isNotFound = err?.response?.status === 404 ||
-                          err?.response?.status === 500 ||
-                          err?.message?.includes('not found');
-        if (!isNotFound) {
-          console.error('Failed to delete existing session:', err)
-          snackbar.error('Failed to delete existing session')
-          return
-        }
-        console.log('Session already deleted or not found, proceeding to create new one')
+    try {
+      // 1. Save changes first
+      const saved = await handleSave(false)
+      if (!saved) {
+        snackbar.error('Failed to save settings before testing')
+        return
       }
-    }
 
-    // Start a new session (with the updated startup script from the saved project)
-    await handleStartExploratorySession()
+      // 2. Stop existing session if running
+      if (exploratorySessionData) {
+        try {
+          await stopExploratorySessionMutation.mutateAsync()
+          // Short delay to let stop complete
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        } catch (err: any) {
+          // If session doesn't exist or already stopped, proceed anyway
+          const isNotFound = err?.response?.status === 404 ||
+                            err?.response?.status === 500 ||
+                            err?.message?.includes('not found');
+          if (!isNotFound) {
+            snackbar.error('Failed to stop existing session')
+            return
+          }
+        }
+      }
+
+      // 3. Start new session with fresh startup script
+      const session = await startExploratorySessionMutation.mutateAsync()
+      snackbar.success('Testing startup script')
+
+      // 4. Wait for data to refetch with new lobby ID
+      await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) })
+
+      // 5. Show test session viewer
+      setShowTestSession(true)
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.error || err?.message || 'Failed to start exploratory session'
+      snackbar.error(errorMessage)
+    } finally {
+      // Clear loading state after longer delay for restarts (connection takes time)
+      // First start: 2 seconds, Restart: 7 seconds (needs time for reconnect retries)
+      const delay = isRestart ? 7000 : 2000
+      setTimeout(() => setTestingStartupScript(false), delay)
+    }
   }
 
   const handleDeleteProject = async () => {
@@ -368,58 +429,33 @@ const ProjectSettings: FC = () => {
       orgBreadcrumbs={true}
       topbarContent={(
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', width: '100%' }}>
-          {!exploratorySessionData ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<ExploreIcon />}
-              onClick={handleStartExploratorySession}
-              disabled={startExploratorySessionMutation.isPending}
-            >
-              {startExploratorySessionMutation.isPending ? 'Starting...' : 'Start Exploratory Session'}
-            </Button>
-          ) : exploratorySessionData.config?.external_agent_status === 'stopped' ? (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<ExploreIcon />}
-              onClick={handleResumeExploratorySession}
-              disabled={startExploratorySessionMutation.isPending}
-            >
-              {startExploratorySessionMutation.isPending ? 'Resuming...' : 'Resume Session'}
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<ExploreIcon />}
-                onClick={(e) => {
-                  floatingModal.showFloatingModal({
-                    type: 'exploratory_session',
-                    sessionId: exploratorySessionData.id,
-                    wolfLobbyId: exploratorySessionData.config?.wolf_lobby_id || exploratorySessionData.id
-                  }, { x: e.clientX, y: e.clientY });
-                }}
-              >
-                View Session
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<StopIcon />}
-                onClick={handleStopExploratorySession}
-                disabled={stopExploratorySessionMutation.isPending}
-              >
-                {stopExploratorySessionMutation.isPending ? 'Stopping...' : 'Stop Session'}
-              </Button>
-            </>
+          {/* Save/Load indicator lozenge */}
+          {(savingProject || isLoading) && (
+            <Chip
+              icon={<CircularProgress size={16} sx={{ color: 'inherit !important' }} />}
+              label={savingProject ? 'Saving...' : 'Loading...'}
+              size="small"
+              sx={{
+                height: 28,
+                backgroundColor: savingProject ? 'rgba(46, 125, 50, 0.1)' : 'rgba(25, 118, 210, 0.1)',
+                color: savingProject ? 'success.main' : 'primary.main',
+                borderRadius: 20,
+              }}
+            />
           )}
         </Box>
       )}
     >
-      <Container maxWidth="md">
-        <Box sx={{ mt: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Container maxWidth={showTestSession ? false : 'md'} sx={{ px: showTestSession ? 3 : 3 }}>
+        <Box sx={{ mt: 4, display: 'flex', flexDirection: 'row', gap: 3, width: '100%' }}>
+          {/* Left column: Settings sections */}
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            width: showTestSession ? '600px' : '100%',
+            flexShrink: 0,
+          }}>
           {/* Basic Information */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
@@ -449,25 +485,28 @@ const ProjectSettings: FC = () => {
 
           {/* Startup Script */}
           <Paper sx={{ p: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <CodeIcon sx={{ mr: 1 }} />
-              <Typography variant="h6">
-                Startup Script
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <CodeIcon sx={{ mr: 1 }} />
+                <Typography variant="h6">
+                  Startup Script
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                This script runs when an agent starts working on this project. Use it to install dependencies, start dev servers, etc.
               </Typography>
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              This script runs when an agent starts working on this project. Use it to install dependencies, start dev servers, etc.
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
+              <Divider sx={{ mb: 3 }} />
 
-            <StartupScriptEditor
-              value={startupScript}
-              onChange={setStartupScript}
-              onTest={handleTestStartupScript}
-              testDisabled={startExploratorySessionMutation.isPending}
-              projectId={projectId}
-            />
-          </Paper>
+              <StartupScriptEditor
+                value={startupScript}
+                onChange={setStartupScript}
+                onTest={handleTestStartupScript}
+                onSave={() => handleSave(true)}
+                testDisabled={startExploratorySessionMutation.isPending}
+                testLoading={testingStartupScript}
+                testTooltip={exploratorySessionData ? 'Will restart the running exploratory session' : undefined}
+                projectId={projectId}
+              />
+            </Paper>
 
           {/* Repositories */}
           <Paper sx={{ p: 3 }}>
@@ -501,87 +540,39 @@ const ProjectSettings: FC = () => {
                 No code repositories attached to this project yet. Click "Attach Repository" to add one.
               </Typography>
             ) : (
-              <List>
-                {repositories.map((repo) => (
-                  <ListItem key={repo.id} divider>
-                    <ListItemText
-                      primary={repo.name}
-                      secondary={repo.clone_url}
-                    />
-                    <ListItemSecondaryAction>
-                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                        {project.default_repo_id === repo.id ? (
-                          <Chip
-                            icon={<StarIcon />}
-                            label="Primary"
-                            color="primary"
-                            size="small"
-                          />
-                        ) : (
-                          <IconButton
-                            onClick={() => handleSetPrimaryRepo(repo.id)}
-                            disabled={setPrimaryRepoMutation.isPending}
-                            title="Set as primary"
-                          >
-                            <StarBorderIcon />
-                          </IconButton>
-                        )}
-                        <IconButton
-                          onClick={() => handleDetachRepository(repo.id)}
-                          disabled={detachRepoMutation.isPending}
-                          title="Detach from project"
-                          color="error"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                ))}
-              </List>
+              <ProjectRepositoriesList
+                repositories={repositories}
+                internalRepo={internalRepo}
+                primaryRepoId={project.default_repo_id}
+                onSetPrimaryRepo={handleSetPrimaryRepo}
+                onDetachRepo={handleDetachRepository}
+                setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
+                detachRepoPending={detachRepoMutation.isPending}
+              />
             )}
 
-            {/* Internal Repository Section - MOVED TO BOTTOM */}
-            {internalRepo && (
+            {/* Internal Repository Section - shown when no code repos */}
+            {repositories.length === 0 && internalRepo && (
               <>
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mb: 1, display: 'block' }}>
                   Internal Repository
                 </Typography>
-                <List>
-                  <ListItem
-                    sx={{
-                      border: 1,
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                      },
-                    }}
-                    onClick={() => {
-                      account.orgNavigate('git-repo-detail', { repoId: internalRepo.id });
-                    }}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {internalRepo.name}
-                          </Typography>
-                          <Chip label="Project Config" size="small" variant="outlined" />
-                        </Box>
-                      }
-                      secondary="Stores .helix/project.json and .helix/startup.sh"
-                    />
-                  </ListItem>
-                </List>
+                <ProjectRepositoriesList
+                  repositories={[]}
+                  internalRepo={internalRepo}
+                  primaryRepoId={project.default_repo_id}
+                  onSetPrimaryRepo={handleSetPrimaryRepo}
+                  onDetachRepo={handleDetachRepository}
+                  setPrimaryRepoPending={setPrimaryRepoMutation.isPending}
+                  detachRepoPending={detachRepoMutation.isPending}
+                />
               </>
             )}
           </Paper>
 
           {/* Board Settings */}
+          {/* Kanban Board Settings */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Kanban Board Settings
@@ -613,6 +604,39 @@ const ProjectSettings: FC = () => {
                 helperText="Maximum tasks allowed in Implementation column"
               />
             </Box>
+          </Paper>
+
+          {/* Automations */}
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Automations
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Configure automatic task scheduling and workflow automation.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={autoStartBacklogTasks}
+                  onChange={(e) => {
+                    setAutoStartBacklogTasks(e.target.checked)
+                    handleFieldBlur()
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Automatically start backlog items when there's capacity in the planning column
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    When enabled, tasks in the backlog will automatically move to planning when the WIP limit allows.
+                    When disabled, tasks must be manually moved from backlog to planning.
+                  </Typography>
+                </Box>
+              }
+            />
           </Paper>
 
           {/* Members & Access Control */}
@@ -682,94 +706,49 @@ const ProjectSettings: FC = () => {
               </Button>
             </Box>
           </Paper>
+          </Box>
+          {/* End of left column */}
+
+          {/* Test session viewer - fills width, natural height */}
+          {showTestSession && exploratorySessionData && (
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              {/* Spacer to align with Startup Script section (Basic Info section ~180px) */}
+              <Box sx={{ height: '310px' }} />
+
+            <Paper sx={{ p: 4 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <Typography variant="h6" sx={{ flex: 1 }}>
+                  Test Session
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setShowTestSession(false)}
+                >
+                  Hide
+                </Button>
+              </Box>
+              <Divider sx={{ mb: 3 }} />
+              {/* Stream viewer - matches startup script editor height */}
+              <Box
+                sx={{
+                  height: 500, // Slightly taller than Monaco editor to account for toolbar
+                  backgroundColor: '#000',
+                  overflow: 'hidden',
+                }}
+              >
+                <MoonlightStreamViewer
+                  sessionId={exploratorySessionData.id}
+                  wolfLobbyId={exploratorySessionData.config?.wolf_lobby_id || ''}
+                  showLoadingOverlay={testingStartupScript}
+                  isRestart={isSessionRestart}
+                />
+              </Box>
+            </Paper>
+            </Box>
+          )}
         </Box>
       </Container>
-
-      {/* Test Startup Script Confirmation Dialog */}
-      <Dialog
-        open={testStartupScriptDialogOpen}
-        onClose={() => setTestStartupScriptDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <ExploreIcon color="primary" />
-            <span>{exploratorySessionData ? 'Join Exploratory Session' : 'Test Startup Script'}</span>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {exploratorySessionData ? (
-            <>
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-                  This will restart the existing exploratory session
-                </Typography>
-                <Typography variant="body2">
-                  The current session will be stopped and a new one will be started with the updated startup script. Any unsaved work in the session will be lost.
-                </Typography>
-              </Alert>
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                <strong>Current Session:</strong> {exploratorySessionData.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <strong>Created:</strong> {new Date(exploratorySessionData.created).toLocaleString()}
-              </Typography>
-            </>
-          ) : (
-            <>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                This will create a new exploratory session for this project with the current startup script.
-              </Typography>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <Typography variant="body2">
-                  The startup script will run when the agent environment launches. You'll be able to connect and verify it worked correctly.
-                </Typography>
-              </Alert>
-            </>
-          )}
-          {!exploratorySessionData && (
-            <>
-              {startupScript.trim() ? (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                    Current startup script:
-                  </Typography>
-                  <Box sx={{
-                    p: 1.5,
-                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                    borderRadius: 1,
-                    fontFamily: 'monospace',
-                    fontSize: '0.75rem',
-                    maxHeight: 200,
-                    overflow: 'auto',
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {startupScript}
-                  </Box>
-                </Box>
-              ) : (
-                <Alert severity="warning">
-                  No startup script configured. The session will start without any initialization.
-                </Alert>
-              )}
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTestStartupScriptDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirmTestStartupScript}
-            variant="contained"
-            color={exploratorySessionData ? 'warning' : 'primary'}
-            startIcon={<ExploreIcon />}
-          >
-            {exploratorySessionData ? 'Restart Session' : 'Start Session'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Attach Repository Dialog */}
       <Dialog

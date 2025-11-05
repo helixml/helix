@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  CircularProgress,
 } from '@mui/material'
 import {
   History as HistoryIcon,
@@ -38,7 +39,10 @@ interface StartupScriptEditorProps {
   value: string
   onChange: (value: string) => void
   onTest: () => void
+  onSave?: () => void
   testDisabled?: boolean
+  testLoading?: boolean // Show loading spinner on Test Script button
+  testTooltip?: string // Optional tooltip for Test Script button
   projectId: string
 }
 
@@ -46,7 +50,10 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
   value,
   onChange,
   onTest,
+  onSave,
   testDisabled,
+  testLoading,
+  testTooltip,
   projectId,
 }) => {
   const [showHistory, setShowHistory] = useState(false)
@@ -79,49 +86,77 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
   }
 
   return (
-    <Box sx={{ display: 'flex', gap: 2, height: '100%' }}>
-      {/* Main editor */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            Bash startup script (runs before agent starts)
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<HistoryIcon />}
-              onClick={() => setShowHistory(!showHistory)}
-            >
-              {showHistory ? 'Hide History' : 'Show History'}
-            </Button>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Toolbar - stays at top, doesn't move */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="caption" color="text.secondary">
+          Bash startup script (runs before agent starts)
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<HistoryIcon />}
+            onClick={() => setShowHistory(!showHistory)}
+          >
+            {showHistory ? 'Hide History' : 'Show History'}
+          </Button>
+          <Tooltip title={testTooltip || ''} disableHoverListener={!testTooltip}>
             <Button
               size="small"
               variant="contained"
               color="primary"
-              startIcon={<TestIcon />}
+              startIcon={testLoading ? <CircularProgress size={16} color="inherit" /> : <TestIcon />}
               onClick={onTest}
-              disabled={testDisabled}
+              disabled={testDisabled || testLoading}
+              endIcon={
+                !testLoading && (
+                  <Box component="span" sx={{
+                    fontSize: '0.75rem',
+                    opacity: 0.6,
+                    fontFamily: 'monospace',
+                    ml: 1,
+                  }}>
+                    {navigator.platform.includes('Mac') ? '⌘↵' : 'Ctrl+↵'}
+                  </Box>
+                )
+              }
             >
-              Test Script
+              {testLoading ? 'Starting...' : 'Test Script'}
             </Button>
-          </Box>
+          </Tooltip>
         </Box>
-
-        <MonacoEditor
-          value={value}
-          onChange={onChange}
-          language="shell"
-          height={400}
-          minHeight={300}
-          maxHeight={600}
-          autoHeight={true}
-        />
       </Box>
 
-      {/* Version history sidebar */}
-      {showHistory && (
-        <Paper sx={{ width: 320, display: 'flex', flexDirection: 'column' }}>
+      {/* Editor + History side by side */}
+      <Box sx={{ display: 'flex', gap: 2, flex: 1, minHeight: 0 }}>
+        {/* Monaco Editor */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <MonacoEditor
+            value={value}
+            onChange={onChange}
+            language="shell"
+            height={400}
+            minHeight={300}
+            maxHeight={600}
+            autoHeight={true}
+            onSave={onSave}
+            onTest={onTest}
+          />
+        </Box>
+
+        {/* Version history sidebar - RIGHT side, matches editor height */}
+        {showHistory && (
+          <Paper
+            sx={{
+              width: 320,
+              height: 400, // Match Monaco editor height
+              display: 'flex',
+              flexDirection: 'column',
+              flexShrink: 0,
+              boxShadow: 2,
+            }}
+          >
           <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -199,6 +234,8 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
           )}
         </Paper>
       )}
+      </Box>
+      {/* End of editor + history flex row */}
 
       {/* Diff viewer dialog */}
       {selectedVersion && (
