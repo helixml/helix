@@ -98,6 +98,13 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 }
 
 func getRequestUser(req *http.Request) *types.User {
+	// First check if user was set in context (e.g., by socket middleware)
+	userIntf := req.Context().Value(userKey)
+	if userIntf != nil {
+		user := userIntf.(types.User)
+		return &user
+	}
+
 	// Check if this is a socket request by looking at the underlying connection type
 	if h, ok := req.Context().Value(http.LocalAddrContextKey).(*net.UnixAddr); ok && h != nil {
 		// Socket requests are trusted - get user ID from header
@@ -111,13 +118,8 @@ func getRequestUser(req *http.Request) *types.User {
 			TokenType: types.TokenTypeSocket,
 		}
 	}
-	userIntf := req.Context().Value(userKey)
-	if userIntf == nil {
-		return nil
-	}
-	user := userIntf.(types.User)
 
-	return &user
+	return nil
 }
 
 func getOwnerContext(req *http.Request) types.OwnerContext {
