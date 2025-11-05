@@ -46,6 +46,7 @@ type VLLMRuntime struct {
 	processTracker     *ProcessTracker                // Process tracker for monitoring
 	slotID             *uuid.UUID                     // Associated slot ID
 	originalCtx        context.Context                // Context passed to most recent Start() call
+	started            bool                           // Track if runtime is currently started
 }
 
 type VLLMRuntimeParams struct {
@@ -160,6 +161,11 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		Strs("args", v.args).
 		Msg("Starting vLLM runtime with args")
 
+	// Prevent multiple Start() calls without Stop()
+	if v.started {
+		return fmt.Errorf("runtime is already started, call Stop() first")
+	}
+
 	// Make sure the port is not already in use
 	if isPortInUse(v.port) {
 		return fmt.Errorf("port %d is already in use", v.port)
@@ -224,6 +230,9 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	// Mark as ready only after HTTP readiness check passes
 	v.ready = true
 
+	// Mark runtime as started
+	v.started = true
+
 	log.Info().
 		Str("model", v.model).
 		Strs("args", v.args).
@@ -251,6 +260,9 @@ func (v *VLLMRuntime) Stop() error {
 
 	// Clear original context so future Start() calls can use a new context
 	v.originalCtx = nil
+
+	// Mark runtime as stopped
+	v.started = false
 
 	// Mark as not ready when stopping
 	v.ready = false
