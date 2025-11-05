@@ -192,13 +192,13 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	// This ensures that long-running operations (like model downloads) are not
 	// cancelled when the client request context times out
 	v.originalCtx = ctx
-	originalCtx := v.originalCtx
 
-	// Prepare vLLM cmd context (a cancel context derived from original)
-	// This child context is used for the command process itself and can be
-	// cancelled independently without affecting the original context
-	log.Debug().Msg("Preparing vLLM context")
-	ctx, cancel := context.WithCancel(originalCtx)
+	// Create a background context for the runtime that is independent of the client request
+	// The vLLM process should continue running even if the client that initiated Start() times out
+	// We use context.Background() here because the runtime lifecycle should be controlled
+	// explicitly via Stop(), not by client request cancellation
+	log.Debug().Msg("Preparing vLLM context with background context")
+	runtimeCtx, cancel := context.WithCancel(context.Background())
 	v.cancel = cancel
 	var err error
 	defer func() {
@@ -208,8 +208,8 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start vLLM cmd - uses child context so it can be cancelled independently
-	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer, v.onCrash)
+	// Start vLLM cmd - uses runtime context independent of client request
+	cmd, commandLine, err := startVLLMCmd(runtimeCtx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer, v.onCrash)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -226,9 +226,9 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 			Msg("PROCESS_TRACKER: Registered VLLM process")
 	}
 
-	// Wait for vLLM to be ready
+	// Wait for vLLM to be ready - use runtime context so it doesn't get canceled by client timeout
 	log.Debug().Str("url", v.URL()).Dur("timeout", v.startTimeout).Msg("Waiting for vLLM to start")
-	err = v.waitUntilVLLMIsReady(ctx, v.startTimeout)
+	err = v.waitUntilVLLMIsReady(runtimeCtx, v.startTimeout)
 	if err != nil {
 		return fmt.Errorf("error waiting for vLLM to start: %s", err.Error())
 	}
