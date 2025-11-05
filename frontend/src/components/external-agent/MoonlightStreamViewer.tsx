@@ -8,6 +8,7 @@ import {
   VideocamOff,
   VolumeUp,
   VolumeOff,
+  BarChart,
 } from '@mui/icons-material';
 import { getApi, apiGetApps } from '../../lib/moonlight-web-ts/api';
 import { Stream } from '../../lib/moonlight-web-ts/stream/index';
@@ -75,6 +76,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [hasMouseMoved, setHasMouseMoved] = useState(false);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
+  const [showStats, setShowStats] = useState(false);
+  const [stats, setStats] = useState<any>(null);
 
   const helixApi = useApi();
   const account = useAccount();
@@ -164,6 +167,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.bitrate = 80000;  // 80 Mbps for 4K quality (matches Moonlight Qt)
       settings.packetSize = 1024;
       settings.fps = 60;
+      settings.videoSampleQueueSize = 50;  // Increased for 4K60 (default 5 too small)
+      settings.audioSampleQueueSize = 10;
       settings.playAudioLocal = !audioEnabled;
 
       // Force H264 only for compatibility with Wolf-UI
@@ -516,6 +521,61 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [videoEnabled, audioEnabled]);
 
+  // Poll WebRTC stats when stats overlay is visible
+  useEffect(() => {
+    if (!showStats || !streamRef.current) {
+      return;
+    }
+
+    const pollStats = async () => {
+      const peer = streamRef.current?.getPeer();
+      if (!peer) return;
+
+      try {
+        const statsReport = await peer.getStats();
+        const parsedStats: any = {
+          video: {},
+          connection: {},
+          timestamp: new Date().toISOString(),
+        };
+
+        statsReport.forEach((report: any) => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            parsedStats.video = {
+              codec: report.mimeType || 'unknown',
+              width: report.frameWidth,
+              height: report.frameHeight,
+              fps: report.framesPerSecond?.toFixed(1) || 0,
+              bitrate: report.bytesReceived ? ((report.bytesReceived * 8) / 1000000).toFixed(2) : 0,
+              packetsLost: report.packetsLost || 0,
+              packetsReceived: report.packetsReceived || 0,
+              framesDecoded: report.framesDecoded || 0,
+              framesDropped: report.framesDropped || 0,
+              jitter: report.jitter ? (report.jitter * 1000).toFixed(2) : 0,
+            };
+          }
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            parsedStats.connection = {
+              rtt: report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(1) : 0,
+              bytesSent: report.bytesSent,
+              bytesReceived: report.bytesReceived,
+            };
+          }
+        });
+
+        setStats(parsedStats);
+      } catch (err) {
+        console.error('[Stats] Failed to get WebRTC stats:', err);
+      }
+    };
+
+    // Poll every second
+    const interval = setInterval(pollStats, 1000);
+    pollStats(); // Initial call
+
+    return () => clearInterval(interval);
+  }, [showStats]);
+
   // Calculate stream rectangle for mouse coordinate mapping
   const getStreamRect = useCallback((): DOMRect => {
     if (!videoRef.current || !streamRef.current) {
@@ -766,6 +826,14 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         </IconButton>
         <IconButton
           size="small"
+          onClick={() => setShowStats(!showStats)}
+          sx={{ color: showStats ? 'primary.main' : 'white' }}
+          title="Stats for Nerds"
+        >
+          <BarChart fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
           onClick={toggleFullscreen}
           sx={{ color: 'white' }}
           title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
@@ -902,6 +970,53 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       />
 
       {/* Input Hint - removed since auto-focus handles keyboard input */}
+
+      {/* Stats for Nerds Overlay */}
+      {showStats && stats && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 60,
+            right: 10,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            color: '#00ff00',
+            padding: 2,
+            borderRadius: 1,
+            fontFamily: 'monospace',
+            fontSize: '0.75rem',
+            zIndex: 1500,
+            minWidth: 300,
+            border: '1px solid rgba(0, 255, 0, 0.3)',
+          }}
+        >
+          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1, color: '#00ff00' }}>
+            📊 Stats for Nerds
+          </Typography>
+
+          <Box sx={{ '& > div': { mb: 0.3, lineHeight: 1.5 } }}>
+            {stats.video.codec && (
+              <>
+                <div><strong>Codec:</strong> {stats.video.codec}</div>
+                <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
+                <div><strong>FPS:</strong> {stats.video.fps}</div>
+                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: 80</span></div>
+                <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
+                <div>
+                  <strong>Dropped:</strong> {stats.video.framesDropped} frames
+                  {stats.video.framesDropped > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
+                </div>
+                <div>
+                  <strong>Packets Lost:</strong> {stats.video.packetsLost} / {stats.video.packetsReceived}
+                  {stats.video.packetsLost > 0 && <span style={{ color: '#ff6b6b' }}> ⚠️</span>}
+                </div>
+                <div><strong>Jitter:</strong> {stats.video.jitter} ms</div>
+                {stats.connection.rtt && <div><strong>RTT:</strong> {stats.connection.rtt} ms</div>}
+              </>
+            )}
+            {!stats.video.codec && <div>Waiting for video data...</div>}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 };

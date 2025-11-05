@@ -18,8 +18,8 @@ export const defaultStreamSettings = (): StreamSettings => ({
   bitrate: 20000,
   packetSize: 1024,
   fps: 60,
-  videoSampleQueueSize: 5,
-  audioSampleQueueSize: 5,
+  videoSampleQueueSize: 50,  // Increased for 4K60 (was 5, too small for high bitrate)
+  audioSampleQueueSize: 10,
   playAudioLocal: false,
   mouseScrollMode: 'normal',
   controllerConfig: {}

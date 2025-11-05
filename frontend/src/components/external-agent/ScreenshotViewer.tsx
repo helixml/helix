@@ -42,7 +42,10 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [streamingMode, setStreamingMode] = useState<'screenshot' | 'stream'>('screenshot');
+  // Auto-switch to stream mode if wolfLobbyId is provided
+  const [streamingMode, setStreamingMode] = useState<'screenshot' | 'stream'>(
+    wolfLobbyId && enableStreaming ? 'stream' : 'screenshot'
+  );
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mountTimeRef = React.useRef<Date>(new Date());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
