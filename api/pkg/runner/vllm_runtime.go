@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -339,8 +340,52 @@ func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFun
 	})
 }
 
-func (v *VLLMRuntime) ListModels(_ context.Context) ([]string, error) {
-	return []string{}, nil // TODO: implement
+func (v *VLLMRuntime) ListModels(ctx context.Context) ([]string, error) {
+	// Query vLLM's OpenAI-compatible /v1/models endpoint
+	url := fmt.Sprintf("%s/v1/models", v.URL())
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error querying models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error response from vLLM: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse the JSON response
+	// vLLM returns: {"object": "list", "data": [{"id": "model-name", ...}, ...]}
+	var response struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %w", err)
+	}
+
+	// Extract model IDs
+	models := make([]string, 0, len(response.Data))
+	for _, model := range response.Data {
+		if model.ID != "" {
+			models = append(models, model.ID)
+		}
+	}
+
+	return models, nil
 }
 
 func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
