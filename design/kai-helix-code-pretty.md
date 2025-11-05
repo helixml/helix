@@ -77,3 +77,9 @@ cd helix
 
 `api/pkg/external-agent/wolf_executor.go` = the code that spawns the container.
 
+## screenshot
+
+```
+scp "$(ss)" dev.code.helix.ml:images
+echo "/home/kai/images/$(basename "$(ss)")"
+```

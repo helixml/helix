@@ -79,6 +79,26 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 echo "✅ Zed state symlinks created"
 
 # ============================================================================
+# Disable GNOME Screensaver Proxy
+# ============================================================================
+# Prevent gsd-screensaver-proxy from showing "screen lock disabled" notification
+# This daemon detects absence of GDM and shows persistent notification
+# We don't need screen locking in containers, so disable it entirely
+echo "Disabling GNOME screensaver proxy..."
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/org.gnome.SettingsDaemon.ScreensaverProxy.desktop <<'SCREENSAVER_EOF'
+[Desktop Entry]
+Type=Application
+Name=GNOME FreeDesktop screensaver
+Exec=/bin/true
+OnlyShowIn=GNOME;
+NoDisplay=true
+Hidden=true
+SCREENSAVER_EOF
+
+echo "✅ Screensaver proxy disabled"
+
+# ============================================================================
 # GNOME Autostart Entries Configuration
 # ============================================================================
 # Create GNOME autostart directory
