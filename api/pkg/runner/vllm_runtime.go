@@ -47,6 +47,9 @@ type VLLMRuntime struct {
 	slotID             *uuid.UUID                     // Associated slot ID
 	originalCtx        context.Context                // Context passed to most recent Start() call
 	started            bool                           // Track if runtime is currently started
+
+	// Crash callback - called when the vLLM process exits unexpectedly
+	onCrash func(stderr string)
 }
 
 type VLLMRuntimeParams struct {
@@ -61,6 +64,7 @@ type VLLMRuntimeParams struct {
 	GPUIndices         []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
 	TensorParallelSize *int                           // Optional: Number of GPUs for tensor parallelism (default 1)
 	LogBuffer          *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
+	OnCrash            func(stderr string)            // Optional: Callback when vLLM process crashes
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -151,6 +155,7 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		gpuIndices:         gpuIndices,
 		tensorParallelSize: tensorParallelSize,
 		logBuffer:          params.LogBuffer,
+		onCrash:            params.OnCrash,
 	}, nil
 }
 
@@ -203,7 +208,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start vLLM cmd - uses child context so it can be cancelled independently
-	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer)
+	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer, v.onCrash)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -594,7 +599,7 @@ func formatGPUIndices(gpuIndices []int) string {
 	return strings.Join(indices, ",")
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, string, error) {
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer, crashCallback func(stderr string)) (*exec.Cmd, string, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
@@ -792,6 +797,19 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 				// Update log buffer status if available
 				if logBuffer != nil {
 					logBuffer.SetStatus("errored")
+				}
+
+				// Call the crash callback if configured
+				if crashCallback != nil {
+					log.Warn().
+						Str("stderr_preview", func() string {
+							if len(errMsg) > 500 {
+								return "..." + errMsg[len(errMsg)-500:]
+							}
+							return errMsg
+						}()).
+						Msg("vLLM process crashed, triggering cleanup callback")
+					crashCallback(errMsg)
 				}
 
 				// Don't restart if context is canceled
