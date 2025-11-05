@@ -1,882 +1,245 @@
-# Claude Rules for Helix Development
+# Helix Development Rules
 
-The following rule files should be consulted when working on the codebase:
+See also: @.cursor/rules/helix.mdc, @.cursor/rules/go-api-handlers.mdc, @.cursor/rules/use-gorm-for-database.mdc, @.cursor/rules/use-frontend-api-client.mdc
 
-@.cursor/rules/helix.mdc
-@.cursor/rules/go-api-handlers.mdc
-@.cursor/rules/use-gorm-for-database.mdc
-@.cursor/rules/use-frontend-api-client.mdc
+## CRITICAL: Fail Fast with Clear Errors
 
-This file contains critical development guidelines and context that MUST be followed at all times during Helix development.
+**NEVER write fallback code or silently continue after failures**
+
+```go
+// ❌ WRONG: Hiding failures
+if err != nil {
+    log.Warn().Err(err).Msg("Failed to setup worktree (continuing)")
+}
+
+// ✅ CORRECT: Fail fast
+if err != nil {
+    return fmt.Errorf("failed to setup design docs worktree: %w", err)
+}
+```
+
+**Why:** Fallbacks hide problems, confuse debugging, waste time. This is customer-facing software.
 
 ## Documentation Organization
 
-**CRITICAL: LLM-generated design documents MUST live in `design/` folder ONLY**
+- **`design/`**: LLM-generated docs, architecture decisions, debugging logs. Format: `YYYY-MM-DD-descriptive-name.md`
+- **`docs/`**: User-facing documentation only
+- **Root**: Only `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`
 
-- **`design/`**: All LLM-generated design docs, architecture decisions, status reports, debugging logs
-  - These are internal development artifacts created during the feature development process
-  - Naming convention: `YYYY-MM-DD-descriptive-name.md` (e.g., `2025-09-23-wolf-streaming-architecture.md`)
-  - Date should reflect when the document was written, enabling chronological navigation
+## Hot Reloading Stack
 
-- **`docs/`**: External user-facing documentation ONLY
-  - User guides, API documentation, deployment instructions
-  - Documentation meant for external consumption
-  - Should NOT contain LLM-generated design artifacts
+Frontend (Vite), API (Air), GPU Runner, Wolf, Zed all support hot reloading. Save files → changes picked up automatically.
 
-- **Root level**: Only `README.md`, `CONTRIBUTING.md`, and `CLAUDE.md` (this file)
+## CRITICAL: Always Verify Build Status
 
-**Why this matters:**
-- Keeps internal design artifacts separate from user-facing documentation
-- Dates in filenames provide clear chronological history of development decisions
-- Makes it easy to follow the evolution of architectural decisions over time
-
-## Hot Reloading Development Stack
-
-The Helix development stack has hot reloading enabled in multiple components for fast iteration:
-
-- **Frontend**: Vite-based hot reloading for React/TypeScript changes
-- **API Server**: Air-based hot reloading for Go API changes
-- **GPU Runner**: Live code reloading for runner modifications
-- **Wolf Integration**: Real-time config and code updates
-- **Zed Editor**: Directory bind-mount + auto-restart loop for binary updates
-
-This means you often don't need to rebuild containers - just save files and changes are picked up automatically.
-
-## CRITICAL: ALWAYS Verify Build Status Before Declaring Victory
-
-**MANDATORY: NEVER declare a task complete without checking build status**
-
-After making ANY code changes, you MUST:
-
-1. **Check API hot reload logs**:
-   ```bash
-   docker compose -f docker-compose.dev.yaml logs --tail 30 api
-   ```
-   - Look for "building..." followed by "running..." (success)
-   - Look for "failed to build, error:" (failure)
-   - Fix ALL compilation errors before continuing
-
-2. **Check frontend build status**:
-   ```bash
-   docker compose -f docker-compose.dev.yaml logs --tail 30 frontend
-   ```
-   - Look for Vite HMR updates: "hmr update /src/..."
-   - Check for TypeScript errors: "Type error", "Cannot find", "does not provide"
-   - Look for successful builds: "✓ built in XXms"
-   - Verify no syntax errors or missing imports
-
-3. **ONLY THEN** can you declare the task complete
-
-**Why this is CRITICAL:**
-- Hot reload errors are immediate feedback that code is broken
-- Compilation errors mean your changes don't work
-- Declaring victory with broken code wastes user time
-- The user should NEVER have to point out compilation errors
-
-**If you catch yourself saying "done" or "complete" without checking logs, STOP and check them immediately.**
-
-## CRITICAL: Zed Editor Build Process
-
-**ALWAYS use the stack command for building Zed - NEVER use cargo directly**
+After ANY code changes:
 
 ```bash
-# ✅ CORRECT: Build Zed using stack script with external_websocket_sync feature
-./stack build-zed           # Default: dev mode (fast, ~1.3GB binary)
-./stack build-zed dev       # Explicit dev mode (fast, debug symbols)
-./stack build-zed release   # Release mode (slow, ~2GB optimized binary)
+# Check API build
+docker compose -f docker-compose.dev.yaml logs --tail 30 api
+# Look for: "building..." → "running..." (success) or "failed to build" (error)
 
-# ❌ WRONG: Direct cargo commands will fail or produce broken binaries
-cargo build --package zed         # Missing feature flag!
-cargo build --release --package zed  # Wrong output location!
+# Check frontend build
+docker compose -f docker-compose.dev.yaml logs --tail 30 frontend
+# Look for: "✓ built in XXms" or TypeScript errors
 ```
 
-**Why stack script is MANDATORY:**
-- Automatically includes `--features external_websocket_sync` flag (critical for Helix integration)
-- Binary is copied to `./zed-build/zed` and bind-mounted into containers
-- Stack script uses correct paths and build flags automatically
-- Both dev and release builds work correctly (dev is faster for iteration)
+**ONLY declare complete after checking logs.** Compilation errors = broken code.
 
-**CRITICAL: Kill Old Builds First**
-```bash
-# ALWAYS kill any existing cargo builds before starting new one
-pkill -f "cargo build" && pkill -f rustc
-
-# Then build with stack
-./stack build-zed
-```
-
-**Why killing old builds is critical:**
-- Multiple simultaneous cargo builds cause resource exhaustion
-- Old builds consume CPU/RAM and slow down new builds massively
-- Conflicting builds can produce corrupted binaries
-- Always verify no cargo processes running: `ps aux | grep -E "cargo build|rustc" | grep -v grep`
-
-**Zed Hot Reload Workflow:**
-1. **Kill any running builds**: `pkill -f "cargo build" && pkill -f rustc`
-2. Make changes to Zed source code in `~/pm/zed`
-3. Build: `./stack build-zed` (~30-60 seconds for incremental dev builds)
-4. Inside running PDE: Close Zed window (click X)
-5. Auto-restart script launches updated binary in 2 seconds
-6. No container recreation needed - directory bind-mount survives inode changes
-
-## CRITICAL: Sway Container Image Build Process
-
-**ALWAYS use the stack command for building the Sway image - NEVER use docker build directly**
+## Zed Build Process
 
 ```bash
-# ✅ CORRECT: Build helix-sway image using stack script
-./stack build-sway
+# ✅ CORRECT: Use stack script
+./stack build-zed        # Dev mode (fast, ~1.3GB)
+./stack build-zed release # Release mode (slow, ~2GB)
 
-# ❌ WRONG: Direct docker commands may miss important configurations
-docker build -f Dockerfile.sway-helix -t helix-sway:latest .
+# ❌ WRONG: Missing feature flag
+cargo build --package zed
 ```
 
-**Why stack script is MANDATORY:**
-- Ensures correct image tag (`helix-sway:latest`)
-- Consistent build process with other stack operations
-- Provides clear success/failure feedback with feature summary
-- Used by Wolf executor for both PDEs and External Agents
+**Kill old builds first:** `pkill -f "cargo build" && pkill -f rustc`
 
-**When to rebuild the Sway image:**
-- After modifying startup scripts in `wolf/sway-config/`
-- After modifying `Dockerfile.sway-helix`
-- After updating Go daemons (settings-sync-daemon, screenshot-server)
-- After changing Sway/waybar configurations
+**Hot reload:** Kill builds → Build with stack → Close Zed window → Auto-restart in 2s
 
-**Critical files in the Sway image:**
-- `/usr/local/bin/start-zed-helix.sh` - Zed startup script with initialization wait
-- `/opt/gow/startup-app.sh` - GOW launcher configuration
-- `/usr/local/bin/settings-sync-daemon` - Zed settings synchronization
-- `/usr/local/bin/screenshot-server` - Screenshot capture for streaming
-
-**After rebuilding, NEW external agent sessions will use the updated image automatically.**
-Existing containers will NOT pick up changes - you must create a new session to test.
-
-## CRITICAL: Testing and Mocking
-
-**MANDATORY: ALWAYS use gomock/mockgen for generating test mocks - NEVER use manual mocks**
+## Sway Container Build
 
 ```bash
-# ✅ CORRECT: Generate mocks using mockgen
-mockgen -source api/pkg/external-agent/wolf_client_interface.go -destination api/pkg/external-agent/wolf_client_interface_mocks.go -package external_agent
-
-# ❌ WRONG: Manually creating mock structs with testify/mock
-type MockStore struct {
-    mock.Mock
-}
+./stack build-sway  # ✅ CORRECT
 ```
 
-**Why this is CRITICAL:**
-- The codebase uses gomock consistently throughout
-- Generated mocks are type-safe and automatically stay in sync with interfaces
-- Manual mocks require maintenance and can drift from actual interfaces
-- Generated mocks provide better compile-time safety
+Rebuild when: modifying `wolf/sway-config/`, `Dockerfile.sway-helix`, Go daemons, Sway configs.
+**New sessions use updated image; existing containers don't.**
 
-**How to generate mocks:**
-1. Define an interface for the component you want to mock
-2. Run mockgen to generate the mock file:
-   ```bash
-   mockgen -source <source_file>.go -destination <source_file>_mocks.go -package <package_name>
-   ```
-3. Use the generated mock in your tests with gomock.Controller
-
-**Example test setup with gomock:**
-```go
-import (
-    "testing"
-    "go.uber.org/mock/gomock"
-)
-
-func TestMyFunction(t *testing.T) {
-    ctrl := gomock.NewController(t)
-    defer ctrl.Finish()
-
-    mockStore := store.NewMockStore(ctrl)
-    mockStore.EXPECT().GetSomething(gomock.Any(), "param").Return(nil, nil)
-
-    // Test code using mockStore
-}
-```
-
-**If you catch yourself using `testify/mock` or manually writing mock structs, STOP and use mockgen instead.**
-
-## Key Development Rules (from design.md)
-
-### ALWAYS Follow These Rules:
-1. **CRITICAL: THIS IS CUSTOMER-FACING SOFTWARE**: Everything we build ships to customers who install from scratch. Features MUST work on fresh installs without manual intervention. NEVER rely on files being manually copied or dev-only setup steps. If it needs a file (config template, init script, etc.), build it into the container image. Test that it works from a clean slate, not just in your dev environment. Customer experience is paramount.
-2. **CRITICAL: ALL BUILDS HAPPEN IN CONTAINERS**: NEVER inspect system packages or attempt to build on the host. ALL builds must happen in containers. NEVER check host system package versions or dependencies.
-3. **CRITICAL: NEVER USE BACKGROUND BUILDS**: ALWAYS run builds in foreground only. NEVER use `run_in_background: true` or `&` with build commands. Builds MUST be run synchronously with full output visible. This prevents confusion and lost builds.
-4. **CRITICAL: ONLY ONE BUILD AT A TIME**: Never run multiple builds simultaneously. Always wait for current build to complete before starting another.
-5. **CRITICAL: HOST ≠ CONTAINER ENVIRONMENTS**: NEVER check package availability on host system. Host runs Ubuntu 24.04, containers run Ubuntu 25.04 - completely different package sets. ALWAYS check package availability using container commands like `docker run ubuntu:25.04 apt search package`. The host system has NO relevance to what's available in build containers.
-6. **CRITICAL: NEVER USE --no-cache ON DOCKER BUILDS**: NEVER use `--no-cache` flag with `docker build` commands. We TRUST Docker's caching system completely. Docker's layer caching is reliable, correct, and speeds up builds significantly. Using `--no-cache` is wasteful and unnecessary. Docker BuildKit intelligently invalidates caches when source files change - you don't need to manually force cache invalidation.
-7. **CRITICAL: NEVER CLEAR BUILDKIT CACHE - EVER**: NEVER run `docker builder prune` or clear Docker BuildKit cache. If you suspect the Docker build cache is wrong, YOU ARE WRONG - the issue lies somewhere else. Docker's caching is correct and reliable. If builds aren't picking up changes, investigate the actual root cause (wrong file paths, incorrect COPY commands, missing file changes, etc.) instead of blaming the cache. Build caches are carefully managed and clearing them wastes significant time on subsequent builds.
-8. **CRITICAL: NEVER BUILD OR PUSH IMAGES WITHOUT PERMISSION**: NEVER run docker build, docker tag, or docker push commands that create versioned images (rc tags, version numbers, commit hashes as tags) without explicit user permission. If you build unauthorized images and push them to the registry, it creates permanent confusion in the registry that has to be cleaned up manually. Building and pushing images is ONLY allowed when explicitly requested by the user. The user manages releases and versioning - you write code, the user builds and releases it.
-9. **Build caches are critical**: Without ccache/meson cache, iteration takes too long
-4. **Test after every change**: Big-bang approaches are impossible to debug
-5. **Use exact Ubuntu source**: Don't deviate from what Ubuntu ships
-6. **Container build caches matter**: Use BuildKit mount caches for Docker builds
-7. **Git commit discipline**: Make commits after every substantial change
-8. **Phase milestone commits**: ALWAYS commit when reaching phase milestones
-9. **Manual testing required**: Human verification at every step, no automation
-10. **CRITICAL: Always start helix container before manual testing**: MUST check `docker ps | grep helix` and start container if needed before asking user to test via VNC
-11. **DOCKERFILE FILENAME UPDATES CRITICAL**: When moving from one Step to the next (e.g., Step 7 -> Step 8), you MUST update the Dockerfile COPY lines to reference the new Step filenames BEFORE running docker build. If you update the Dockerfile after build has started, Docker will use cached layers with the old filenames. ALWAYS verify the Dockerfile has correct Step filenames before building.
-12. **CRITICAL: NEVER WRITE FALLBACK CODE**: NEVER write fallback code without explicit permission from the user. Fallbacks hide real problems and make debugging harder. If something fails (e.g., can't read a file, missing dependency), FAIL LOUDLY with a clear error message. Let the user know exactly what went wrong so it can be fixed properly.
-13. **CRITICAL: ALWAYS CHECK API HOT RELOAD LOGS AFTER CODE CHANGES**: After making Go code changes, IMMEDIATELY tail the API logs to verify the hot reloader built successfully: `docker compose -f docker-compose.dev.yaml logs --tail 30 api`. The Air hot reloader provides instant feedback on build errors. NEVER assume code compiled successfully without checking these logs.
-
-
-
-## MUST ALWAYS DO BEFORE MANUAL TESTING:
-1. Check if helix container is running: `docker ps | grep helix`
-2. If not running, start it before asking user to test
-3. Provide VNC connection details (port 5901)
-4. Only then ask user to manually test via VNC
-
-## CRITICAL: Wolf API Testing
-**MANDATORY: Wolf API calls must be made from INSIDE the Wolf container using the Unix socket**
-
-To query Wolf APIs properly:
-```bash
-# Install curl in Wolf container first (one-time setup)
-docker compose -f docker-compose.dev.yaml exec wolf bash -c "apt update && apt install -y curl jq"
-
-# Query Wolf API via Unix socket (correct method)
-docker compose -f docker-compose.dev.yaml exec wolf bash -c "curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps" | jq '.'
-
-# NOT from host (this will fail):
-curl "http://localhost:47989/api/v1/apps"  # Wrong - external API doesn't exist
-```
-
-This is required because Wolf's internal API is only accessible via Unix socket from within the container.
-
-
-
-## Wolf Development Workflow
-
-**Wolf Integration Development Commands:**
+## Testing & Mocking
 
 ```bash
-# Rebuild Wolf container with latest source code changes
-./stack rebuild-wolf
+# ✅ Use gomock
+mockgen -source api/pkg/external-agent/wolf_client_interface.go \
+  -destination api/pkg/external-agent/wolf_client_interface_mocks.go \
+  -package external_agent
 
-# Auto-build Wolf during development startup (built into ./stack start)
-./stack start
+# ❌ NEVER use testify/mock manually
 ```
 
-### Wolf Development Process:
-1. **Make changes** to Wolf source code in `../wolf/src/`
-2. **Rebuild Wolf**: `./stack rebuild-wolf` (builds and restarts Wolf container)
-3. **Test integration**: Wolf changes are immediately available to Helix API
-4. **Iterate quickly**: No need to restart entire stack, just rebuild Wolf
+## Key Development Rules
 
-### Key Benefits:
-- ✅ **Fast iteration**: Rebuild only Wolf container (~30 seconds)
-- ✅ **Automatic startup**: `./stack start` builds Wolf if container missing
-- ✅ **Source integration**: Uses latest Wolf source code with fixes
-- ✅ **Hot reloading ready**: Integrates with existing Helix hot reloading stack
+1. **Customer-facing software**: Must work on fresh installs, no manual setup
+2. **All builds in containers**: Never check host packages
+3. **Foreground builds only**: Never use `run_in_background: true` with builds
+4. **One build at a time**: Wait for completion before starting another
+5. **Host ≠ Container**: Host=Ubuntu 24.04, containers=Ubuntu 25.04
+6. **Trust Docker cache**: NEVER use `--no-cache`
+7. **Never clear BuildKit cache**: Cache is reliable; investigate root causes
+8. **No unauthorized images**: Never build/push versioned images without permission
+9. **Test after every change**: Big-bang approaches impossible to debug
+10. **Check logs after changes**: Verify hot reload succeeded
 
+## Wolf Development
 
+```bash
+./stack rebuild-wolf  # Rebuild Wolf (~30s)
+./stack start        # Auto-builds Wolf if missing
+```
 
-### Wolf Version and Modifications
+**Wolf API (from API container only):**
+```bash
+docker compose -f docker-compose.dev.yaml exec api \
+  curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
+```
 
-**IMPORTANT: We use upstream wolf-ui branch with minimal modifications**
+**Wolf app storage:**
+- Static apps (config.toml): Persist across restarts
+- Dynamic apps (API created): Cleared on restart
+- Restart Wolf to clear broken apps
 
-**Wolf Repository**: `/home/luke/pm/wolf` on branch `wolf-ui`
-**Base**: Upstream games-on-whales/wolf wolf-ui branch (lobbies support)
+**Wolf version:** Upstream wolf-ui + auto-pairing PIN support
 
-**Our Modifications** (commits by Luke Marsden only):
+## Generated TypeScript Client & React Query
 
-1. **57321eb**: Auto-pairing PIN support
-   - File: `src/moonlight-server/rest/servers.cpp`
-   - Reads `MOONLIGHT_INTERNAL_PAIRING_PIN` env var to auto-fulfill pairing
-   - Enables automated pairing with moonlight-web without manual PIN entry
+**MANDATORY: Use generated client + React Query**
 
-2. **84d4c01**: Phase 5 HTTP support for Moonlight pairing protocol
-   - Adds HTTP endpoint support for pairing phase 5
-   - Works with auto-pairing feature
-
-3. **307c3de + 45339fe**: These cancel each other out (remove then revert)
-
-**Result**: Essentially running **upstream wolf-ui branch** with only auto-pairing additions.
-
-**Known Issues from Upstream**:
-- GStreamer refcount errors (`gst_mini_object_unref`) flooding logs
-- Occasional zombie process (PID becomes unresponsive)
-- These are upstream wolf-ui branch bugs, not from our changes
-
-**To rebuild Wolf**: `docker compose -f docker-compose.dev.yaml build wolf && docker compose -f docker-compose.dev.yaml down wolf && docker compose -f docker-compose.dev.yaml up -d wolf`
-
-## Using Generated TypeScript Client and React Query
-
-**CRITICAL: NEVER WRITE MANUAL API CALLS IN FRONTEND CODE**
-
-**MANDATORY: ALL frontend API interactions MUST:**
-1. Use the generated TypeScript client from `frontend/src/api/api.ts`
-2. Be wrapped in React Query hooks (useQuery/useMutation)
-3. Be placed in service files (`frontend/src/services/*Service.ts`)
-4. Never use `api.get()`, `api.post()`, `api.put()`, or `api.delete()` directly in components
-
-**❌ WRONG - Manual API calls:**
 ```typescript
+// ❌ WRONG
 const response = await api.get('/api/v1/spec-tasks/board-settings')
-await api.put('/api/v1/spec-tasks/board-settings', { wip_limits: wipLimits })
+
+// ✅ CORRECT
+const { data } = useQuery({
+  queryKey: ['board-settings'],
+  queryFn: () => apiClient.v1SpecTasksBoardSettingsList(),
+})
 ```
 
-**✅ CORRECT - Generated client with React Query:**
-```typescript
-// In services/projectService.ts:
-export const useGetBoardSettings = () => {
-  const api = useApi()
-  const apiClient = api.getApiClient()
-  return useQuery({
-    queryKey: ['board-settings'],
-    queryFn: () => apiClient.v1SpecTasksBoardSettingsList(),
-  })
-}
+**Regenerate client:** `./stack update_openapi`
 
-// In component:
-const { data: boardSettings } = useGetBoardSettings()
-const updateBoardSettingsMutation = useUpdateBoardSettings()
-await updateBoardSettingsMutation.mutateAsync({ wip_limits: wipLimits })
-```
-
-### Regenerating the TypeScript Client
-When adding new API endpoints with swagger annotations:
-```bash
-./stack update_openapi
-```
-
-This generates:
-- Swagger documentation from Go code
-- TypeScript client with proper types in `frontend/src/api/api.ts`
-- Type-safe API methods matching the backend exactly
-
-### Required Swagger Annotations for API Endpoints
-All API handlers must include proper swagger annotations for client generation:
-
+**Required Swagger annotations:**
 ```go
 // @Summary List personal development environments
-// @Description Get all personal development environments for the current user
+// @Description Get all personal development environments
 // @Tags PersonalDevEnvironments
-// @Accept json
-// @Produce json
 // @Success 200 {array} PersonalDevEnvironmentResponse
-// @Failure 401 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
 // @Router /api/v1/personal-dev-environments [get]
-func (apiServer *HelixAPIServer) listPersonalDevEnvironments(res http.ResponseWriter, req *http.Request) {
+// @Security ApiKeyAuth
 ```
 
-### Using the Generated Client with React Query (MANDATORY)
-**CRITICAL: ALL frontend API interactions MUST use React Query**
+**React Query requirements:**
+- Use for ALL API calls (queries + mutations)
+- Proper query keys for cache management
+- Invalidate queries after mutations
+- Handle loading/error states
 
-```typescript
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ServerPersonalDevEnvironmentResponse, ServerCreatePersonalDevEnvironmentRequest } from '../api/api'
-import useApi from '../hooks/useApi'
+## Frontend UX
 
-const api = useApi()
-const apiClient = api.getApiClient() // Get the generated API client
+**Never use `type="number"`** - Spinners have terrible UX. Use text inputs + `parseInt()`/`parseFloat()`
 
-// Use React Query for data fetching
-const { data: environments = [], isLoading, error } = useQuery({
-  queryKey: ['personal-dev-environments'],
-  queryFn: () => apiClient.v1PersonalDevEnvironmentsList(),
-  select: (response) => response.data || [],
-  enabled: !!account.user
-})
+**Extract reusable components** - Never duplicate complex UI logic
 
-// Use React Query for mutations
-const queryClient = useQueryClient()
-const createEnvironmentMutation = useMutation({
-  mutationFn: (request: ServerCreatePersonalDevEnvironmentRequest) =>
-    apiClient.v1PersonalDevEnvironmentsCreate(request),
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ['personal-dev-environments'] })
-  }
-})
+## Wolf Streaming
 
-// Trigger mutations
-const handleCreate = () => {
-  createEnvironmentMutation.mutate({
-    environment_name: 'test-env',
-    app_id: 'app-123'
-  })
-}
-```
+**Two use cases:**
+1. **External Agents (PRIMARY)**: AI agents work autonomously, user connection optional
+2. **Personal Dev Environments**: User workspace, connection required
 
-### React Query Requirements and Conventions
-- **MUST use React Query** for all API calls (queries and mutations)
-- **ALWAYS refactor existing code** to use React Query when touching API-related components
-- **Use proper query keys** for cache management
-- **Invalidate queries** after mutations to refresh data
-- **Handle loading and error states** through React Query hooks
+**Testing External Agents:**
+1. Navigate to "External Agents" → "Start Session"
+2. Send message → verify bidirectional sync
+3. Check logs: `docker compose -f docker-compose.dev.yaml logs --tail 50 api`
 
-### Common Usage Patterns
-```typescript
-// Error handling with proper type checking
-{error && (
-  <Alert severity="error" sx={{ mb: 2 }}>
-    {error instanceof Error ? error.message : 'Default error message'}
-  </Alert>
-)}
-
-// Refresh button using query invalidation
-<IconButton
-  onClick={() => queryClient.invalidateQueries({ queryKey: ['query-key'] })}
-  disabled={loading}
->
-  <RefreshIcon />
-</IconButton>
-
-// Handle mutation errors separately
-{createMutation.error && (
-  <Alert severity="error" sx={{ mb: 2 }}>
-    {createMutation.error instanceof Error
-      ? createMutation.error.message
-      : 'Failed to create item'}
-  </Alert>
-)}
-
-// Use optional chaining for nullable generated types
-environment.instanceID || ''
-environment.configured_tools && environment.configured_tools.length > 0
-```
-
-### Key Benefits
-- **Type Safety**: Automatic TypeScript types matching backend structs
-- **API Consistency**: Generated methods match exact backend endpoints
-- **Field Name Accuracy**: No manual field name mismatches (PascalCase vs snake_case)
-- **Automatic Updates**: Regenerating updates all types and methods
-
-This file must be kept up to date with any critical lessons learned during development.
-
-## Frontend UX Guidelines
-
-**CRITICAL: NEVER USE HTML5 NUMBER INPUT BOXES**
-
-- **NEVER use `type="number"`** on TextField or input elements
-- Number inputs with spinner buttons have terrible UX
-- **ALWAYS use regular text inputs** for numeric values
-- Parse values with `parseInt()` or `parseFloat()` in onChange handlers
-
-**Example:**
-```typescript
-// ❌ WRONG: Creates spinner buttons with poor UX
-<TextField
-  type="number"
-  value={limit}
-  onChange={(e) => setLimit(parseInt(e.target.value))}
-  inputProps={{ min: 1, max: 20 }}
-/>
-
-// ✅ CORRECT: Regular text input, parse on change
-<TextField
-  value={limit}
-  onChange={(e) => setLimit(parseInt(e.target.value) || 0)}
-/>
-```
-
-**Why this matters:**
-- HTML5 number input spinner buttons are difficult to use
-- Users prefer typing numbers directly without UI interference
-- Spinner buttons take up space and provide minimal value
-- Text inputs with parseInt/parseFloat provide better UX
-
-## Wolf Streaming Platform Operations and Debugging
-
-### CRITICAL: Wolf App Management and Persistence
-
-**Wolf App Storage Behavior:**
-- **Static apps** are defined in `/home/luke/pm/helix/wolf/config.toml` and persist across restarts
-- **Dynamic apps** (created via API) are stored in Wolf's internal state and **cleared on restart**
-- **Restarting Wolf is safe** and clears broken dynamic apps while preserving working static configuration
-
-### Wolf API Access (MANDATORY METHOD)
-
-**CRITICAL: Always access Wolf API from inside API container via shared socket:**
-
-```bash
-# ✅ CORRECT: Access Wolf API from API container
-docker compose -f docker-compose.dev.yaml exec api curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
-
-# ❌ WRONG: Direct host access (socket not mounted to host)
-curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps
-```
-
-**Key Wolf API Endpoints:**
-- `/api/v1/apps` - List all applications in Wolf
-- `/api/v1/sessions` - List active streaming sessions
-- `/api/v1/openapi-schema` - Get API documentation
-
-**Socket Configuration:**
-- Wolf socket: `/var/run/wolf/wolf.sock` (inside containers)
-- Shared via `wolf-socket` Docker volume between `api` and `wolf` services
-- Socket NOT accessible from host filesystem
-
-### Wolf Crash Debugging Process
-
-**When Wolf shows errors in logs:**
-
-1. **Check for backtrace files**: `ls -la /home/luke/pm/helix/wolf/*.dump`
-2. **Extract crash info**: `strings /path/to/backtrace.dump | head -50`
-3. **Look for specific crash patterns**:
-   ```bash
-   docker compose -f docker-compose.dev.yaml logs wolf | grep -E "(CRASH|FATAL|create_frame|waylanddisplaycore)"
-   ```
-
-**Common Wolf Issues:**
-- **Wayland display rendering crashes**: Usually caused by incorrect container GPU access
-- **GStreamer pipeline syntax errors**: Often from empty or malformed pipeline configurations
-- **HTTPS `/serverinfo` timeouts**: Indicates streaming session creation failures
-
-### Wolf Configuration Management
-
-**Working XFCE Configuration Pattern (TESTED):**
+**Working XFCE config (tested):**
 ```json
 {
   "type": "docker",
   "image": "ghcr.io/games-on-whales/xfce:edge",
   "env": ["GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*"],
-  "devices": [],
-  "mounts": [],
   "base_create_json": {
     "HostConfig": {
       "IpcMode": "host",
-      "Privileged": false,
       "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
-      "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-      "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+      "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"]
     }
   }
 }
 ```
 
-**Configuration Development Strategy:**
-1. **Start with proven working config** (XFCE above)
-2. **Make incremental changes** one at a time
-3. **Test each change** before proceeding
-4. **Restart Wolf** to clear broken apps between tests
-5. **Use Wolf API** to verify app creation success
+## Docker Compose
 
-### Personal Dev Environment Debugging
+**Always use:** `docker compose -f docker-compose.dev.yaml`
 
-**Configuration Changes Workflow:**
-1. **Modify wolf_executor.go** with new configuration
-2. **Restart API**: `docker compose -f docker-compose.dev.yaml restart api`
-3. **Restart Wolf**: `docker compose -f docker-compose.dev.yaml restart wolf` (clears broken apps)
-4. **Check Wolf apps**: `docker compose -f docker-compose.dev.yaml exec api curl --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/apps`
-5. **Test app creation** via frontend or API
-6. **Monitor Wolf logs** for crashes: `docker compose -f docker-compose.dev.yaml logs --tail 50 wolf`
-
-**CRITICAL: Always restart Wolf when testing configuration changes** - This clears any broken dynamic apps that might interfere with new tests.
-
-## Wolf-Based Streaming Sessions: Two Use Cases
-
-Helix uses Wolf to run two different types of streaming sessions, both sharing the same infrastructure:
-
-### 1. External Agent Sessions (Orchestrated AI Agents) - PRIMARY USE CASE
-- **Purpose**: AI agents working autonomously before any user connects
-- **Created**: Automatically by Helix when user requests external agent session
-- **Container starts**: Immediately, Zed begins autonomous work via WebSocket to Helix
-- **User connection**: Optional - users can connect via Moonlight to observe/drive the agent
-- **Session persistence**: Critical - must survive client connect/disconnect cycles
-- **Auto-start requirement**: **ESSENTIAL** - agent must work before any Moonlight client connects
-
-**Example flow:**
-1. User clicks "Start External Agent Session" in Helix
-2. Helix creates Wolf session → Container + Zed start immediately
-3. Zed connects to Helix WebSocket, begins autonomous work
-4. User optionally streams via Moonlight to watch/interact
-5. Session persists when user disconnects
-
-### 2. Personal Dev Environments (PDEs) - SECONDARY USE CASE
-- **Purpose**: User's persistent development workspace
-- **Created**: Explicitly by user via Helix frontend
-- **Container starts**: When user initiates (less critical if requires Moonlight connection first)
-- **User connection**: Primary - user creates PDE to work in it
-- **Session persistence**: Important - workspace should survive disconnects
-- **Auto-start requirement**: Nice to have, but less critical than agent sessions
-
-**Example flow:**
-1. User creates PDE through Helix UI
-2. Wolf creates container with desktop environment + Zed
-3. User connects via Moonlight to work in their persistent workspace
-4. Workspace persists across sessions
-
-### Testing ACP Integration / External Agents
-
-**You can test the Zed ACP integration in TWO ways:**
-
-### Option 1: Personal Dev Environment (PDE)
-- Create a PDE through the Helix frontend
-- PDEs run Zed inside a Wolf container with full desktop environment
-- Good for: Testing complete workflow including UI, streaming, and user interaction
-- Access: Via Moonlight client or web browser
-
-### Option 2: External Agent (Direct)
-- Start an external agent session through the frontend "External Agents" section
-- Launches Zed directly without a full desktop environment
-- Good for: Quick testing of ACP integration, WebSocket sync, message flow
-- Faster to start and test than full PDE
-- **This is the preferred method for testing ACP bidirectional sync**
-
-**Testing Workflow for External Agents:**
-1. Open Helix frontend at `http://localhost:3000`
-2. Navigate to "External Agents" section
-3. Click "Start External Agent Session"
-4. Send a message to trigger the ACP thread creation
-5. Verify bidirectional sync:
-   - Message appears in Zed (Helix → Zed) ✅
-   - AI response appears in Helix (Zed → Helix) ✅
-6. Check API logs for session mapping: `docker compose -f docker-compose.dev.yaml logs --tail 50 api`
-7. Check for `message_completed` WebSocket messages in browser console
-
-**Before Testing:**
-- Ensure Zed is built with latest code: `./stack build-zed` (if code changed)
-- Ensure API is running with hot reload: Check `docker compose -f docker-compose.dev.yaml logs --tail 30 api`
-- No need to rebuild containers if only testing - code changes hot reload automatically
-
-### Container Image Strategy
-
-**Working Images (Verified):**
-- **XFCE Desktop**: `ghcr.io/games-on-whales/xfce:edge` (proven stable)
-- **Custom Sway**: `helix/sway-dev:latest` (may cause Wayland rendering issues)
-
-**Image Testing Process:**
-1. **Start with proven XFCE image**
-2. **Verify streaming works end-to-end**
-3. **Gradually substitute custom components**
-4. **Identify exact breaking point**
-
-### Stack Operation Best Practices
-
-**Before Major Configuration Changes:**
-- **Document current working state**
-- **Backup configuration files**
-- **Test with minimal changes first**
-
-**When Things Break:**
-- **Check Wolf backtrace files first**
-- **Restart Wolf to clear broken state**
-- **Revert to last known working configuration**
-- **Use Wolf API to inspect current state**
-
-**Development Iteration Cycle:**
-1. **Make single configuration change**
-2. **Restart affected services**
-3. **Test immediately**
-4. **Document results**
-5. **Commit working states**
-
-This operational knowledge is critical for effective Wolf debugging and configuration management.
-
-# important-instruction-reminders
-Do what has been asked; nothing more, nothing less.
-NEVER create files unless they're absolutely necessary for achieving your goal.
-ALWAYS prefer editing an existing file to creating a new one.
-NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
-
-## CRITICAL: Docker Compose File Usage
-
-**MANDATORY: Always use the development compose file for helix operations:**
-
+**Restart vs Down+Up:**
 ```bash
-# Correct way to manage helix services:
-docker compose -f docker-compose.dev.yaml logs wolf
-docker compose -f docker-compose.dev.yaml ps
-
-# WRONG - will fail:
-docker compose restart wolf  # Missing -f docker-compose.dev.yaml
-```
-
-**This applies to all docker compose commands in the helix directory.**
-
-## CRITICAL: Docker Compose Restart vs Up -d
-
-**MANDATORY: NEVER use `docker compose restart` - ALWAYS use `down` then `up -d` for configuration/image changes:**
-
-```bash
-# ✅ CORRECT - Recreates container with new environment variables/image:
+# ✅ For config/image changes
 docker compose -f docker-compose.dev.yaml down wolf
 docker compose -f docker-compose.dev.yaml up -d wolf
 
-# ❌ WRONG - Only restarts existing container, does NOT pick up changes:
+# ❌ Only restarts, doesn't recreate
 docker compose -f docker-compose.dev.yaml restart wolf
 ```
 
-**Why this is critical:**
-- `restart` only stops and starts the existing container - it does NOT recreate it
-- Environment variables from docker-compose.yaml are only applied during container creation
-- Image changes (after `docker build`) require recreating the container, not just restarting
-- Changing env vars, images, volumes, or networks in docker-compose.yaml requires `down` + `up -d`
-- `restart` is ONLY useful for picking up changes to mounted files/volumes, NOT for config/image changes
+Use `restart` only for bind-mounted file changes.
 
-**When to use each:**
-- **`restart`**: Only when you've changed a file that's bind-mounted (e.g., wolf/config.toml)
-- **`down` + `up -d`**: When you've changed docker-compose.yaml (env vars, volumes, networks, etc.) OR rebuilt an image
+## Database Migrations
 
-## CRITICAL: Database Migrations - GORM AutoMigrate Only
-
-**MANDATORY: ALWAYS use GORM AutoMigrate for schema changes - NEVER create SQL migration files**
+**Use GORM AutoMigrate ONLY** - Never create SQL migration files for schema changes
 
 ```go
-// ✅ CORRECT: Add new fields/tables by updating GORM structs
+// ✅ CORRECT
 type StreamingAccessGrant struct {
-    ID        string    `gorm:"type:varchar(255);primaryKey"`
-    SessionID string    `gorm:"type:varchar(255);index;not null"`
-    UserID    string    `gorm:"type:varchar(255);index;not null"`
-    CreatedAt time.Time `gorm:"autoCreateTime"`
+    ID        string `gorm:"type:varchar(255);primaryKey"`
+    SessionID string `gorm:"type:varchar(255);index;not null"`
 }
-
-// GORM AutoMigrate handles this automatically on startup
 db.AutoMigrate(&StreamingAccessGrant{})
 
-// ❌ WRONG: Creating SQL migration files for schema changes
-// DO NOT create files like: api/pkg/store/migrations/0003_add_streaming_rbac.up.sql
+// ❌ WRONG: SQL migration files for schema changes
 ```
 
-**Why this is CRITICAL:**
-- GORM AutoMigrate handles ALL schema changes automatically (tables, columns, indexes)
-- SQL migrations are ONLY for complex data migrations that require special handling
-- Creating SQL migrations for schema changes causes conflicts with AutoMigrate
-- AutoMigrate is safe, idempotent, and works across dev/staging/prod
+SQL migrations only for: complex data transformations, one-time cleanup, renaming tables/columns.
 
-**The ONLY valid use of SQL migrations:**
-- Complex data transformations that can't be expressed in GORM
-- One-time data cleanup operations
-- Backfilling data based on complex business logic
-- Renaming tables/columns (requires explicit SQL to preserve data)
+## RBAC - AccessGrants System
 
-**Examples of what AutoMigrate handles (no SQL migration needed):**
-- ✅ Adding new tables
-- ✅ Adding new columns
-- ✅ Adding indexes
-- ✅ Changing column types (with data compatibility)
-- ✅ Adding NOT NULL constraints
-- ✅ Adding foreign keys
-
-**The workflow:**
-1. Update your GORM struct definitions in Go
-2. GORM AutoMigrate runs on API startup
-3. Schema changes apply automatically
-4. No manual migration files needed
-
-**If you catch yourself writing a SQL migration for schema changes, STOP and use GORM structs instead.**
-
-## CRITICAL: RBAC and Access Control - Always Use AccessGrants
-
-**MANDATORY: ALWAYS use the AccessGrant system for resource authorization - NEVER create separate membership tables**
-
-Helix has ONE unified RBAC system: **AccessGrants + Roles + RoleBindings**
+**ONE unified RBAC: AccessGrants + Roles + RoleBindings**
 
 ```go
-// ✅ CORRECT: Use AccessGrants for project/repository access control
-// Resources define what can have access granted to them
-const (
-    ResourceProject       Resource = "Project"
-    ResourceGitRepository Resource = "GitRepository"
-)
+// ✅ CORRECT
+err := apiServer.authorizeUserToResource(ctx, user, orgID, projectID,
+  types.ResourceProject, types.ActionUpdate)
 
-// Authorization uses the existing authorizeUserToResource function
-err := apiServer.authorizeUserToResource(ctx, user, orgID, projectID, types.ResourceProject, types.ActionUpdate)
-
-// ❌ WRONG: Creating separate membership tables
-type ProjectMembership struct {
-    UserID    string
-    ProjectID string
-    Role      ProjectRole  // DON'T DO THIS
-}
+// ❌ WRONG: Separate membership tables
+type ProjectMembership struct { ... }
 ```
 
-**Why this is CRITICAL:**
-- AccessGrants provide team-based access with custom roles
-- Organization and Team memberships are IMPLEMENTATION DETAILS of the AccessGrant system
-- Creating separate membership tables breaks the unified RBAC model
-- Users should be able to grant access to ANY resource (apps, projects, repos) consistently
+**Only membership tables:** `OrganizationMembership`, `TeamMembership` (implementation details)
 
-**The ONLY membership tables are:**
-- `OrganizationMembership` - who belongs to which organization (owner/member)
-- `TeamMembership` - who belongs to which team within an organization
-- These exist ONLY to enable team-based AccessGrants
+**Adding new resource type:**
+1. Add to `types.Resource` constants
+2. Create authorization helper in `{resource}_access_grant_handlers.go`
+3. Create access grant handlers (list/create/update/delete)
+4. Register routes
+5. Add Swagger docs
+6. Run `./stack update_openapi`
+7. Create React Query hooks
+8. Implement frontend UI
 
-**How access control works:**
-1. User creates a resource (app, project, repository)
-2. User creates an AccessGrant to share it with a team or individual user
-3. AccessGrant binds one or more Roles (with permissions) to that resource
-4. Authorization checks AccessGrants to determine if user can perform action
+## General Guidelines
 
-**When adding new resource types:**
-1. Add the resource type to `types.Resource` constants
-2. Use `authorizeUserToResource()` for authorization checks
-3. Create access grant handlers (see `access_grant_handlers.go`)
-4. NEVER create separate membership tables
-
-**Step-by-step guide to add RBAC for a new resource type (e.g., "Project"):**
-
-1. **Add resource type constant** in `api/pkg/types/authz.go`:
-   ```go
-   const (
-       ResourceProject Resource = "Project"
-   )
-   ```
-
-2. **Create authorization helper** in `api/pkg/server/{resource}_access_grant_handlers.go`:
-   ```go
-   func (apiServer *HelixAPIServer) authorizeUserTo{Resource}AccessGrants(
-       ctx context.Context, user *types.User, resource *types.{Resource}, action types.Action
-   ) error {
-       // Check org membership
-       orgMembership, err := apiServer.authorizeOrgMember(ctx, user, resource.OrganizationID)
-       if err != nil {
-           return err
-       }
-
-       // Resource owner always has access
-       if user.ID == resource.UserID {
-           return nil
-       }
-
-       // Org owner always has access
-       if orgMembership.Role == types.OrganizationRoleOwner {
-           return nil
-       }
-
-       // Check access grants
-       return apiServer.authorizeUserToResource(ctx, user, resource.OrganizationID, resource.ID, types.ResourceAccessGrants, action)
-   }
-   ```
-
-3. **Create access grant handlers** following the pattern from `access_grant_handlers.go`:
-   - `list{Resource}AccessGrants` - GET `/api/v1/{resources}/{id}/access-grants`
-   - `create{Resource}AccessGrant` - POST `/api/v1/{resources}/{id}/access-grants`
-   - `update{Resource}AccessGrant` - PUT `/api/v1/{resources}/{id}/access-grants/{grant_id}`
-   - `delete{Resource}AccessGrant` - DELETE `/api/v1/{resources}/{id}/access-grants/{grant_id}`
-
-4. **Register routes** in `api/pkg/server/server.go`:
-   ```go
-   authRouter.HandleFunc("/projects/{id}/access-grants", system.Wrapper(apiServer.listProjectAccessGrants)).Methods(http.MethodGet)
-   authRouter.HandleFunc("/projects/{id}/access-grants", system.Wrapper(apiServer.createProjectAccessGrant)).Methods(http.MethodPost)
-   authRouter.HandleFunc("/projects/{project_id}/access-grants/{grant_id}", system.Wrapper(apiServer.updateProjectAccessGrant)).Methods(http.MethodPut)
-   authRouter.HandleFunc("/projects/{project_id}/access-grants/{grant_id}", system.Wrapper(apiServer.deleteProjectAccessGrant)).Methods(http.MethodDelete)
-   ```
-
-5. **Add Swagger docs** to all handlers (see example above)
-
-6. **Update frontend API client**: Run `./stack update_openapi`
-
-7. **Create React Query hooks** in `frontend/src/services/{resource}Service.ts`:
-   ```typescript
-   export const useListProjectAccessGrants = (projectId: string) => {
-     const api = useApi()
-     return useQuery({
-       queryKey: ['project-access-grants', projectId],
-       queryFn: () => api.getApiClient().v1ProjectsAccessGrantsList(projectId),
-       select: (response) => response.data || []
-     })
-   }
-   ```
-
-8. **Implement frontend UI** following the pattern from organization member management
-
-**If you catch yourself creating ProjectMembership, RepositoryMembership, or similar tables, STOP and use AccessGrants instead.**
+- Never create files unless absolutely necessary
+- Prefer editing existing files
+- Never proactively create markdown/README files
