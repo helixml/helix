@@ -108,7 +108,7 @@ services:
             - TURN_USERNAME=helix
             - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
             # which desktop environment to use
-            - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
+            - HELIX_DESKTOP=${HELIX_DESKTOP:-zorin}
         volumes:
             - ./go.mod:/app/go.mod
             - ./go.sum:/app/go.sum
@@ -280,7 +280,7 @@ services:
         # Internal moonlight-web pairing PIN (secure random, shared via env)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
         # which desktop environment to use
-        - HELIX_DESKTOP=${HELIX_DESKTOP:-sway}
+        - HELIX_DESKTOP=${HELIX_DESKTOP:-zorin}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         # Mount init script into container init directory

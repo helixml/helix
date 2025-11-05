@@ -85,7 +85,7 @@ func parseDesktopType(desktopStr string) DesktopType {
 		log.Warn().
 			Str("desktop_type", desktopStr).
 			Msg("Unknown desktop type, defaulting to Sway")
-		return DesktopSway
+		return DesktopZorin
 	}
 }
 
@@ -95,9 +95,9 @@ func getDesktopTypeFromEnv() DesktopType {
 	desktopEnv := os.Getenv("HELIX_DESKTOP")
 	if desktopEnv == "" {
 		log.Info().
-			Str("desktop_type", string(DesktopSway)).
-			Msg("HELIX_DESKTOP not set, using default Sway desktop")
-		return DesktopSway // Default to Sway
+			Str("desktop_type", string(DesktopZorin)).
+			Msg("HELIX_DESKTOP not set, using default Zorin desktop")
+		return DesktopZorin // Default to Sway
 	}
 	desktop := parseDesktopType(desktopEnv)
 	log.Info().
