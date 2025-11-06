@@ -791,6 +791,16 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		Str("primary_repository_id", primaryRepoID).
 		Msg("Attaching project repositories to external agent")
 
+	// Get or create API key for user (needed for git HTTP authentication)
+	userAPIKey, err := o.getOrCreateUserAPIKey(ctx, task.CreatedBy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user API key for git operations: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", task.CreatedBy).
+		Msg("Using user's API key for git operations (RBAC enforced)")
+
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
 		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
@@ -803,6 +813,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
 		DisplayRefreshRate:  60,
+		Env: []string{
+			// Pass user's API key for git operations (NOT server's RunnerToken)
+			// This ensures RBAC is enforced - agent can only access repos the user can access
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		},
 	}
 
 	agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
@@ -995,6 +1010,30 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 }
 
 // sanitizeForBranchName is already defined in design_docs_helpers.go
+
+// getOrCreateUserAPIKey gets user's existing API key for git operations
+func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID string) (string, error) {
+	// List user's existing API keys
+	keys, err := o.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list user API keys: %w", err)
+	}
+
+	// Use user's first API key
+	if len(keys) > 0 {
+		log.Debug().
+			Str("user_id", userID).
+			Str("api_key_name", keys[0].Name).
+			Msg("Using user's existing API key for git operations")
+		return keys[0].Key, nil
+	}
+
+	// User has no API keys - this is an error, they need to create one first
+	return "", fmt.Errorf("user %s has no API keys - cannot perform git operations (create one in Account Settings)", userID)
+}
 
 // GetLiveProgress returns current live progress for all running tasks
 func (o *SpecTaskOrchestrator) GetLiveProgress() []*LiveAgentProgress {

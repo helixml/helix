@@ -427,7 +427,21 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Internal repos are now cloned like any other repo (no special handling)
 	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
-		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID)
+		// Extract user's API token from environment variables for git operations
+		// This enforces RBAC - agent can only access repos the user can access
+		userAPIToken := ""
+		for _, envVar := range agent.Env {
+			if strings.HasPrefix(envVar, "USER_API_TOKEN=") {
+				userAPIToken = strings.TrimPrefix(envVar, "USER_API_TOKEN=")
+				break
+			}
+		}
+		if userAPIToken == "" {
+			log.Warn().Msg("No USER_API_TOKEN found in agent env, falling back to server token")
+			userAPIToken = w.helixAPIToken
+		}
+
+		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID, userAPIToken)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup git repositories")
 			return nil, fmt.Errorf("failed to setup git repositories: %w", err)
@@ -2249,7 +2263,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 }
 
 // setupGitRepositories clones git repositories and sets up design docs worktree for SpecTask agents
-func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir string, repositoryIDs []string, primaryRepositoryID string) error {
+func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir string, repositoryIDs []string, primaryRepositoryID string, userAPIToken string) error {
 	log.Info().
 		Str("workspace_dir", workspaceDir).
 		Strs("repository_ids", repositoryIDs).
@@ -2325,9 +2339,9 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 				Str("clone_dir", cloneDir).
 				Msg("Cloning Helix-hosted repository from local filesystem")
 
-			// Use HTTP git clone with API token authentication
-			// This allows agents to push changes back to the repository
-			httpCloneURL := fmt.Sprintf("http://api:%s@api:8080/git/%s", w.helixAPIToken, repoID)
+			// Use HTTP git clone with user's API token for RBAC enforcement
+			// This allows agents to push changes AND respects user's repository permissions
+			httpCloneURL := fmt.Sprintf("http://api:%s@api:8080/git/%s", userAPIToken, repoID)
 			cloneCmd := fmt.Sprintf("git clone %q %q", httpCloneURL, cloneDir)
 			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
 			if err != nil {

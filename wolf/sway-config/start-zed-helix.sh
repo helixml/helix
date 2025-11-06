@@ -130,19 +130,20 @@ if [ -n "$GIT_USER_EMAIL" ]; then
 fi
 
 # Configure git credentials for HTTP push operations
-# Use Helix API token for authentication to git server
-if [ -n "$HELIX_API_TOKEN" ]; then
-    # Set up git credential helper to use API token
-    # Format: http://api:{token}@api:8080/git/{repo-id}
+# Use user's API token for RBAC-enforced git operations
+if [ -n "$USER_API_TOKEN" ]; then
+    # Set up git credential helper to use user's API token
+    # Format: http://api:{user-token}@api:8080/git/{repo-id}
+    # This ensures RBAC is enforced - agent can only access repos user has access to
     git config --global credential.helper 'store --file ~/.git-credentials'
 
     # Write credentials for api:8080 domain
-    echo "http://api:${HELIX_API_TOKEN}@api:8080" > ~/.git-credentials
+    echo "http://api:${USER_API_TOKEN}@api:8080" > ~/.git-credentials
     chmod 600 ~/.git-credentials
 
-    echo "✅ Git credentials configured for HTTP push operations"
+    echo "✅ Git credentials configured (user's API token for RBAC)"
 else
-    echo "⚠️  HELIX_API_TOKEN not set - git push operations may fail"
+    echo "⚠️  USER_API_TOKEN not set - git push operations may fail"
 fi
 
 # Execute project startup script from internal Git repo - run in terminal window
