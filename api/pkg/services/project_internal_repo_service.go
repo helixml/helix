@@ -199,19 +199,50 @@ It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent
 	return repoPath, nil
 }
 
-// LoadStartupScript loads the startup script from the internal repo
+// LoadStartupScript loads the startup script from the internal repo (bare)
+// Reads directly from git object database without needing a working tree
 func (s *ProjectInternalRepoService) LoadStartupScript(projectID string, internalRepoPath string) (string, error) {
 	if internalRepoPath == "" {
 		return "", fmt.Errorf("internal repo path not set for project")
 	}
 
-	scriptPath := filepath.Join(internalRepoPath, ".helix", "startup.sh")
-	data, err := os.ReadFile(scriptPath)
+	// Open bare repository
+	repo, err := git.PlainOpen(internalRepoPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read startup script: %w", err)
+		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	return string(data), nil
+	// Get HEAD reference
+	ref, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Get commit from HEAD
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get tree from commit
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Get file from tree
+	file, err := tree.File(".helix/startup.sh")
+	if err != nil {
+		return "", fmt.Errorf("failed to get startup script from git tree: %w", err)
+	}
+
+	// Get file contents
+	content, err := file.Contents()
+	if err != nil {
+		return "", fmt.Errorf("failed to read file contents: %w", err)
+	}
+
+	return content, nil
 }
 
 // SaveStartupScript saves the startup script to the internal repo and commits it
