@@ -2,11 +2,13 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 // SpecTask External Agent methods (per-SpecTask agents spanning multiple sessions)
@@ -188,4 +190,23 @@ func (s *PostgresStore) DeleteExternalAgentActivity(ctx context.Context, agentID
 	}
 
 	return nil
+}
+
+// GetExternalAgentActivityByLobbyID retrieves external agent activity by Wolf lobby ID
+// Used for admin cleanup when PIN is needed to stop lobbies
+func (s *PostgresStore) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) {
+	var activity types.ExternalAgentActivity
+
+	err := s.gdb.WithContext(ctx).
+		Where("wolf_lobby_id = ?", lobbyID).
+		First(&activity).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("no external agent activity found for lobby %s", lobbyID)
+		}
+		return nil, fmt.Errorf("failed to get external agent activity by lobby ID: %w", err)
+	}
+
+	return &activity, nil
 }

@@ -422,6 +422,7 @@ type Store interface {
 	// External Agent Activity methods (idle detection)
 	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
 	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
+	GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error)
 	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
 	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
 
