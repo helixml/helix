@@ -271,8 +271,9 @@ func (s *GitRepositoryService) CreateRepository(
 		Metadata:       request.Metadata,
 	}
 
-	// Initialize git repository
-	err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles)
+	// Initialize git repository as bare
+	// ALL filestore repos are bare - agents and API server push to them
+	err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 	}
@@ -528,6 +529,7 @@ func (s *GitRepositoryService) initializeGitRepository(
 	defaultBranch string,
 	repoName string,
 	initialFiles map[string]string,
+	isBare bool,
 ) error {
 	// Create repository directory
 	err := os.MkdirAll(repoPath, 0755)
@@ -535,10 +537,90 @@ func (s *GitRepositoryService) initializeGitRepository(
 		return fmt.Errorf("failed to create repository directory: %w", err)
 	}
 
-	// Initialize git repository
-	repo, err := git.PlainInit(repoPath, false)
+	// For bare repos with initial files, we need to create a temp clone, commit files, then push
+	if isBare && len(initialFiles) > 0 {
+		// Initialize bare repository
+		_, err := git.PlainInit(repoPath, true)
+		if err != nil {
+			return fmt.Errorf("failed to initialize bare git repository: %w", err)
+		}
+
+		// Create temporary clone to add initial files
+		tempClone := repoPath + "-temp"
+		defer os.RemoveAll(tempClone) // Cleanup temp clone
+
+		repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+			URL: repoPath, // Clone from the bare repo
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create temp clone: %w", err)
+		}
+
+		// Ensure we have at least one file
+		if len(initialFiles) == 0 {
+			initialFiles = map[string]string{
+				"README.md": fmt.Sprintf("# %s\n", repoName),
+			}
+		}
+
+		// Write initial files to temp clone
+		for filePath, content := range initialFiles {
+			fullPath := filepath.Join(tempClone, filePath)
+			dir := filepath.Dir(fullPath)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", filePath, err)
+			}
+		}
+
+		// Commit and push to bare repo
+		worktree, err := repo.Worktree()
+		if err != nil {
+			return fmt.Errorf("failed to get worktree: %w", err)
+		}
+
+		if _, err := worktree.Add("."); err != nil {
+			return fmt.Errorf("failed to add files: %w", err)
+		}
+
+		_, err = worktree.Commit("Initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Helix System",
+				Email: "system@helix.ml",
+				When:  time.Now(),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to commit: %w", err)
+		}
+
+		// Push to bare repo
+		err = repo.Push(&git.PushOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to push to bare repo: %w", err)
+		}
+
+		log.Info().
+			Str("repo_path", repoPath).
+			Msg("Created bare git repository with initial files")
+
+		return nil
+	}
+
+	// For non-bare repos or bare repos without initial files
+	repo, err := git.PlainInit(repoPath, isBare)
 	if err != nil {
 		return fmt.Errorf("failed to initialize git repository: %w", err)
+	}
+
+	// If bare repo with no initial files, we're done
+	if isBare {
+		log.Info().
+			Str("repo_path", repoPath).
+			Msg("Created empty bare git repository (accepts pushes from agents)")
+		return nil
 	}
 
 	// Ensure we have at least one file to commit (can't create empty commits)
