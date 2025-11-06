@@ -73,7 +73,10 @@ func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, 
 	}
 
 	// Create temp clone to add initial files
-	tempClone := repoPath + "-temp"
+	tempClone, err := os.MkdirTemp("", "helix-repo-init-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
 	defer os.RemoveAll(tempClone)
 
 	tempRepo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
@@ -218,7 +221,10 @@ func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, interna
 	}
 
 	// Create temporary clone of bare repo
-	tempClone := filepath.Join(os.TempDir(), fmt.Sprintf("helix-internal-repo-%s-%d", projectID, time.Now().Unix()))
+	tempClone, err := os.MkdirTemp("", "helix-startup-script-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
 	defer os.RemoveAll(tempClone) // Cleanup
 
 	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
@@ -295,7 +301,10 @@ func (s *ProjectInternalRepoService) UpdateProjectConfig(project *types.Project)
 	}
 
 	// Create temporary clone of bare repo
-	tempClone := filepath.Join(os.TempDir(), fmt.Sprintf("helix-internal-repo-%s-%d", project.ID, time.Now().Unix()))
+	tempClone, err := os.MkdirTemp("", "helix-project-config-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
 	defer os.RemoveAll(tempClone) // Cleanup
 
 	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
@@ -398,7 +407,10 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 	}
 
 	// Create temp clone to add sample files
-	tempClone := repoPath + "-temp"
+	tempClone, err := os.MkdirTemp("", "helix-sample-code-*")
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
 	defer os.RemoveAll(tempClone)
 
 	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
@@ -493,7 +505,10 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 	}
 
 	// Clone the sample repository to temp location
-	tempClone := repoPath + "-temp"
+	tempClone, err := os.MkdirTemp("", "helix-sample-clone-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
 	defer os.RemoveAll(tempClone)
 
 	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
