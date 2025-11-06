@@ -28,33 +28,21 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 
     # Check if primary repository exists
     if [ -d "$PRIMARY_REPO_PATH/.git" ]; then
-        # Ensure helix-design-docs branch exists (should already be created by API server)
+        # Verify helix-design-docs branch exists (created by API server during repository setup)
         if ! git -C "$PRIMARY_REPO_PATH" rev-parse --verify helix-design-docs >/dev/null 2>&1; then
-            echo "  ⚠️  helix-design-docs branch not found (should be created by API server)"
-            echo "  Creating branch now..."
-
-            # Set git config for commits (fallback if env vars not set)
-            if [ -z "$(git -C "$PRIMARY_REPO_PATH" config user.email 2>/dev/null)" ]; then
-                git -C "$PRIMARY_REPO_PATH" config user.email "spec@helix-agent.local"
-                git -C "$PRIMARY_REPO_PATH" config user.name "Helix Agent"
-            fi
-
-            git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-design-docs >/dev/null 2>&1
-            git -C "$PRIMARY_REPO_PATH" rm -rf . >/dev/null 2>&1
-            git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize design docs branch" >/dev/null 2>&1
-            git -C "$PRIMARY_REPO_PATH" checkout main >/dev/null 2>&1 || git -C "$PRIMARY_REPO_PATH" checkout master >/dev/null 2>&1
-            echo "  ✅ helix-design-docs branch created"
-        fi
-
-        # Create worktree if it doesn't exist
-        WORKTREE_PATH="$PRIMARY_REPO_PATH/.git-worktrees/helix-design-docs"
-        if [ ! -d "$WORKTREE_PATH" ]; then
-            echo "  Creating design docs worktree..."
-            git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-design-docs >/dev/null 2>&1 && \
-                echo "  ✅ Design docs worktree ready at $WORKTREE_PATH" || \
-                echo "  ⚠️  Failed to create worktree (may already exist)"
+            echo "  ⚠️  helix-design-docs branch not found - should be created by API server"
+            echo "  Skipping worktree setup (branch must exist first)"
         else
-            echo "  ✅ Design docs worktree already exists at $WORKTREE_PATH"
+            # Create worktree if it doesn't exist
+            WORKTREE_PATH="$PRIMARY_REPO_PATH/.git-worktrees/helix-design-docs"
+            if [ ! -d "$WORKTREE_PATH" ]; then
+                echo "  Creating design docs worktree..."
+                git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-design-docs >/dev/null 2>&1 && \
+                    echo "  ✅ Design docs worktree ready at $WORKTREE_PATH" || \
+                    echo "  ⚠️  Failed to create worktree"
+            else
+                echo "  ✅ Design docs worktree already exists at $WORKTREE_PATH"
+            fi
         fi
     else
         echo "  ⚠️  Primary repository not found at $PRIMARY_REPO_PATH"
