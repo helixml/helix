@@ -144,7 +144,7 @@ export class Stream {
                     audio_sample_queue_size: this.settings.audioSampleQueueSize,
                     video_supported_formats: createSupportedVideoFormatsBits(supportedVideoFormats),
                     video_colorspace: "Rec709",
-                    video_color_range_full: true,
+                    video_color_range_full: false,  // Limited range (MPEG, 16-235) like Moonlight Qt
                 }
             })
         }
