@@ -1116,7 +1116,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 {error}
               </Alert>
               <Alert severity="info" sx={{ maxWidth: 400, fontSize: '0.85rem' }}>
-                💡 <strong>Known limitation:</strong> Check that you don't have this session open in any other browser tab or window. Only one browser connection per session is supported (separate Moonlight clients are OK).
+                💡 <strong>Known limitation:</strong> Check that you don't have this session open in any other browser tab or window (including fullscreen windows - on macOS they move to a separate desktop). Only one browser connection per session is supported (separate Moonlight clients are OK).
               </Alert>
             </Box>
           )}
