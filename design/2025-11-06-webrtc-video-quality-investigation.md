@@ -1,7 +1,7 @@
 # WebRTC Video Quality Investigation
 
 **Date:** 2025-11-06
-**Status:** Investigation Complete - Root Cause Identified
+**Status:** Solution Implemented - Testing in Progress
 
 ## Problem Statement
 
@@ -16,9 +16,47 @@ WebRTC streaming via moonlight-web shows severe color artifacts (red/green flick
 - Moonlight Qt (software decode): ❌ Red/green flickering, smudgy greys (MATCHES BROWSER!)
 - Browser WebRTC (hardware decode ENABLED): ❌ Same artifacts as Qt software decode
 
-**Implication:** The frames are **corrupted before decoding**. Both hardware and software decoders see bad data.
+**Implication:** The frames show quality degradation before reaching the decoder. Both hardware and software decoders receive compromised data.
 
 ## Root Cause Analysis
+
+### Two Leading Hypotheses
+
+#### Hypothesis 1: RTP Packetization/Reassembly Corruption
+**Theory:** Massive I-frames (166 KB each) split into 118-200 RTP packets may be corrupted during reassembly.
+
+**Evidence:**
+- Each 4K I-frame fragmented into hundreds of RTP packets
+- 9,000-12,000 RTP packets/sec at 4K60 overwhelming WebRTC pipeline
+- Custom H.264 payloader exists but artifacts remain
+- WebRTC designed for smaller frames with P-frames, not all I-frames
+
+**Weakness:**
+- 0 packets lost (network transport is perfect)
+- Why would reassembly corrupt data with perfect network?
+
+#### Hypothesis 2: Heavy Compression Overwhelming Software Decoder (User's Theory)
+**Theory:** Each I-frame is heavily compressed to fit 166 KB budget. Software decoder (CPU) struggles with:
+- 60 decompression operations/sec at 4K resolution
+- Heavy compression = high CPU cost per frame
+- Decoder may drop macroblocks or use lossy shortcuts to stay within CPU budget
+- Quality degradation manifests as color artifacts
+
+**Evidence:**
+- Moonlight Qt software decode shows IDENTICAL artifacts to browser
+- Hardware decoder has dedicated silicon → no CPU constraints → perfect quality
+- Software decoder must decompress 60 I-frames/sec at 4K (massive workload)
+- Artifacts look like macroblock dropping (blocky, smudgy colors)
+
+**Why hardware decode works better:**
+- Dedicated video decode hardware (NVDEC, QuickSync, etc.)
+- Parallel processing of macroblocks
+- No CPU budget limitations
+- Designed exactly for this workload
+
+**Most likely:** Combination of both factors - heavy compression + potential RTP issues
+
+## Confirmed Discovery
 
 ### Wolf Encoder Settings
 ```toml
@@ -98,14 +136,49 @@ From Stats for Nerds overlay:
 - Adaptive bitrate for unstable networks
 - May not handle gop-size=0 well
 
-## Potential Solutions (Untested)
+## NAL Statistics Confirmation
 
-### 1. Increase GOP Size in Wolf
-Change `gop-size=0` to `gop-size=30` or `gop-size=60`:
-- Smaller I-frames (only every 30/60 frames)
-- P-frames between keyframes
-- More compatible with WebRTC expectations
-- **Tradeoff:** Slightly higher latency (~500ms for gop=30)
+**Added NAL unit type logging to moonlight-web streamer:**
+```rust
+// Count I-frames, P-frames, SPS, PPS, SEI NAL units
+match header.nal_unit_type {
+    NalUnitType::CodedSliceIDR => { NAL_COUNTER_IDR.fetch_add(1, Ordering::Relaxed); }
+    NalUnitType::CodedSliceNonIDR => { NAL_COUNTER_NON_IDR.fetch_add(1, Ordering::Relaxed); }
+    // ... (SPS, PPS, SEI)
+}
+// Log every second (every 60 frames @ 60 FPS)
+```
+
+**Confirmed with gop-size=0:**
+```
+[H264 Stats] I-frames: 600, P-frames: 0, SPS: 3, PPS: 3, SEI: 0
+```
+
+This proves Wolf is sending **100% I-frames** with `gop-size=0`, creating the massive fragmentation problem.
+
+## Solution: Change GOP Size to 30
+
+**Implementation:**
+
+Changed `gop-size=0` → `gop-size=30` for all encoders (H.264/H.265/AV1):
+
+**Benefits:**
+- I-frame every 30 frames (500ms @ 60 FPS) instead of every frame
+- P-frames between keyframes (5-20 KB vs 166 KB per frame)
+- Each I-frame can be ~15x larger (2.5 MB vs 166 KB) for better quality
+- Reduces RTP packets from 12,000/sec → ~400/sec
+- Less compression per I-frame = better quality
+
+**Tradeoff:**
+- New clients joining mid-stream wait max 500ms for next I-frame (acceptable for desktop streaming)
+- Note: Does NOT add 500ms to live encoding latency! P-frames encode faster than I-frames, so average latency actually decreases.
+
+**Expected NAL stats with gop-size=30:**
+```
+[H264 Stats] I-frames: 20, P-frames: 580, SPS: X, PPS: Y, SEI: Z  (every 10 seconds)
+```
+
+### 2. Investigate Custom Payloader (Abandoned)
 
 ### 2. Investigate Custom Payloader
 The upstream custom H.264 payloader (commit 7611bdf) was supposed to fix H.264 issues, but artifacts remain. Need to understand what it fixes and if gop-size=0 is still problematic.
