@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -380,6 +381,14 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Str("organization_id", orgID).
 		Msg("Forking simple sample project")
 
+	// Get sample project code to retrieve startup script
+	sampleCodeService := services.NewSampleProjectCodeService()
+	sampleCode, err := sampleCodeService.GetProjectCode(ctx, req.SampleProjectID)
+	var startupScript string
+	if err == nil && sampleCode.StartupScript != "" {
+		startupScript = sampleCode.StartupScript
+	}
+
 	// Create actual Project in database
 	project := &types.Project{
 		ID:             system.GenerateUUID(),
@@ -388,6 +397,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		UserID:         user.ID,
 		OrganizationID: orgID,
 		Technologies:   sampleProject.Technologies,
+		StartupScript:  startupScript, // Use sample's startup script
 		Status:         "active",
 	}
 

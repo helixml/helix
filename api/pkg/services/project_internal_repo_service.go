@@ -508,3 +508,71 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 func (s *ProjectInternalRepoService) GetInternalRepoPath(projectID string) string {
 	return filepath.Join(s.basePath, projectID, "repo")
 }
+
+// StartupScriptVersion represents a version of the startup script from git history
+type StartupScriptVersion struct {
+	CommitHash string    `json:"commit_hash"`
+	Content    string    `json:"content"`
+	Timestamp  time.Time `json:"timestamp"`
+	Author     string    `json:"author"`
+	Message    string    `json:"message"`
+}
+
+// GetStartupScriptHistory returns git commit history for the startup script
+func (s *ProjectInternalRepoService) GetStartupScriptHistory(internalRepoPath string) ([]StartupScriptVersion, error) {
+	if internalRepoPath == "" {
+		return nil, fmt.Errorf("internal repo path not set")
+	}
+
+	repo, err := git.PlainOpen(internalRepoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get commit history for .helix/startup.sh
+	filePath := ".helix/startup.sh"
+	commitIter, err := repo.Log(&git.LogOptions{
+		FileName: &filePath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git log: %w", err)
+	}
+
+	var versions []StartupScriptVersion
+	err = commitIter.ForEach(func(commit *object.Commit) error {
+		// Get file content at this commit
+		tree, err := commit.Tree()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get tree")
+			return nil // Skip this commit
+		}
+
+		file, err := tree.File(".helix/startup.sh")
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file from tree")
+			return nil // Skip this commit
+		}
+
+		content, err := file.Contents()
+		if err != nil {
+			log.Warn().Err(err).Str("commit", commit.Hash.String()).Msg("Failed to get file contents")
+			return nil // Skip this commit
+		}
+
+		versions = append(versions, StartupScriptVersion{
+			CommitHash: commit.Hash.String(),
+			Content:    content,
+			Timestamp:  commit.Author.When,
+			Author:     commit.Author.Name,
+			Message:    commit.Message,
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate commits: %w", err)
+	}
+
+	return versions, nil
+}

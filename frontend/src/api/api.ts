@@ -1088,6 +1088,8 @@ export interface ServicesSampleProjectCode {
   language?: string;
   name?: string;
   readme_url?: string;
+  /** Custom startup script for this project */
+  startup_script?: string;
   technologies?: string[];
 }
 
@@ -1130,6 +1132,14 @@ export interface ServicesSpecDocumentResult {
   spec_task_id?: string;
   success?: boolean;
   warnings?: string[];
+}
+
+export interface ServicesStartupScriptVersion {
+  author?: string;
+  commit_hash?: string;
+  content?: string;
+  message?: string;
+  timestamp?: string;
 }
 
 export interface ServicesTreeEntry {
@@ -3938,11 +3948,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -4287,6 +4297,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Stop a Wolf lobby (terminates container and releases GPU resources)
+     *
+     * @tags Admin
+     * @name V1AdminWolfLobbiesDelete
+     * @summary Stop Wolf lobby
+     * @request DELETE:/api/v1/admin/wolf/lobbies/{lobbyId}
+     * @secure
+     */
+    v1AdminWolfLobbiesDelete: (lobbyId: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/admin/wolf/lobbies/${lobbyId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Stop a Wolf-UI streaming session (releases GPU memory)
+     *
+     * @tags Admin
+     * @name V1AdminWolfSessionsDelete
+     * @summary Stop Wolf streaming session
+     * @request DELETE:/api/v1/admin/wolf/sessions/{sessionId}
+     * @secure
+     */
+    v1AdminWolfSessionsDelete: (sessionId: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/admin/wolf/sessions/${sessionId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -6881,6 +6925,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get git commit history for project startup script
+     *
+     * @tags Projects
+     * @name V1ProjectsStartupScriptHistoryDetail
+     * @summary Get startup script version history
+     * @request GET:/api/v1/projects/{id}/startup-script/history
+     * @secure
+     */
+    v1ProjectsStartupScriptHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesStartupScriptVersion[], any>({
+        path: `/api/v1/projects/${id}/startup-script/history`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

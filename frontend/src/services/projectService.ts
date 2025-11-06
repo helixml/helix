@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject, TypesSampleProjectInstantiateRequest, StoreDBGitRepository, TypesBoardSettings, TypesSession } from '../api/api';
+import { TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject, TypesSampleProjectInstantiateRequest, StoreDBGitRepository, TypesBoardSettings, TypesSession, ServicesStartupScriptVersion } from '../api/api';
 
 // Query keys
 export const projectsListQueryKey = () => ['projects'];
@@ -10,6 +10,7 @@ export const sampleProjectsListQueryKey = () => ['sample-projects'];
 export const sampleProjectQueryKey = (id: string) => ['sample-project', id];
 export const boardSettingsQueryKey = () => ['board-settings'];
 export const projectExploratorySessionQueryKey = (projectId: string) => ['project-exploratory-session', projectId];
+export const projectStartupScriptHistoryQueryKey = (projectId: string) => ['project-startup-script-history', projectId];
 
 /**
  * Hook to list all projects for the current user
@@ -361,5 +362,22 @@ export const useResumeProjectExploratorySession = (projectId: string) => {
       // Invalidate the exploratory session query to refetch with updated status
       queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
+  });
+};
+
+/**
+ * Hook to get startup script version history from git commits
+ */
+export const useGetStartupScriptHistory = (projectId: string, enabled = true) => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
+
+  return useQuery<ServicesStartupScriptVersion[]>({
+    queryKey: projectStartupScriptHistoryQueryKey(projectId),
+    queryFn: async () => {
+      const response = await apiClient.v1ProjectsStartupScriptHistoryDetail(projectId);
+      return response.data || [];
+    },
+    enabled: enabled && !!projectId,
   });
 };

@@ -12,7 +12,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/external-agent"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
+	"github.com/rs/zerolog/log"
 )
 
 // AgentSandboxesDebugResponse combines data from multiple Wolf endpoints
@@ -826,5 +829,148 @@ func (apiServer *HelixAPIServer) getSessionWolfAppState(rw http.ResponseWriter, 
 	}
 
 	writeResponse(rw, response, http.StatusOK)
+}
+
+// @Summary Stop Wolf lobby
+// @Description Stop a Wolf lobby (terminates container and releases GPU resources)
+// @Tags Admin
+// @Param lobbyId path string true "Lobby ID"
+// @Success 200
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/admin/wolf/lobbies/{lobbyId} [delete]
+func (apiServer *HelixAPIServer) deleteWolfLobby(rw http.ResponseWriter, req *http.Request) {
+	// Admin-only endpoint - verify user is admin
+	user := getRequestUser(req)
+	if user == nil || user.Admin == false {
+		http.Error(rw, "Unauthorized - admin access required", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	lobbyID := vars["lobbyId"]
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("lobby_id", lobbyID).
+		Msg("Admin stopping Wolf lobby")
+
+	// Look up the session with this lobby ID to get the PIN
+	// Query all sessions and find the one with matching wolf_lobby_id
+	sessions, _, err := apiServer.Store.ListSessions(req.Context(), store.ListSessionsQuery{})
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list sessions to find lobby PIN")
+		http.Error(rw, "Failed to find session with lobby ID", http.StatusInternalServerError)
+		return
+	}
+
+	var lobbyPIN []int16
+	var foundSession *types.Session
+	for _, session := range sessions {
+		if session.Metadata.WolfLobbyID == lobbyID {
+			foundSession = session
+			// Convert PIN string "1234" to []int16{1, 2, 3, 4}
+			if session.Metadata.WolfLobbyPIN != "" && len(session.Metadata.WolfLobbyPIN) == 4 {
+				lobbyPIN = make([]int16, 4)
+				for i, ch := range session.Metadata.WolfLobbyPIN {
+					lobbyPIN[i] = int16(ch - '0')
+				}
+				log.Info().
+					Str("lobby_id", lobbyID).
+					Str("session_id", session.ID).
+					Msg("Found lobby PIN from session metadata")
+			}
+			break
+		}
+	}
+
+	if foundSession == nil {
+		log.Warn().Str("lobby_id", lobbyID).Msg("No session found with this lobby ID - attempting stop without PIN")
+		// Continue anyway - might work for lobbies without PIN
+	}
+
+	// Get Wolf client from external agent executor
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
+		return
+	}
+	wolfClient := wolfExecutor.GetWolfClient()
+
+	// Stop the lobby with PIN
+	stopReq := &wolf.StopLobbyRequest{
+		LobbyID: lobbyID,
+		PIN:     lobbyPIN, // Use PIN from session metadata
+	}
+
+	err = wolfClient.StopLobby(req.Context(), stopReq)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("lobby_id", lobbyID).
+			Interface("pin", lobbyPIN).
+			Msg("Failed to stop Wolf lobby")
+		http.Error(rw, fmt.Sprintf("Failed to stop lobby: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Str("user_id", user.ID).
+		Msg("Successfully stopped Wolf lobby")
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+// @Summary Stop Wolf streaming session
+// @Description Stop a Wolf-UI streaming session (releases GPU memory)
+// @Tags Admin
+// @Param sessionId path string true "Session ID (client_id from Wolf)"
+// @Success 200
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security ApiKeyAuth
+// @Router /api/v1/admin/wolf/sessions/{sessionId} [delete]
+func (apiServer *HelixAPIServer) deleteWolfSession(rw http.ResponseWriter, req *http.Request) {
+	// Admin-only endpoint - verify user is admin
+	user := getRequestUser(req)
+	if user == nil || user.Admin == false {
+		http.Error(rw, "Unauthorized - admin access required", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionId"]
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("wolf_session_id", sessionID).
+		Msg("Admin stopping Wolf streaming session")
+
+	// Get Wolf client from external agent executor
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(rw, "Wolf executor not available", http.StatusInternalServerError)
+		return
+	}
+	wolfClient := wolfExecutor.GetWolfClient()
+
+	// Stop the session
+	err := wolfClient.StopSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("wolf_session_id", sessionID).Msg("Failed to stop Wolf session")
+		http.Error(rw, fmt.Sprintf("Failed to stop session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("wolf_session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("Successfully stopped Wolf streaming session")
+
+	rw.WriteHeader(http.StatusOK)
 }
 

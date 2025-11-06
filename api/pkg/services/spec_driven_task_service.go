@@ -186,6 +186,12 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Str("spec_agent", task.SpecAgent).
 		Msg("Starting spec generation")
 
+	// Clear any previous error from metadata (in case this is a retry)
+	if task.Metadata != nil {
+		delete(task.Metadata, "error")
+		delete(task.Metadata, "error_timestamp")
+	}
+
 	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
 	task.Status = types.TaskStatusSpecGeneration
 	task.UpdatedAt = time.Now()
@@ -226,14 +232,14 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	// Create the session in the database
 	if s.controller == nil || s.controller.Options.Store == nil {
 		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
 		return
 	}
 
 	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create spec generation session: %v", err))
 		return
 	}
 
@@ -242,7 +248,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
 		return
 	}
 
@@ -274,7 +280,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
 		return
 	}
 
@@ -283,7 +289,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	project, err := s.store.GetProject(ctx, task.ProjectID)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get project: %v", err))
 		return
 	}
 
@@ -324,7 +330,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, err.Error())
 		return
 	}
 
@@ -434,7 +440,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	zedAgent := s.selectZedAgent()
 	if zedAgent == "" {
 		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -445,7 +451,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with implementation agent")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -465,7 +471,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	_, err = s.MultiSessionManager.CreateImplementationSessions(ctx, task.ID, config)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create implementation sessions")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -485,7 +491,7 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	zedAgent := s.selectZedAgent()
 	if zedAgent == "" {
 		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -535,14 +541,14 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	// Store the work item in the database
 	if s.controller == nil || s.controller.Options.Store == nil {
 		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for work item creation")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
 	err = s.controller.Options.Store.CreateAgentWorkItem(ctx, workItem)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create work item")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -747,12 +753,21 @@ func mustMarshalJSON(data interface{}) datatypes.JSON {
 	return datatypes.JSON(jsonData)
 }
 
-func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, status string) {
-	task.Status = status
+func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
+	// Keep task in backlog status but set error metadata
+	task.Status = types.TaskStatusBacklog
 	task.UpdatedAt = time.Now()
+
+	// Store error in metadata
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]interface{})
+	}
+	task.Metadata["error"] = errorMessage
+	task.Metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Str("status", status).Msg("Failed to mark task as failed")
+		log.Error().Err(err).Str("task_id", task.ID).Str("error", errorMessage).Msg("Failed to mark task with error")
 	}
 }
 

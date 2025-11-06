@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -368,11 +369,45 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	// Soft delete the project (GORM handles this with DeletedAt field)
-	// Tasks, sessions, and agents will be orphaned but that's okay - they'll be cleaned up by:
-	// 1. Task queries filter by non-deleted projects
-	// 2. Idle agent cleanup will terminate abandoned agents
-	// 3. Sessions naturally expire or can be manually cleaned up
+	// CRITICAL: Stop all active sessions BEFORE deleting the project
+	// Otherwise sessions become orphaned and can't be stopped via UI
+
+	// 1. Stop exploratory session if exists
+	exploratorySession, err := s.Store.GetProjectExploratorySession(r.Context(), projectID)
+	if err == nil && exploratorySession != nil {
+		log.Info().
+			Str("project_id", projectID).
+			Str("session_id", exploratorySession.ID).
+			Msg("Stopping exploratory session before project deletion")
+
+		stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), exploratorySession.ID)
+		if stopErr != nil {
+			log.Warn().Err(stopErr).Str("session_id", exploratorySession.ID).Msg("Failed to stop exploratory session (continuing with deletion)")
+		}
+	}
+
+	// 2. Stop all SpecTask planning sessions for this project
+	tasks, err := s.Store.ListSpecTasks(r.Context(), &types.SpecTaskFilters{
+		ProjectID: projectID,
+	})
+	if err == nil {
+		for _, task := range tasks {
+			if task.SpecSessionID != "" {
+				log.Info().
+					Str("project_id", projectID).
+					Str("task_id", task.ID).
+					Str("session_id", task.SpecSessionID).
+					Msg("Stopping SpecTask planning session before project deletion")
+
+				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.SpecSessionID)
+				if stopErr != nil {
+					log.Warn().Err(stopErr).Str("session_id", task.SpecSessionID).Msg("Failed to stop planning session (continuing with deletion)")
+				}
+			}
+		}
+	}
+
+	// Now soft delete the project
 	err = s.Store.DeleteProject(r.Context(), projectID)
 	if err != nil {
 		log.Error().
@@ -386,7 +421,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 	log.Info().
 		Str("user_id", user.ID).
 		Str("project_id", projectID).
-		Msg("project archived successfully (soft delete)")
+		Msg("project archived successfully with all sessions stopped")
 
 	return map[string]string{"message": "project deleted successfully"}, nil
 }
@@ -1083,4 +1118,53 @@ func (s *HelixAPIServer) stopExploratorySession(_ http.ResponseWriter, r *http.R
 		"message":    "exploratory session stopped",
 		"session_id": session.ID,
 	}, nil
+}
+
+// getProjectStartupScriptHistory godoc
+// @Summary Get startup script version history
+// @Description Get git commit history for project startup script
+// @Tags Projects
+// @Success 200 {array} services.StartupScriptVersion
+// @Param id path string true "Project ID"
+// @Router /api/v1/projects/{id}/startup-script/history [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getProjectStartupScriptHistory(_ http.ResponseWriter, r *http.Request) ([]services.StartupScriptVersion, *system.HTTPError) {
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthorized")
+	}
+
+	// Get project ID from URL
+	vars := mux.Vars(r)
+	projectID := vars["id"]
+	if projectID == "" {
+		return nil, system.NewHTTPError400("missing project ID")
+	}
+
+	// Get project
+	project, err := s.Store.GetProject(r.Context(), projectID)
+	if err != nil {
+		return nil, system.NewHTTPError404("project not found")
+	}
+
+	// Check authorization
+	if project.UserID != user.ID {
+		return nil, system.NewHTTPError403("forbidden")
+	}
+
+	// Get startup script history from internal repo
+	if project.InternalRepoPath == "" {
+		return nil, system.NewHTTPError404("project has no internal repository")
+	}
+
+	versions, err := s.projectInternalRepoService.GetStartupScriptHistory(project.InternalRepoPath)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", projectID).
+			Msg("failed to get startup script history")
+		return nil, system.NewHTTPError500("failed to get startup script history")
+	}
+
+	return versions, nil
 }

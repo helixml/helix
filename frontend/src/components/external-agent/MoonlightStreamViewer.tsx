@@ -555,7 +555,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const syncInterval = setInterval(syncClipboard, 2000);
 
     return () => clearInterval(syncInterval);
-  }, [isConnected, sessionId, helixApi]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, sessionId]); // Don't include helixApi - it's not reactive
 
   // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
   useEffect(() => {

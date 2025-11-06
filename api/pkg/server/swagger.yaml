@@ -1805,6 +1805,9 @@ definitions:
         type: string
       readme_url:
         type: string
+      startup_script:
+        description: Custom startup script for this project
+        type: string
       technologies:
         items:
           type: string
@@ -1896,6 +1899,19 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  services.StartupScriptVersion:
+    properties:
+      author:
+        type: string
+      commit_hash:
+        type: string
+      content:
+        type: string
+      message:
+        type: string
+      timestamp:
+        type: string
     type: object
   services.TreeEntry:
     properties:
@@ -6805,18 +6821,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -7156,6 +7172,64 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get Wolf real-time events (SSE)
+      tags:
+      - Admin
+  /api/v1/admin/wolf/lobbies/{lobbyId}:
+    delete:
+      description: Stop a Wolf lobby (terminates container and releases GPU resources)
+      parameters:
+      - description: Lobby ID
+        in: path
+        name: lobbyId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Stop Wolf lobby
+      tags:
+      - Admin
+  /api/v1/admin/wolf/sessions/{sessionId}:
+    delete:
+      description: Stop a Wolf-UI streaming session (releases GPU memory)
+      parameters:
+      - description: Session ID (client_id from Wolf)
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Stop Wolf streaming session
       tags:
       - Admin
   /api/v1/agents/fleet:
@@ -10223,6 +10297,27 @@ paths:
       security:
       - BearerAuth: []
       summary: Set project primary repository
+      tags:
+      - Projects
+  /api/v1/projects/{id}/startup-script/history:
+    get:
+      description: Get git commit history for project startup script
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.StartupScriptVersion'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get startup script version history
       tags:
       - Projects
   /api/v1/provider-endpoints:
