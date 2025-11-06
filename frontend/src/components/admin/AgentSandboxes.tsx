@@ -19,8 +19,10 @@ import MemoryIcon from '@mui/icons-material/Memory'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import CloseIcon from '@mui/icons-material/Close'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 
 
 
@@ -530,6 +532,7 @@ const AgentSandboxes: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
+  const snackbar = useSnackbar()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -538,6 +541,30 @@ const AgentSandboxes: FC = () => {
       return response.data
     },
     refetchInterval: 5000,
+  })
+
+  // Mutation to stop Wolf lobby
+  const stopLobbyMutation = useMutation({
+    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId),
+    onSuccess: () => {
+      snackbar.success('Lobby stopped successfully')
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+    },
+    onError: (err: any) => {
+      snackbar.error(`Failed to stop lobby: ${err.message || 'Unknown error'}`)
+    },
+  })
+
+  // Mutation to stop Wolf streaming session
+  const stopSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId),
+    onSuccess: () => {
+      snackbar.success('Streaming session stopped successfully')
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+    },
+    onError: (err: any) => {
+      snackbar.error(`Failed to stop session: ${err.message || 'Unknown error'}`)
+    },
   })
 
   const memoryData = data?.memory
@@ -780,16 +807,20 @@ const AgentSandboxes: FC = () => {
                           p: 2,
                           border: '1px solid rgba(255,255,255,0.1)',
                           borderRadius: 1,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
                         }}
                       >
-                        <Typography variant="subtitle1" fontWeight="bold">
-                          <Tooltip title={containerName} placement="top">
-                            <span>{truncateName(containerName)}</span>
-                          </Tooltip>
-                        </Typography>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                          {containerId}
-                        </Typography>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            <Tooltip title={containerName} placement="top">
+                              <span>{truncateName(containerName)}</span>
+                            </Tooltip>
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                            {containerId}
+                          </Typography>
                         {!isAppsMode && (
                           <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                             <Chip
@@ -807,6 +838,17 @@ const AgentSandboxes: FC = () => {
                             GStreamer: interpipesink name="{containerId}_video" | interpipesink name="{containerId}_audio"
                           </Typography>
                         )}
+                        </Box>
+                        <Tooltip title="Stop lobby and terminate container">
+                          <IconButton
+                            size="small"
+                            onClick={() => stopLobbyMutation.mutate(containerId)}
+                            disabled={stopLobbyMutation.isPending}
+                            sx={{ color: 'error.main' }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     )
                   })}
@@ -855,17 +897,29 @@ const AgentSandboxes: FC = () => {
                           }}
                         >
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Box>
+                            <Box sx={{ flex: 1 }}>
                               <Typography variant="subtitle2">{session.session_id}</Typography>
                               <Typography variant="caption" color="text.secondary">
                                 IP: {session.client_ip}
                               </Typography>
                             </Box>
-                            {containerName ? (
-                              <Chip label={`→ ${containerName}`} size="small" color="primary" />
-                            ) : (
-                              <Chip label="Orphaned" size="small" color="error" />
-                            )}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {containerName ? (
+                                <Chip label={`→ ${containerName}`} size="small" color="primary" />
+                              ) : (
+                                <Chip label="Orphaned" size="small" color="error" />
+                              )}
+                              <Tooltip title="Stop streaming session and release GPU memory">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => stopSessionMutation.mutate(session.session_id)}
+                                  disabled={stopSessionMutation.isPending}
+                                  sx={{ color: 'error.main' }}
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
                           </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             {session.display_mode.width}x{session.display_mode.height}@

@@ -1813,7 +1813,7 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds for faster cleanup in dev mode
 	defer ticker.Stop()
 
-	log.Info().Msg("Starting idle external agent cleanup loop (5min timeout, checks every 30s)")
+	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout, checks every 30s)")
 
 	for {
 		select {
@@ -1827,9 +1827,9 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 	}
 }
 
-// cleanupIdleExternalAgents terminates external agents that have been idle for >5min (development)
+// cleanupIdleExternalAgents terminates external agents that have been idle for >30min
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
-	cutoff := time.Now().Add(-5 * time.Minute) // 5 minute idle threshold for development
+	cutoff := time.Now().Add(-30 * time.Minute) // 30 minute idle threshold
 
 	// Get idle external agents (SpecTask, exploratory, and regular agent sessions)
 	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory", "agent"})
@@ -1848,28 +1848,11 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 		Msg("Found idle external agents to terminate (SpecTask + exploratory)")
 
 	for _, activity := range idleAgents {
-		// CRITICAL: Check if there are active streaming sessions before terminating
-		// Users may be watching the stream via moonlight-web without sending messages
-		// This doesn't update last_interaction but the agent is NOT idle!
-		sessionPrefix := fmt.Sprintf("helix-agent-%s-", activity.ExternalAgentID)
-		sessions, err := w.wolfClient.ListSessions(ctx)
-		if err == nil {
-			// Check if any Wolf streaming sessions match this agent
-			hasActiveStream := false
-			for _, session := range sessions {
-				if strings.HasPrefix(session.ClientUniqueID, sessionPrefix) {
-					hasActiveStream = true
-					log.Debug().
-						Str("external_agent_id", activity.ExternalAgentID).
-						Str("wolf_session_id", session.ClientUniqueID).
-						Msg("Agent has active streaming session - skipping idle termination")
-					break
-				}
-			}
-			if hasActiveStream {
-				continue // Skip this agent - still has active viewers
-			}
-		}
+		// NOTE: We previously checked for active Wolf streaming sessions here,
+		// but Wolf sessions persist even without browser connections.
+		// If the agent has been idle for 5 minutes (no Helix interactions),
+		// it should be terminated regardless of Wolf session state.
+		// The Wolf session will be cleaned up when the lobby is stopped.
 
 		log.Info().
 			Str("external_agent_id", activity.ExternalAgentID).

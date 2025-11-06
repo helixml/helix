@@ -678,6 +678,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
 	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
 	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
+	authRouter.HandleFunc("/admin/wolf/lobbies/{lobbyId}", apiServer.deleteWolfLobby).Methods("DELETE")
+	authRouter.HandleFunc("/admin/wolf/sessions/{sessionId}", apiServer.deleteWolfSession).Methods("DELETE")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -858,6 +860,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.getProjectExploratorySession)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
 
 	// Project access grant routes
 	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)

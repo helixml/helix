@@ -103,6 +103,98 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/wolf/lobbies/{lobbyId}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a Wolf lobby (terminates container and releases GPU resources)",
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Stop Wolf lobby",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Lobby ID",
+                        "name": "lobbyId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/wolf/sessions/{sessionId}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a Wolf-UI streaming session (releases GPU memory)",
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Stop Wolf streaming session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (client_id from Wolf)",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents/fleet": {
             "get": {
                 "security": [
@@ -4943,6 +5035,40 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/startup-script/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get git commit history for project startup script",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get startup script version history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/services.StartupScriptVersion"
+                            }
                         }
                     }
                 }
@@ -12678,6 +12804,10 @@ const docTemplate = `{
                 "readme_url": {
                     "type": "string"
                 },
+                "startup_script": {
+                    "description": "Custom startup script for this project",
+                    "type": "string"
+                },
                 "technologies": {
                     "type": "array",
                     "items": {
@@ -12812,6 +12942,26 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "services.StartupScriptVersion": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "commit_hash": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             }
         },
@@ -19831,18 +19981,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

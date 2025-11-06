@@ -12,15 +12,16 @@ type SampleProjectCodeService struct {
 
 // SampleProjectCode contains the starter code and structure for a sample project
 type SampleProjectCode struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	GitHubRepo   string            `json:"github_repo"`
-	Technologies []string          `json:"technologies"`
-	Files        map[string]string `json:"files"` // filepath -> content
-	GitIgnore    string            `json:"gitignore"`
-	ReadmeURL    string            `json:"readme_url"`
-	Language     string            `json:"language"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	GitHubRepo    string            `json:"github_repo"`
+	Technologies  []string          `json:"technologies"`
+	Files         map[string]string `json:"files"` // filepath -> content
+	GitIgnore     string            `json:"gitignore"`
+	ReadmeURL     string            `json:"readme_url"`
+	Language      string            `json:"language"`
+	StartupScript string            `json:"startup_script"` // Custom startup script for this project
 }
 
 // NewSampleProjectCodeService creates a new service with hardcoded project codes
@@ -61,6 +62,51 @@ func (s *SampleProjectCodeService) loadSampleProjects() {
 		Technologies: []string{"React", "TypeScript", "Vite"},
 		Language:     "javascript",
 		ReadmeURL:    "https://github.com/helixml/sample-todo-app/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository with package.json"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting dev server in background..."
+nohup npm run dev > /tmp/dev-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/dev-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 &
+fi
+
+echo "✅ Startup complete - Todo app running at http://localhost:3000"
+`,
 		GitIgnore: `node_modules/
 dist/
 .env`,
@@ -235,6 +281,47 @@ export default defineConfig({
 		Technologies: []string{"Node.js", "Express", "TypeScript"},
 		Language:     "javascript",
 		ReadmeURL:    "https://github.com/helixml/sample-ecommerce-api/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository with package.json"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting API server in background..."
+nohup npm run dev > /tmp/api-server.log 2>&1 &
+DEV_PID=$!
+
+echo "API server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/api-server.log"
+
+# Wait for server to be ready
+sleep 3
+
+echo "✅ Startup complete - E-commerce API running at http://localhost:3000"
+echo "📝 Test with: curl http://localhost:3000/api/products"
+`,
 		GitIgnore: `node_modules/
 dist/
 .env`,
@@ -331,6 +418,52 @@ app.listen(3000, () => console.log('API on http://localhost:3000'));`,
 		Technologies: []string{"React Native", "TypeScript", "Expo"},
 		Language:     "javascript",
 		ReadmeURL:    "https://github.com/helixml/sample-weather-app/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository with package.json"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting Expo dev server in background..."
+nohup npx expo start --web > /tmp/expo-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Expo dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/expo-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser for web preview
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:19006 &
+fi
+
+echo "✅ Startup complete - Expo running at http://localhost:19006"
+echo "📱 Scan QR code in terminal to run on mobile device"
+`,
 		GitIgnore: `node_modules/
 .expo/
 dist/`,
@@ -420,6 +553,51 @@ const styles = StyleSheet.create({
 		Technologies: []string{"Next.js", "TypeScript", "TailwindCSS"},
 		Language:     "javascript",
 		ReadmeURL:    "https://github.com/helixml/sample-blog-cms/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository with package.json"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting Next.js dev server in background..."
+nohup npm run dev > /tmp/nextjs-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Next.js dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/nextjs-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 &
+fi
+
+echo "✅ Startup complete - Blog CMS running at http://localhost:3000"
+`,
 		GitIgnore: `node_modules/
 .next/
 out/`,
@@ -510,6 +688,51 @@ module.exports = nextConfig;`,
 		Technologies: []string{"React", "TypeScript", "Material-UI"},
 		Language:     "javascript",
 		ReadmeURL:    "https://github.com/helixml/sample-react-dashboard/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository with package.json"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting dev server in background..."
+nohup npm run dev > /tmp/dev-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/dev-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 &
+fi
+
+echo "✅ Startup complete - Dashboard running at http://localhost:3000"
+`,
 		GitIgnore: `node_modules/
 dist/`,
 		Files: map[string]string{
@@ -632,6 +855,33 @@ export default defineConfig({
 		Technologies: []string{"Markdown", "CSV"},
 		Language:     "markdown",
 		ReadmeURL:    "https://github.com/helixml/sample-linkedin-outreach/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+echo "🚀 LinkedIn Outreach Campaign workspace ready"
+echo ""
+echo "📋 Campaign files:"
+echo "  - prospects.csv: Prospect tracking"
+echo "  - message-templates.md: Outreach templates"
+echo "  - metrics.md: Campaign metrics"
+echo ""
+echo "💡 Start by filling out prospects.csv with your target list"
+echo "✅ Workspace ready - no dev server needed"
+`,
 		GitIgnore: `*.csv.tmp
 .env`,
 		Files: map[string]string{

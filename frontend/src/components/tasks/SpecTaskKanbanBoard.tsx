@@ -269,6 +269,21 @@ const TaskCard: React.FC<{
         {/* Show "Start Planning" button only for backlog tasks */}
         {task.phase === 'backlog' && (
           <Box sx={{ mt: 1 }}>
+            {/* Show error if present */}
+            {task.metadata?.error && (
+              <Box sx={{
+                mb: 1,
+                p: 1,
+                backgroundColor: 'error.light',
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'error.main'
+              }}>
+                <Typography variant="caption" color="error.dark" sx={{ fontWeight: 600 }}>
+                  ⚠️ {task.metadata.error as string}
+                </Typography>
+              </Box>
+            )}
             <Button
               size="small"
               variant="contained"
@@ -278,7 +293,7 @@ const TaskCard: React.FC<{
               disabled={isPlanningFull}
               fullWidth
             >
-              {isPlanningFull ? 'Planning Full' : 'Start Planning'}
+              {task.metadata?.error ? 'Retry Planning' : isPlanningFull ? 'Planning Full' : 'Start Planning'}
             </Button>
             {isPlanningFull && (
               <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
@@ -511,6 +526,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus = 'completed';
           }
 
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
+          }
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -568,6 +588,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (task.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
+          }
+
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
           }
 
           return {
@@ -980,6 +1005,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
         // Check if the task has spec_session_id now
         const updatedTask = specTasks.find(t => t.id === task.id);
+
+        // Check if task failed during async agent launch (error stored in metadata)
+        if (updatedTask?.status === 'backlog' && updatedTask?.metadata?.error) {
+          console.error('❌ Planning failed:', updatedTask.metadata.error);
+          setError(updatedTask.metadata.error as string);
+          return;
+        }
+
         if (updatedTask?.spec_session_id) {
           console.log('✅ Session ID populated:', updatedTask.spec_session_id);
           return; // Session ID found, stop polling
@@ -997,9 +1030,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
       // Start aggressive polling
       await pollForSessionId();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to start planning:', err);
-      setError('Failed to start planning. Please try again.');
+      // Extract error message from API response
+      const errorMessage = err?.response?.data?.error
+        || err?.response?.data?.message
+        || err?.message
+        || 'Failed to start planning. Please try again.';
+      setError(errorMessage);
     }
   };
 

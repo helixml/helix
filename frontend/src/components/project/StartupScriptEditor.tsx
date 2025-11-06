@@ -26,6 +26,8 @@ import {
   CompareArrows as DiffIcon,
 } from '@mui/icons-material'
 import MonacoEditor from '../widgets/MonacoEditor'
+import { useGetStartupScriptHistory } from '../../services/projectService'
+import { ServicesStartupScriptVersion } from '../../api/api'
 
 interface StartupScriptVersion {
   id: string
@@ -60,17 +62,25 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
   const [selectedVersion, setSelectedVersion] = useState<StartupScriptVersion | null>(null)
   const [diffDialogOpen, setDiffDialogOpen] = useState(false)
 
-  // Mock version history - in a real implementation, this would come from git commits
-  // via an API endpoint that reads from the project's internal repo
+  // Fetch real version history from git commits
+  const { data: gitHistory, isLoading: historyLoading } = useGetStartupScriptHistory(projectId, showHistory)
+
+  // Convert git history to local format and add current version
   const versionHistory: StartupScriptVersion[] = [
     {
-      id: '1',
+      id: 'current',
       content: value,
       timestamp: new Date(),
       author: 'Current',
       message: 'Current version (unsaved)',
     },
-    // Add more versions as they're saved/committed
+    ...(gitHistory || []).map((version: ServicesStartupScriptVersion) => ({
+      id: version.commit_hash || '',
+      content: version.content || '',
+      timestamp: version.timestamp ? new Date(version.timestamp) : new Date(),
+      author: version.author || 'Unknown',
+      message: version.message || 'No message',
+    })),
   ]
 
   const handleRestoreVersion = (version: StartupScriptVersion) => {
@@ -172,7 +182,14 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
           </Box>
 
           <List sx={{ flex: 1, overflow: 'auto', p: 0 }}>
-            {versionHistory.map((version, index) => (
+            {historyLoading ? (
+              <Box sx={{ p: 3, textAlign: 'center' }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  Loading history...
+                </Typography>
+              </Box>
+            ) : versionHistory.map((version, index) => (
               <React.Fragment key={version.id}>
                 <ListItem
                   disablePadding
@@ -225,7 +242,7 @@ const StartupScriptEditor: FC<StartupScriptEditorProps> = ({
             ))}
           </List>
 
-          {versionHistory.length === 1 && (
+          {!historyLoading && versionHistory.length === 1 && (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
                 No version history yet. Save changes to create the first version.
