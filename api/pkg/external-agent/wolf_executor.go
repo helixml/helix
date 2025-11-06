@@ -2325,9 +2325,10 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 				Str("clone_dir", cloneDir).
 				Msg("Cloning Helix-hosted repository from local filesystem")
 
-			// Use git clone to create proper clone with clean .git directory
-			// This is better than cp -a because it creates a proper independent clone
-			cloneCmd := fmt.Sprintf("git clone %q %q", repo.LocalPath, cloneDir)
+			// Use HTTP git clone with API token authentication
+			// This allows agents to push changes back to the repository
+			httpCloneURL := fmt.Sprintf("http://api:%s@api:8080/git/%s", w.helixAPIToken, repoID)
+			cloneCmd := fmt.Sprintf("git clone %q %q", httpCloneURL, cloneDir)
 			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
 			if err != nil {
 				if debugLog != nil {
