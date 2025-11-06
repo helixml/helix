@@ -121,6 +121,7 @@ type HelixAPIServer struct {
 	specDrivenTaskService       *services.SpecDrivenTaskService
 	sampleProjectCodeService    *services.SampleProjectCodeService
 	gitRepositoryService        *services.GitRepositoryService
+	gitHTTPServer               *services.GitHTTPServer
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
@@ -341,6 +342,22 @@ func NewServer(
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
 	}
+
+	// Initialize Git HTTP Server for clone/push operations
+	apiServer.gitHTTPServer = services.NewGitHTTPServer(
+		store,
+		apiServer.gitRepositoryService,
+		&services.GitHTTPServerConfig{
+			ServerBaseURL:     cfg.WebServer.URL,
+			GitExecutablePath: "git",
+			AuthTokenHeader:   "Authorization",
+			EnablePush:        true,
+			EnablePull:        true,
+			MaxRepoSize:       1024 * 1024 * 1024, // 1GB
+			RequestTimeout:    5 * time.Minute,
+		},
+	)
+	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 
 	// Initialize Project Internal Repo Service
 	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
@@ -931,6 +948,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
+
+	// Register Git HTTP protocol routes for clone/push operations
+	// These routes don't use authRouter - they have their own auth middleware
+	apiServer.gitHTTPServer.RegisterRoutes(router)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
