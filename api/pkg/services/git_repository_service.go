@@ -546,7 +546,10 @@ func (s *GitRepositoryService) initializeGitRepository(
 		}
 
 		// Create temporary clone to add initial files
-		tempClone := repoPath + "-temp"
+		tempClone, err := os.MkdirTemp("", "helix-git-init-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
 		defer os.RemoveAll(tempClone) // Cleanup temp clone
 
 		repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
