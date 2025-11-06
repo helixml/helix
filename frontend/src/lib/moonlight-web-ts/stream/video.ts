@@ -30,6 +30,8 @@ const CAPABILITIES_CODECS: Array<{ key: string, mimeType: string, fmtpLine: Arra
     { key: "AV1_HIGH10", mimeType: "video/AV1", fmtpLine: ["profile=1"] },
 ]
 
+console.log('[VideoCodecs] CAPABILITIES_CODECS loaded with H.264 Main profile:', CAPABILITIES_CODECS[0]);
+
 const VIDEO_DECODER_CODECS: Array<{ key: string } & VideoDecoderConfig> = [
     { key: "H264_HIGH8_444", codec: "avc1.4d400c", colorSpace: { primaries: "bt709", matrix: "bt709", transfer: "bt709", fullRange: true } },
     // TODO? No major browser currently supports WebRTC h265, but it might support h265 video without webrtc so we don't check that
