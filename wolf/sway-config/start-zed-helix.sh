@@ -21,23 +21,52 @@ cd $WORK_DIR
 # Setup helix-design-docs worktrees for SpecTask repositories
 # This must happen INSIDE the Wolf container so git paths are correct for this environment
 echo "Setting up design docs worktrees..."
-for repo_dir in */; do
-    [ -d "$repo_dir" ] || continue
 
-    if [ -d "$repo_dir/.git" ]; then
-        repo_name="${repo_dir%/}"
-        worktree_path="$repo_dir.git-worktrees/helix-design-docs"
+# Initialize git in work directory if not already initialized
+if [ ! -d "$WORK_DIR/.git" ]; then
+    echo "  Initializing git repository..."
+    git init "$WORK_DIR" >/dev/null 2>&1
 
-        # Check if helix-design-docs branch exists and worktree doesn't
-        if git -C "$repo_dir" rev-parse --verify helix-design-docs >/dev/null 2>&1; then
-            if [ ! -d "$worktree_path" ]; then
-                echo "  Creating worktree for $repo_name..."
-                git -C "$repo_dir" worktree add "$worktree_path" helix-design-docs 2>/dev/null && \
-                    echo "  ✅ Worktree ready for $repo_name"
-            fi
-        fi
+    # Set git config for commits (fallback if env vars not set)
+    if [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+        git config --global user.email "spec@helix-agent.local"
+        git config --global user.name "Helix Agent"
     fi
-done
+
+    # Create .gitignore to exclude temporary files
+    cat > "$WORK_DIR/.gitignore" <<'GITIGNORE_EOF'
+.helix-project/
+.zed-state/
+.claude-state/
+.claude/
+*.db
+*.db-journal
+.helix-startup-wrapper.sh
+GITIGNORE_EOF
+
+    # Make initial commit
+    git -C "$WORK_DIR" add .gitignore >/dev/null 2>&1
+    git -C "$WORK_DIR" commit -m "Initial commit" >/dev/null 2>&1
+    echo "  ✅ Git repository initialized"
+fi
+
+# Ensure helix-design-docs branch exists
+if ! git -C "$WORK_DIR" rev-parse --verify helix-design-docs >/dev/null 2>&1; then
+    echo "  Creating helix-design-docs branch..."
+    git -C "$WORK_DIR" branch helix-design-docs >/dev/null 2>&1
+    echo "  ✅ helix-design-docs branch created"
+fi
+
+# Create worktree if it doesn't exist
+WORKTREE_PATH="$WORK_DIR/.git-worktrees/helix-design-docs"
+if [ ! -d "$WORKTREE_PATH" ]; then
+    echo "  Creating design docs worktree..."
+    git -C "$WORK_DIR" worktree add "$WORKTREE_PATH" helix-design-docs >/dev/null 2>&1 && \
+        echo "  ✅ Design docs worktree ready at $WORKTREE_PATH" || \
+        echo "  ⚠️  Failed to create worktree (may already exist)"
+else
+    echo "  ✅ Design docs worktree already exists"
+fi
 
 # Create Claude Code state symlink if needed
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
