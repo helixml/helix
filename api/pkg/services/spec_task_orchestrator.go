@@ -760,15 +760,49 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		Str("workspace_dir", workspaceDir).
 		Msg("Creating new external agent for SpecTask")
 
+	// Get project to access repository configuration
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project for SpecTask: %w", err)
+	}
+
+	// Get all repositories for this project
+	repos, err := o.store.GetProjectRepositories(ctx, task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get project repositories, continuing without git")
+		repos = nil
+	}
+
+	// Extract repository IDs
+	var repositoryIDs []string
+	for _, repo := range repos {
+		repositoryIDs = append(repositoryIDs, repo.ID)
+	}
+
+	// Determine primary repository
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(repositoryIDs) > 0 {
+		// Fall back to first repository if no default set
+		primaryRepoID = repositoryIDs[0]
+	}
+
+	log.Info().
+		Strs("repository_ids", repositoryIDs).
+		Str("primary_repository_id", primaryRepoID).
+		Msg("Attaching project repositories to external agent")
+
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
-		SessionID:      agentID, // Agent-level session ID (not tied to specific Helix session)
-		UserID:         task.CreatedBy,
-		WorkDir:        workspaceDir,
-		ProjectPath:    "backend", // Default primary repo path
-		DisplayWidth:   2560,
-		DisplayHeight:  1600,
-		DisplayRefreshRate: 60,
+		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
+		UserID:              task.CreatedBy,
+		WorkDir:             workspaceDir,
+		ProjectPath:         "backend",         // Default primary repo path
+		RepositoryIDs:       repositoryIDs,     // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID,     // Primary repository for design docs
+		SpecTaskID:          task.ID,           // Link to SpecTask
+		DisplayWidth:        2560,
+		DisplayHeight:       1600,
+		DisplayRefreshRate:  60,
 	}
 
 	agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
