@@ -129,6 +129,22 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     echo "Configured git user.email: $GIT_USER_EMAIL"
 fi
 
+# Configure git credentials for HTTP push operations
+# Use Helix API token for authentication to git server
+if [ -n "$HELIX_API_TOKEN" ]; then
+    # Set up git credential helper to use API token
+    # Format: http://api:{token}@api:8080/git/{repo-id}
+    git config --global credential.helper 'store --file ~/.git-credentials'
+
+    # Write credentials for api:8080 domain
+    echo "http://api:${HELIX_API_TOKEN}@api:8080" > ~/.git-credentials
+    chmod 600 ~/.git-credentials
+
+    echo "✅ Git credentials configured for HTTP push operations"
+else
+    echo "⚠️  HELIX_API_TOKEN not set - git push operations may fail"
+fi
+
 # Execute project startup script from internal Git repo - run in terminal window
 # Internal repos are cloned directly to .helix-project (no guessing needed!)
 INTERNAL_REPO_PATH="$WORK_DIR/.helix-project"
