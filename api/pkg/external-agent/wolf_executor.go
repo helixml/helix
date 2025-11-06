@@ -425,11 +425,26 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Clone git repositories if specified (for SpecTasks with repository context)
 	// Internal repos are now cloned like any other repo (no special handling)
+	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
 		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to setup git repositories")
 			return nil, fmt.Errorf("failed to setup git repositories: %w", err)
+		}
+
+		// Get primary repository name for environment variable (startup script needs this)
+		if agent.PrimaryRepositoryID != "" {
+			repo, err := w.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get primary repository name")
+			} else {
+				primaryRepoName = repo.Name
+				log.Info().
+					Str("primary_repo_id", agent.PrimaryRepositoryID).
+					Str("primary_repo_name", primaryRepoName).
+					Msg("Primary repository will be used for design docs worktree")
+			}
 		}
 	}
 
@@ -478,6 +493,11 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		fmt.Sprintf("HELIX_USER_ID=%s", agent.UserID),
 
 		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts
+	}
+
+	// Add primary repository name for design docs worktree setup
+	if primaryRepoName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", primaryRepoName))
 	}
 
 	// Add custom env vars from agent request
