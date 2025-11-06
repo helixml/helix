@@ -18,6 +18,27 @@ fi
 WORK_DIR=/home/retro/work
 cd $WORK_DIR
 
+# Setup helix-design-docs worktrees for SpecTask repositories
+# This must happen INSIDE the Wolf container so git paths are correct for this environment
+echo "Setting up design docs worktrees..."
+for repo_dir in */; do
+    [ -d "$repo_dir" ] || continue
+
+    if [ -d "$repo_dir/.git" ]; then
+        repo_name="${repo_dir%/}"
+        worktree_path="$repo_dir.git-worktrees/helix-design-docs"
+
+        # Check if helix-design-docs branch exists and worktree doesn't
+        if git -C "$repo_dir" rev-parse --verify helix-design-docs >/dev/null 2>&1; then
+            if [ ! -d "$worktree_path" ]; then
+                echo "  Creating worktree for $repo_name..."
+                git -C "$repo_dir" worktree add "$worktree_path" helix-design-docs 2>/dev/null && \
+                    echo "  ✅ Worktree ready for $repo_name"
+            fi
+        fi
+    fi
+done
+
 # Create Claude Code state symlink if needed
 CLAUDE_STATE_DIR=$WORK_DIR/.claude-state
 if command -v claude &> /dev/null; then
@@ -94,7 +115,7 @@ if [ -n "$GIT_USER_EMAIL" ]; then
 fi
 
 # Execute project startup script from internal Git repo - run in terminal window
-# Internal repo is always mounted at .helix-project (read-only)
+# Internal repos are cloned directly to .helix-project (no guessing needed!)
 INTERNAL_REPO_PATH="$WORK_DIR/.helix-project"
 STARTUP_SCRIPT_PATH="$INTERNAL_REPO_PATH/.helix/startup.sh"
 
@@ -171,7 +192,7 @@ WRAPPER_EOF
 
     echo "Startup script terminal launched (check right side of screen)"
 else
-    echo "No startup script found - .helix-project not mounted or missing .helix/startup.sh"
+    echo "No startup script found - .helix-project/.helix/startup.sh doesn't exist"
 fi
 
 # Wait for settings-sync-daemon to create configuration

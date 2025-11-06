@@ -102,7 +102,7 @@ sleep 5
 
 # Open browser
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000 &
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
 fi
 
 echo "✅ Startup complete - Todo app running at http://localhost:3000"
@@ -458,7 +458,7 @@ sleep 5
 
 # Open browser for web preview
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:19006 &
+    xdg-open http://localhost:19006 > /dev/null 2>&1 &
 fi
 
 echo "✅ Startup complete - Expo running at http://localhost:19006"
@@ -593,7 +593,7 @@ sleep 5
 
 # Open browser
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000 &
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
 fi
 
 echo "✅ Startup complete - Blog CMS running at http://localhost:3000"
@@ -728,7 +728,7 @@ sleep 5
 
 # Open browser
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000 &
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
 fi
 
 echo "✅ Startup complete - Dashboard running at http://localhost:3000"

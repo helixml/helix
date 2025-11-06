@@ -16,6 +16,15 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "🆔 Generated UUID: $WOLF_UUID"
     fi
 
+    # Set pairing PIN from env var if provided
+    if [ ! -z "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
+        # Wolf stores PIN as 4-digit array in config
+        # Convert "1234" to [1, 2, 3, 4]
+        PIN_ARRAY="[${MOONLIGHT_INTERNAL_PAIRING_PIN:0:1}, ${MOONLIGHT_INTERNAL_PAIRING_PIN:1:1}, ${MOONLIGHT_INTERNAL_PAIRING_PIN:2:1}, ${MOONLIGHT_INTERNAL_PAIRING_PIN:3:1}]"
+        sed -i "s/pin = .*/pin = $PIN_ARRAY/" "$CONFIG_FILE"
+        echo "🔐 Set pairing PIN from MOONLIGHT_INTERNAL_PAIRING_PIN"
+    fi
+
     echo "✅ Wolf config initialized"
 else
     echo "ℹ️  Wolf config already exists, skipping initialization"

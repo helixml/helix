@@ -420,52 +420,16 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	// Load project to determine if we need to clone internal repo
-	projectIDToLoad := agent.ProjectID // Direct project ID for exploratory sessions
-
-	if agent.SpecTaskID != "" {
-		// Load the SpecTask to get project ID
-		specTask, err := w.store.GetSpecTask(ctx, agent.SpecTaskID)
-		if err != nil {
-			log.Warn().Err(err).Str("spec_task_id", agent.SpecTaskID).Msg("Failed to get SpecTask, continuing without project repo")
-		} else if specTask.ProjectID != "" {
-			projectIDToLoad = specTask.ProjectID
-		}
-	}
-
-	// Load project and internal repo path for read-only mount
-	var projectInternalRepoPath string
-	if projectIDToLoad != "" {
-		project, err := w.store.GetProject(ctx, projectIDToLoad)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", projectIDToLoad).Msg("Failed to get Project, continuing without internal repo")
-		} else if project.InternalRepoPath != "" {
-			projectInternalRepoPath = project.InternalRepoPath
-			log.Info().
-				Str("project_id", project.ID).
-				Str("internal_repo_path", project.InternalRepoPath).
-				Msg("Will mount internal project repository at .helix-project (read-only)")
-		}
-	}
+	// Internal repos are now cloned like any other repo (no longer mounted)
+	// This allows Wolf server to be separated from API server over the network
 
 	// Clone git repositories if specified (for SpecTasks with repository context)
-	// Filter out internal repos - they're mounted at .helix-project instead
+	// Internal repos are now cloned like any other repo (no special handling)
 	if len(agent.RepositoryIDs) > 0 {
-		codeRepoIDs := []string{}
-		for _, repoID := range agent.RepositoryIDs {
-			// Get repo to check if it's internal (config repo, mounted read-only)
-			repo, err := w.store.GetGitRepository(ctx, repoID)
-			if err == nil && repo.RepoType != "internal" {
-				codeRepoIDs = append(codeRepoIDs, repoID)
-			}
-		}
-
-		if len(codeRepoIDs) > 0 {
-			err := w.setupGitRepositories(ctx, workspaceDir, codeRepoIDs, agent.PrimaryRepositoryID)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to setup git repositories")
-				return nil, fmt.Errorf("failed to setup git repositories: %w", err)
-			}
+		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to setup git repositories")
+			return nil, fmt.Errorf("failed to setup git repositories: %w", err)
 		}
 	}
 
@@ -533,16 +497,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
-	// Build extra mounts for internal project repo
+	// No extra mounts needed - internal repos are now cloned instead of mounted
 	extraMounts := []string{}
-	if projectInternalRepoPath != "" {
-		// Mount internal repo at /home/retro/work/.helix-project (read-only)
-		internalRepoMount := fmt.Sprintf("%s:/home/retro/work/.helix-project:ro", projectInternalRepoPath)
-		extraMounts = append(extraMounts, internalRepoMount)
-		log.Info().
-			Str("internal_repo_path", projectInternalRepoPath).
-			Msg("Mounting internal project repository at .helix-project (read-only)")
-	}
 
 	// CRITICAL: Check if lobby already exists for this session to prevent duplicates
 	// This prevents GPU resource exhaustion when resume endpoint is called multiple times
@@ -2306,8 +2262,15 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 			return fmt.Errorf("failed to get repository %s: %w", repoID, err)
 		}
 
-		// Determine clone directory - use repository name
-		cloneDir := filepath.Join(workspaceDir, repo.Name)
+		// Determine clone directory
+		// Internal repos (project config) go to .helix-project for predictable access
+		// Regular code repos use their repository name
+		var cloneDir string
+		if repo.RepoType == "internal" {
+			cloneDir = filepath.Join(workspaceDir, ".helix-project")
+		} else {
+			cloneDir = filepath.Join(workspaceDir, repo.Name)
+		}
 
 		// Check if repository already exists
 		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
@@ -2316,14 +2279,8 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 				Str("clone_dir", cloneDir).
 				Msg("Repository already cloned, skipping")
 
-			// For primary repository, ensure design docs worktree exists
-			if repoID == primaryRepositoryID {
-				err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to setup design docs worktree for existing repo")
-					// Continue - not fatal
-				}
-			}
+			// Note: Design docs worktree will be created inside Wolf container during startup
+			// to ensure paths are correct for the container environment
 			continue
 		}
 
@@ -2419,12 +2376,13 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 				Msg("Successfully cloned git repository")
 		}
 
-		// For primary repository, set up design docs worktree
+		// For primary repository, ensure design docs branch exists
+		// (Worktree will be created inside Wolf container during startup)
 		if repoID == primaryRepositoryID {
 			err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to setup design docs worktree")
-				return fmt.Errorf("failed to setup design docs worktree: %w", err)
+				log.Error().Err(err).Msg("Failed to setup design docs branch")
+				// Continue - not fatal, branch can be created manually
 			}
 		}
 	}
@@ -2432,22 +2390,13 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 	return nil
 }
 
-// setupDesignDocsWorktree creates a git worktree for design documents on helix-design-docs branch
+// setupDesignDocsWorktree creates the helix-design-docs branch if it doesn't exist
+// Note: The actual worktree is created inside the Wolf container during startup
+// to ensure paths are correct for the container environment
 func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error {
-	worktreePath := filepath.Join(repoPath, ".git-worktrees", "helix-design-docs")
-
-	// Check if worktree already exists
-	if _, err := os.Stat(worktreePath); err == nil {
-		log.Info().
-			Str("worktree_path", worktreePath).
-			Msg("Design docs worktree already exists, skipping")
-		return nil
-	}
-
 	log.Info().
 		Str("repo_path", repoPath).
-		Str("worktree_path", worktreePath).
-		Msg("Setting up design docs git worktree")
+		Msg("Ensuring helix-design-docs branch exists")
 
 	ctx := context.Background()
 
@@ -2537,22 +2486,10 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 			Msg("Successfully created helix-design-docs branch and restored original branch")
 	}
 
-	// Create worktree directory
-	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
-		return fmt.Errorf("failed to create worktree parent directory: %w", err)
-	}
-
-	// Add worktree
-	addWorktreeCmd := fmt.Sprintf("git worktree add %s helix-design-docs", worktreePath)
-	_, err = execCommand(ctx, repoPath, "bash", "-c", addWorktreeCmd)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to add git worktree")
-		return fmt.Errorf("failed to add git worktree: %w", err)
-	}
-
+	// Worktree will be created inside Wolf container during startup
 	log.Info().
-		Str("worktree_path", worktreePath).
-		Msg("Successfully set up design docs git worktree")
+		Str("repo_name", repoName).
+		Msg("helix-design-docs branch ready (worktree will be created in container)")
 
 	return nil
 }
