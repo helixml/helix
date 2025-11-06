@@ -77,6 +77,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
+
+  // Clipboard sync state
+  const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
   const [stats, setStats] = useState<any>(null);
   const lastBytesRef = useRef<{ bytes: number; timestamp: number } | null>(null);
 
@@ -491,6 +494,63 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
   }, [isConnected]);
 
+  // Auto-sync clipboard from remote → local every 2 seconds
+  useEffect(() => {
+    if (!isConnected || !sessionId) return;
+
+    const syncClipboard = async () => {
+      try {
+        const apiClient = helixApi.getApiClient();
+        const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
+        const clipboardData = response.data as { type: string; data: string };
+
+        // Hash the clipboard data to detect changes
+        const hash = `${clipboardData.type}:${clipboardData.data?.substring(0, 100)}`;
+        if (hash === lastRemoteClipboardHash.current) {
+          return; // No change, skip update
+        }
+
+        if (clipboardData.type === 'image') {
+          // Decode base64 image and write to browser clipboard
+          const base64Data = clipboardData.data;
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/png' });
+
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+
+          console.log(`[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`);
+        } else if (clipboardData.type === 'text' && clipboardData.data) {
+          // Write text to browser clipboard
+          await navigator.clipboard.writeText(clipboardData.data);
+          console.log(`[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`);
+        }
+
+        lastRemoteClipboardHash.current = hash;
+      } catch (err) {
+        // Silent failure - don't spam console with clipboard sync errors
+        // Only log if not a 404 (container might not be ready yet)
+        if (err && !String(err).includes('404')) {
+          console.warn('[Clipboard] Auto-sync failed:', err);
+        }
+      }
+    };
+
+    // Initial sync
+    syncClipboard();
+
+    // Poll every 2 seconds
+    const syncInterval = setInterval(syncClipboard, 2000);
+
+    return () => clearInterval(syncInterval);
+  }, [isConnected, sessionId, helixApi]);
+
   // Prevent page scroll on wheel events inside viewer (native listener with passive: false)
   useEffect(() => {
     const container = containerRef.current;
@@ -747,6 +807,74 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           return;
         }
         lastEscapeTime = now;
+      }
+
+      // Intercept paste keystrokes for clipboard sync (cross-platform)
+      const isCtrlV = event.ctrlKey && !event.shiftKey && event.code === 'KeyV';
+      const isCmdV = event.metaKey && !event.shiftKey && event.code === 'KeyV';
+      const isCtrlShiftV = event.ctrlKey && event.shiftKey && event.code === 'KeyV';
+      const isCmdShiftV = event.metaKey && event.shiftKey && event.code === 'KeyV';
+      const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
+
+      if (isPasteKeystroke && sessionId) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        console.log('[Clipboard] Paste keystroke detected, syncing local → remote');
+
+        (async () => {
+          try {
+            // 1. Read local clipboard (text or image)
+            const clipboardItems = await navigator.clipboard.read();
+
+            let clipboardPayload: { type: string; data: string };
+
+            if (clipboardItems.length > 0) {
+              const item = clipboardItems[0];
+
+              // Check if clipboard contains an image
+              if (item.types.includes('image/png')) {
+                const blob = await item.getType('image/png');
+                const arrayBuffer = await blob.arrayBuffer();
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+                clipboardPayload = { type: 'image', data: base64 };
+                console.log(`[Clipboard] Read image from local clipboard (${arrayBuffer.byteLength} bytes)`);
+              } else if (item.types.includes('text/plain')) {
+                const blob = await item.getType('text/plain');
+                const text = await blob.text();
+
+                clipboardPayload = { type: 'text', data: text };
+                console.log(`[Clipboard] Read text from local clipboard (${text.length} chars)`);
+              } else {
+                console.warn('[Clipboard] Unsupported clipboard type:', item.types);
+                // Forward keystroke anyway - might work with existing clipboard
+                streamRef.current?.getInput().onKeyDown(event);
+                return;
+              }
+            } else {
+              // Empty clipboard - just forward keystroke
+              streamRef.current?.getInput().onKeyDown(event);
+              return;
+            }
+
+            // 2. Sync to remote clipboard
+            const apiClient = helixApi.getApiClient();
+            await apiClient.v1ExternalAgentsClipboardCreate(sessionId, clipboardPayload);
+
+            console.log(`[Clipboard] Synced ${clipboardPayload.type} to remote`);
+
+            // 3. Forward the keystroke to remote
+            // Remote app will now paste from the synced remote clipboard
+            streamRef.current?.getInput().onKeyDown(event);
+          } catch (err) {
+            console.error('[Clipboard] Failed to sync for paste:', err);
+            // Still forward the keystroke - let remote handle paste with old clipboard
+            streamRef.current?.getInput().onKeyDown(event);
+          }
+        })();
+
+        return; // Don't fall through to default handler
       }
 
       console.log('[MoonlightStreamViewer] KeyDown captured:', event.key, event.code);

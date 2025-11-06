@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -743,6 +744,199 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		Str("session_id", sessionID).
 		Str("container_name", containerName).
 		Msg("Successfully retrieved screenshot from external agent container")
+}
+
+// @Summary Get session clipboard content
+// @Description Fetch current clipboard content from remote desktop
+// @Tags ExternalAgents
+// @Produce plain
+// @Param sessionID path string true "Session ID"
+// @Success 200 {string} string "Clipboard text content"
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/clipboard [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Make HTTP request to clipboard endpoint inside the container
+	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+
+	clipboardReq, err := http.NewRequestWithContext(req.Context(), "GET", clipboardURL, nil)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+		return
+	}
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	clipboardResp, err := httpClient.Do(clipboardReq)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get clipboard from container")
+		http.Error(res, "Failed to retrieve clipboard", http.StatusInternalServerError)
+		return
+	}
+	defer clipboardResp.Body.Close()
+
+	// Check clipboard server response status
+	if clipboardResp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status", clipboardResp.StatusCode).
+			Str("container_name", containerName).
+			Msg("Clipboard server returned error")
+		http.Error(res, "Failed to retrieve clipboard from container", clipboardResp.StatusCode)
+		return
+	}
+
+	// Return clipboard data directly (JSON format with type and data)
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(http.StatusOK)
+
+	// Stream the clipboard JSON from clipboard server to response
+	_, err = io.Copy(res, clipboardResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream clipboard data")
+		return
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Msg("Successfully retrieved clipboard from external agent container")
+}
+
+// @Summary Set session clipboard content
+// @Description Send clipboard content to remote desktop
+// @Tags ExternalAgents
+// @Accept plain
+// @Param sessionID path string true "Session ID"
+// @Param clipboard body string true "Clipboard text to set"
+// @Success 200
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/clipboard [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Read clipboard content from request body (JSON format)
+	clipboardContent, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read request body")
+		http.Error(res, "Failed to read clipboard content", http.StatusBadRequest)
+		return
+	}
+
+	// Make HTTP POST request to clipboard endpoint inside the container
+	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+
+	clipboardReq, err := http.NewRequestWithContext(req.Context(), "POST", clipboardURL, bytes.NewReader(clipboardContent))
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+		return
+	}
+	clipboardReq.Header.Set("Content-Type", "application/json")
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	clipboardResp, err := httpClient.Do(clipboardReq)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to set clipboard in container")
+		http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
+		return
+	}
+	defer clipboardResp.Body.Close()
+
+	// Check clipboard server response status
+	if clipboardResp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status", clipboardResp.StatusCode).
+			Str("container_name", containerName).
+			Msg("Clipboard server returned error")
+		http.Error(res, "Failed to set clipboard in container", clipboardResp.StatusCode)
+		return
+	}
+
+	res.WriteHeader(http.StatusOK)
+	log.Info().
+		Str("session_id", sessionID).
+		Int("clipboard_size", len(clipboardContent)).
+		Msg("Successfully set clipboard in external agent container")
 }
 
 // @Summary Get keepalive session status
