@@ -749,9 +749,9 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 // @Summary Get session clipboard content
 // @Description Fetch current clipboard content from remote desktop
 // @Tags ExternalAgents
-// @Produce plain
+// @Produce json
 // @Param sessionID path string true "Session ID"
-// @Success 200 {string} string "Clipboard text content"
+// @Success 200 {object} types.ClipboardData
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Router /api/v1/external-agents/{sessionID}/clipboard [get]
@@ -845,9 +845,9 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 // @Summary Set session clipboard content
 // @Description Send clipboard content to remote desktop
 // @Tags ExternalAgents
-// @Accept plain
+// @Accept json
 // @Param sessionID path string true "Session ID"
-// @Param clipboard body string true "Clipboard text to set"
+// @Param clipboard body types.ClipboardData true "Clipboard data to set"
 // @Success 200
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError

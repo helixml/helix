@@ -1893,6 +1893,12 @@ type ZedAgentRDPData struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// ClipboardData represents clipboard content from remote desktop
+type ClipboardData struct {
+	Type string `json:"type"` // "text" or "image"
+	Data string `json:"data"` // text content or base64-encoded image
+}
+
 type DataEntityConfig struct {
 	FilestorePath string      `json:"filestore_path"`
 	RAGSettings   RAGSettings `json:"rag_settings"`

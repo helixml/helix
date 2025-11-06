@@ -1744,7 +1744,7 @@ const docTemplate = `{
                 ],
                 "description": "Fetch current clipboard content from remote desktop",
                 "produces": [
-                    "text/plain"
+                    "application/json"
                 ],
                 "tags": [
                     "ExternalAgents"
@@ -1761,9 +1761,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Clipboard text content",
+                        "description": "OK",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/types.ClipboardData"
                         }
                     },
                     "401": {
@@ -1788,7 +1788,7 @@ const docTemplate = `{
                 ],
                 "description": "Send clipboard content to remote desktop",
                 "consumes": [
-                    "text/plain"
+                    "application/json"
                 ],
                 "tags": [
                     "ExternalAgents"
@@ -1803,12 +1803,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Clipboard text to set",
+                        "description": "Clipboard data to set",
                         "name": "clipboard",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/types.ClipboardData"
                         }
                     }
                 ],
@@ -14527,6 +14527,19 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.OpenAIMessage"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ClipboardData": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "text content or base64-encoded image",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"text\" or \"image\"",
                     "type": "string"
                 }
             }

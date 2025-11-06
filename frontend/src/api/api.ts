@@ -1801,6 +1801,13 @@ export interface TypesChoice {
   text?: string;
 }
 
+export interface TypesClipboardData {
+  /** text content or base64-encoded image */
+  data?: string;
+  /** "text" or "image" */
+  type?: string;
+}
+
 export interface TypesContextMenuAction {
   /** Forms the grouping in the UI */
   action_label?: string;
@@ -5260,10 +5267,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<string, SystemHTTPError>({
+      this.request<TypesClipboardData, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
         secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -5276,13 +5284,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: string, params: RequestParams = {}) =>
+    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
       this.request<void, SystemHTTPError>({
         path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "POST",
         body: clipboard,
         secure: true,
-        type: ContentType.Text,
+        type: ContentType.Json,
         ...params,
       }),
 

@@ -3101,6 +3101,15 @@ definitions:
       text:
         type: string
     type: object
+  types.ClipboardData:
+    properties:
+      data:
+        description: text content or base64-encoded image
+        type: string
+      type:
+        description: '"text" or "image"'
+        type: string
+    type: object
   types.ContextMenuAction:
     properties:
       action_label:
@@ -8192,12 +8201,12 @@ paths:
         required: true
         type: string
       produces:
-      - text/plain
+      - application/json
       responses:
         "200":
-          description: Clipboard text content
+          description: OK
           schema:
-            type: string
+            $ref: '#/definitions/types.ClipboardData'
         "401":
           description: Unauthorized
           schema:
@@ -8213,7 +8222,7 @@ paths:
       - ExternalAgents
     post:
       consumes:
-      - text/plain
+      - application/json
       description: Send clipboard content to remote desktop
       parameters:
       - description: Session ID
@@ -8221,12 +8230,12 @@ paths:
         name: sessionID
         required: true
         type: string
-      - description: Clipboard text to set
+      - description: Clipboard data to set
         in: body
         name: clipboard
         required: true
         schema:
-          type: string
+          $ref: '#/definitions/types.ClipboardData'
       responses:
         "200":
           description: OK
