@@ -1453,7 +1453,7 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 
 	// In-memory cache miss - query Wolf lobbies to find container
 	// This handles API restarts where in-memory map is cleared but containers are still running
-	log.Debug().
+	log.Trace().
 		Str("helix_session_id", helixSessionID).
 		Msg("Session not in memory, querying Wolf lobbies for container")
 
@@ -1476,7 +1476,7 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
 							containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
 
-							log.Info().
+							log.Trace().
 								Str("helix_session_id", helixSessionID).
 								Str("lobby_id", lobby.ID).
 								Str("container_hostname", containerHostname).

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/rs/zerolog/log"
@@ -1230,51 +1231,66 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 		return nil, fmt.Errorf("repository has no local path")
 	}
 
-	// Build full path
-	fullPath := filepath.Join(repo.LocalPath, path)
-
-	// Check if path exists
-	info, err := os.Stat(fullPath)
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
 	if err != nil {
-		return nil, fmt.Errorf("path not found: %w", err)
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	// If it's a file, return single entry
-	if !info.IsDir() {
-		return []TreeEntry{{
-			Name:  filepath.Base(path),
-			Path:  path,
-			IsDir: false,
-			Size:  info.Size(),
-		}}, nil
+	// Get HEAD reference to read from default branch
+	ref, err := gitRepo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HEAD: %w", err)
 	}
 
-	// Read directory contents
-	entries, err := os.ReadDir(fullPath)
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Navigate to the requested path
+	if path != "." && path != "" {
+		tree, err = tree.Tree(path)
+		if err != nil {
+			return nil, fmt.Errorf("path not found in repository: %w", err)
+		}
 	}
 
 	// Build tree entries
-	result := make([]TreeEntry, 0, len(entries))
-	for _, entry := range entries {
-		// Skip .git directory
-		if entry.Name() == ".git" {
-			continue
+	result := make([]TreeEntry, 0, len(tree.Entries))
+	for _, entry := range tree.Entries {
+		entryPath := path
+		if entryPath == "." || entryPath == "" {
+			entryPath = entry.Name
+		} else {
+			entryPath = filepath.Join(path, entry.Name)
 		}
 
-		entryPath := filepath.Join(path, entry.Name())
-		entryInfo, err := entry.Info()
-		if err != nil {
-			log.Warn().Err(err).Str("path", entryPath).Msg("Failed to get entry info, skipping")
-			continue
+		// Determine if entry is a directory
+		isDir := entry.Mode == filemode.Dir
+
+		// Get size (only available for files/blobs)
+		var size int64
+		if !isDir {
+			// Get blob to read size
+			blob, err := gitRepo.BlobObject(entry.Hash)
+			if err == nil {
+				size = blob.Size
+			}
 		}
 
 		result = append(result, TreeEntry{
-			Name:  entry.Name(),
+			Name:  entry.Name,
 			Path:  entryPath,
-			IsDir: entry.IsDir(),
-			Size:  entryInfo.Size(),
+			IsDir: isDir,
+			Size:  size,
 		})
 	}
 
@@ -1293,24 +1309,41 @@ func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID strin
 		return "", fmt.Errorf("repository has no local path")
 	}
 
-	// Build full path
-	fullPath := filepath.Join(repo.LocalPath, path)
-
-	// Check if file exists and is not a directory
-	info, err := os.Stat(fullPath)
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
 	if err != nil {
-		return "", fmt.Errorf("file not found: %w", err)
+		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	if info.IsDir() {
-		return "", fmt.Errorf("path is a directory, not a file")
+	// Get HEAD reference to read from default branch
+	ref, err := gitRepo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Get the file
+	file, err := tree.File(path)
+	if err != nil {
+		return "", fmt.Errorf("file not found in repository: %w", err)
 	}
 
 	// Read file contents
-	content, err := os.ReadFile(fullPath)
+	content, err := file.Contents()
 	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
+		return "", fmt.Errorf("failed to read file contents: %w", err)
 	}
 
-	return string(content), nil
+	return content, nil
 }

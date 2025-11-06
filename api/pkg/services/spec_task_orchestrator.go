@@ -174,7 +174,7 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 		if err != nil {
 			// Tasks with deleted projects are expected - don't spam logs
 			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
-				log.Debug().
+				log.Trace().
 					Err(err).
 					Str("task_id", task.ID).
 					Str("status", task.Status).
@@ -221,7 +221,7 @@ func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.Sp
 
 	if !project.AutoStartBacklogTasks {
 		// Auto-start is disabled - don't process backlog tasks automatically
-		log.Debug().
+		log.Trace().
 			Str("task_id", task.ID).
 			Str("project_id", task.ProjectID).
 			Msg("Skipping backlog task - auto-start is disabled for this project")

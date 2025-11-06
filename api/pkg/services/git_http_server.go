@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -290,13 +291,32 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 
 	// Handle Basic auth format from git
 	if strings.HasPrefix(apiKey, "Basic ") {
-		// This would need to decode base64 and extract the password part
-		// For now, just return a test user for Basic auth
-		return &types.User{
-			ID:    "git_user",
-			Email: "git@example.com",
-			Admin: false,
-		}, nil
+		// Decode base64 and extract password (which is the API token)
+		// Format: "Basic base64(username:password)" where username is "api" and password is the token
+		encodedCreds := strings.TrimPrefix(apiKey, "Basic ")
+		decodedBytes, err := base64.StdEncoding.DecodeString(encodedCreds)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to decode Basic auth")
+			return nil, fmt.Errorf("invalid Basic auth encoding")
+		}
+
+		// Split username:password
+		credentials := string(decodedBytes)
+		parts := strings.SplitN(credentials, ":", 2)
+		if len(parts) != 2 {
+			log.Debug().Str("credentials", credentials).Msg("Invalid Basic auth format")
+			return nil, fmt.Errorf("invalid Basic auth format")
+		}
+
+		// Extract the password part (API token)
+		apiKey = parts[1]
+
+		log.Debug().
+			Str("username", parts[0]).
+			Str("api_key_prefix", apiKey[:min(len(apiKey), 8)]).
+			Msg("Extracted API token from Basic auth")
+
+		// Fall through to validate the extracted token below
 	}
 
 	// Use Helix's existing API key validation

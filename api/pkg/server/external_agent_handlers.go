@@ -837,7 +837,7 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	log.Info().
+	log.Trace().
 		Str("session_id", sessionID).
 		Msg("Successfully retrieved clipboard from external agent container")
 }
