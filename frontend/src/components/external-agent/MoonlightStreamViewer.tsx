@@ -78,6 +78,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const lastBytesRef = useRef<{ bytes: number; timestamp: number } | null>(null);
 
   const helixApi = useApi();
   const account = useAccount();
@@ -167,8 +168,8 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       settings.bitrate = 80000;  // 80 Mbps for 4K quality (matches Moonlight Qt)
       settings.packetSize = 1024;
       settings.fps = 60;
-      settings.videoSampleQueueSize = 50;  // Increased for 4K60 (default 5 too small)
-      settings.audioSampleQueueSize = 10;
+      settings.videoSampleQueueSize = 100;  // Increased for 4K60@80Mbps (was 5, then 50)
+      settings.audioSampleQueueSize = 20;
       settings.playAudioLocal = !audioEnabled;
 
       // Force H264 only for compatibility with Wolf-UI
@@ -528,8 +529,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     }
 
     const pollStats = async () => {
-      const peer = streamRef.current?.getPeer();
-      if (!peer) return;
+      const peer = streamRef.current?.getPeer?.();
+      if (!peer) {
+        console.warn('[Stats] getPeer not available yet');
+        return;
+      }
 
       try {
         const statsReport = await peer.getStats();
@@ -539,14 +543,37 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           timestamp: new Date().toISOString(),
         };
 
+        let codecInfo = 'unknown';
+
         statsReport.forEach((report: any) => {
+          // Get codec details
+          if (report.type === 'codec' && report.mimeType?.includes('video')) {
+            const profile = report.sdpFmtpLine?.match(/profile-level-id=([0-9a-fA-F]+)/)?.[1];
+            codecInfo = `${report.mimeType}${profile ? ` (${profile})` : ''}`;
+          }
+
           if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            // Calculate bitrate from delta
+            const now = Date.now();
+            const bytes = report.bytesReceived || 0;
+            let bitrateMbps = 0;
+
+            if (lastBytesRef.current) {
+              const deltaBytes = bytes - lastBytesRef.current.bytes;
+              const deltaTime = (now - lastBytesRef.current.timestamp) / 1000; // seconds
+              if (deltaTime > 0) {
+                bitrateMbps = ((deltaBytes * 8) / 1000000) / deltaTime;
+              }
+            }
+
+            lastBytesRef.current = { bytes, timestamp: now };
+
             parsedStats.video = {
-              codec: report.mimeType || 'unknown',
+              codec: codecInfo,
               width: report.frameWidth,
               height: report.frameHeight,
               fps: report.framesPerSecond?.toFixed(1) || 0,
-              bitrate: report.bytesReceived ? ((report.bytesReceived * 8) / 1000000).toFixed(2) : 0,
+              bitrate: bitrateMbps.toFixed(2),
               packetsLost: report.packetsLost || 0,
               packetsReceived: report.packetsReceived || 0,
               framesDecoded: report.framesDecoded || 0,
@@ -573,7 +600,10 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
     const interval = setInterval(pollStats, 1000);
     pollStats(); // Initial call
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      lastBytesRef.current = null; // Reset for next time
+    };
   }, [showStats]);
 
   // Calculate stream rectangle for mouse coordinate mapping
