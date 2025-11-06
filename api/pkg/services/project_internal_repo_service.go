@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/types"
@@ -57,10 +58,11 @@ func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, 
 		return "", fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Initialize Git repository
-	repo, err := git.PlainInit(repoPath, false)
+	// Initialize bare Git repository
+	// All filestore repos are bare so agents can push to them
+	repo, err := git.PlainInit(repoPath, true)
 	if err != nil {
-		return "", fmt.Errorf("failed to initialize git repository: %w", err)
+		return "", fmt.Errorf("failed to initialize bare git repository: %w", err)
 	}
 
 	// Set HEAD to point to main branch (instead of master)
@@ -70,8 +72,19 @@ func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, 
 		return "", fmt.Errorf("failed to set HEAD to main branch: %w", err)
 	}
 
-	// Create .helix directory structure
-	helixDir := filepath.Join(repoPath, ".helix")
+	// Create temp clone to add initial files
+	tempClone := repoPath + "-temp"
+	defer os.RemoveAll(tempClone)
+
+	tempRepo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+		URL: repoPath,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp clone: %w", err)
+	}
+
+	// Create .helix directory structure in temp clone
+	helixDir := filepath.Join(tempClone, ".helix")
 	if err := os.MkdirAll(helixDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create .helix directory: %w", err)
 	}
@@ -145,8 +158,8 @@ It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent
 		return "", fmt.Errorf("failed to write README.md: %w", err)
 	}
 
-	// Commit initial structure
-	worktree, err := repo.Worktree()
+	// Commit initial structure in temp clone
+	worktree, err := tempRepo.Worktree()
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree: %w", err)
 	}
@@ -167,6 +180,12 @@ It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to commit initial structure: %w", err)
+	}
+
+	// Push to bare repo
+	err = tempRepo.Push(&git.PushOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 
 	log.Info().
@@ -198,19 +217,27 @@ func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, interna
 		return fmt.Errorf("internal repo path not set for project")
 	}
 
-	scriptPath := filepath.Join(internalRepoPath, ".helix", "startup.sh")
+	// Create temporary clone of bare repo
+	tempClone := filepath.Join(os.TempDir(), fmt.Sprintf("helix-internal-repo-%s-%d", projectID, time.Now().Unix()))
+	defer os.RemoveAll(tempClone) // Cleanup
+
+	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+		URL: internalRepoPath, // Clone from bare repo
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clone internal repo: %w", err)
+	}
 
 	// Write the script
+	scriptPath := filepath.Join(tempClone, ".helix", "startup.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0755); err != nil {
+		return fmt.Errorf("failed to create .helix directory: %w", err)
+	}
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return fmt.Errorf("failed to write startup script: %w", err)
 	}
 
 	// Commit the change
-	repo, err := git.PlainOpen(internalRepoPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
-	}
-
 	worktree, err := repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("failed to get worktree: %w", err)
@@ -248,9 +275,15 @@ func (s *ProjectInternalRepoService) SaveStartupScript(projectID string, interna
 		return fmt.Errorf("failed to commit startup script: %w", err)
 	}
 
+	// Push to bare repo
+	err = repo.Push(&git.PushOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
 	log.Info().
 		Str("project_id", projectID).
-		Msg("Startup script saved and committed to internal repo")
+		Msg("Startup script saved and pushed to bare internal repo")
 
 	return nil
 }
@@ -261,8 +294,18 @@ func (s *ProjectInternalRepoService) UpdateProjectConfig(project *types.Project)
 		return fmt.Errorf("internal repo path not set for project")
 	}
 
-	configPath := filepath.Join(project.InternalRepoPath, ".helix", "project.json")
+	// Create temporary clone of bare repo
+	tempClone := filepath.Join(os.TempDir(), fmt.Sprintf("helix-internal-repo-%s-%d", project.ID, time.Now().Unix()))
+	defer os.RemoveAll(tempClone) // Cleanup
 
+	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+		URL: project.InternalRepoPath, // Clone from bare repo
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clone internal repo: %w", err)
+	}
+
+	// Prepare project config
 	projectConfig := ProjectConfig{
 		ProjectID:     project.ID,
 		Name:          project.Name,
@@ -278,16 +321,16 @@ func (s *ProjectInternalRepoService) UpdateProjectConfig(project *types.Project)
 		return fmt.Errorf("failed to marshal project config: %w", err)
 	}
 
+	// Write project.json
+	configPath := filepath.Join(tempClone, ".helix", "project.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("failed to create .helix directory: %w", err)
+	}
 	if err := os.WriteFile(configPath, projectConfigData, 0644); err != nil {
 		return fmt.Errorf("failed to write project.json: %w", err)
 	}
 
 	// Commit the change
-	repo, err := git.PlainOpen(project.InternalRepoPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
-	}
-
 	worktree, err := repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("failed to get worktree: %w", err)
@@ -311,9 +354,15 @@ func (s *ProjectInternalRepoService) UpdateProjectConfig(project *types.Project)
 		return fmt.Errorf("failed to commit project config: %w", err)
 	}
 
+	// Push to bare repo
+	err = repo.Push(&git.PushOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
 	log.Info().
 		Str("project_id", project.ID).
-		Msg("Project config updated and committed to internal repo")
+		Msg("Project config updated and pushed to bare internal repo")
 
 	return nil
 }
@@ -342,27 +391,31 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to create code repo directory: %w", err)
 	}
 
-	// Initialize Git repository
-	repo, err := git.PlainInit(repoPath, false)
+	// Initialize bare Git repository
+	_, err = git.PlainInit(repoPath, true)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to initialize git repository: %w", err)
+		return "", "", fmt.Errorf("failed to initialize bare git repository: %w", err)
 	}
 
-	// Set HEAD to point to main branch (instead of master)
-	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/heads/main"))
-	err = repo.Storer.SetReference(headRef)
+	// Create temp clone to add sample files
+	tempClone := repoPath + "-temp"
+	defer os.RemoveAll(tempClone)
+
+	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+		URL: repoPath,
+	})
 	if err != nil {
-		return "", "", fmt.Errorf("failed to set HEAD to main branch: %w", err)
+		return "", "", fmt.Errorf("failed to create temp clone: %w", err)
 	}
 
-	// Write all sample files
+	// Write all sample files to temp clone
 	allFiles, err := s.sampleCodeService.GetProjectCodeArchive(ctx, sampleID)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get sample files: %w", err)
 	}
 
 	for filePath, content := range allFiles {
-		fullPath := filepath.Join(repoPath, filePath)
+		fullPath := filepath.Join(tempClone, filePath)
 
 		// Create parent directories
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
@@ -399,6 +452,12 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to commit initial structure: %w", err)
 	}
 
+	// Push to bare repo
+	err = repo.Push(&git.PushOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
 	log.Info().
 		Str("project_id", project.ID).
 		Str("sample_id", sampleID).
@@ -422,13 +481,22 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 		Str("repo_path", repoPath).
 		Msg("Cloning sample project repository into internal repository")
 
-	// Create directory
+	// Create directory for bare repo
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Clone the sample repository (for real GitHub repos like helixml/helix)
-	_, err := git.PlainClone(repoPath, false, &git.CloneOptions{
+	// Initialize bare repository first
+	_, err := git.PlainInit(repoPath, true)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize bare repository: %w", err)
+	}
+
+	// Clone the sample repository to temp location
+	tempClone := repoPath + "-temp"
+	defer os.RemoveAll(tempClone)
+
+	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
 		URL:      sampleRepoURL,
 		Progress: os.Stdout,
 		Depth:    1, // Shallow clone for speed
@@ -437,8 +505,8 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 		return "", fmt.Errorf("failed to clone sample repository: %w", err)
 	}
 
-	// Ensure .helix directory exists
-	helixDir := filepath.Join(repoPath, ".helix")
+	// Ensure .helix directory exists in temp clone
+	helixDir := filepath.Join(tempClone, ".helix")
 	if err := os.MkdirAll(filepath.Join(helixDir, "tasks"), 0755); err != nil {
 		return "", fmt.Errorf("failed to create .helix/tasks directory: %w", err)
 	}
@@ -466,12 +534,21 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 		return "", fmt.Errorf("failed to write project.json: %w", err)
 	}
 
-	// Commit .helix structure
-	repo, err := git.PlainOpen(repoPath)
+	// Change origin remote to point to our bare repo instead of GitHub
+	err = repo.DeleteRemote("origin")
 	if err != nil {
-		return "", fmt.Errorf("failed to open git repository: %w", err)
+		log.Warn().Err(err).Msg("Failed to delete origin remote (continuing)")
 	}
 
+	_, err = repo.CreateRemote(&config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{repoPath}, // Point to our bare repo
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create origin remote: %w", err)
+	}
+
+	// Commit .helix structure in temp clone
 	worktree, err := repo.Worktree()
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree: %w", err)
@@ -494,6 +571,15 @@ func (s *ProjectInternalRepoService) CloneSampleProject(ctx context.Context, pro
 	if err != nil {
 		// Ignore error if nothing to commit
 		log.Debug().Err(err).Msg("No changes to commit (may already exist)")
+	}
+
+	// Push everything to bare repo
+	err = repo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		RefSpecs:   []config.RefSpec{"refs/heads/*:refs/heads/*"}, // Push all branches
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return "", fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 
 	log.Info().
