@@ -315,24 +315,8 @@ As a [user type], I want [goal] so that [benefit]
 WHEN [condition/event]
 THE SYSTEM SHALL [expected behavior]
 
-Example:
-
-WHEN a user submits a login form with valid credentials
-THE SYSTEM SHALL authenticate the user
-  AND redirect to the dashboard
-  AND display a welcome message
-
-WHEN a user submits a login form with invalid credentials
-THE SYSTEM SHALL display an error message
-  AND keep the user on the login page
-  AND log the failed attempt
-
-## Additional Requirements
-
-<!-- Any other functional or non-functional requirements -->
-
 ---
-*User stories and acceptance criteria in structured EARS notation*
+*Scale complexity to match the task - simple tasks need minimal detail, complex tasks need more*
 `, taskID, time.Now().Format("2006-01-02"))
 
 	err = os.WriteFile(filepath.Join(taskDir, "requirements.md"), []byte(requirementsTemplate), 0644)
@@ -348,38 +332,14 @@ THE SYSTEM SHALL display an error message
 
 ## Architecture
 
-High-level system architecture and component organization
+Brief overview of system components
 
-## Data Flow
+## Key Technical Decisions
 
-How data moves through the system
-
-## Sequence Diagrams
-
-Key interaction flows and sequences between components
-
-## Interfaces
-
-API contracts, function signatures, data structures
-
-## Data Models
-
-Database schema, entities, relationships
-
-## Error Handling
-
-Error scenarios and recovery strategies
-
-## Implementation Considerations
-
-Technical decisions, tradeoffs, risks, dependencies
-
-## Unit Testing Strategy
-
-How components will be tested
+Critical choices and rationale
 
 ---
-*Technical architecture, sequence diagrams, and implementation considerations*
+*For complex tasks, add sections like: Data Models, Sequence Diagrams, API Contracts, Error Handling*
 `, taskID, time.Now().Format("2006-01-02"))
 
 	err = os.WriteFile(filepath.Join(taskDir, "design.md"), []byte(designTemplate), 0644)
@@ -393,37 +353,14 @@ How components will be tested
 **SpecTask ID**: %s
 **Created**: %s
 
-## Implementation Plan
+## Implementation Tasks
 
-Discrete, trackable tasks with clear descriptions and expected outcomes.
-
-### Tasks
-
-- [ ] Task 1: Setup and configuration
-  - Expected outcome: Project structure ready
-  - Resources: Database schema, config files
-
-- [ ] Task 2: Core implementation
-  - Expected outcome: Main functionality working
-  - Dependencies: Task 1
-
-- [ ] Task 3: Testing and validation
-  - Expected outcome: All tests passing
-  - Dependencies: Task 2
-
-- [ ] Task 4: Documentation
-  - Expected outcome: README and API docs complete
-  - Dependencies: Task 3
-
-## Progress
-
-**Tasks Completed**: 0/4 (0%%)
-**Current Task**: None
-**Last Updated**: %s
+- [ ] Task 1: Brief description
+- [ ] Task 2: Brief description
 
 ---
-*Detailed implementation plan with discrete, trackable tasks*
-`, taskID, time.Now().Format("2006-01-02"), time.Now().Format("2006-01-02 15:04:05"))
+*Number of tasks depends on scope - could be 2 tasks or 30+ for complex work*
+`, taskID, time.Now().Format("2006-01-02"))
 
 	err = os.WriteFile(filepath.Join(taskDir, "tasks.md"), []byte(tasksTemplate), 0644)
 	if err != nil {

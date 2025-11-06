@@ -561,7 +561,14 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 
 // buildSpecGenerationPrompt creates the system prompt for planning Zed agent
 func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) string {
-	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a simple user request and generate comprehensive, implementable specifications.
+	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a user request and generate SHORT, SIMPLE, implementable specifications.
+
+**CRITICAL: Planning phase needs to run quickly - be concise!**
+- Match document complexity to task complexity
+- Simple tasks = minimal docs (1-2 paragraphs per section)
+- Complex tasks = add necessary detail (architecture diagrams, sequence flows, etc.)
+- Only essential information, no fluff
+- Focus on actionable items, not explanations
 
 **Project Context:**
 - Project ID: %s
@@ -629,13 +636,24 @@ After committing, let the user know the design docs are ready for review.
 They can continue chatting with you to refine the design before approval.
 
 **Important Guidelines:**
+- **MATCH COMPLEXITY TO TASK** - Simple tasks = simple docs, complex tasks = add detail
+- **BE CONCISE** - Keep everything brief, but include necessary detail
+- **NO FLUFF** - Only actionable information, skip lengthy explanations
 - Be specific and actionable - avoid vague descriptions
 - ALWAYS commit your work to the helix-design-docs git worktree
-- The user can continue chatting with you to refine the design
-- Make it easy for the implementation agent to work from your design
-- Use the [ ] checklist format in progress.md for task tracking
+- Use the [ ] checklist format in tasks.md for task tracking
 
-Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
+**Scaling Complexity:**
+- Simple task (e.g., "fix a bug"): Minimal docs, just essentials
+- Medium task (e.g., "add a feature"): Core sections, key decisions
+- Complex task (e.g., "build authentication system"): Add architecture diagrams, sequence flows, data models
+
+**Document Guidelines:**
+- requirements.md: Core user stories + key acceptance criteria (as many as needed)
+- design.md: Essential architecture + key decisions (add sections for complex tasks)
+- tasks.md: Discrete, implementable tasks (could be 3 tasks or 20+ depending on scope)
+
+Start by analyzing the user's request complexity, then create SHORT, SIMPLE design documents in the worktree.`,
 		task.ProjectID, task.Type, task.Priority, task.ID,
 		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name
 		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command
