@@ -356,6 +356,7 @@ func NewServer(
 			MaxRepoSize:       1024 * 1024 * 1024, // 1GB
 			RequestTimeout:    5 * time.Minute,
 		},
+		apiServer.authorizeUserToResource, // Use server's existing RBAC system
 	)
 	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
 

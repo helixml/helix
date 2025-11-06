@@ -13,8 +13,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// AuthorizationFunc is a callback to check if a user can perform an action on a resource
+type AuthorizationFunc func(ctx context.Context, user *types.User, orgID, resourceID string, resourceType types.Resource, action types.Action) error
 
 // GitHTTPServer provides HTTP access to git repositories with API key authentication
 // Enables Zed agents to clone/push to repositories over the network
@@ -29,6 +33,7 @@ type GitHTTPServer struct {
 	maxRepoSize       int64 // Maximum repository size in bytes
 	requestTimeout    time.Duration
 	testMode          bool
+	authorizeFn       AuthorizationFunc // Callback to server's RBAC system
 }
 
 // GitHTTPServerConfig represents configuration for the git HTTP server
@@ -57,6 +62,7 @@ func NewGitHTTPServer(
 	store store.Store,
 	gitRepoService *GitRepositoryService,
 	config *GitHTTPServerConfig,
+	authorizeFn AuthorizationFunc,
 ) *GitHTTPServer {
 	// Set defaults
 	if config.GitExecutablePath == "" {
@@ -83,6 +89,7 @@ func NewGitHTTPServer(
 		maxRepoSize:       config.MaxRepoSize,
 		requestTimeout:    config.RequestTimeout,
 		testMode:          false,
+		authorizeFn:       authorizeFn,
 	}
 }
 
@@ -209,15 +216,15 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Validate API key
-		valid, userID, err := s.validateAPIKey(r.Context(), apiKey)
+		// Validate API key and get user object
+		user, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to validate API key for git request")
 			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 
-		if !valid {
+		if user == nil {
 			log.Warn().
 				Str("api_key_prefix", apiKey[:min(len(apiKey), 8)]).
 				Msg("Invalid API key for git request")
@@ -225,12 +232,12 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add user context to request
-		ctx := context.WithValue(r.Context(), "user_id", userID)
+		// Add user object to request context (not just user ID)
+		ctx := context.WithValue(r.Context(), "git_user", user)
 		r = r.WithContext(ctx)
 
 		log.Debug().
-			Str("user_id", userID).
+			Str("user_id", user.ID).
 			Str("path", r.URL.Path).
 			Msg("Git request authenticated")
 
@@ -270,44 +277,59 @@ func (s *GitHTTPServer) extractAPIKey(r *http.Request) string {
 	return ""
 }
 
-// validateAPIKey validates an API key using Helix's existing API key system
-func (s *GitHTTPServer) validateAPIKey(ctx context.Context, apiKey string) (bool, string, error) {
-	// In test mode, accept any key
+// validateAPIKeyAndGetUser validates an API key and returns the full user object
+func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey string) (*types.User, error) {
+	// In test mode, return a test user
 	if s.testMode {
-		return true, "test_user", nil
+		return &types.User{
+			ID:    "test_user",
+			Email: "test@example.com",
+			Admin: false,
+		}, nil
 	}
 
 	// Handle Basic auth format from git
 	if strings.HasPrefix(apiKey, "Basic ") {
 		// This would need to decode base64 and extract the password part
-		// For now, just return valid for any Basic auth
-		return true, "git_user", nil
+		// For now, just return a test user for Basic auth
+		return &types.User{
+			ID:    "git_user",
+			Email: "git@example.com",
+			Admin: false,
+		}, nil
 	}
 
 	// Use Helix's existing API key validation
 	apiKeyRecord, err := s.store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to get API key from store")
-		return false, "", err
+		return nil, err
 	}
 
 	if apiKeyRecord == nil {
 		log.Debug().Str("api_key_prefix", apiKey[:min(len(apiKey), 8)]).Msg("API key not found")
-		return false, "", nil
+		return nil, nil
 	}
 
 	// Check if API key is active and not expired
 	if apiKeyRecord.Created.IsZero() {
 		log.Debug().Str("api_key", apiKeyRecord.Key).Msg("API key is inactive")
-		return false, "", nil
+		return nil, nil
+	}
+
+	// Get the user object
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{ID: apiKeyRecord.Owner})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", apiKeyRecord.Owner).Msg("Failed to get user for API key")
+		return nil, err
 	}
 
 	log.Debug().
 		Str("api_key", apiKeyRecord.Key).
-		Str("user_id", apiKeyRecord.Owner).
+		Str("user_id", user.ID).
 		Msg("API key validated successfully for git access")
 
-	return true, apiKeyRecord.Owner, nil
+	return user, nil
 }
 
 // handleInfoRefs handles the git info/refs request
@@ -380,6 +402,17 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Check if user has read access to repository
+	user := s.getUser(r)
+	if !s.hasReadAccess(r.Context(), user, repoID) {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("repo_id", repoID).
+			Msg("User does not have read access to repository")
+		http.Error(w, "Read access denied", http.StatusForbidden)
+		return
+	}
+
 	// Get repository
 	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
 	if err != nil {
@@ -413,7 +446,7 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 
 	log.Info().
 		Str("repo_id", repoID).
-		Str("user_id", s.getUserID(r)).
+		Str("user_id", user.ID).
 		Int("response_size", len(output)).
 		Msg("Git upload-pack completed")
 }
@@ -433,22 +466,22 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Check if user has push permissions
+	user := s.getUser(r)
+	if !s.hasWriteAccess(r.Context(), user, repoID) {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("repo_id", repoID).
+			Msg("User does not have push access to repository")
+		http.Error(w, "Push access denied", http.StatusForbidden)
+		return
+	}
+
 	// Get repository
 	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for receive-pack")
 		http.Error(w, "Repository not found", http.StatusNotFound)
-		return
-	}
-
-	// Check if user has push permissions
-	userID := s.getUserID(r)
-	if !s.hasWriteAccess(r.Context(), userID, repoID) {
-		log.Warn().
-			Str("user_id", userID).
-			Str("repo_id", repoID).
-			Msg("User does not have push access to repository")
-		http.Error(w, "Push access denied", http.StatusForbidden)
 		return
 	}
 
@@ -477,7 +510,7 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 
 	log.Info().
 		Str("repo_id", repoID).
-		Str("user_id", userID).
+		Str("user_id", user.ID).
 		Int("response_size", len(output)).
 		Msg("Git receive-pack completed")
 }
@@ -621,21 +654,80 @@ func (s *GitHTTPServer) getDirectorySize(path string) (int64, error) {
 	return size, err
 }
 
-// hasWriteAccess checks if a user has write access to a repository
-func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, userID string, repoID string) bool {
-	// TODO: Implement proper permission checking
-	// For now, allow all authenticated users to push
-	return userID != ""
+// hasReadAccess checks if a user has read access to a repository using existing RBAC system
+func (s *GitHTTPServer) hasReadAccess(ctx context.Context, user *types.User, repoID string) bool {
+	if user == nil {
+		return false
+	}
+
+	// Get repository to check organization
+	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for access check")
+		return false
+	}
+
+	// Repository owner always has access
+	if repo.OwnerID == user.ID {
+		return true
+	}
+
+	// Admin users have access to all repositories
+	if user.Admin {
+		return true
+	}
+
+	// If repository has no organization, only owner and admin can access
+	if repo.OrganizationID == "" {
+		return false
+	}
+
+	// Use existing RBAC system from server
+	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionGet)
+	return err == nil
 }
 
-// getUserID extracts user ID from request context
-func (s *GitHTTPServer) getUserID(r *http.Request) string {
-	if userID := r.Context().Value("user_id"); userID != nil {
-		if uid, ok := userID.(string); ok {
-			return uid
+// hasWriteAccess checks if a user has write access to a repository using existing RBAC system
+func (s *GitHTTPServer) hasWriteAccess(ctx context.Context, user *types.User, repoID string) bool {
+	if user == nil {
+		return false
+	}
+
+	// Get repository to check organization
+	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for access check")
+		return false
+	}
+
+	// Repository owner always has write access
+	if repo.OwnerID == user.ID {
+		return true
+	}
+
+	// Admin users have write access to all repositories
+	if user.Admin {
+		return true
+	}
+
+	// If repository has no organization, only owner and admin can access
+	if repo.OrganizationID == "" {
+		return false
+	}
+
+	// Use existing RBAC system from server
+	err = s.authorizeFn(ctx, user, repo.OrganizationID, repoID, types.ResourceGitRepository, types.ActionUpdate)
+	return err == nil
+}
+
+// getUser extracts user object from request context
+func (s *GitHTTPServer) getUser(r *http.Request) *types.User {
+	if user := r.Context().Value("git_user"); user != nil {
+		if u, ok := user.(*types.User); ok {
+			return u
 		}
 	}
-	return ""
+	return nil
 }
 
 // CreateAPIKeyForRepository creates an API key specifically for repository access
