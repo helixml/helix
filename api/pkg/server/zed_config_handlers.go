@@ -52,8 +52,12 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	if session.ParentApp != "" {
 		app, err = apiServer.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
-			return nil, system.NewHTTPError500("failed to get app")
+			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - falling back to default config")
+			// Fall back to default config if app doesn't exist
+			app = &types.App{
+				ID:     "external-agent-default",
+				Config: types.AppConfig{},
+			}
 		}
 	} else {
 		// External agent sessions don't have a parent app - create minimal app config
@@ -157,6 +161,9 @@ func (apiServer *HelixAPIServer) getZedConfig(_ http.ResponseWriter, req *http.R
 	if version == 0 {
 		version = session.Updated.Unix()
 	}
+
+	// Note: Zed keybindings for system clipboard (Ctrl+C/V → editor::Copy/Paste)
+	// are configured in keymap.json created by start-zed-helix.sh startup script
 
 	response := &types.ZedConfigResponse{
 		ContextServers: contextServers,
@@ -270,26 +277,29 @@ func (apiServer *HelixAPIServer) getMergedZedSettings(_ http.ResponseWriter, req
 		// Get Helix config for app-based sessions
 		app, err := apiServer.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
-			log.Error().Err(err).Str("app_id", session.ParentApp).Msg("Failed to get app")
-			return nil, system.NewHTTPError500("failed to get app")
-		}
+			log.Warn().Err(err).Str("app_id", session.ParentApp).Str("session_id", sessionID).Msg("Parent app not found - falling back to empty config")
+			// Fall back to empty config if app doesn't exist
+			zedConfig = &external_agent.ZedMCPConfig{
+				ContextServers: make(map[string]external_agent.ContextServerConfig),
+			}
+		} else {
+			helixAPIURL := apiServer.Cfg.WebServer.URL
+			if helixAPIURL == "" {
+				helixAPIURL = "http://api:8080"
+			}
 
-		helixAPIURL := apiServer.Cfg.WebServer.URL
-		if helixAPIURL == "" {
-			helixAPIURL = "http://api:8080"
-		}
+			helixToken := apiServer.Cfg.WebServer.RunnerToken
+			if helixToken == "" {
+				log.Warn().Msg("RUNNER_TOKEN not configured")
+			}
 
-		helixToken := apiServer.Cfg.WebServer.RunnerToken
-		if helixToken == "" {
-			log.Warn().Msg("RUNNER_TOKEN not configured")
+			generatedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to generate Zed config")
+				return nil, system.NewHTTPError500("failed to generate Zed config")
+			}
+			zedConfig = generatedConfig
 		}
-
-		generatedConfig, err := external_agent.GenerateZedMCPConfig(app, session.Owner, sessionID, helixAPIURL, helixToken)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to generate Zed config")
-			return nil, system.NewHTTPError500("failed to generate Zed config")
-		}
-		zedConfig = generatedConfig
 	}
 
 	// Get user overrides

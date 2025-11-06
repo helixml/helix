@@ -161,86 +161,101 @@ func handleGetClipboard(w http.ResponseWriter, r *http.Request) {
 		xdgRuntimeDir = "/tmp/sockets"
 	}
 
-	// First, detect clipboard MIME types to determine if it's text or image
-	listCmd := exec.Command("wl-paste", "--list-types")
-	listCmd.Env = append(os.Environ(),
-		fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
-		fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
-	)
+	// Try BOTH clipboard selections (CLIPBOARD and PRIMARY) and return whichever has content
+	// Zed and other apps might use different selections
+	// CLIPBOARD = Ctrl+C/V, PRIMARY = text selection/middle-click
 
-	typesOutput, err := listCmd.Output()
-	if err != nil {
-		// Clipboard is empty or unavailable
-		log.Printf("wl-paste --list-types returned error (clipboard may be empty): %v", err)
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(""))
-		return
+	// Helper to try getting clipboard from a selection
+	tryGetClipboard := func(usePrimary bool) (string, []byte, bool) {
+		args := []string{"--list-types"}
+		if usePrimary {
+			args = []string{"--primary", "--list-types"}
+		}
+
+		listCmd := exec.Command("wl-paste", args...)
+		listCmd.Env = append(os.Environ(),
+			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
+			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		)
+
+		typesOutput, err := listCmd.Output()
+		if err != nil {
+			return "", nil, false // Empty or error
+		}
+
+		mimeTypes := string(typesOutput)
+		isImage := strings.Contains(mimeTypes, "image/png") || strings.Contains(mimeTypes, "image/jpeg")
+
+		// Get the actual data
+		var dataCmd *exec.Cmd
+		if isImage {
+			if usePrimary {
+				dataCmd = exec.Command("wl-paste", "--primary", "-t", "image/png")
+			} else {
+				dataCmd = exec.Command("wl-paste", "-t", "image/png")
+			}
+		} else {
+			if usePrimary {
+				dataCmd = exec.Command("wl-paste", "--primary", "--no-newline")
+			} else {
+				dataCmd = exec.Command("wl-paste", "--no-newline")
+			}
+		}
+
+		dataCmd.Env = append(os.Environ(),
+			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
+			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		)
+
+		data, err := dataCmd.Output()
+		if err != nil {
+			return "", nil, false
+		}
+
+		clipboardType := "text"
+		if isImage {
+			clipboardType = "image"
+		}
+
+		return clipboardType, data, true
 	}
 
-	types := string(typesOutput)
-	isImage := strings.Contains(types, "image/png") || strings.Contains(types, "image/jpeg")
-
-	if isImage {
-		// Clipboard contains an image - retrieve as PNG
-		cmd := exec.Command("wl-paste", "-t", "image/png")
-		cmd.Env = append(os.Environ(),
-			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
-			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
-		)
-
-		imageData, err := cmd.Output()
-		if err != nil {
-			log.Printf("Failed to retrieve image from clipboard: %v", err)
+	// Try CLIPBOARD first, then PRIMARY
+	clipType, clipData, found := tryGetClipboard(false)
+	if !found {
+		clipType, clipData, found = tryGetClipboard(true)
+		if !found {
+			// Both selections empty
+			log.Printf("Both CLIPBOARD and PRIMARY selections are empty")
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(""))
 			return
 		}
+		log.Printf("Using PRIMARY selection")
+	}
 
-		// Return image as base64-encoded JSON
-		// Format: {"type":"image","data":"base64..."}
+	// Return clipboard data as JSON
+	if clipType == "image" {
 		response := map[string]string{
 			"type": "image",
-			"data": base64.StdEncoding.EncodeToString(imageData),
+			"data": base64.StdEncoding.EncodeToString(clipData),
 		}
 		jsonData, _ := json.Marshal(response)
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonData)
-
-		log.Printf("Clipboard image retrieved (%d bytes)", len(imageData))
+		log.Printf("Clipboard image retrieved (%d bytes)", len(clipData))
 	} else {
-		// Clipboard contains text
-		cmd := exec.Command("wl-paste", "--no-newline")
-		cmd.Env = append(os.Environ(),
-			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
-			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
-		)
-
-		textData, err := cmd.Output()
-		if err != nil {
-			log.Printf("wl-paste returned error (clipboard may be empty): %v", err)
-			w.Header().Set("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(""))
-			return
-		}
-
-		// Return text as JSON
-		// Format: {"type":"text","data":"text content"}
 		response := map[string]string{
 			"type": "text",
-			"data": string(textData),
+			"data": string(clipData),
 		}
 		jsonData, _ := json.Marshal(response)
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonData)
-
-		log.Printf("Clipboard text retrieved (%d bytes)", len(textData))
+		log.Printf("Clipboard text retrieved (%d bytes)", len(clipData))
 	}
 }
 
@@ -286,7 +301,8 @@ func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Execute wl-copy with image/png MIME type
+		// Set BOTH clipboard selections for maximum compatibility
+		// Execute wl-copy with image/png MIME type (CLIPBOARD selection)
 		cmd := exec.Command("wl-copy", "-t", "image/png")
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
@@ -300,10 +316,20 @@ func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Also set PRIMARY selection
+		cmdPrimary := exec.Command("wl-copy", "--primary", "-t", "image/png")
+		cmdPrimary.Env = append(os.Environ(),
+			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
+			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		)
+		cmdPrimary.Stdin = bytes.NewReader(imageBytes)
+		cmdPrimary.Run() // Ignore error - PRIMARY is best-effort
+
 		w.WriteHeader(http.StatusOK)
-		log.Printf("Clipboard image set (%d bytes)", len(imageBytes))
+		log.Printf("Clipboard image set in both selections (%d bytes)", len(imageBytes))
 	} else {
-		// Text clipboard
+		// Set BOTH clipboard selections for maximum compatibility
+		// Text clipboard (CLIPBOARD selection)
 		cmd := exec.Command("wl-copy")
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
@@ -317,10 +343,21 @@ func handleSetClipboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Also set PRIMARY selection
+		cmdPrimary := exec.Command("wl-copy", "--primary")
+		cmdPrimary.Env = append(os.Environ(),
+			fmt.Sprintf("WAYLAND_DISPLAY=%s", waylandDisplay),
+			fmt.Sprintf("XDG_RUNTIME_DIR=%s", xdgRuntimeDir),
+		)
+		cmdPrimary.Stdin = strings.NewReader(clipboardData.Data)
+		cmdPrimary.Run() // Ignore error - PRIMARY is best-effort
+
 		w.WriteHeader(http.StatusOK)
-		log.Printf("Clipboard text set (%d bytes)", len(clipboardData.Data))
+		log.Printf("Clipboard text set in both selections (%d bytes)", len(clipboardData.Data))
 	}
 }
+
+// Removed duplicate handleSetClipboard - merged into the one above
 
 // getWaylandDisplay returns the cached or detected Wayland display
 func getWaylandDisplay() string {

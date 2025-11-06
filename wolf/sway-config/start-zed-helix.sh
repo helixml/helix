@@ -56,6 +56,23 @@ HEREDOC
     echo "Created README.md to initialize workspace"
 fi
 
+# Configure Zed keybindings to use system clipboard (Wayland wl-clipboard)
+# By default, Ctrl+C/V use Zed's internal clipboard
+# We rebind to editor::Copy/Paste which sync with Wayland system clipboard
+mkdir -p ~/.config/zed
+cat > ~/.config/zed/keymap.json << 'KEYMAP_EOF'
+[
+  {
+    "bindings": {
+      "ctrl-c": "editor::Copy",
+      "ctrl-v": "editor::Paste",
+      "ctrl-x": "editor::Cut"
+    }
+  }
+]
+KEYMAP_EOF
+echo "✅ Zed keymap configured for system clipboard integration"
+
 # Configure SSH agent and load keys for git access
 if [ -d "/home/retro/.ssh" ] && [ "$(ls -A /home/retro/.ssh/*.key 2>/dev/null)" ]; then
     echo "Setting up SSH agent for git access..."

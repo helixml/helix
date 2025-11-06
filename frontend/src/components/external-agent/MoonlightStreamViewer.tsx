@@ -17,6 +17,7 @@ import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/vide
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
 import { FRONTEND_INSTANCE_ID } from '../../utils/instanceId';
+import { TypesClipboardData } from '../../api/api';
 
 interface MoonlightStreamViewerProps {
   sessionId: string;
@@ -502,10 +503,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       try {
         const apiClient = helixApi.getApiClient();
         const response = await apiClient.v1ExternalAgentsClipboardDetail(sessionId);
-        const clipboardData = response.data as { type: string; data: string };
+        const clipboardData: TypesClipboardData = response.data;
+
+        // Skip if clipboard is empty or malformed
+        if (!clipboardData || !clipboardData.type || !clipboardData.data) {
+          return;
+        }
 
         // Hash the clipboard data to detect changes
-        const hash = `${clipboardData.type}:${clipboardData.data?.substring(0, 100)}`;
+        const hash = `${clipboardData.type}:${clipboardData.data.substring(0, 100)}`;
         if (hash === lastRemoteClipboardHash.current) {
           return; // No change, skip update
         }
@@ -526,7 +532,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           ]);
 
           console.log(`[Clipboard] Auto-synced image from remote (${byteArray.length} bytes)`);
-        } else if (clipboardData.type === 'text' && clipboardData.data) {
+        } else if (clipboardData.type === 'text') {
           // Write text to browser clipboard
           await navigator.clipboard.writeText(clipboardData.data);
           console.log(`[Clipboard] Auto-synced text from remote (${clipboardData.data.length} chars)`);
@@ -822,57 +828,76 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
         console.log('[Clipboard] Paste keystroke detected, syncing local → remote');
 
-        (async () => {
-          try {
-            // 1. Read local clipboard (text or image)
-            const clipboardItems = await navigator.clipboard.read();
-
-            let clipboardPayload: { type: string; data: string };
-
-            if (clipboardItems.length > 0) {
-              const item = clipboardItems[0];
-
-              // Check if clipboard contains an image
-              if (item.types.includes('image/png')) {
-                const blob = await item.getType('image/png');
-                const arrayBuffer = await blob.arrayBuffer();
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-
-                clipboardPayload = { type: 'image', data: base64 };
-                console.log(`[Clipboard] Read image from local clipboard (${arrayBuffer.byteLength} bytes)`);
-              } else if (item.types.includes('text/plain')) {
-                const blob = await item.getType('text/plain');
-                const text = await blob.text();
-
-                clipboardPayload = { type: 'text', data: text };
-                console.log(`[Clipboard] Read text from local clipboard (${text.length} chars)`);
-              } else {
-                console.warn('[Clipboard] Unsupported clipboard type:', item.types);
-                // Forward keystroke anyway - might work with existing clipboard
-                streamRef.current?.getInput().onKeyDown(event);
-                return;
-              }
-            } else {
-              // Empty clipboard - just forward keystroke
-              streamRef.current?.getInput().onKeyDown(event);
-              return;
-            }
-
-            // 2. Sync to remote clipboard
-            const apiClient = helixApi.getApiClient();
-            await apiClient.v1ExternalAgentsClipboardCreate(sessionId, clipboardPayload);
-
-            console.log(`[Clipboard] Synced ${clipboardPayload.type} to remote`);
-
-            // 3. Forward the keystroke to remote
-            // Remote app will now paste from the synced remote clipboard
-            streamRef.current?.getInput().onKeyDown(event);
-          } catch (err) {
-            console.error('[Clipboard] Failed to sync for paste:', err);
-            // Still forward the keystroke - let remote handle paste with old clipboard
-            streamRef.current?.getInput().onKeyDown(event);
+        // Handle clipboard sync asynchronously (don't block keystroke processing)
+        navigator.clipboard.read().then(clipboardItems => {
+          if (clipboardItems.length === 0) {
+            console.warn('[Clipboard] Empty clipboard, ignoring paste');
+            return;
           }
-        })();
+
+          const item = clipboardItems[0];
+          let clipboardPayload: TypesClipboardData;
+
+          // Read clipboard data
+          if (item.types.includes('image/png')) {
+            item.getType('image/png').then(blob => {
+              blob.arrayBuffer().then(arrayBuffer => {
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                clipboardPayload = { type: 'image', data: base64 };
+                syncAndPaste(clipboardPayload);
+              });
+            });
+          } else if (item.types.includes('text/plain')) {
+            item.getType('text/plain').then(blob => {
+              blob.text().then(text => {
+                clipboardPayload = { type: 'text', data: text };
+                syncAndPaste(clipboardPayload);
+              });
+            });
+          } else {
+            console.warn('[Clipboard] Unsupported clipboard type:', item.types);
+          }
+        }).catch(err => {
+          console.error('[Clipboard] Failed to read clipboard:', err);
+        });
+
+        // Helper function to sync clipboard and forward keystroke
+        const syncAndPaste = (payload: TypesClipboardData) => {
+          const apiClient = helixApi.getApiClient();
+          apiClient.v1ExternalAgentsClipboardCreate(sessionId, payload).then(() => {
+            console.log(`[Clipboard] Synced ${payload.type} to remote`);
+
+            // Send Ctrl+Shift+V to remote (works in both terminals and regular apps)
+            const input = streamRef.current?.getInput();
+            if (input) {
+              const ctrlShiftVDown = new KeyboardEvent('keydown', {
+                code: 'KeyV',
+                key: 'V',
+                ctrlKey: true,
+                shiftKey: true,
+                metaKey: false,
+                bubbles: true,
+                cancelable: true,
+              });
+              input.onKeyDown(ctrlShiftVDown);
+
+              const ctrlShiftVUp = new KeyboardEvent('keyup', {
+                code: 'KeyV',
+                key: 'V',
+                ctrlKey: true,
+                shiftKey: true,
+                metaKey: false,
+                bubbles: true,
+                cancelable: true,
+              });
+              input.onKeyUp(ctrlShiftVUp);
+
+              console.log('[Clipboard] Forwarded Ctrl+Shift+V to remote');
+            }
+          }).catch(err => {
+            console.error('[Clipboard] Failed to sync clipboard:', err);
+          });
+        };
 
         return; // Don't fall through to default handler
       }
@@ -889,6 +914,20 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       // Only process if container is focused
       if (document.activeElement !== container) {
         console.log('[MoonlightStreamViewer] KeyUp ignored - container not focused. Active element:', document.activeElement?.tagName);
+        return;
+      }
+
+      // Suppress keyup for paste keystrokes (we synthesize complete keydown+keyup in handleKeyDown)
+      const isCtrlV = event.ctrlKey && !event.shiftKey && event.code === 'KeyV';
+      const isCmdV = event.metaKey && !event.shiftKey && event.code === 'KeyV';
+      const isCtrlShiftV = event.ctrlKey && event.shiftKey && event.code === 'KeyV';
+      const isCmdShiftV = event.metaKey && event.shiftKey && event.code === 'KeyV';
+      const isPasteKeystroke = isCtrlV || isCmdV || isCtrlShiftV || isCmdShiftV;
+
+      if (isPasteKeystroke) {
+        // Suppress keyup for paste - we already sent complete keydown+keyup in clipboard handler
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
