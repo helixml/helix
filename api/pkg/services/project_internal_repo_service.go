@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -53,37 +52,30 @@ func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, 
 		Str("repo_path", repoPath).
 		Msg("Initializing internal project Git repository")
 
-	// Create directory
+	// Create directory for bare repo
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Initialize bare Git repository
+	// Initialize bare Git repository (empty for now)
 	// All filestore repos are bare so agents can push to them
-	repo, err := git.PlainInit(repoPath, true)
+	_, err := git.PlainInit(repoPath, true)
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize bare git repository: %w", err)
 	}
 
-	// Set HEAD to point to main branch (instead of master)
-	headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/heads/main"))
-	err = repo.Storer.SetReference(headRef)
-	if err != nil {
-		return "", fmt.Errorf("failed to set HEAD to main branch: %w", err)
-	}
-
-	// Create temp clone to add initial files
+	// Create temp working repo to add initial files
+	// We can't clone the bare repo yet - it's empty!
 	tempClone, err := os.MkdirTemp("", "helix-repo-init-*")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempClone)
 
-	tempRepo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
-		URL: repoPath,
-	})
+	// Initialize temp repo as non-bare
+	tempRepo, err := git.PlainInit(tempClone, false)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp clone: %w", err)
+		return "", fmt.Errorf("failed to initialize temp repository: %w", err)
 	}
 
 	// Create .helix directory structure in temp clone
@@ -159,6 +151,15 @@ It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent
 
 	if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to write README.md: %w", err)
+	}
+
+	// Add remote pointing to bare repo
+	_, err = tempRepo.CreateRemote(&config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{repoPath}, // Point to bare repo
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create remote: %w", err)
 	}
 
 	// Commit initial structure in temp clone
@@ -426,29 +427,38 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		Str("repo_path", repoPath).
 		Msg("Creating code repository from hardcoded sample")
 
-	// Create directory
+	// Create directory for bare repo
 	if err := os.MkdirAll(repoPath, 0755); err != nil {
 		return "", "", fmt.Errorf("failed to create code repo directory: %w", err)
 	}
 
-	// Initialize bare Git repository
+	// Initialize bare Git repository (empty for now)
 	_, err = git.PlainInit(repoPath, true)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to initialize bare git repository: %w", err)
 	}
 
-	// Create temp clone to add sample files
+	// Create temp working repo to add sample files
+	// We can't clone the bare repo yet - it's empty!
 	tempClone, err := os.MkdirTemp("", "helix-sample-code-*")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tempClone)
 
-	repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
-		URL: repoPath,
+	// Initialize temp repo as non-bare
+	repo, err := git.PlainInit(tempClone, false)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to initialize temp repository: %w", err)
+	}
+
+	// Add remote pointing to bare repo
+	_, err = repo.CreateRemote(&config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{repoPath}, // Point to bare repo
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create temp clone: %w", err)
+		return "", "", fmt.Errorf("failed to create remote: %w", err)
 	}
 
 	// Write all sample files to temp clone

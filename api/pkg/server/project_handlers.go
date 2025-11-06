@@ -816,14 +816,14 @@ func (s *HelixAPIServer) getProjectExploratorySession(_ http.ResponseWriter, r *
 		if err != nil {
 			// External agent not running - mark as stopped
 			session.Metadata.ExternalAgentStatus = "stopped"
-			log.Info().
+			log.Trace().
 				Str("session_id", session.ID).
 				Str("project_id", projectID).
 				Msg("Exploratory session exists in database but Wolf lobby is stopped")
 		} else {
 			// External agent is running
 			session.Metadata.ExternalAgentStatus = "running"
-			log.Debug().
+			log.Trace().
 				Str("session_id", session.ID).
 				Str("project_id", projectID).
 				Msg("Exploratory session is running")
@@ -913,6 +913,23 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					primaryRepoID = projectRepos[0].ID
 				}
 
+				// Get user's API key for git HTTP authentication
+				userAPIKeys, keyErr := s.Store.ListAPIKeys(r.Context(), &store.ListAPIKeysQuery{
+					Owner:     user.ID,
+					OwnerType: types.OwnerTypeUser,
+				})
+				if keyErr != nil {
+					log.Error().Err(keyErr).Str("user_id", user.ID).Msg("Failed to get user API keys for restart")
+					return nil, system.NewHTTPError500("failed to get user API keys for git operations")
+				}
+
+				if len(userAPIKeys) == 0 {
+					log.Error().Str("user_id", user.ID).Msg("User has no API keys - cannot restart exploratory session")
+					return nil, system.NewHTTPError500("user has no API keys - create one in Account Settings")
+				}
+
+				userAPIToken := userAPIKeys[0].Key
+
 				// Restart Zed agent with existing session
 				zedAgent := &types.ZedAgent{
 					SessionID:           existingSession.ID,
@@ -923,6 +940,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					ProjectID:           projectID,
 					PrimaryRepositoryID: primaryRepoID,
 					RepositoryIDs:       repositoryIDs,
+					Env: []string{
+						fmt.Sprintf("USER_API_TOKEN=%s", userAPIToken),
+					},
 				}
 
 				agentResp, err := s.externalAgentExecutor.StartZedAgent(r.Context(), zedAgent)
@@ -1014,6 +1034,28 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		primaryRepoID = projectRepos[0].ID
 	}
 
+	// Get user's API key for git HTTP authentication
+	userAPIKeys, err := s.Store.ListAPIKeys(r.Context(), &store.ListAPIKeysQuery{
+		Owner:     user.ID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to get user API keys")
+		return nil, system.NewHTTPError500("failed to get user API keys for git operations")
+	}
+
+	if len(userAPIKeys) == 0 {
+		log.Error().Str("user_id", user.ID).Msg("User has no API keys - cannot clone repositories")
+		return nil, system.NewHTTPError500("user has no API keys - create one in Account Settings to use git features")
+	}
+
+	userAPIToken := userAPIKeys[0].Key
+
+	log.Info().
+		Str("user_id", user.ID).
+		Str("project_id", projectID).
+		Msg("Using user's API key for git operations (RBAC enforced)")
+
 	// Create ZedAgent for exploratory session
 	zedAgent := &types.ZedAgent{
 		SessionID:           createdSession.ID,
@@ -1024,6 +1066,11 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		ProjectID:           projectID, // For loading project repos and startup script
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,
+		Env: []string{
+			// Pass user's API key for git operations (NOT server's RunnerToken)
+			// This ensures RBAC is enforced - agent can only access repos the user can access
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIToken),
+		},
 	}
 
 	// Start the Zed agent via Wolf executor

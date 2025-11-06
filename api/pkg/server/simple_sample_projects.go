@@ -417,105 +417,187 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		log.Error().
 			Err(repoErr).
 			Str("project_id", createdProject.ID).
-			Msg("failed to initialize internal repository")
+			Str("user_id", user.ID).
+			Str("sample_project_id", req.SampleProjectID).
+			Msg("❌ Failed to initialize internal repository")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize internal repository: %v", repoErr))
 	}
 
-	if internalRepoPath != "" {
-		// Update project with internal repo path
-		createdProject.InternalRepoPath = internalRepoPath
-		err = s.Store.UpdateProject(ctx, createdProject)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("project_id", createdProject.ID).
-				Msg("failed to update project with internal repo path")
-		}
-
-		// Create GitRepository entry for internal repo
-		internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
-		internalRepo := &store.GitRepository{
-			ID:             internalRepoID,
-			Name:           fmt.Sprintf("%s-internal", data.SlugifyName(createdProject.Name)),
-			Description:    "Internal project repository for configuration and metadata",
-			OwnerID:        user.ID,
-			OrganizationID: createdProject.OrganizationID,
-			ProjectID:      createdProject.ID,
-			RepoType:       "internal",
-			Status:         "ready",
-			LocalPath:      internalRepoPath,
-			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
-		}
-
-		err = s.Store.CreateGitRepository(ctx, internalRepo)
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("project_id", createdProject.ID).
-				Msg("failed to create git repository entry for internal repo (continuing)")
-		}
+	if internalRepoPath == "" {
+		log.Error().
+			Str("project_id", createdProject.ID).
+			Str("user_id", user.ID).
+			Msg("❌ Internal repo path is empty after initialization")
+		return nil, system.NewHTTPError500("internal repository path is empty")
 	}
+
+	// Update project with internal repo path
+	createdProject.InternalRepoPath = internalRepoPath
+	err = s.Store.UpdateProject(ctx, createdProject)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", createdProject.ID).
+			Msg("❌ Failed to update project with internal repo path")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update project: %v", err))
+	}
+
+	// Create GitRepository entry for internal repo
+	internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
+	internalRepo := &store.GitRepository{
+		ID:             internalRepoID,
+		Name:           fmt.Sprintf("%s-internal", data.SlugifyName(createdProject.Name)),
+		Description:    "Internal project repository for configuration and metadata",
+		OwnerID:        user.ID,
+		OrganizationID: createdProject.OrganizationID,
+		ProjectID:      createdProject.ID,
+		RepoType:       "internal",
+		Status:         "ready",
+		LocalPath:      internalRepoPath,
+		DefaultBranch:  "main",
+		MetadataJSON:   "{}",
+	}
+
+	log.Info().
+		Str("project_id", createdProject.ID).
+		Str("repo_id", internalRepoID).
+		Str("local_path", internalRepoPath).
+		Str("organization_id", createdProject.OrganizationID).
+		Msg("📝 Creating GitRepository entry for internal repo")
+
+	err = s.Store.CreateGitRepository(ctx, internalRepo)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", createdProject.ID).
+			Str("repo_id", internalRepoID).
+			Str("local_path", internalRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Interface("repo", internalRepo).
+			Msg("❌ Failed to create git repository entry for internal repo")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create internal repository entry: %v", err))
+	}
+
+	log.Info().
+		Str("project_id", createdProject.ID).
+		Str("repo_id", internalRepoID).
+		Msg("✅ Internal repository created successfully")
 
 	// Create separate code repository with sample files
 	if req.SampleProjectID == "helix-blog-posts" {
 		// Special case: Clone real HelixML/helix repo as code repo
 		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git")
-		if repoErr == nil {
-			// Create GitRepository entry for code repo
-			codeRepoID := fmt.Sprintf("%s-code", createdProject.ID)
-			codeRepo := &store.GitRepository{
-				ID:             codeRepoID,
-				Name:           data.SlugifyName(createdProject.Name),
-				Description:    fmt.Sprintf("Helix codebase for %s", createdProject.Name),
-				OwnerID:        user.ID,
-				OrganizationID: createdProject.OrganizationID,
-				ProjectID:      createdProject.ID,
-				RepoType:       "code",
-				Status:         "ready",
-				LocalPath:      codeRepoPath,
-				DefaultBranch:  "main",
-				MetadataJSON:   "{}",
-			}
-
-			err = s.Store.CreateGitRepository(ctx, codeRepo)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("project_id", createdProject.ID).
-					Msg("failed to create git repository entry for code repo")
-			}
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Str("sample_id", req.SampleProjectID).
+				Msg("❌ Failed to clone helix-blog-posts repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to clone repository: %v", repoErr))
 		}
+
+		// Create GitRepository entry for code repo
+		codeRepoID := fmt.Sprintf("%s-code", createdProject.ID)
+		codeRepo := &store.GitRepository{
+			ID:             codeRepoID,
+			Name:           data.SlugifyName(createdProject.Name),
+			Description:    fmt.Sprintf("Helix codebase for %s", createdProject.Name),
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code",
+			Status:         "ready",
+			LocalPath:      codeRepoPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   "{}",
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Str("local_path", codeRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Msg("📝 Creating GitRepository entry for helix code repo")
+
+		err = s.Store.CreateGitRepository(ctx, codeRepo)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("repo_id", codeRepoID).
+				Str("local_path", codeRepoPath).
+				Str("organization_id", createdProject.OrganizationID).
+				Interface("repo", codeRepo).
+				Msg("❌ Failed to create git repository entry for helix code repo")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Msg("✅ Helix code repository created successfully")
 	} else {
 		// Use hardcoded sample code for all other samples
 		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID)
-		if repoErr == nil {
-			// Create GitRepository entry for code repo
-			codeRepo := &store.GitRepository{
-				ID:             codeRepoID,
-				Name:           data.SlugifyName(createdProject.Name),
-				Description:    fmt.Sprintf("Code repository for %s", createdProject.Name),
-				OwnerID:        user.ID,
-				OrganizationID: createdProject.OrganizationID,
-				ProjectID:      createdProject.ID,
-				RepoType:       "code", // Helix-hosted code repo (cloned from LocalPath)
-				Status:         "ready",
-				LocalPath:      codeRepoPath,
-				DefaultBranch:  "main",
-				MetadataJSON:   "{}",
-			}
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Str("sample_id", req.SampleProjectID).
+				Msg("❌ Failed to initialize code repository from sample")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize code repository: %v", repoErr))
+		}
 
-			err = s.Store.CreateGitRepository(ctx, codeRepo)
-			if err != nil {
-				log.Warn().
-					Err(err).
-					Str("project_id", createdProject.ID).
-					Str("repo_id", codeRepo.ID).
-					Msg("failed to create git repository entry for code repo")
-			} else {
-				// Set code repo as default
-				createdProject.DefaultRepoID = codeRepo.ID
-				_ = s.Store.UpdateProject(ctx, createdProject)
-			}
+		// Create GitRepository entry for code repo
+		codeRepo := &store.GitRepository{
+			ID:             codeRepoID,
+			Name:           data.SlugifyName(createdProject.Name),
+			Description:    fmt.Sprintf("Code repository for %s", createdProject.Name),
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code", // Helix-hosted code repo (cloned from LocalPath)
+			Status:         "ready",
+			LocalPath:      codeRepoPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   "{}",
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Str("local_path", codeRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Msg("📝 Creating GitRepository entry for sample code repo")
+
+		err = s.Store.CreateGitRepository(ctx, codeRepo)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("repo_id", codeRepoID).
+				Str("local_path", codeRepoPath).
+				Str("organization_id", createdProject.OrganizationID).
+				Interface("repo", codeRepo).
+				Msg("❌ Failed to create git repository entry for sample code repo")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Msg("✅ Sample code repository created successfully")
+
+		// Set code repo as default
+		createdProject.DefaultRepoID = codeRepo.ID
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("default_repo_id", codeRepo.ID).
+				Msg("❌ Failed to set default repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to set default repository: %v", err))
 		}
 	}
 
