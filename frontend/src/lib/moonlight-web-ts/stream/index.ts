@@ -542,6 +542,10 @@ export class Stream {
         return this.input
     }
 
+    getPeer(): RTCPeerConnection | null {
+        return this.peer
+    }
+
     getStreamerSize(): [number, number] {
         return this.streamerSize
     }
