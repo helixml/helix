@@ -34,11 +34,10 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             echo "  Skipping worktree setup (branch must exist first)"
         else
             # Create worktree at top-level workspace for consistent path
-            # Location: /home/retro/work/.git-worktrees/helix-design-docs
-            WORKTREE_PATH="$WORK_DIR/.git-worktrees/helix-design-docs"
+            # Location: ~/work/helix-design-docs (consistent regardless of repo name)
+            WORKTREE_PATH="$WORK_DIR/helix-design-docs"
             if [ ! -d "$WORKTREE_PATH" ]; then
                 echo "  Creating design docs worktree at $WORKTREE_PATH..."
-                mkdir -p "$WORK_DIR/.git-worktrees"
                 git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-design-docs >/dev/null 2>&1 && \
                     echo "  ✅ Design docs worktree ready" || \
                     echo "  ⚠️  Failed to create worktree"
