@@ -1446,28 +1446,66 @@ func validateDisplayParams(width, height, fps int) error {
 // FindContainerBySessionID finds an external agent container by its Helix session ID
 // Returns the container hostname (DNS name) for connecting to screenshot server
 func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
+	// Try in-memory cache first (fast path)
 	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-
-	// External agent sessions are keyed by agent session ID, but we need to find by Helix session ID
-	// Search through all sessions to find the one with matching HelixSessionID
 	for agentSessionID, session := range w.sessions {
 		if session.HelixSessionID == helixSessionID {
-			log.Info().
+			log.Debug().
 				Str("helix_session_id", helixSessionID).
 				Str("agent_session_id", agentSessionID).
 				Str("container_hostname", session.ContainerName).
-				Msg("Found external agent container by Helix session ID")
+				Msg("Found external agent container by Helix session ID (in-memory cache)")
+			w.mutex.RUnlock()
 			return session.ContainerName, nil
+		}
+	}
+	w.mutex.RUnlock()
+
+	// In-memory cache miss - query Wolf lobbies to find container
+	// This handles API restarts where in-memory map is cleared but containers are still running
+	log.Debug().
+		Str("helix_session_id", helixSessionID).
+		Msg("Session not in memory, querying Wolf lobbies for container")
+
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
+	}
+
+	// Search for lobby with matching HELIX_SESSION_ID in env vars
+	for _, lobby := range lobbies {
+		if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+			if envList, ok := runnerMap["env"].([]interface{}); ok {
+				for _, envVar := range envList {
+					if envStr, ok := envVar.(string); ok {
+						// Check for HELIX_SESSION_ID=<session_id>
+						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
+						if envStr == expectedEnv {
+							// Found lobby - extract container hostname
+							// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
+							containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+							log.Info().
+								Str("helix_session_id", helixSessionID).
+								Str("lobby_id", lobby.ID).
+								Str("container_hostname", containerHostname).
+								Msg("Found external agent container by querying Wolf lobbies")
+
+							return containerHostname, nil
+						}
+					}
+				}
+			}
 		}
 	}
 
 	log.Error().
 		Str("helix_session_id", helixSessionID).
-		Int("total_sessions", len(w.sessions)).
-		Msg("No external agent session found with this Helix session ID")
+		Int("lobbies_checked", len(lobbies)).
+		Msg("No external agent container found for this Helix session ID")
 
-	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
+	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
 }
 
 // startKeepaliveSession starts a headless Moonlight session to keep the lobby alive
