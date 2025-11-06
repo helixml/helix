@@ -895,23 +895,6 @@ definitions:
     - demo_repo
     - prompt
     type: object
-  server.CreateSpecTaskRepositoryRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      owner_id:
-        type: string
-      project_id:
-        type: string
-      spec_task_id:
-        type: string
-      template_files:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -1475,8 +1458,12 @@ definitions:
   server.WolfSessionInfo:
     properties:
       app_id:
+        description: Wolf UI app ID in lobbies mode
         type: string
       client_ip:
+        type: string
+      client_unique_id:
+        description: Helix client ID (helix-agent-{session_id}-{instance_id})
         type: string
       display_mode:
         properties:
@@ -1491,8 +1478,11 @@ definitions:
           width:
             type: integer
         type: object
+      lobby_id:
+        description: Which lobby this session is connected to (lobbies mode)
+        type: string
       session_id:
-        description: Exposed as session_id for frontend
+        description: Exposed as session_id for frontend (Wolf's client_id)
         type: string
     type: object
   server.WolfSystemMemory:
@@ -1728,21 +1718,15 @@ definitions:
     type: object
   services.GitRepositoryType:
     enum:
-    - project
-    - spec_task
-    - sample
-    - template
+    - internal
+    - code
     type: string
     x-enum-comments:
-      GitRepositoryTypeProject: User project repository
-      GitRepositoryTypeSample: Sample/demo repository
-      GitRepositoryTypeSpecTask: SpecTask-specific repository
-      GitRepositoryTypeTemplate: Template repository
+      GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
+      GitRepositoryTypeInternal: Internal project config repository
     x-enum-varnames:
-    - GitRepositoryTypeProject
-    - GitRepositoryTypeSpecTask
-    - GitRepositoryTypeSample
-    - GitRepositoryTypeTemplate
+    - GitRepositoryTypeInternal
+    - GitRepositoryTypeCode
   services.GitRepositoryUpdateRequest:
     properties:
       description:
@@ -5235,47 +5219,6 @@ definitions:
       public_key:
         type: string
     type: object
-  types.SampleProject:
-    properties:
-      category:
-        description: '''web'', ''mobile'', ''api'', ''ml'', etc.'
-        type: string
-      created_at:
-        type: string
-      description:
-        type: string
-      difficulty:
-        description: '''beginner'', ''intermediate'', ''advanced'''
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      repository_url:
-        type: string
-      sample_tasks:
-        description: Array of {title, description, priority, type}
-        items:
-          type: integer
-        type: array
-      thumbnail_url:
-        description: 'NOTE: StartupScript is stored in the sample''s Git repo at .helix/startup.sh,
-          not in database'
-        type: string
-    type: object
-  types.SampleProjectInstantiateRequest:
-    properties:
-      project_name:
-        description: Optional custom name for the instantiated project
-        type: string
-    type: object
-  types.SampleProjectInstantiateResponse:
-    properties:
-      message:
-        type: string
-      project_id:
-        type: string
-    type: object
   types.SchedulingDecision:
     properties:
       available_runners:
@@ -5448,6 +5391,10 @@ definitions:
         description: named config for backward compat
       created:
         type: string
+      deleted_at:
+        allOf:
+        - $ref: '#/definitions/gorm.DeletedAt'
+        description: Soft delete support - allows cleanup of orphaned lobbies
       generation_id:
         description: Current generation ID
         type: integer
@@ -6849,18 +6796,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -7202,43 +7149,6 @@ paths:
       summary: Get Wolf real-time events (SSE)
       tags:
       - Admin
-  /api/v1/admin/sample-projects/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: Delete a sample project template (admin only)
-      parameters:
-      - description: Sample Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Delete sample project (Admin)
-      tags:
-      - SampleProjects
   /api/v1/agents/fleet:
     get:
       description: Get agent fleet data including active sessions, work queue, and
@@ -8270,6 +8180,67 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Auto-join Wolf lobby after connection
+      tags:
+      - ExternalAgents
+  /api/v1/external-agents/{sessionID}/clipboard:
+    get:
+      description: Fetch current clipboard content from remote desktop
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Clipboard text content
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get session clipboard content
+      tags:
+      - ExternalAgents
+    post:
+      consumes:
+      - text/plain
+      description: Send clipboard content to remote desktop
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Clipboard text to set
+        in: body
+        name: clipboard
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set session clipboard content
       tags:
       - ExternalAgents
   /api/v1/external-agents/{sessionID}/keepalive:
@@ -10409,136 +10380,6 @@ paths:
       summary: List available sample projects
       tags:
       - sample-projects
-    post:
-      consumes:
-      - application/json
-      description: Create a new sample project template (admin only)
-      parameters:
-      - description: Sample project data
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SampleProject'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SampleProject'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Create sample project (Admin)
-      tags:
-      - SampleProjects
-  /api/v1/sample-projects-v2:
-    get:
-      consumes:
-      - application/json
-      description: Get all available sample projects
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.SampleProject'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: List sample projects
-      tags:
-      - SampleProjects
-  /api/v1/sample-projects-v2/{id}:
-    get:
-      consumes:
-      - application/json
-      description: Get a sample project by ID
-      parameters:
-      - description: Sample Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SampleProject'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get sample project
-      tags:
-      - SampleProjects
-  /api/v1/sample-projects-v2/{id}/instantiate:
-    post:
-      consumes:
-      - application/json
-      description: Create a new project from a sample project template
-      parameters:
-      - description: Sample Project ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Instantiate request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SampleProjectInstantiateRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SampleProjectInstantiateResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Instantiate sample project
-      tags:
-      - SampleProjects
   /api/v1/sample-projects/{project_id}:
     get:
       description: Get details of a specific sample project by ID
@@ -12529,42 +12370,6 @@ paths:
       summary: Create spec-driven task from simple prompt
       tags:
       - spec-driven-tasks
-  /api/v1/specs/repositories:
-    post:
-      consumes:
-      - application/json
-      description: Create a git repository specifically for a SpecTask
-      parameters:
-      - description: SpecTask repository creation request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSpecTaskRepositoryRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/services.GitRepository'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Create SpecTask repository
-      tags:
-      - specs
   /api/v1/specs/sample-types:
     get:
       description: Get list of available sample repository types and templates

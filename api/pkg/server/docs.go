@@ -103,64 +103,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/admin/sample-projects/{id}": {
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a sample project template (admin only)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Delete sample project (Admin)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Sample Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/agents/fleet": {
             "get": {
                 "security": [
@@ -1786,6 +1728,102 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/external-agents/{sessionID}/clipboard": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Fetch current clipboard content from remote desktop",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Get session clipboard content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Clipboard text content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send clipboard content to remote desktop",
+                "consumes": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Set session clipboard content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Clipboard text to set",
+                        "name": "clipboard",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -5177,211 +5215,6 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new sample project template (admin only)",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Create sample project (Admin)",
-                "parameters": [
-                    {
-                        "description": "Sample project data",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects-v2": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get all available sample projects",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "List sample projects",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.SampleProject"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects-v2/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get a sample project by ID",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Get sample project",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Sample Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProject"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/sample-projects-v2/{id}/instantiate": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new project from a sample project template",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "SampleProjects"
-                ],
-                "summary": "Instantiate sample project",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Sample Project ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Instantiate request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProjectInstantiateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SampleProjectInstantiateResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
             }
         },
         "/api/v1/sample-projects/fork": {
@@ -8481,63 +8314,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/specs/repositories": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a git repository specifically for a SpecTask",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "specs"
-                ],
-                "summary": "Create SpecTask repository",
-                "parameters": [
-                    {
-                        "description": "SpecTask repository creation request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreateSpecTaskRepositoryRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/specs/sample-types": {
             "get": {
                 "security": [
@@ -11539,32 +11315,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.CreateSpecTaskRepositoryRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "template_files": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "server.CreateTopUpRequest": {
             "type": "object",
             "properties": {
@@ -12415,9 +12165,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "app_id": {
+                    "description": "Wolf UI app ID in lobbies mode",
                     "type": "string"
                 },
                 "client_ip": {
+                    "type": "string"
+                },
+                "client_unique_id": {
+                    "description": "Helix client ID (helix-agent-{session_id}-{instance_id})",
                     "type": "string"
                 },
                 "display_mode": {
@@ -12440,8 +12195,12 @@ const docTemplate = `{
                         }
                     }
                 },
+                "lobby_id": {
+                    "description": "Which lobby this session is connected to (lobbies mode)",
+                    "type": "string"
+                },
                 "session_id": {
-                    "description": "Exposed as session_id for frontend",
+                    "description": "Exposed as session_id for frontend (Wolf's client_id)",
                     "type": "string"
                 }
             }
@@ -12791,22 +12550,16 @@ const docTemplate = `{
         "services.GitRepositoryType": {
             "type": "string",
             "enum": [
-                "project",
-                "spec_task",
-                "sample",
-                "template"
+                "internal",
+                "code"
             ],
             "x-enum-comments": {
-                "GitRepositoryTypeProject": "User project repository",
-                "GitRepositoryTypeSample": "Sample/demo repository",
-                "GitRepositoryTypeSpecTask": "SpecTask-specific repository",
-                "GitRepositoryTypeTemplate": "Template repository"
+                "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
+                "GitRepositoryTypeInternal": "Internal project config repository"
             },
             "x-enum-varnames": [
-                "GitRepositoryTypeProject",
-                "GitRepositoryTypeSpecTask",
-                "GitRepositoryTypeSample",
-                "GitRepositoryTypeTemplate"
+                "GitRepositoryTypeInternal",
+                "GitRepositoryTypeCode"
             ]
         },
         "services.GitRepositoryUpdateRequest": {
@@ -17828,65 +17581,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.SampleProject": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "description": "'web', 'mobile', 'api', 'ml', etc.",
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "difficulty": {
-                    "description": "'beginner', 'intermediate', 'advanced'",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "repository_url": {
-                    "type": "string"
-                },
-                "sample_tasks": {
-                    "description": "Array of {title, description, priority, type}",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "thumbnail_url": {
-                    "description": "NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database",
-                    "type": "string"
-                }
-            }
-        },
-        "types.SampleProjectInstantiateRequest": {
-            "type": "object",
-            "properties": {
-                "project_name": {
-                    "description": "Optional custom name for the instantiated project",
-                    "type": "string"
-                }
-            }
-        },
-        "types.SampleProjectInstantiateResponse": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                }
-            }
-        },
         "types.SchedulingDecision": {
             "type": "object",
             "properties": {
@@ -18125,6 +17819,14 @@ const docTemplate = `{
                 },
                 "created": {
                     "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft delete support - allows cleanup of orphaned lobbies",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/gorm.DeletedAt"
+                        }
+                    ]
                 },
                 "generation_id": {
                     "description": "Current generation ID",
@@ -20116,18 +19818,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

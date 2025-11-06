@@ -576,15 +576,6 @@ export interface ServerCreateSpecTaskFromDemoRequest {
   type?: string;
 }
 
-export interface ServerCreateSpecTaskRepositoryRequest {
-  description?: string;
-  name?: string;
-  owner_id?: string;
-  project_id?: string;
-  spec_task_id?: string;
-  template_files?: Record<string, string>;
-}
-
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
@@ -915,8 +906,11 @@ export interface ServerWolfLobbyMemory {
 }
 
 export interface ServerWolfSessionInfo {
+  /** Wolf UI app ID in lobbies mode */
   app_id?: string;
   client_ip?: string;
+  /** Helix client ID (helix-agent-{session_id}-{instance_id}) */
+  client_unique_id?: string;
   display_mode?: {
     av1_supported?: boolean;
     height?: number;
@@ -924,7 +918,9 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
-  /** Exposed as session_id for frontend */
+  /** Which lobby this session is connected to (lobbies mode) */
+  lobby_id?: string;
+  /** Exposed as session_id for frontend (Wolf's client_id) */
   session_id?: string;
 }
 
@@ -1052,10 +1048,8 @@ export interface ServicesGitRepositoryTreeResponse {
 }
 
 export enum ServicesGitRepositoryType {
-  GitRepositoryTypeProject = "project",
-  GitRepositoryTypeSpecTask = "spec_task",
-  GitRepositoryTypeSample = "sample",
-  GitRepositoryTypeTemplate = "template",
+  GitRepositoryTypeInternal = "internal",
+  GitRepositoryTypeCode = "code",
 }
 
 export interface ServicesGitRepositoryUpdateRequest {
@@ -3028,32 +3022,6 @@ export interface TypesSSHKeyResponse {
   public_key?: string;
 }
 
-export interface TypesSampleProject {
-  /** 'web', 'mobile', 'api', 'ml', etc. */
-  category?: string;
-  created_at?: string;
-  description?: string;
-  /** 'beginner', 'intermediate', 'advanced' */
-  difficulty?: string;
-  id?: string;
-  name?: string;
-  repository_url?: string;
-  /** Array of {title, description, priority, type} */
-  sample_tasks?: number[];
-  /** NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database */
-  thumbnail_url?: string;
-}
-
-export interface TypesSampleProjectInstantiateRequest {
-  /** Optional custom name for the instantiated project */
-  project_name?: string;
-}
-
-export interface TypesSampleProjectInstantiateResponse {
-  message?: string;
-  project_id?: string;
-}
-
 export interface TypesSchedulingDecision {
   available_runners?: string[];
   created?: string;
@@ -3146,6 +3114,8 @@ export interface TypesSession {
   /** named config for backward compat */
   config?: TypesSessionMetadata;
   created?: string;
+  /** Soft delete support - allows cleanup of orphaned lobbies */
+  deleted_at?: GormDeletedAt;
   /** Current generation ID */
   generation_id?: number;
   id?: string;
@@ -3961,11 +3931,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -4310,25 +4280,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
-        ...params,
-      }),
-
-    /**
-     * @description Delete a sample project template (admin only)
-     *
-     * @tags SampleProjects
-     * @name V1AdminSampleProjectsDelete
-     * @summary Delete sample project (Admin)
-     * @request DELETE:/api/v1/admin/sample-projects/{id}
-     * @secure
-     */
-    v1AdminSampleProjectsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<Record<string, string>, SystemHTTPError>({
-        path: `/api/v1/admin/sample-projects/${id}`,
-        method: "DELETE",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
         ...params,
       }),
 
@@ -5296,6 +5247,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Fetch current clipboard content from remote desktop
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsClipboardDetail
+     * @summary Get session clipboard content
+     * @request GET:/api/v1/external-agents/{sessionID}/clipboard
+     * @secure
+     */
+    v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<string, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/clipboard`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Send clipboard content to remote desktop
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsClipboardCreate
+     * @summary Set session clipboard content
+     * @request POST:/api/v1/external-agents/{sessionID}/clipboard
+     * @secure
+     */
+    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/clipboard`,
+        method: "POST",
+        body: clipboard,
+        secure: true,
+        type: ContentType.Text,
         ...params,
       }),
 
@@ -7051,88 +7038,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new sample project template (admin only)
-     *
-     * @tags SampleProjects
-     * @name V1SampleProjectsCreate
-     * @summary Create sample project (Admin)
-     * @request POST:/api/v1/sample-projects
-     * @secure
-     */
-    v1SampleProjectsCreate: (request: TypesSampleProject, params: RequestParams = {}) =>
-      this.request<TypesSampleProject, SystemHTTPError>({
-        path: `/api/v1/sample-projects`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get all available sample projects
-     *
-     * @tags SampleProjects
-     * @name V1SampleProjectsV2List
-     * @summary List sample projects
-     * @request GET:/api/v1/sample-projects-v2
-     * @secure
-     */
-    v1SampleProjectsV2List: (params: RequestParams = {}) =>
-      this.request<TypesSampleProject[], SystemHTTPError>({
-        path: `/api/v1/sample-projects-v2`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get a sample project by ID
-     *
-     * @tags SampleProjects
-     * @name V1SampleProjectsV2Detail
-     * @summary Get sample project
-     * @request GET:/api/v1/sample-projects-v2/{id}
-     * @secure
-     */
-    v1SampleProjectsV2Detail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSampleProject, SystemHTTPError>({
-        path: `/api/v1/sample-projects-v2/${id}`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a new project from a sample project template
-     *
-     * @tags SampleProjects
-     * @name V1SampleProjectsV2InstantiateCreate
-     * @summary Instantiate sample project
-     * @request POST:/api/v1/sample-projects-v2/{id}/instantiate
-     * @secure
-     */
-    v1SampleProjectsV2InstantiateCreate: (
-      id: string,
-      request: TypesSampleProjectInstantiateRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesSampleProjectInstantiateResponse, SystemHTTPError>({
-        path: `/api/v1/sample-projects-v2/${id}/instantiate`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get details of a specific sample project by ID
      *
      * @tags sample-projects
@@ -8483,26 +8388,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/from-prompt`,
         method: "POST",
         body: request,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a git repository specifically for a SpecTask
-     *
-     * @tags specs
-     * @name V1SpecsRepositoriesCreate
-     * @summary Create SpecTask repository
-     * @request POST:/api/v1/specs/repositories
-     * @secure
-     */
-    v1SpecsRepositoriesCreate: (request: ServerCreateSpecTaskRepositoryRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
-        path: `/api/v1/specs/repositories`,
-        method: "POST",
-        body: request,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
