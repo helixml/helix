@@ -12,8 +12,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 	"github.com/rs/zerolog/log"
 )
@@ -857,38 +855,46 @@ func (apiServer *HelixAPIServer) deleteWolfLobby(rw http.ResponseWriter, req *ht
 		Str("lobby_id", lobbyID).
 		Msg("Admin stopping Wolf lobby")
 
-	// Look up the session with this lobby ID to get the PIN
-	// Query all sessions and find the one with matching wolf_lobby_id
-	sessions, _, err := apiServer.Store.ListSessions(req.Context(), store.ListSessionsQuery{})
+	// Look up the lobby PIN from ExternalAgentActivity table
+	// This survives session deletion and is designed for cleanup
+	activity, err := apiServer.Store.GetExternalAgentActivityByLobbyID(req.Context(), lobbyID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list sessions to find lobby PIN")
-		http.Error(rw, "Failed to find session with lobby ID", http.StatusInternalServerError)
+		log.Error().
+			Err(err).
+			Str("lobby_id", lobbyID).
+			Msg("Failed to find external agent activity for lobby - PIN required for Wolf stop")
+		http.Error(rw, "Cannot stop lobby: No activity record found (PIN required)", http.StatusNotFound)
 		return
 	}
 
-	var lobbyPIN []int16
-	var foundSession *types.Session
-	for _, session := range sessions {
-		if session.Metadata.WolfLobbyID == lobbyID {
-			foundSession = session
-			// Convert PIN string "1234" to []int16{1, 2, 3, 4}
-			if session.Metadata.WolfLobbyPIN != "" && len(session.Metadata.WolfLobbyPIN) == 4 {
-				lobbyPIN = make([]int16, 4)
-				for i, ch := range session.Metadata.WolfLobbyPIN {
-					lobbyPIN[i] = int16(ch - '0')
-				}
-				log.Info().
-					Str("lobby_id", lobbyID).
-					Str("session_id", session.ID).
-					Msg("Found lobby PIN from session metadata")
-			}
-			break
-		}
+	if activity.WolfLobbyPIN == "" {
+		log.Error().
+			Str("lobby_id", lobbyID).
+			Str("external_agent_id", activity.ExternalAgentID).
+			Msg("Activity found but PIN is missing")
+		http.Error(rw, "Cannot stop lobby: PIN not found in activity record", http.StatusInternalServerError)
+		return
 	}
 
-	if foundSession == nil {
-		log.Warn().Str("lobby_id", lobbyID).Msg("No session found with this lobby ID - attempting stop without PIN")
-		// Continue anyway - might work for lobbies without PIN
+	// Convert PIN string "1234" to []int16{1, 2, 3, 4}
+	var lobbyPIN []int16
+	if len(activity.WolfLobbyPIN) == 4 {
+		lobbyPIN = make([]int16, 4)
+		for i, ch := range activity.WolfLobbyPIN {
+			lobbyPIN[i] = int16(ch - '0')
+		}
+		log.Info().
+			Str("lobby_id", lobbyID).
+			Str("external_agent_id", activity.ExternalAgentID).
+			Str("pin", activity.WolfLobbyPIN).
+			Msg("Found lobby PIN from external agent activity")
+	} else {
+		log.Error().
+			Str("lobby_id", lobbyID).
+			Str("pin", activity.WolfLobbyPIN).
+			Msg("Invalid PIN format - must be 4 digits")
+		http.Error(rw, "Cannot stop lobby: Invalid PIN format", http.StatusInternalServerError)
+		return
 	}
 
 	// Get Wolf client from external agent executor
