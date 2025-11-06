@@ -903,14 +903,18 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 		projectRepos = nil
 	}
 
-	// Build repository clone commands from project repos
+	// Note which repositories are available (already cloned by API server)
 	repoInstructions := ""
 	if len(projectRepos) > 0 {
-		repoInstructions = "\n**Step 1: Clone all attached repositories**\n\n```bash\ncd /home/retro/work\n"
+		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
 		for _, repo := range projectRepos {
-			repoInstructions += fmt.Sprintf("git clone %s %s\n", repo.CloneURL, repo.LocalPath)
+			repoPath := repo.Name
+			if repo.RepoType == "internal" {
+				repoPath = ".helix-project"
+			}
+			repoInstructions += fmt.Sprintf("- `%s` at `/home/retro/work/%s`\n", repo.Name, repoPath)
 		}
-		repoInstructions += "```\n"
+		repoInstructions += "\n"
 	}
 
 	// Get project's primary repo (or use first repo as fallback)
@@ -953,26 +957,33 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("---\n")
 	promptBuilder.WriteString(task.OriginalPrompt)
 	promptBuilder.WriteString("\n---\n\n")
-	promptBuilder.WriteString("**Your job is to:**\n")
 	promptBuilder.WriteString(repoInstructions)
-	promptBuilder.WriteString("\n**Step 2: Setup helix-design-docs branch and worktree**\n\n")
-	promptBuilder.WriteString(fmt.Sprintf("cd /home/retro/work/%s\n", primaryRepoPath))
-	promptBuilder.WriteString("git branch helix-design-docs 2>/dev/null || true\n")
-	promptBuilder.WriteString("git worktree add .git-worktrees/helix-design-docs helix-design-docs 2>/dev/null || true\n")
-	promptBuilder.WriteString("cd .git-worktrees/helix-design-docs/tasks\n")
+	promptBuilder.WriteString("**Your job is to create design documents and commit them to the upstream git repository.**\n\n")
+	promptBuilder.WriteString("**Step 1: Navigate to the design docs directory**\n\n")
+	promptBuilder.WriteString("The helix-design-docs git worktree is already set up at:\n")
+	promptBuilder.WriteString("`/home/retro/work/.git-worktrees/helix-design-docs`\n\n")
+	promptBuilder.WriteString("Create a dated task directory and navigate to it:\n\n")
+	promptBuilder.WriteString("```bash\n")
+	promptBuilder.WriteString("cd /home/retro/work/.git-worktrees/helix-design-docs/tasks\n")
 	promptBuilder.WriteString(fmt.Sprintf("mkdir -p %s\n", taskDirName))
-	promptBuilder.WriteString(fmt.Sprintf("cd %s\n\n", taskDirName))
-	promptBuilder.WriteString("**Step 3: Write design documents**\n\n")
-	promptBuilder.WriteString("Create these markdown files:\n")
-	promptBuilder.WriteString("1. requirements.md - User stories + EARS acceptance criteria\n")
-	promptBuilder.WriteString("2. design.md - Architecture, diagrams, data models\n")
-	promptBuilder.WriteString("3. tasks.md - Implementation tasks with [ ]/[~]/[x] markers\n")
-	promptBuilder.WriteString("4. task-metadata.json - {\"name\": \"...\", \"description\": \"...\", \"type\": \"feature|bug|refactor\"}\n\n")
-	promptBuilder.WriteString("**Step 4: Commit and push to Helix git server**\n\n")
-	promptBuilder.WriteString("Commit each file separately, then push helix-design-docs branch.\n")
-	promptBuilder.WriteString("The helix-design-docs branch is forward-only (never rolled back).\n")
-	promptBuilder.WriteString("Push to Helix git server so UI can read design docs.\n\n")
-	promptBuilder.WriteString("Work in /home/retro/work/ - everything persists across sessions.")
+	promptBuilder.WriteString(fmt.Sprintf("cd %s\n", taskDirName))
+	promptBuilder.WriteString("```\n\n")
+	promptBuilder.WriteString("**Step 2: Create design documents**\n\n")
+	promptBuilder.WriteString("Write these markdown files in the current directory:\n\n")
+	promptBuilder.WriteString("1. **requirements.md** - User stories + EARS acceptance criteria\n")
+	promptBuilder.WriteString("2. **design.md** - Architecture, diagrams, data models\n")
+	promptBuilder.WriteString("3. **tasks.md** - Implementation tasks with [ ]/[~]/[x] markers\n")
+	promptBuilder.WriteString("4. **task-metadata.json** - {\"name\": \"...\", \"description\": \"...\", \"type\": \"feature|bug|refactor\"}\n\n")
+	promptBuilder.WriteString("**Step 3: Commit and push to upstream repository**\n\n")
+	promptBuilder.WriteString("This is **CRITICAL** - commits must be pushed to get design docs back to Helix:\n\n")
+	promptBuilder.WriteString("```bash\n")
+	promptBuilder.WriteString("git add .\n")
+	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", sanitizedName))
+	promptBuilder.WriteString("git push origin helix-design-docs\n")
+	promptBuilder.WriteString("```\n\n")
+	promptBuilder.WriteString("The helix-design-docs branch is **forward-only** (never rolled back).\n")
+	promptBuilder.WriteString("Pushing to upstream allows the Helix UI to display your design docs to the user.\n\n")
+	promptBuilder.WriteString("**All work persists in `/home/retro/work/` across sessions.**")
 
 	return promptBuilder.String()
 }
