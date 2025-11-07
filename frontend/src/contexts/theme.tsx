@@ -114,6 +114,20 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
             },
           },
         },
+        MuiDialog: {
+          styleOverrides: {
+            paper: {
+              background: '#181A20',
+              color: '#F1F1F1',
+              borderRadius: 16,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              transition: 'all 0.2s ease-in-out',
+            },
+            root: {
+              transition: 'all 0.2s ease-in-out',
+            },
+          },
+        },
       },
       chartGradientStart: themeConfig.chartGradientStart,
       chartGradientEnd: themeConfig.chartGradientEnd,
