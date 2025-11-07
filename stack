@@ -292,7 +292,7 @@ function start() {
   # Check if Wolf container exists, build if needed
   if ! docker image inspect wolf:helix-fixed &> /dev/null; then
     echo "🐺 Wolf container not found, building automatically..."
-    rebuild-wolf || {
+    build-wolf || {
       echo "❌ Failed to build Wolf. Please check the error messages above."
       exit 1
     }
@@ -647,7 +647,7 @@ function push_image_tags() {
   return 0
 }
 
-function rebuild-wolf() {
+function build-wolf() {
   echo "🐺 Rebuilding Wolf container with latest source code..."
 
   # Check if Wolf source directory exists
@@ -660,7 +660,7 @@ function rebuild-wolf() {
     echo "  cd .."
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
-    echo "  ./stack rebuild-wolf"
+    echo "  ./stack build-wolf"
     exit 1
   fi
 
@@ -1062,7 +1062,7 @@ function build-and-push-helix-code() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if rebuild-wolf; then
+  if build-wolf; then
     echo "✅ Wolf built and pushed successfully"
     COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
@@ -1515,7 +1515,7 @@ function help() {
   echo ""
   echo "Production build commands:"
   echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
-  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
+  echo "  build-wolf       - Rebuild Wolf container with latest source code and push to registry"
   echo "  build-xfce         - Build XFCE desktop+Zed container and push to registry (traditional overlapping windows)"
   echo "  build-zorin        - Build GNOME desktop+Zed container and push to registry (full-featured with Zorin)"
   echo "  build-sway         - Build Sway desktop+Zed container and push to registry (lightweight tiling)"
