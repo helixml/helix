@@ -527,8 +527,15 @@ function stop() {
     # Stop only the non-excluded services
     if [[ -n "$services" ]]; then
       echo "🗑️ Going to remove containers: $(echo $services | tr '\n' ' ')"
-      # Stop and remove containers in parallel
-      echo $services | xargs -P 0 -I {} sh -c 'echo "🗑️ Going to remove {}" && docker compose -f docker-compose.dev.yaml stop {} && docker compose -f docker-compose.dev.yaml rm -f {} || echo "⚠️  Could not stop/remove {}"'
+      # Stop and remove containers using a while loop to avoid xargs command line length issues
+      while IFS= read -r service; do
+        if [[ -n "$service" ]]; then
+          echo "🗑️ Stopping and removing: $service"
+          docker compose -f docker-compose.dev.yaml stop "$service" 2>/dev/null && \
+          docker compose -f docker-compose.dev.yaml rm -f "$service" 2>/dev/null || \
+          echo "⚠️  Could not stop/remove $service"
+        fi
+      done <<< "$services"
     else
       echo "✨ No services to stop (all are excluded)"
     fi
