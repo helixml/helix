@@ -640,6 +640,7 @@ const ProjectSettings: FC = () => {
           </Paper>
 
           {/* Members & Access Control */}
+          {project?.organization_id ? (
           <Paper sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               <PeopleIcon sx={{ mr: 1 }} />
@@ -652,7 +653,6 @@ const ProjectSettings: FC = () => {
             </Typography>
             <Divider sx={{ mb: 3 }} />
 
-            {project?.organization_id ? (
               <AccessManagement
                 appId={projectId}
                 accessGrants={accessGrants}
@@ -661,15 +661,8 @@ const ProjectSettings: FC = () => {
                 onCreateGrant={handleCreateAccessGrant}
                 onDeleteGrant={handleDeleteAccessGrant}
               />
-            ) : (
-              <Box sx={{ textAlign: 'center', py: 4, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  This project is not part of an organization. Only the owner can access it.
-                </Typography>
-              </Box>
-            )}
           </Paper>
-
+          ) : null}
           {/* Danger Zone */}
           <Paper sx={{ p: 3, mb: 3, border: '2px solid', borderColor: 'error.main' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
