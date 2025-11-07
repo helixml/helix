@@ -419,13 +419,6 @@ const GitRepos: FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Create your first git repository to start collaborating with AI agents and your team.
               </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Plus size={18} />}
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                Create Repository
-              </Button>
             </CardContent>
           </Card>
         )}
