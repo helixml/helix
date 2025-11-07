@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -505,10 +506,68 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to commit initial structure: %w", err)
 	}
 
-	// Push to bare repo
+	// Push main branch to bare repo
 	err = repo.Push(&git.PushOptions{})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
+	// Create helix-design-docs as an ORPHAN branch (empty, no code files)
+	// This branch is exclusively for design documents, separate from the code
+	designDocsBranchRef := plumbing.NewBranchReferenceName("helix-design-docs")
+
+	// Create an empty tree (no files)
+	emptyTree := object.Tree{}
+	emptyTreeObj := repo.Storer.NewEncodedObject()
+	if err := emptyTree.Encode(emptyTreeObj); err != nil {
+		log.Warn().Err(err).Msg("Failed to create empty tree for helix-design-docs (continuing)")
+	} else {
+		emptyTreeHash, err := repo.Storer.SetEncodedObject(emptyTreeObj)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to store empty tree (continuing)")
+		} else {
+			// Create initial commit with empty tree (orphan branch start)
+			designDocsCommit := &object.Commit{
+				Author: object.Signature{
+					Name:  "Helix System",
+					Email: "system@helix.ml",
+					When:  time.Now(),
+				},
+				Committer: object.Signature{
+					Name:  "Helix System",
+					Email: "system@helix.ml",
+					When:  time.Now(),
+				},
+				Message:  "Initialize helix-design-docs branch\n\nOrphan branch for SpecTask design documents only.",
+				TreeHash: emptyTreeHash,
+			}
+
+			commitObj := repo.Storer.NewEncodedObject()
+			if err := designDocsCommit.Encode(commitObj); err != nil {
+				log.Warn().Err(err).Msg("Failed to encode design docs commit (continuing)")
+			} else {
+				commitHash, err := repo.Storer.SetEncodedObject(commitObj)
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to store design docs commit (continuing)")
+				} else {
+					// Set branch to point to the orphan commit
+					err = repo.Storer.SetReference(plumbing.NewHashReference(designDocsBranchRef, commitHash))
+					if err != nil {
+						log.Warn().Err(err).Msg("Failed to create helix-design-docs branch reference (continuing)")
+					} else {
+						// Push helix-design-docs branch to bare repo
+						err = repo.Push(&git.PushOptions{
+							RefSpecs: []config.RefSpec{"refs/heads/helix-design-docs:refs/heads/helix-design-docs"},
+						})
+						if err != nil && err != git.NoErrAlreadyUpToDate {
+							log.Warn().Err(err).Msg("Failed to push helix-design-docs branch (continuing)")
+						} else {
+							log.Info().Msg("Created orphan helix-design-docs branch (empty, no code files)")
+						}
+					}
+				}
+			}
+		}
 	}
 
 	log.Info().
@@ -517,7 +576,7 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
 		Int("files_created", len(allFiles)).
-		Msg("Successfully created code repository from hardcoded sample")
+		Msg("Successfully created code repository from hardcoded sample with helix-design-docs branch")
 
 	return repoID, repoPath, nil
 }

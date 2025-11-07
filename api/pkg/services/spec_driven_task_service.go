@@ -154,6 +154,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
 		SpecAgent:      specAgent, // Set the spec agent from request or default
+		YoloMode:       req.YoloMode, // Set YOLO mode from request
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -315,6 +316,23 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		primaryRepoID = projectRepos[0].ID
 	}
 
+	// Get user's API token for git operations
+	userAPIKeys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     task.CreatedBy,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API keys for SpecTask")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API keys: %v", err))
+		return
+	}
+
+	if len(userAPIKeys) == 0 {
+		log.Error().Str("user_id", task.CreatedBy).Msg("User has no API keys - cannot start SpecTask")
+		s.markTaskFailed(ctx, task, "User has no API keys - create one in Account Settings")
+		return
+	}
+
 	// Create ZedAgent struct with session info for Wolf executor
 	zedAgent := &types.ZedAgent{
 		SessionID:           session.ID,
@@ -324,6 +342,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SpecTaskID:          task.ID,                      // For task-scoped workspace
 		PrimaryRepositoryID: primaryRepoID,                // Primary repo to open in Zed
 		RepositoryIDs:       repositoryIDs,                // ALL project repos to checkout
+		Env: []string{
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key),
+		},
 	}
 
 	// Start the Zed agent via Wolf executor (not NATS)
@@ -822,6 +843,7 @@ type CreateTaskRequest struct {
 	Type      string `json:"type"`
 	Priority  string `json:"priority"`
 	UserID    string `json:"user_id"`
-	AppID     string `json:"app_id"` // Optional: Helix agent to use for spec generation
+	AppID     string `json:"app_id"`   // Optional: Helix agent to use for spec generation
+	YoloMode  bool   `json:"yolo_mode"` // Optional: Skip human review and auto-approve specs
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

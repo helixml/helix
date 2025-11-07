@@ -51,6 +51,7 @@ type SpecTask struct {
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
 	SpecRevisionCount int        `json:"spec_revision_count"` // Number of spec revisions requested
+	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
 
 	// Simple tracking
 	EstimatedHours int        `json:"estimated_hours,omitempty"`
@@ -127,6 +128,7 @@ type SpecTaskUpdateRequest struct {
 	Priority    string `json:"priority,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+	YoloMode    *bool  `json:"yolo_mode,omitempty"` // Pointer to allow explicit false
 }
 
 // Two-phase workflow status constants

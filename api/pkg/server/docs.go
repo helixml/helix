@@ -2610,6 +2610,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/branches": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of all branches in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List repository branches",
+                "operationId": "listGitRepositoryBranches",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/clone-command": {
             "get": {
                 "security": [
@@ -2744,6 +2794,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Path to browse (default: root)",
                         "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch to browse (default: HEAD)",
+                        "name": "branch",
                         "in": "query"
                     }
                 ],
@@ -11455,14 +11511,11 @@ const docTemplate = `{
         "server.DesignDocsResponse": {
             "type": "object",
             "properties": {
-                "current_task_index": {
-                    "type": "integer"
-                },
-                "design_markdown": {
-                    "type": "string"
-                },
-                "progress_markdown": {
-                    "type": "string"
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.DesignDocument"
+                    }
                 },
                 "task_id": {
                     "type": "string"
@@ -11479,6 +11532,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.DesignDocument": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }
@@ -12465,6 +12532,10 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
+                },
+                "yolo_mode": {
+                    "description": "Optional: Skip human review and auto-approve specs",
+                    "type": "boolean"
                 }
             }
         },
@@ -18750,6 +18821,10 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "yolo_mode": {
+                    "description": "Skip human review, auto-approve specs",
+                    "type": "boolean"
+                },
                 "zed_instance_id": {
                     "description": "Multi-session support",
                     "type": "string"
@@ -19026,6 +19101,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "yolo_mode": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
                 }
             }
         },
@@ -19981,18 +20060,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

@@ -852,10 +852,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
 	moonlightRouter.PathPrefix("/").HandlerFunc(apiServer.proxyToMoonlightWeb)
 
+	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
+	// These routes don't use authRouter - they have their own auth middleware
+	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
+	apiServer.gitHTTPServer.RegisterRoutes(router)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
-	// proxy other routes to frontend
+	// proxy other routes to frontend (MUST BE LAST - catch-all handler)
 	apiServer.registerDefaultHandler(router)
 
 	// only admins can manage licenses
@@ -942,6 +947,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.updateGitRepository).Methods(http.MethodPut)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.deleteGitRepository).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/branches", apiServer.listGitRepositoryBranches).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/tree", apiServer.browseGitRepositoryTree).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/file", apiServer.getGitRepositoryFile).Methods(http.MethodGet)
 
@@ -949,10 +955,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
-
-	// Register Git HTTP protocol routes for clone/push operations
-	// These routes don't use authRouter - they have their own auth middleware
-	apiServer.gitHTTPServer.RegisterRoutes(router)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)

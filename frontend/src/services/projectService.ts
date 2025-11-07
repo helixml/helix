@@ -312,8 +312,10 @@ export const useStartProjectExploratorySession = (projectId: string) => {
       const response = await apiClient.v1ProjectsExploratorySessionCreate(projectId);
       return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
+    onSuccess: async () => {
+      // Wait for refetch to complete before resolving mutation
+      // This ensures floating modal has fresh session data (wolf_lobby_id, etc.)
+      await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });
 };
@@ -358,9 +360,10 @@ export const useResumeProjectExploratorySession = (projectId: string) => {
       const response = await api.post(`/api/v1/sessions/${session.id}/resume`);
       return session;
     },
-    onSuccess: () => {
-      // Invalidate the exploratory session query to refetch with updated status
-      queryClient.invalidateQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
+    onSuccess: async () => {
+      // Wait for refetch to complete before resolving mutation
+      // This ensures floating modal has fresh session data (wolf_lobby_id, etc.)
+      await queryClient.refetchQueries({ queryKey: projectExploratorySessionQueryKey(projectId) });
     },
   });
 };

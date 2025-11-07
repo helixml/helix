@@ -19,6 +19,10 @@ import {
   Stack,
   FormControlLabel,
   Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material'
 import {
   GitBranch,
@@ -48,6 +52,7 @@ import {
   useGitRepository,
   useBrowseRepositoryTree,
   useGetRepositoryFile,
+  useListRepositoryBranches,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -70,6 +75,9 @@ const GitRepoDetail: FC = () => {
 
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
+  // List branches for branch switcher
+  const { data: branches = [] } = useListRepositoryBranches(repoId || '')
+
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
@@ -84,9 +92,10 @@ const GitRepoDetail: FC = () => {
   const [copiedClone, setCopiedClone] = useState(false)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
 
   // Browse repository tree
-  const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath)
+  const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
   const { data: fileData, isLoading: fileLoading } = useGetRepositoryFile(
     repoId || '',
     selectedFile || '',
@@ -454,6 +463,32 @@ const GitRepoDetail: FC = () => {
             <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
               Browse Files
             </Typography>
+
+            {/* Branch selector */}
+            <Box sx={{ mb: 2 }}>
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <InputLabel>Branch</InputLabel>
+                <Select
+                  value={currentBranch}
+                  label="Branch"
+                  onChange={(e) => {
+                    setCurrentBranch(e.target.value)
+                    setCurrentPath('.') // Reset to root when switching branches
+                    setSelectedFile(null) // Clear selected file
+                  }}
+                  startAdornment={<GitBranch size={16} style={{ marginRight: 8, marginLeft: 4 }} />}
+                >
+                  <MenuItem value="">
+                    <em>Default ({repository?.default_branch || 'main'})</em>
+                  </MenuItem>
+                  {branches.map((branch) => (
+                    <MenuItem key={branch} value={branch}>
+                      {branch}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
 
             {/* Breadcrumb navigation */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>

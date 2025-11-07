@@ -582,9 +582,7 @@ export interface ServerCreateTopUpRequest {
 }
 
 export interface ServerDesignDocsResponse {
-  current_task_index?: number;
-  design_markdown?: string;
-  progress_markdown?: string;
+  documents?: ServerDesignDocument[];
   task_id?: string;
 }
 
@@ -592,6 +590,12 @@ export interface ServerDesignDocsShareLinkResponse {
   expires_at?: string;
   share_url?: string;
   token?: string;
+}
+
+export interface ServerDesignDocument {
+  content?: string;
+  filename?: string;
+  path?: string;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -973,6 +977,8 @@ export interface ServicesCreateTaskRequest {
   prompt?: string;
   type?: string;
   user_id?: string;
+  /** Optional: Skip human review and auto-approve specs */
+  yolo_mode?: boolean;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -3461,6 +3467,8 @@ export interface TypesSpecTask {
   type?: string;
   updated_at?: string;
   workspace_config?: number[];
+  /** Skip human review, auto-approve specs */
+  yolo_mode?: boolean;
   /** Multi-session support */
   zed_instance_id?: string;
 }
@@ -3564,6 +3572,8 @@ export interface TypesSpecTaskUpdateRequest {
   name?: string;
   priority?: string;
   status?: string;
+  /** Pointer to allow explicit false */
+  yolo_mode?: boolean;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -3948,11 +3958,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -5719,6 +5729,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get list of all branches in a repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryBranches
+     * @summary List repository branches
+     * @request GET:/api/v1/git/repositories/{id}/branches
+     * @secure
+     */
+    listGitRepositoryBranches: (id: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/branches`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the git clone command for a repository with authentication
      *
      * @tags git-repositories
@@ -5784,6 +5812,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Path to browse (default: root) */
         path?: string;
+        /** Branch to browse (default: HEAD) */
+        branch?: string;
       },
       params: RequestParams = {},
     ) =>

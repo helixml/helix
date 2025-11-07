@@ -65,16 +65,14 @@ func (s *SampleProjectCodeService) loadSampleProjects() {
 		StartupScript: `#!/bin/bash
 set -euo pipefail
 
-# Find the code repository directory (script runs from /home/retro/work)
-CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-if [ -z "$CODE_DIR" ]; then
-    echo "❌ Error: Could not find code repository with package.json"
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
     exit 1
 fi
-
-cd "$CODE_DIR"
-echo "📂 Working in: $CODE_DIR"
 
 # Fix ownership - directories are cloned as root, need to be owned by retro
 sudo chown -R retro:retro .
@@ -284,16 +282,14 @@ export default defineConfig({
 		StartupScript: `#!/bin/bash
 set -euo pipefail
 
-# Find the code repository directory (script runs from /home/retro/work)
-CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-if [ -z "$CODE_DIR" ]; then
-    echo "❌ Error: Could not find code repository with package.json"
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
     exit 1
 fi
-
-cd "$CODE_DIR"
-echo "📂 Working in: $CODE_DIR"
 
 # Fix ownership - directories are cloned as root, need to be owned by retro
 sudo chown -R retro:retro .
@@ -421,16 +417,14 @@ app.listen(3000, () => console.log('API on http://localhost:3000'));`,
 		StartupScript: `#!/bin/bash
 set -euo pipefail
 
-# Find the code repository directory (script runs from /home/retro/work)
-CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-if [ -z "$CODE_DIR" ]; then
-    echo "❌ Error: Could not find code repository with package.json"
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
     exit 1
 fi
-
-cd "$CODE_DIR"
-echo "📂 Working in: $CODE_DIR"
 
 # Fix ownership - directories are cloned as root, need to be owned by retro
 sudo chown -R retro:retro .
@@ -556,16 +550,14 @@ const styles = StyleSheet.create({
 		StartupScript: `#!/bin/bash
 set -euo pipefail
 
-# Find the code repository directory (script runs from /home/retro/work)
-CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-if [ -z "$CODE_DIR" ]; then
-    echo "❌ Error: Could not find code repository with package.json"
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
     exit 1
 fi
-
-cd "$CODE_DIR"
-echo "📂 Working in: $CODE_DIR"
 
 # Fix ownership - directories are cloned as root, need to be owned by retro
 sudo chown -R retro:retro .
@@ -691,16 +683,14 @@ module.exports = nextConfig;`,
 		StartupScript: `#!/bin/bash
 set -euo pipefail
 
-# Find the code repository directory (script runs from /home/retro/work)
-CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -exec test -f {}/package.json \; -print -quit)
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-if [ -z "$CODE_DIR" ]; then
-    echo "❌ Error: Could not find code repository with package.json"
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
     exit 1
 fi
-
-cd "$CODE_DIR"
-echo "📂 Working in: $CODE_DIR"
 
 # Fix ownership - directories are cloned as root, need to be owned by retro
 sudo chown -R retro:retro .

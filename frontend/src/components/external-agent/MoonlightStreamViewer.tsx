@@ -218,10 +218,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         );
       } else {
         // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
+        // CRITICAL: Include lobby ID in uniqueid to prevent stale session conflicts
+        // When session restarts (test startup script), lobby ID changes but session ID doesn't
         // - Kickoff used: session="agent-{sessionId}-kickoff", client_unique_id="helix-agent-{sessionId}"
-        // - Browser uses: session="agent-{sessionId}-{instanceId}", client_unique_id="helix-agent-{sessionId}-{instanceId}"
-        // Different session_id → Fresh streamer process (no peer reuse)
+        // - Browser uses: session="agent-{sessionId}-{lobbyId}-{instanceId}", client_unique_id="helix-agent-{sessionId}-{lobbyId}-{instanceId}"
+        // Different lobby_id → Fresh Moonlight session (prevents "AlreadyStreaming" conflicts)
         // Unique client_unique_id per browser tab → Multiple tabs can stream simultaneously!
+
+        const lobbyIdPart = wolfLobbyId ? `-${wolfLobbyId}` : '';
+        const uniqueClientId = `helix-agent-${sessionId}${lobbyIdPart}-${FRONTEND_INSTANCE_ID}`;
+
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
@@ -232,7 +238,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           "create", // Create mode - fresh session/streamer (kickoff already terminated)
           `agent-${sessionId}-${FRONTEND_INSTANCE_ID}`, // Unique per browser tab
           undefined, // No streamer ID
-          `helix-agent-${sessionId}-${FRONTEND_INSTANCE_ID}` // Unique per browser tab → enables multi-tab streaming
+          uniqueClientId // Unique per lobby+tab → prevents stale session conflicts on restart
         );
       }
 

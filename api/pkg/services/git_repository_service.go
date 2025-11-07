@@ -1219,8 +1219,8 @@ type GitRepositoryFileResponse struct {
 	Content string `json:"content"`
 }
 
-// BrowseTree lists files and directories at a given path
-func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string) ([]TreeEntry, error) {
+// BrowseTree lists files and directories at a given path in a specific branch
+func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]TreeEntry, error) {
 	// Get repository to find local path
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -1237,10 +1237,21 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 		return nil, fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	// Get HEAD reference to read from default branch
-	ref, err := gitRepo.Head()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get HEAD: %w", err)
+	// Get reference for specified branch, default to HEAD
+	var ref *plumbing.Reference
+	if branch != "" {
+		// Try to resolve the branch
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		ref, err = gitRepo.Reference(branchRef, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
+		}
+	} else {
+		// Default to HEAD
+		ref, err = gitRepo.Head()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		}
 	}
 
 	// Get the commit
@@ -1295,6 +1306,45 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 	}
 
 	return result, nil
+}
+
+// ListBranches returns all branches in the repository
+func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get all references
+	refs, err := gitRepo.References()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get references: %w", err)
+	}
+
+	// Filter to branches only
+	var branches []string
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsBranch() {
+			branches = append(branches, ref.Name().Short())
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate references: %w", err)
+	}
+
+	return branches, nil
 }
 
 // GetFileContents reads the contents of a file

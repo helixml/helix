@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -205,6 +206,14 @@ git push origin your-branch-name
 // authMiddleware provides API key authentication for git operations
 func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log incoming request for debugging
+		log.Info().
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Str("auth_header", r.Header.Get("Authorization")).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("Git HTTP request received")
+
 		// Extract API key from various sources
 		apiKey := s.extractAPIKey(r)
 
@@ -213,14 +222,26 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 				Str("path", r.URL.Path).
 				Str("method", r.Method).
 				Msg("Git request missing API key")
+			// Send WWW-Authenticate header for HTTP Basic auth flow
+			// This tells git to retry with credentials from the URL
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Helix Git Server\"")
 			http.Error(w, "Authentication required", http.StatusUnauthorized)
 			return
 		}
 
+		log.Debug().
+			Str("api_key_prefix", apiKey[:min(len(apiKey), 15)]).
+			Bool("is_basic_auth", strings.HasPrefix(apiKey, "Basic ")).
+			Msg("Extracted API key from request")
+
 		// Validate API key and get user object
 		user, err := s.validateAPIKeyAndGetUser(r.Context(), apiKey)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to validate API key for git request")
+			log.Error().
+				Err(err).
+				Str("api_key_prefix", apiKey[:min(len(apiKey), 15)]).
+				Msg("Failed to validate API key for git request")
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Helix Git Server\"")
 			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
@@ -229,6 +250,7 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 			log.Warn().
 				Str("api_key_prefix", apiKey[:min(len(apiKey), 8)]).
 				Msg("Invalid API key for git request")
+			w.Header().Set("WWW-Authenticate", "Basic realm=\"Helix Git Server\"")
 			http.Error(w, "Invalid API key", http.StatusUnauthorized)
 			return
 		}
@@ -237,10 +259,10 @@ func (s *GitHTTPServer) authMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), "git_user", user)
 		r = r.WithContext(ctx)
 
-		log.Debug().
+		log.Info().
 			Str("user_id", user.ID).
 			Str("path", r.URL.Path).
-			Msg("Git request authenticated")
+			Msg("✅ Git request authenticated successfully")
 
 		next.ServeHTTP(w, r)
 	})
@@ -352,77 +374,21 @@ func (s *GitHTTPServer) validateAPIKeyAndGetUser(ctx context.Context, apiKey str
 	return user, nil
 }
 
-// handleInfoRefs handles the git info/refs request
+// handleInfoRefs handles the git info/refs request using git http-backend CGI
 func (s *GitHTTPServer) handleInfoRefs(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	repoID := vars["repo_id"]
-
-	if repoID == "" {
-		http.Error(w, "Repository ID required", http.StatusBadRequest)
-		return
-	}
-
-	// Get repository
-	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for info/refs")
-		http.Error(w, "Repository not found", http.StatusNotFound)
-		return
-	}
-
-	// Determine service type
-	service := r.URL.Query().Get("service")
-	if service == "" {
-		http.Error(w, "Service parameter required", http.StatusBadRequest)
-		return
-	}
-
-	// Execute git command
-	cmd := exec.CommandContext(r.Context(), s.gitExecutablePath, service, "--stateless-rpc", "--advertise-refs", repo.LocalPath)
-	cmd.Dir = repo.LocalPath
-
-	// Set up response
-	w.Header().Set("Content-Type", fmt.Sprintf("application/x-%s-advertisement", service))
-	w.Header().Set("Cache-Control", "no-cache")
-
-	// Write service header
-	serviceHeader := fmt.Sprintf("# service=%s\n", service)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(serviceHeader)))
-	w.Write([]byte(serviceHeader))
-
-	// Execute git command and stream output
-	output, err := cmd.Output()
-	if err != nil {
-		log.Error().Err(err).Str("service", service).Str("repo_id", repoID).Msg("Git command failed")
-		http.Error(w, "Git operation failed", http.StatusInternalServerError)
-		return
-	}
-
-	w.Write(output)
-
-	log.Debug().
-		Str("repo_id", repoID).
-		Str("service", service).
-		Int("response_size", len(output)).
-		Msg("Git info/refs request completed")
+	s.handleGitHTTPBackend(w, r)
 }
 
-// handleUploadPack handles git upload-pack requests (for git clone/pull)
+// handleUploadPack handles git upload-pack requests (for git clone/pull) using git http-backend
 func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	if !s.enablePull {
 		http.Error(w, "Pull operations disabled", http.StatusForbidden)
 		return
 	}
 
+	// Check if user has read access to repository
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
-
-	if repoID == "" {
-		http.Error(w, "Repository ID required", http.StatusBadRequest)
-		return
-	}
-
-	// Check if user has read access to repository
 	user := s.getUser(r)
 	if !s.hasReadAccess(r.Context(), user, repoID) {
 		log.Warn().
@@ -433,60 +399,19 @@ func (s *GitHTTPServer) handleUploadPack(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get repository
-	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for upload-pack")
-		http.Error(w, "Repository not found", http.StatusNotFound)
-		return
-	}
-
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
-	defer cancel()
-
-	// Execute git upload-pack
-	cmd := exec.CommandContext(ctx, s.gitExecutablePath, "upload-pack", "--stateless-rpc", repo.LocalPath)
-	cmd.Dir = repo.LocalPath
-	cmd.Stdin = r.Body
-
-	// Set up response
-	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
-	w.Header().Set("Cache-Control", "no-cache")
-
-	// Execute and stream output
-	output, err := cmd.Output()
-	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Git upload-pack failed")
-		http.Error(w, "Git upload-pack failed", http.StatusInternalServerError)
-		return
-	}
-
-	w.Write(output)
-
-	log.Info().
-		Str("repo_id", repoID).
-		Str("user_id", user.ID).
-		Int("response_size", len(output)).
-		Msg("Git upload-pack completed")
+	s.handleGitHTTPBackend(w, r)
 }
 
-// handleReceivePack handles git receive-pack requests (for git push)
+// handleReceivePack handles git receive-pack requests (for git push) using git http-backend
 func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request) {
 	if !s.enablePush {
 		http.Error(w, "Push operations disabled", http.StatusForbidden)
 		return
 	}
 
+	// Check if user has push permissions
 	vars := mux.Vars(r)
 	repoID := vars["repo_id"]
-
-	if repoID == "" {
-		http.Error(w, "Repository ID required", http.StatusBadRequest)
-		return
-	}
-
-	// Check if user has push permissions
 	user := s.getUser(r)
 	if !s.hasWriteAccess(r.Context(), user, repoID) {
 		log.Warn().
@@ -497,42 +422,219 @@ func (s *GitHTTPServer) handleReceivePack(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	s.handleGitHTTPBackend(w, r)
+}
+
+// handleGitHTTPBackend delegates to git's official http-backend CGI
+// This handles the complete git smart HTTP protocol correctly
+func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["repo_id"]
+
 	// Get repository
 	repo, err := s.gitRepoService.GetRepository(r.Context(), repoID)
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found for receive-pack")
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Repository not found")
 		http.Error(w, "Repository not found", http.StatusNotFound)
 		return
 	}
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
-	defer cancel()
-
-	// Execute git receive-pack
-	cmd := exec.CommandContext(ctx, s.gitExecutablePath, "receive-pack", "--stateless-rpc", repo.LocalPath)
+	// Use git http-backend CGI (official git implementation)
+	cmd := exec.CommandContext(r.Context(), "/usr/libexec/git-core/git-http-backend")
 	cmd.Dir = repo.LocalPath
+
+	// Extract the git service path (e.g., /info/refs or /git-upload-pack)
+	// From URL like /git/{repo-id}/info/refs, extract /info/refs
+	gitPath := strings.TrimPrefix(r.URL.Path, "/git/"+repoID)
+
+	// Set CGI environment variables for git-http-backend
+	// GIT_PROJECT_ROOT points to the repo itself (bare repo)
+	// PATH_INFO is the git service path (without repo name)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("GIT_PROJECT_ROOT=%s", repo.LocalPath),
+		fmt.Sprintf("PATH_INFO=%s", gitPath),
+		fmt.Sprintf("QUERY_STRING=%s", r.URL.RawQuery),
+		"REQUEST_METHOD="+r.Method,
+		"GIT_HTTP_EXPORT_ALL=1", // Allow serving without git-daemon-export-ok file
+		fmt.Sprintf("CONTENT_TYPE=%s", r.Header.Get("Content-Type")),
+		fmt.Sprintf("REMOTE_USER=%s", s.getUser(r).ID), // Pass authenticated user for logging
+	)
+
+	// Pipe request body to git http-backend
 	cmd.Stdin = r.Body
 
-	// Set up response
-	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
-	w.Header().Set("Cache-Control", "no-cache")
-
-	// Execute and stream output
-	output, err := cmd.Output()
+	// Capture combined output (CGI format: headers\r\n\r\nbody)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Msg("Git receive-pack failed")
-		http.Error(w, "Git receive-pack failed", http.StatusInternalServerError)
+		log.Error().
+			Err(err).
+			Str("repo_id", repoID).
+			Str("output", string(output)).
+			Msg("Git http-backend failed")
+		http.Error(w, "Git operation failed", http.StatusInternalServerError)
 		return
 	}
 
-	w.Write(output)
+	// Parse CGI response (headers + body separated by \r\n\r\n or \n\n)
+	headerEnd := bytes.Index(output, []byte("\r\n\r\n"))
+	if headerEnd == -1 {
+		headerEnd = bytes.Index(output, []byte("\n\n"))
+	}
+
+	if headerEnd == -1 {
+		// No CGI headers found, write raw output
+		w.Write(output)
+		return
+	}
+
+	// Parse and set response headers
+	headers := string(output[:headerEnd])
+	for _, line := range strings.Split(headers, "\n") {
+		line = strings.TrimSpace(line)
+		if idx := strings.Index(line, ": "); idx > 0 {
+			key := line[:idx]
+			value := line[idx+2:]
+			w.Header().Set(key, value)
+		}
+	}
+
+	// Write body
+	bodyStart := headerEnd + 4
+	if bytes.HasPrefix(output[headerEnd:], []byte("\n\n")) {
+		bodyStart = headerEnd + 2
+	}
+	w.Write(output[bodyStart:])
+
+	// Post-push hook: Check for design doc commits (async, don't block response)
+	if strings.HasSuffix(gitPath, "/git-receive-pack") {
+		go s.handlePostPushHook(r.Context(), repoID, repo.LocalPath)
+	}
+
+	log.Debug().
+		Str("repo_id", repoID).
+		Str("method", r.Method).
+		Str("path", r.URL.Path).
+		Int("response_size", len(output)).
+		Msg("Git HTTP request completed via http-backend")
+}
+
+// handlePostPushHook processes commits after a successful push
+// Checks for design doc commits and auto-transitions SpecTasks
+func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string) {
+	log.Info().
+		Str("repo_id", repoID).
+		Msg("Processing post-push hook")
+
+	// Get the repository to find associated project/spec tasks
+	repo, err := s.gitRepoService.GetRepository(ctx, repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository in post-push hook")
+		return
+	}
+
+	// Check if this is a design repo (contains design docs in the latest commit)
+	hasDesignDocs, err := s.checkForDesignDocs(repoPath)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
+		return
+	}
+
+	if !hasDesignDocs {
+		log.Debug().Str("repo_id", repoID).Msg("No design docs found in push, skipping spec task transition")
+		return
+	}
 
 	log.Info().
 		Str("repo_id", repoID).
-		Str("user_id", user.ID).
-		Int("response_size", len(output)).
-		Msg("Git receive-pack completed")
+		Msg("Design docs detected in push, checking for associated SpecTasks")
+
+	// Find SpecTasks using this repository (via ProjectID)
+	// Projects have a default repo, and SpecTasks are associated with projects
+	specTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: repo.ProjectID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks for project")
+		return
+	}
+
+	// Process each spec task that's in spec_generation status
+	for _, task := range specTasks {
+		if task == nil {
+			continue
+		}
+		if task.Status != types.TaskStatusSpecGeneration {
+			continue
+		}
+
+		log.Info().
+			Str("task_id", task.ID).
+			Str("task_name", task.Name).
+			Bool("yolo_mode", task.YoloMode).
+			Msg("Processing SpecTask for design doc push")
+
+		if task.YoloMode {
+			// YOLO mode: Auto-approve specs and start implementation
+			task.Status = types.TaskStatusSpecApproved
+			task.SpecApprovedBy = "system"
+			now := time.Now()
+			task.SpecApprovedAt = &now
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("YOLO mode enabled: Auto-approving specs")
+		} else {
+			// Normal mode: Move to spec review
+			task.Status = types.TaskStatusSpecReview
+			log.Info().
+				Str("task_id", task.ID).
+				Msg("Moving task to spec review")
+		}
+
+		task.UpdatedAt = time.Now()
+		err = s.store.UpdateSpecTask(ctx, task)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID).
+				Msg("Failed to update spec task status after design doc push")
+		}
+	}
+}
+
+// checkForDesignDocs checks if the latest commit contains design documentation files
+func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
+	// Check for standard design doc files in the latest commit
+	// Using git show to list files in HEAD commit
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "HEAD")
+	cmd.Dir = repoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("failed to list files in commit: %w", err)
+	}
+
+	files := strings.Split(string(output), "\n")
+	designDocPatterns := []string{
+		"design/",
+		"REQUIREMENTS.md",
+		"TECHNICAL_DESIGN.md",
+		"IMPLEMENTATION_PLAN.md",
+		"docs/specs/",
+	}
+
+	for _, file := range files {
+		for _, pattern := range designDocPatterns {
+			if strings.Contains(file, pattern) {
+				log.Debug().
+					Str("file", file).
+					Str("pattern", pattern).
+					Msg("Design doc pattern matched")
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 // handleCloneInfo provides clone information for a repository

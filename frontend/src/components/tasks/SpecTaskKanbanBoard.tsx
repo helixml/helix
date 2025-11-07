@@ -60,6 +60,7 @@ import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer';
+import DesignDocViewer from './DesignDocViewer';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -158,6 +159,7 @@ interface SpecTaskWithExtras extends SpecTask {
   activeSessionsCount?: number;
   completedSessionsCount?: number;
   specApprovalNeeded?: boolean;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
 }
 
 interface KanbanColumn {
@@ -302,6 +304,25 @@ const TaskCard: React.FC<{
             )}
           </Box>
         )}
+
+        {/* Show "Review Documents" button for review phase tasks */}
+        {task.phase === 'review' && task.onReviewDocs && (
+          <Box sx={{ mt: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              color="info"
+              startIcon={<SpecIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                task.onReviewDocs(task);
+              }}
+              fullWidth
+            >
+              Review Documents
+            </Button>
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
@@ -415,6 +436,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+
+  // Design doc viewer state
+  const [docViewerOpen, setDocViewerOpen] = useState(false);
+  const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
@@ -538,6 +563,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -602,6 +628,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -1041,6 +1068,189 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   };
 
+  // Handle reviewing documents
+  const handleReviewDocs = (task: SpecTaskWithExtras) => {
+    setReviewingTask(task);
+    setDocViewerOpen(true);
+  };
+
+  // Handle approving specs
+  const handleApproveSpecs = async (comment?: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Call approve specs API
+      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
+        approved: true,
+        comments: comment || 'Specs approved',
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to approve specs:', err);
+      setError('Failed to approve specs');
+    }
+  };
+
+  // Handle rejecting specs (request changes)
+  const handleRejectSpecs = async (comment: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Call approve specs API with approved = false
+      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
+        approved: false,
+        comments: comment,
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to request changes:', err);
+      setError('Failed to request changes');
+    }
+  };
+
+  // Handle rejecting completely (archive)
+  const handleRejectCompletely = async (comment: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Archive the task
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(reviewingTask.id!, {
+        archived: true,
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+        archived_only: showArchived,
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to reject completely:', err);
+      setError('Failed to reject completely');
+    }
+  };
+
   // Render draggable task card
   const DraggableTaskCard = ({ task, index }: { task: SpecTaskWithExtras; index: number }) => {
     const specStatus = getSpecStatusInfo(task);
@@ -1286,6 +1496,21 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           />
         ))}
       </Box>
+
+      {/* Design Document Viewer */}
+      <DesignDocViewer
+        open={docViewerOpen}
+        onClose={() => {
+          setDocViewerOpen(false);
+          setReviewingTask(null);
+        }}
+        taskId={reviewingTask?.id || ''}
+        taskName={reviewingTask?.name || ''}
+        sessionId={reviewingTask?.spec_session_id}
+        onApprove={handleApproveSpecs}
+        onReject={handleRejectSpecs}
+        onRejectCompletely={handleRejectCompletely}
+      />
 
       {/* Planning Dialog */}
       <Dialog open={planningDialogOpen} onClose={() => setPlanningDialogOpen(false)} maxWidth="md" fullWidth>

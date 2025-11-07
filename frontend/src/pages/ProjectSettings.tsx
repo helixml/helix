@@ -508,6 +508,39 @@ const ProjectSettings: FC = () => {
               />
             </Paper>
 
+          {/* Automations */}
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Automations
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Configure automatic task scheduling and workflow automation.
+            </Typography>
+            <Divider sx={{ mb: 3 }} />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={autoStartBacklogTasks}
+                  onChange={(e) => {
+                    setAutoStartBacklogTasks(e.target.checked)
+                    handleFieldBlur()
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Automatically start backlog items when there's capacity in the planning column
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    When enabled, tasks in the backlog will automatically move to planning when the WIP limit allows.
+                    When disabled, tasks must be manually moved from backlog to planning.
+                  </Typography>
+                </Box>
+              }
+            />
+          </Paper>
+
           {/* Repositories */}
           <Paper sx={{ p: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -572,7 +605,6 @@ const ProjectSettings: FC = () => {
           </Paper>
 
           {/* Board Settings */}
-          {/* Kanban Board Settings */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Kanban Board Settings

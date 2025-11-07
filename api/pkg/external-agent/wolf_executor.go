@@ -427,25 +427,12 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Internal repos are now cloned like any other repo (no special handling)
 	var primaryRepoName string
 	if len(agent.RepositoryIDs) > 0 {
-		// Extract user's API token from environment variables for git operations
-		// This enforces RBAC - agent can only access repos the user can access
-		userAPIToken := ""
-		for _, envVar := range agent.Env {
-			if strings.HasPrefix(envVar, "USER_API_TOKEN=") {
-				userAPIToken = strings.TrimPrefix(envVar, "USER_API_TOKEN=")
-				break
-			}
-		}
-		if userAPIToken == "" {
-			log.Warn().Msg("No USER_API_TOKEN found in agent env, falling back to server token")
-			userAPIToken = w.helixAPIToken
-		}
-
-		err := w.setupGitRepositories(ctx, workspaceDir, agent.RepositoryIDs, agent.PrimaryRepositoryID, userAPIToken)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to setup git repositories")
-			return nil, fmt.Errorf("failed to setup git repositories: %w", err)
-		}
+		// Repository cloning now handled by startup script (start-zed-helix.sh)
+		// Startup script uses HELIX_REPOSITORY_IDS and USER_API_TOKEN env vars
+		// This is cleaner: git credentials already configured in container, uses HTTP connectivity
+		log.Info().
+			Strs("repository_ids", agent.RepositoryIDs).
+			Msg("Repositories will be cloned by startup script before Zed starts")
 
 		// Get primary repository name for environment variable (startup script needs this)
 		if agent.PrimaryRepositoryID != "" {
@@ -513,6 +500,28 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	if primaryRepoName != "" {
 		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", primaryRepoName))
 	}
+
+	// Pass repository information for startup script to clone
+	// Format: "id:name:type,id:name:type,..." (simple parsing, no jq needed)
+	if len(agent.RepositoryIDs) > 0 {
+		var repoSpecs []string
+		for _, repoID := range agent.RepositoryIDs {
+			repo, err := w.store.GetGitRepository(ctx, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to get repository metadata")
+				continue
+			}
+			// Format: id:name:type
+			repoSpec := fmt.Sprintf("%s:%s:%s", repo.ID, repo.Name, repo.RepoType)
+			repoSpecs = append(repoSpecs, repoSpec)
+		}
+		if len(repoSpecs) > 0 {
+			extraEnv = append(extraEnv, fmt.Sprintf("HELIX_REPOSITORIES=%s", strings.Join(repoSpecs, ",")))
+		}
+	}
+
+	// Pass API base URL for git cloning (always api:8080 from Wolf container)
+	extraEnv = append(extraEnv, "HELIX_API_BASE_URL=http://api:8080")
 
 	// Add custom env vars from agent request
 	extraEnv = append(extraEnv, agent.Env...)
