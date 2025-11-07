@@ -25,7 +25,7 @@ const QUERY_KEYS = {
   cloneCommand: (id: string) => ['git-repositories', id, 'clone-command'] as const,
   userRepositories: (userId: string) => ['git-repositories', 'user', userId] as const,
   specTaskRepositories: (specTaskId: string) => ['git-repositories', 'spec-task', specTaskId] as const,
-  repositoryTree: (id: string, path: string) => ['git-repositories', id, 'tree', path] as const,
+  repositoryTree: (id: string, path: string, branch?: string) => ['git-repositories', id, 'tree', path, branch || ''] as const,
   repositoryFile: (id: string, path: string) => ['git-repositories', id, 'file', path] as const,
 };
 
@@ -102,13 +102,30 @@ export function useUserGitRepositories(userId: string) {
   });
 }
 
-export function useBrowseRepositoryTree(repositoryId: string, path: string = '.') {
+export function useListRepositoryBranches(repositoryId: string) {
   const api = useApi();
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path),
+    queryKey: ['git-repositories', repositoryId, 'branches'] as const,
     queryFn: async () => {
-      const response = await api.getApiClient().browseGitRepositoryTree(repositoryId, { path });
+      const response = await api.getApiClient().listGitRepositoryBranches(repositoryId);
+      return response.data;
+    },
+    enabled: !!repositoryId,
+  });
+}
+
+export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, branch),
+    queryFn: async () => {
+      const params: any = { path };
+      if (branch) {
+        params.branch = branch;
+      }
+      const response = await api.getApiClient().browseGitRepositoryTree(repositoryId, params);
       return response.data;
     },
     enabled: !!repositoryId,
@@ -133,7 +150,7 @@ export function useGetRepositoryFile(repositoryId: string, path: string, enabled
 export function useCreateGitRepository() {
   const api = useApi();
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (request: any) => { // ServicesGitRepositoryCreateRequest
       const response = await api.getApiClient().v1GitRepositoriesCreate(request);
@@ -145,6 +162,21 @@ export function useCreateGitRepository() {
       if (variables.owner_id) {
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.userRepositories(variables.owner_id) });
       }
+    },
+  });
+}
+
+export function useDeleteGitRepository() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (repositoryId: string) => {
+      await api.getApiClient().v1GitRepositoriesDelete(repositoryId);
+    },
+    onSuccess: () => {
+      // Invalidate all repository queries
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories });
     },
   });
 }

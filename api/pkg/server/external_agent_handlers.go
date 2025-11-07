@@ -15,10 +15,37 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
+
+// addUserAPITokenToAgent adds the user's API token to agent environment for git operations
+// This ensures RBAC is enforced - agent can only access repos the user can access
+func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+	userAPIKeys, err := s.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list user API keys: %w", err)
+	}
+
+	if len(userAPIKeys) == 0 {
+		log.Warn().Str("user_id", userID).Msg("User has no API keys - git operations will not work")
+		return fmt.Errorf("user has no API keys - create one in Account Settings to use git features")
+	}
+
+	// Add USER_API_TOKEN to agent environment
+	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key))
+
+	log.Debug().
+		Str("user_id", userID).
+		Msg("Added user API token to agent for git operations")
+
+	return nil
+}
 
 // RegisterRequestToSessionMapping registers a request_id to session_id mapping for external agent sessions
 // This is used to route initial messages to Zed when it connects via WebSocket
@@ -178,6 +205,12 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 
 	// Set the Helix session ID on the agent so Wolf knows which session this serves
 	agent.HelixSessionID = createdSession.ID
+
+	// Add user's API token for git operations
+	if err := apiServer.addUserAPITokenToAgent(req.Context(), &agent, user.ID); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token (continuing without git)")
+		// Don't fail - external agents can work without git
+	}
 
 	// Start the external agent
 	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)

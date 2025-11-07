@@ -433,6 +433,9 @@ func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) 
 	if updateReq.Description != "" {
 		task.Description = updateReq.Description
 	}
+	if updateReq.YoloMode != nil {
+		task.YoloMode = *updateReq.YoloMode
+	}
 
 	// Update in store
 	err = s.Store.UpdateSpecTask(r.Context(), task)

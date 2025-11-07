@@ -489,6 +489,7 @@ type InitializeSampleRepositoriesResponse struct {
 // @Produce json
 // @Param id path string true "Repository ID"
 // @Param path query string false "Path to browse (default: root)"
+// @Param branch query string false "Branch to browse (default: HEAD)"
 // @Success 200 {object} services.GitRepositoryTreeResponse
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -507,7 +508,9 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 		path = "."
 	}
 
-	entries, err := apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path)
+	branch := r.URL.Query().Get("branch")
+
+	entries, err := apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path, branch)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Msg("Failed to browse repository tree")
 		http.Error(w, fmt.Sprintf("Failed to browse repository: %s", err.Error()), http.StatusInternalServerError)
@@ -521,6 +524,37 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// listGitRepositoryBranches lists all branches in a repository
+// @Summary List repository branches
+// @Description Get list of all branches in a repository
+// @ID listGitRepositoryBranches
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {array} string
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/branches [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	branches, err := apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository branches")
+		http.Error(w, fmt.Sprintf("Failed to list branches: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(branches)
 }
 
 // getGitRepositoryFile gets the contents of a file

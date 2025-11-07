@@ -27,7 +27,6 @@ import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import Fleet from './pages/Fleet'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -80,17 +79,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Apps />
-    ),
-  }, {
-    name: namePrefix + 'fleet',
-    path: routePrefix + '/fleet',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-      title: 'Fleet',
-    },
-    render: () => (
-      <Fleet />
     ),
   }, {
     name: namePrefix + 'git-repos',

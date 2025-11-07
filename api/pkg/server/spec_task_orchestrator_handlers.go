@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -164,30 +166,83 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 	vars := mux.Vars(req)
 	taskID := vars["id"]
 
-	// Get orchestrator
-	orchestrator := apiServer.GetOrchestrator()
-	if orchestrator == nil {
-		return nil, system.NewHTTPError500("orchestrator not initialized")
-	}
-
 	// Get task
 	task, err := apiServer.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		return nil, system.NewHTTPError404("task not found")
 	}
 
-	// Get orchestrated task to find design docs path
-	// Note: This assumes the task has been through implementation setup
-	// In production, we'd store the design docs path in the database
+	// Get the project's default repository (design docs repo)
+	project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get project")
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil, system.NewHTTPError400("project has no default repository")
+	}
+
+	// Get repository
+	repo, err := apiServer.GetGitService().GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get repository")
+	}
+
+	// Read design docs from Git repository
+	// Check for files in design/ directory matching date format
+	designDocs, err := apiServer.readDesignDocsFromGit(repo.LocalPath)
+	if err != nil {
+		log.Error().Err(err).Str("repo_path", repo.LocalPath).Msg("Failed to read design docs from git")
+		return nil, system.NewHTTPError500("failed to read design docs")
+	}
 
 	response := &DesignDocsResponse{
-		TaskID:           task.ID,
-		ProgressMarkdown: "", // Would read from worktree
-		DesignMarkdown:   "", // Would read from worktree
-		CurrentTaskIndex: -1,
+		TaskID:     task.ID,
+		Documents:  designDocs,
 	}
 
 	return response, nil
+}
+
+// readDesignDocsFromGit reads design documents from the Git repository
+func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string) ([]DesignDocument, error) {
+	// List files in the design/ directory
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "HEAD", "design/")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// design/ directory might not exist yet
+		return []DesignDocument{}, nil
+	}
+
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var docs []DesignDocument
+
+	for _, file := range files {
+		if file == "" || !strings.HasSuffix(file, ".md") {
+			continue
+		}
+
+		// Read file content from Git
+		contentCmd := exec.Command("git", "show", fmt.Sprintf("HEAD:%s", file))
+		contentCmd.Dir = repoPath
+		content, err := contentCmd.CombinedOutput()
+		if err != nil {
+			log.Warn().Err(err).Str("file", file).Msg("Failed to read design doc file")
+			continue
+		}
+
+		// Extract filename
+		filename := strings.TrimPrefix(file, "design/")
+
+		docs = append(docs, DesignDocument{
+			Filename: filename,
+			Content:  string(content),
+			Path:     file,
+		})
+	}
+
+	return docs, nil
 }
 
 // Response types
@@ -222,10 +277,14 @@ type CreateSpecTaskFromDemoRequest struct {
 }
 
 type DesignDocsResponse struct {
-	TaskID           string `json:"task_id"`
-	ProgressMarkdown string `json:"progress_markdown"`
-	DesignMarkdown   string `json:"design_markdown"`
-	CurrentTaskIndex int    `json:"current_task_index"`
+	TaskID    string           `json:"task_id"`
+	Documents []DesignDocument `json:"documents"`
+}
+
+type DesignDocument struct {
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	Path     string `json:"path"`
 }
 
 // Helper functions
@@ -427,6 +486,13 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		DisplayWidth:       2560,
 		DisplayHeight:      1600,
 		DisplayRefreshRate: 60,
+	}
+
+	// Add user's API token for git operations
+	if err := apiServer.addUserAPITokenToAgent(req.Context(), agentReq, task.CreatedBy); err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to add user API token for SpecTask resurrection")
+		http.Error(res, fmt.Sprintf("Failed to get user API keys: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	agentResp, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), agentReq)

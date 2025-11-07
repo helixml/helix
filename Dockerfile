@@ -12,8 +12,8 @@ RUN go mod download
 FROM api-base AS api-dev-env
 # - Air provides hot reload for Go
 RUN go install github.com/air-verse/air@v1.52.3
-# - Install curl for Wolf API debugging and bash for git operations
-RUN apk add --no-cache curl bash
+# - Install curl for Wolf API debugging, bash for git operations, and git-daemon for git-http-backend
+RUN apk add --no-cache curl bash git-daemon
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
 WORKDIR /app/api

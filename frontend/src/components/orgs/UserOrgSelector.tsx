@@ -377,20 +377,6 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Projects",
       },
       {
-        icon: <Activity size={NAV_BUTTON_SIZE} />,
-        tooltip: "View agent fleet dashboard",
-        isActive: isActive('fleet'),
-        onClick: () => orgNavigateTo('fleet'),
-        label: "Fleet",
-      },
-      {
-        icon: <GitBranch size={NAV_BUTTON_SIZE} />,
-        tooltip: "View git repositories",
-        isActive: isActive('git-repos'),
-        onClick: () => orgNavigateTo('git-repos'),
-        label: "Repos",
-      },
-      {
         icon: <Clock size={NAV_BUTTON_SIZE} />,
         tooltip: "View tasks",
         isActive: isActive('tasks'),

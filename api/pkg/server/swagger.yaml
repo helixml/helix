@@ -904,12 +904,10 @@ definitions:
     type: object
   server.DesignDocsResponse:
     properties:
-      current_task_index:
-        type: integer
-      design_markdown:
-        type: string
-      progress_markdown:
-        type: string
+      documents:
+        items:
+          $ref: '#/definitions/server.DesignDocument'
+        type: array
       task_id:
         type: string
     type: object
@@ -920,6 +918,15 @@ definitions:
       share_url:
         type: string
       token:
+        type: string
+    type: object
+  server.DesignDocument:
+    properties:
+      content:
+        type: string
+      filename:
+        type: string
+      path:
         type: string
     type: object
   server.ForkSampleProjectRequest:
@@ -1578,6 +1585,9 @@ definitions:
         type: string
       user_id:
         type: string
+      yolo_mode:
+        description: 'Optional: Skip human review and auto-approve specs'
+        type: boolean
     type: object
   services.DocumentHandoffConfig:
     properties:
@@ -5964,6 +5974,9 @@ definitions:
         items:
           type: integer
         type: array
+      yolo_mode:
+        description: Skip human review, auto-approve specs
+        type: boolean
       zed_instance_id:
         description: Multi-session support
         type: string
@@ -6155,6 +6168,9 @@ definitions:
         type: string
       status:
         type: string
+      yolo_mode:
+        description: Pointer to allow explicit false
+        type: boolean
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -6821,18 +6837,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -8764,6 +8780,38 @@ paths:
       summary: Grant access to a repository to a user
       tags:
       - gitrepositories
+  /api/v1/git/repositories/{id}/branches:
+    get:
+      description: Get list of all branches in a repository
+      operationId: listGitRepositoryBranches
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository branches
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/clone-command:
     get:
       description: Get the git clone command for a repository with authentication
@@ -8845,6 +8893,10 @@ paths:
       - description: 'Path to browse (default: root)'
         in: query
         name: path
+        type: string
+      - description: 'Branch to browse (default: HEAD)'
+        in: query
+        name: branch
         type: string
       produces:
       - application/json
