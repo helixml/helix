@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -146,6 +147,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
+		&types.Project{},
+		&types.SampleProject{},
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
 		&types.SpecTaskZedThread{},
@@ -156,10 +159,10 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.AgentSessionStatus{},
 		&types.HelpRequest{},
 		&types.JobCompletion{},
-		&DBGitRepository{},
+		&GitRepository{},
 		&types.SpecTaskImplementationTask{},
 		&types.AgentRunner{},
-		&types.PersonalDevEnvironment{},
+		&types.PersonalDevEnvironment{}, // DEPRECATED - stub for backward compatibility
 		&types.SSHKey{},
 		&types.ZedSettingsOverride{},
 		&types.Memory{},
@@ -235,6 +238,12 @@ func (s *PostgresStore) autoMigrate() error {
 
 	if err := createFK(s.gdb, types.Memory{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	// Ensure default project exists for spec tasks
+	if err := s.ensureDefaultProject(context.Background()); err != nil {
+		log.Err(err).Msg("failed to ensure default project exists")
+		return err
 	}
 
 	return nil
@@ -505,6 +514,160 @@ func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Projec
 		return nil, fmt.Errorf("error creating project: %w", err)
 	}
 	return project, nil
+}
+
+// GetProject gets a project by ID
+func (s *PostgresStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", projectID).First(&project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting project: %w", err)
+	}
+	return &project, nil
+}
+
+// UpdateProject updates an existing project
+func (s *PostgresStore) UpdateProject(ctx context.Context, project *types.Project) error {
+	err := s.gdb.WithContext(ctx).Save(project).Error
+	if err != nil {
+		return fmt.Errorf("error updating project: %w", err)
+	}
+	return nil
+}
+
+// ListProjects lists all projects for a given user
+func (s *PostgresStore) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+	var projects []*types.Project
+	err := s.gdb.WithContext(ctx).Where("user_id = ?", userID).Order("created_at DESC").Find(&projects).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing projects: %w", err)
+	}
+	return projects, nil
+}
+
+// DeleteProject deletes a project by ID
+func (s *PostgresStore) DeleteProject(ctx context.Context, projectID string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.Project{}, "id = ?", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error deleting project: %w", err)
+	}
+	return nil
+}
+
+// GetProjectRepositories gets all repositories attached to a project
+func (s *PostgresStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error) {
+	var repos []*GitRepository
+	err := s.gdb.WithContext(ctx).Where("project_id = ?", projectID).Find(&repos).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting project repositories: %w", err)
+	}
+	return repos, nil
+}
+
+// SetProjectPrimaryRepository sets the primary repository for a project
+func (s *PostgresStore) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&types.Project{}).Where("id = ?", projectID).Update("default_repo_id", repoID).Error
+	if err != nil {
+		return fmt.Errorf("error setting project primary repository: %w", err)
+	}
+	return nil
+}
+
+// AttachRepositoryToProject attaches a repository to a project
+func (s *PostgresStore) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&GitRepository{}).Where("id = ?", repoID).Update("project_id", projectID).Error
+	if err != nil {
+		return fmt.Errorf("error attaching repository to project: %w", err)
+	}
+	return nil
+}
+
+// DetachRepositoryFromProject detaches a repository from its project
+func (s *PostgresStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
+	err := s.gdb.WithContext(ctx).Model(&GitRepository{}).Where("id = ?", repoID).Update("project_id", "").Error
+	if err != nil {
+		return fmt.Errorf("error detaching repository from project: %w", err)
+	}
+	return nil
+}
+
+// CreateSampleProject creates a new sample project
+func (s *PostgresStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	err := s.gdb.WithContext(ctx).Create(sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating sample project: %w", err)
+	}
+	return sample, nil
+}
+
+// GetSampleProject gets a sample project by ID
+func (s *PostgresStore) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) {
+	var sample types.SampleProject
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&sample).Error
+	if err != nil {
+		return nil, fmt.Errorf("error getting sample project: %w", err)
+	}
+	return &sample, nil
+}
+
+// ListSampleProjects lists all available sample projects
+func (s *PostgresStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
+	var samples []*types.SampleProject
+	err := s.gdb.WithContext(ctx).Order("created_at DESC").Find(&samples).Error
+	if err != nil {
+		return nil, fmt.Errorf("error listing sample projects: %w", err)
+	}
+	return samples, nil
+}
+
+// DeleteSampleProject deletes a sample project by ID
+func (s *PostgresStore) DeleteSampleProject(ctx context.Context, id string) error {
+	err := s.gdb.WithContext(ctx).Delete(&types.SampleProject{}, "id = ?", id).Error
+	if err != nil {
+		return fmt.Errorf("error deleting sample project: %w", err)
+	}
+	return nil
+}
+
+// ensureDefaultProject ensures that the default project exists for spec tasks
+// This project is used as a singleton board for all spec tasks until multi-project support is fully implemented
+func (s *PostgresStore) ensureDefaultProject(ctx context.Context) error {
+	var project types.Project
+	err := s.gdb.WithContext(ctx).Where("id = ?", "default").First(&project).Error
+
+	if err == gorm.ErrRecordNotFound {
+		// Create default project with board settings
+		defaultProject := &types.Project{
+			ID:             "default",
+			Name:           "Default Project",
+			Description:    "Default project for spec-driven tasks",
+			Status:         "active",
+			CreatedAt:      time.Now(),
+			UpdatedAt:      time.Now(),
+			Metadata: datatypes.JSON([]byte(`{
+				"board_settings": {
+					"wip_limits": {
+						"planning": 3,
+						"review": 2,
+						"implementation": 5
+					}
+				}
+			}`)),
+		}
+
+		err = s.gdb.WithContext(ctx).Create(defaultProject).Error
+		if err != nil {
+			return fmt.Errorf("failed to create default project: %w", err)
+		}
+
+		log.Info().Msg("Created default project for spec tasks")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to check for default project: %w", err)
+	}
+
+	// Project exists, nothing to do
+	return nil
 }
 
 // GetDB returns the underlying GORM database connection for testing purposes

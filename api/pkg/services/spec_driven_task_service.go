@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -16,12 +17,17 @@ import (
 	"gorm.io/datatypes"
 )
 
+// RequestMappingRegistrar is a function type for registering request-to-session mappings
+type RequestMappingRegistrar func(requestID, sessionID string)
+
 // SpecDrivenTaskService manages the spec-driven development workflow:
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
 	store                    store.Store
 	controller               *controller.Controller
+	externalAgentExecutor    external_agent.Executor      // Wolf executor for launching external agents
+	RegisterRequestMapping   RequestMappingRegistrar      // Callback to register request-to-session mappings
 	helixAgentID             string                       // ID of Helix agent for spec generation
 	zedAgentPool             []string                     // Pool of available Zed agents
 	testMode                 bool                         // If true, skip async operations for testing
@@ -40,13 +46,17 @@ func NewSpecDrivenTaskService(
 	helixAgentID string,
 	zedAgentPool []string,
 	pubsub pubsub.PubSub,
+	externalAgentExecutor external_agent.Executor,
+	registerRequestMapping RequestMappingRegistrar,
 ) *SpecDrivenTaskService {
 	service := &SpecDrivenTaskService{
-		store:        store,
-		controller:   controller,
-		helixAgentID: helixAgentID,
-		zedAgentPool: zedAgentPool,
-		testMode:     false,
+		store:                  store,
+		controller:             controller,
+		externalAgentExecutor:  externalAgentExecutor,
+		RegisterRequestMapping: registerRequestMapping,
+		helixAgentID:           helixAgentID,
+		zedAgentPool:           zedAgentPool,
+		testMode:               false,
 	}
 
 	// Initialize Zed integration service
@@ -127,6 +137,12 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *CreateTaskRequest) (*types.SpecTask, error) {
+	// Determine which agent to use for spec generation
+	specAgent := s.helixAgentID
+	if req.AppID != "" {
+		specAgent = req.AppID
+	}
+
 	task := &types.SpecTask{
 		ID:             generateTaskID(),
 		ProjectID:      req.ProjectID,
@@ -137,8 +153,11 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		SpecAgent:      specAgent, // Set the spec agent from request or default
+		YoloMode:       req.YoloMode, // Set YOLO mode from request
+		// Repositories inherited from parent project - no task-level repo configuration
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	// Store the task
@@ -147,24 +166,35 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
-	// Immediately start spec generation (unless in test mode)
-	if !s.testMode {
-		go s.startSpecGeneration(context.Background(), task)
-	}
+	// DO NOT auto-start spec generation
+	// Tasks should start in backlog and wait for explicit user action to start planning
+	// This allows WIP limits to be enforced on the planning column
 
 	return task, nil
 }
 
-// startSpecGeneration kicks off spec generation with a Helix agent
-func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *types.SpecTask) {
+// StartSpecGeneration kicks off spec generation with a Helix agent
+// This is now a public method that can be called explicitly to start planning
+func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
+	// Ensure SpecAgent is set (fallback for tasks created before this field existed)
+	if task.SpecAgent == "" {
+		task.SpecAgent = s.helixAgentID
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
 		Str("original_prompt", task.OriginalPrompt).
+		Str("spec_agent", task.SpecAgent).
 		Msg("Starting spec generation")
 
-	// Update task status
+	// Clear any previous error from metadata (in case this is a retry)
+	if task.Metadata != nil {
+		delete(task.Metadata, "error")
+		delete(task.Metadata, "error_timestamp")
+	}
+
+	// Update task status (SpecAgent already set in CreateTaskFromPrompt)
 	task.Status = types.TaskStatusSpecGeneration
-	task.SpecAgent = s.helixAgentID
 	task.UpdatedAt = time.Now()
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -175,10 +205,11 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 
 	// Create Zed external agent session for spec generation
 	// Planning agent needs git access to commit design docs to helix-design-docs branch
-	systemPrompt := s.buildSpecGenerationPrompt(task)
+	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
+	planningPrompt := s.buildSpecGenerationPrompt(task)
 
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: systemPrompt,
+		SystemPrompt: "", // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
 		Stream:       false,
 	}
@@ -193,7 +224,7 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		Provider:       "anthropic",          // Use Claude for spec generation
 		ModelName:      "external_agent",     // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      "",
+		ParentApp:      task.SpecAgent,       // Use the spec agent (now guaranteed to be set)
 		OrganizationID: "",
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
@@ -202,14 +233,14 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 	// Create the session in the database
 	if s.controller == nil || s.controller.Options.Store == nil {
 		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, "Controller or store not available for spec generation")
 		return
 	}
 
 	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create spec generation session: %v", err))
 		return
 	}
 
@@ -218,11 +249,22 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to update task with session ID: %v", err))
 		return
 	}
 
-	// Create initial interaction with the original prompt
+	// Generate request_id for initial message and register the mapping
+	// This allows the WebSocket handler to find and send the initial message to Zed
+	requestID := system.GenerateRequestID()
+	if s.RegisterRequestMapping != nil {
+		s.RegisterRequestMapping(requestID, session.ID)
+	}
+
+	// Create initial interaction combining planning instructions with user's request
+	// The planning prompt tells Zed how to create design documents
+	// The user's prompt is what they want designed
+	fullMessage := planningPrompt + "\n\n**User Request:**\n" + task.OriginalPrompt
+
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
 		Created:       time.Now(),
@@ -231,22 +273,94 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		SessionID:     session.ID,
 		UserID:        task.CreatedBy,
 		Mode:          types.SessionModeInference,
-		SystemPrompt:  systemPrompt,
-		PromptMessage: task.OriginalPrompt,
+		SystemPrompt:  "", // Don't override agent's system prompt
+		PromptMessage: fullMessage,
 		State:         types.InteractionStateWaiting,
 	}
 
 	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to create initial interaction: %v", err))
+		return
+	}
+
+	// Launch the external agent (Zed) via Wolf executor to actually start working on the spec generation
+	// Get parent project to access repository configuration
+	project, err := s.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		log.Error().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project for spec task")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get project: %v", err))
+		return
+	}
+
+	// Get all project repositories - repos are now managed entirely at project level
+	projectRepos, err := s.store.GetProjectRepositories(ctx, task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
+		projectRepos = nil
+	}
+
+	// Build list of all repository IDs to clone from project
+	repositoryIDs := []string{}
+	for _, repo := range projectRepos {
+		if repo.ID != "" {
+			repositoryIDs = append(repositoryIDs, repo.ID)
+		}
+	}
+
+	// Determine primary repository from project configuration
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(projectRepos) > 0 {
+		// Use first project repo as fallback if no default set
+		primaryRepoID = projectRepos[0].ID
+	}
+
+	// Get user's API token for git operations
+	userAPIKeys, err := s.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     task.CreatedBy,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to get user API keys for SpecTask")
+		s.markTaskFailed(ctx, task, fmt.Sprintf("Failed to get user API keys: %v", err))
+		return
+	}
+
+	if len(userAPIKeys) == 0 {
+		log.Error().Str("user_id", task.CreatedBy).Msg("User has no API keys - cannot start SpecTask")
+		s.markTaskFailed(ctx, task, "User has no API keys - create one in Account Settings")
+		return
+	}
+
+	// Create ZedAgent struct with session info for Wolf executor
+	zedAgent := &types.ZedAgent{
+		SessionID:           session.ID,
+		UserID:              task.CreatedBy,
+		Input:               "Initialize Zed development environment for spec generation",
+		ProjectPath:         "workspace", // Use relative path
+		SpecTaskID:          task.ID,                      // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID,                // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs,                // ALL project repos to checkout
+		Env: []string{
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key),
+		},
+	}
+
+	// Start the Zed agent via Wolf executor (not NATS)
+	agentResp, err := s.externalAgentExecutor.StartZedAgent(ctx, zedAgent)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Str("session_id", session.ID).Msg("Failed to launch external agent for spec generation")
+		s.markTaskFailed(ctx, task, err.Error())
 		return
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
-		// Str("session_id", session.ID).
-		Msg("Spec generation agent started")
+		Str("session_id", session.ID).
+		Str("wolf_lobby_id", agentResp.WolfLobbyID).
+		Str("container_name", agentResp.ContainerName).
+		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
 }
 
 // HandleSpecGenerationComplete processes completed spec generation from Helix agent
@@ -347,7 +461,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	zedAgent := s.selectZedAgent()
 	if zedAgent == "" {
 		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -358,7 +472,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with implementation agent")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -378,7 +492,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 	_, err = s.MultiSessionManager.CreateImplementationSessions(ctx, task.ID, config)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create implementation sessions")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -398,7 +512,7 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	zedAgent := s.selectZedAgent()
 	if zedAgent == "" {
 		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -448,14 +562,14 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	// Store the work item in the database
 	if s.controller == nil || s.controller.Options.Store == nil {
 		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for work item creation")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
 	err = s.controller.Options.Store.CreateAgentWorkItem(ctx, workItem)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create work item")
-		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		s.markTaskFailed(ctx, task, "Implementation failed - no Zed agents available")
 		return
 	}
 
@@ -468,7 +582,14 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 
 // buildSpecGenerationPrompt creates the system prompt for planning Zed agent
 func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) string {
-	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a simple user request and generate comprehensive, implementable specifications.
+	return fmt.Sprintf(`You are a software specification expert working in a Zed editor with git access. Your job is to take a user request and generate SHORT, SIMPLE, implementable specifications.
+
+**CRITICAL: Planning phase needs to run quickly - be concise!**
+- Match document complexity to task complexity
+- Simple tasks = minimal docs (1-2 paragraphs per section)
+- Complex tasks = add necessary detail (architecture diagrams, sequence flows, etc.)
+- Only essential information, no fluff
+- Focus on actionable items, not explanations
 
 **Project Context:**
 - Project ID: %s
@@ -536,13 +657,24 @@ After committing, let the user know the design docs are ready for review.
 They can continue chatting with you to refine the design before approval.
 
 **Important Guidelines:**
+- **MATCH COMPLEXITY TO TASK** - Simple tasks = simple docs, complex tasks = add detail
+- **BE CONCISE** - Keep everything brief, but include necessary detail
+- **NO FLUFF** - Only actionable information, skip lengthy explanations
 - Be specific and actionable - avoid vague descriptions
 - ALWAYS commit your work to the helix-design-docs git worktree
-- The user can continue chatting with you to refine the design
-- Make it easy for the implementation agent to work from your design
-- Use the [ ] checklist format in progress.md for task tracking
+- Use the [ ] checklist format in tasks.md for task tracking
 
-Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
+**Scaling Complexity:**
+- Simple task (e.g., "fix a bug"): Minimal docs, just essentials
+- Medium task (e.g., "add a feature"): Core sections, key decisions
+- Complex task (e.g., "build authentication system"): Add architecture diagrams, sequence flows, data models
+
+**Document Guidelines:**
+- requirements.md: Core user stories + key acceptance criteria (as many as needed)
+- design.md: Essential architecture + key decisions (add sections for complex tasks)
+- tasks.md: Discrete, implementable tasks (could be 3 tasks or 20+ depending on scope)
+
+Start by analyzing the user's request complexity, then create SHORT, SIMPLE design documents in the worktree.`,
 		task.ProjectID, task.Type, task.Priority, task.ID,
 		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name
 		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command
@@ -660,12 +792,21 @@ func mustMarshalJSON(data interface{}) datatypes.JSON {
 	return datatypes.JSON(jsonData)
 }
 
-func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, status string) {
-	task.Status = status
+func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, errorMessage string) {
+	// Keep task in backlog status but set error metadata
+	task.Status = types.TaskStatusBacklog
 	task.UpdatedAt = time.Now()
+
+	// Store error in metadata
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]interface{})
+	}
+	task.Metadata["error"] = errorMessage
+	task.Metadata["error_timestamp"] = time.Now().Format(time.RFC3339)
+
 	err := s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Str("status", status).Msg("Failed to mark task as failed")
+		log.Error().Err(err).Str("task_id", task.ID).Str("error", errorMessage).Msg("Failed to mark task with error")
 	}
 }
 
@@ -702,4 +843,7 @@ type CreateTaskRequest struct {
 	Type      string `json:"type"`
 	Priority  string `json:"priority"`
 	UserID    string `json:"user_id"`
+	AppID     string `json:"app_id"`   // Optional: Helix agent to use for spec generation
+	YoloMode  bool   `json:"yolo_mode"` // Optional: Skip human review and auto-approve specs
+	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

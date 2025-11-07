@@ -15,6 +15,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 type Interaction struct {
@@ -352,8 +353,9 @@ type SessionMetadata struct {
 
 	// Multi-session SpecTask context
 	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
+	ProjectID               string               `json:"project_id,omitempty"`                // ID of associated Project (for exploratory sessions)
 	WorkSessionID           string               `json:"work_session_id,omitempty"`           // ID of associated WorkSession
-	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination"
+	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination", "exploratory"
 	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
 	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
 	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
@@ -363,6 +365,7 @@ type SessionMetadata struct {
 	Phase                   string               `json:"phase,omitempty"`                     // NEW: SpecTask phase (planning, implementation)
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
+	PausedScreenshotPath    string               `json:"paused_screenshot_path,omitempty"`    // Path to saved screenshot when agent is paused
 	// Video settings for external agent sessions (Phase 3.5)
 	AgentVideoWidth      int `json:"agent_video_width,omitempty"`       // Streaming resolution width (default: 2560)
 	AgentVideoHeight     int `json:"agent_video_height,omitempty"`      // Streaming resolution height (default: 1600)
@@ -681,6 +684,7 @@ type Session struct {
 	Name          string    `json:"name"`
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
+	DeletedAt     gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete support - allows cleanup of orphaned lobbies
 	ParentSession string    `json:"parent_session"`
 	// the app this session was spawned from
 	// TODO: rename to AppID
@@ -993,7 +997,8 @@ type ServerConfigForFrontend struct {
 	DeploymentID                           string               `json:"deployment_id"`
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	MoonlightWebMode                       string               `json:"moonlight_web_mode"` // "single" or "multi" - determines streaming architecture
+	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
+	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1831,6 +1836,11 @@ type ZedAgent struct {
 	// Multi-session support
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// SpecTask support (for task-scoped workspace and repository checkout)
+	SpecTaskID         string   `json:"spec_task_id,omitempty"`          // SpecTask ID for workspace scoping
+	ProjectID          string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
+	RepositoryIDs      []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
+	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
 	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
 	DisplayWidth      int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
 	DisplayHeight     int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
@@ -1881,6 +1891,12 @@ type ZedAgentRDPData struct {
 	Type      string `json:"type"` // "rdp_data", "rdp_control", etc.
 	Data      []byte `json:"data"` // Raw RDP protocol data
 	Timestamp int64  `json:"timestamp"`
+}
+
+// ClipboardData represents clipboard content from remote desktop
+type ClipboardData struct {
+	Type string `json:"type"` // "text" or "image"
+	Data string `json:"data"` // text content or base64-encoded image
 }
 
 type DataEntityConfig struct {
@@ -1971,6 +1987,122 @@ type ExternalAgentToken struct {
 	SessionID string    `json:"session_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
+
+// ExternalAgentConnectionInfo is the response from GET /api/v1/external-agents/{sessionID}
+type ExternalAgentConnectionInfo struct {
+	SessionID          string `json:"session_id"`
+	ScreenshotURL      string `json:"screenshot_url"`
+	StreamURL          string `json:"stream_url"`
+	Status             string `json:"status"`
+	WebsocketURL       string `json:"websocket_url"`
+	WebsocketConnected bool   `json:"websocket_connected"`
+}
+
+// ExternalAgentUpdateRequest is the request body for PUT /api/v1/external-agents/{sessionID}
+type ExternalAgentUpdateRequest struct {
+	// Add fields as needed for external agent updates
+	LastAccess *time.Time `json:"last_access,omitempty"`
+}
+
+// ExternalAgentStats is the response from GET /api/v1/external-agents/{sessionID}/stats
+type ExternalAgentStats struct {
+	SessionID    string    `json:"session_id"`
+	PID          int       `json:"pid"`
+	StartTime    time.Time `json:"start_time"`
+	LastAccess   time.Time `json:"last_access"`
+	Uptime       float64   `json:"uptime"`
+	WorkspaceDir string    `json:"workspace_dir"`
+	DisplayNum   int       `json:"display_num"`
+	RDPPort      int       `json:"rdp_port"`
+	Status       string    `json:"status"`
+}
+
+// ExternalAgentLogs is the response from GET /api/v1/external-agents/{sessionID}/logs
+type ExternalAgentLogs struct {
+	SessionID string    `json:"session_id"`
+	Lines     int       `json:"lines"`
+	Logs      []string  `json:"logs"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ExternalAgentKeepaliveStatus is the response from GET /api/v1/external-agents/{sessionID}/keepalive-status
+type ExternalAgentKeepaliveStatus struct {
+	SessionID              string     `json:"session_id"`
+	LobbyID                string     `json:"lobby_id"`
+	KeepaliveStatus        string     `json:"keepalive_status"`
+	KeepaliveStartTime     *time.Time `json:"keepalive_start_time"`
+	KeepaliveLastCheck     *time.Time `json:"keepalive_last_check"`
+	ConnectionUptimeSeconds int64      `json:"connection_uptime_seconds"`
+}
+
+// SessionResumeResponse is the response from POST /api/v1/sessions/{id}/resume
+type SessionResumeResponse struct {
+	SessionID     string `json:"session_id"`
+	Status        string `json:"status"`
+	WolfLobbyID   string `json:"wolf_lobby_id"`
+	WolfLobbyPIN  string `json:"wolf_lobby_pin"`
+	ScreenshotURL string `json:"screenshot_url"`
+}
+
+// SpecTaskStopResponse is the response from POST /api/v1/spec-tasks/{id}/stop
+type SpecTaskStopResponse struct {
+	Message          string `json:"message"`
+	Status           string `json:"status,omitempty"`           // For "already stopped" case
+	ExternalAgentID  string `json:"external_agent_id"`
+	WorkspaceDir     string `json:"workspace_dir"`
+	Note             string `json:"note,omitempty"`
+}
+
+// SpecTaskStartResponse is the response from POST /api/v1/spec-tasks/{id}/start
+type SpecTaskStartResponse struct {
+	Message          string `json:"message"`
+	ExternalAgentID  string `json:"external_agent_id"`
+	WolfAppID        string `json:"wolf_app_id"`
+	WorkspaceDir     string `json:"workspace_dir"`
+	ScreenshotURL    string `json:"screenshot_url,omitempty"`
+	StreamURL        string `json:"stream_url,omitempty"`
+	Note             string `json:"note,omitempty"`
+}
+
+// SpecTaskStatusResponse is the response from GET /api/v1/spec-tasks/{id}/status
+type SpecTaskStatusResponse struct {
+	Exists           bool       `json:"exists"`
+	Message          string     `json:"message,omitempty"`
+	ExternalAgentID  string     `json:"external_agent_id,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	WolfAppID        string     `json:"wolf_app_id,omitempty"`
+	WorkspaceDir     string     `json:"workspace_dir,omitempty"`
+	HelixSessionIDs  []string   `json:"helix_session_ids,omitempty"`
+	ZedThreadIDs     []string   `json:"zed_thread_ids,omitempty"`
+	SessionCount     int        `json:"session_count,omitempty"`
+	Created          time.Time  `json:"created,omitempty"`
+	LastActivity     *time.Time `json:"last_activity,omitempty"`
+	IdleMinutes      int        `json:"idle_minutes,omitempty"`
+}
+
+// SessionIdleStatus represents the idle status of an external agent session
+type SessionIdleStatus struct {
+	HasExternalAgent bool `json:"has_external_agent"`
+	IdleMinutes      int  `json:"idle_minutes,omitempty"`
+	WillTerminateIn  int  `json:"will_terminate_in,omitempty"`
+	WarningThreshold bool `json:"warning_threshold,omitempty"`
+}
+
+// DocumentUpdateResponse is the response from PUT /api/v1/spec-tasks/{id}/documents/{doc_id}
+type DocumentUpdateResponse struct {
+	DocumentID string `json:"document_id"`
+	Version    int    `json:"version"`
+}
+
+// ProgressUpdateData is the request body for POST /api/v1/spec-tasks/{id}/documents/{doc_id}/progress
+type ProgressUpdateData struct {
+	Phase      string `json:"phase,omitempty"`
+	Progress   int    `json:"progress,omitempty"`
+	Status     string `json:"status,omitempty"`
+	LastUpdate string `json:"last_update,omitempty"`
+}
+
+// Zed event handlers use map[string]interface{} for dynamic data - no types needed here
 
 type RunnerEventRequestType int
 
@@ -2509,34 +2641,27 @@ type TriggerExecution struct {
 	SessionID              string                 `json:"session_id"`
 }
 
-// PersonalDevEnvironment represents a persistent personal development environment
+// PersonalDevEnvironment (DEPRECATED - stub for backward compatibility with wolf_executor.go)
+// TODO: Remove after cleaning up wolf_executor.go PDE methods
 type PersonalDevEnvironment struct {
-	ID        string    `json:"id" gorm:"primaryKey"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-	UserID    string    `json:"user_id" gorm:"index"`
-	AppID     string    `json:"app_id"` // Helix App ID for configuration (MCP servers, tools, etc.)
-	WolfAppID string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
-	WolfLobbyID string  `json:"wolf_lobby_id" gorm:"index"` // NEW: Wolf lobby ID for auto-start
-	WolfLobbyPIN string `json:"wolf_lobby_pin"` // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
-
-	// User-facing configuration
-	EnvironmentName string `json:"environment_name"`
-
-	// Runtime state
-	Status       string    `json:"status"` // "starting", "running", "stopped"
-	LastActivity time.Time `json:"last_activity"`
-
-	// Streaming configuration
-	DisplayWidth  int `json:"display_width"`
-	DisplayHeight int `json:"display_height"`
-	DisplayFPS    int `json:"display_fps"`
-
-	// Container information
-	ContainerName string `json:"container_name"`
-	VNCPort       int    `json:"vnc_port"`
-	StreamURL     string `json:"stream_url"`
-	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
+	ID              string    `json:"id" gorm:"primaryKey"`
+	Created         time.Time `json:"created"`
+	Updated         time.Time `json:"updated"`
+	UserID          string    `json:"user_id" gorm:"index"`
+	AppID           string    `json:"app_id"`
+	WolfAppID       string    `json:"wolf_app_id" gorm:"index"`
+	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"index"`
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin"`
+	EnvironmentName string    `json:"environment_name"`
+	Status          string    `json:"status"`
+	LastActivity    time.Time `json:"last_activity"`
+	DisplayWidth    int       `json:"display_width"`
+	DisplayHeight   int       `json:"display_height"`
+	DisplayFPS      int       `json:"display_fps"`
+	ContainerName   string    `json:"container_name"`
+	VNCPort         int       `json:"vnc_port"`
+	StreamURL       string    `json:"stream_url"`
+	WolfSessionID   string    `json:"wolf_session_id"`
 }
 
 // StreamingTokenResponse contains token for accessing streaming session

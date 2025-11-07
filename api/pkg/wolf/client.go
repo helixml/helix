@@ -27,7 +27,7 @@ func NewClient(socketPath string) *Client {
 					return net.Dial("unix", socketPath)
 				},
 			},
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second, // Increased from 30s - StopSession can take time with many sessions
 		},
 	}
 }
@@ -253,6 +253,39 @@ func (c *Client) CreateSession(ctx context.Context, session *Session) (string, e
 	}
 
 	return result.SessionID, nil
+}
+
+// ListSessions returns all active streaming sessions
+func (c *Client) ListSessions(ctx context.Context) ([]WolfStreamSession, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost/api/v1/sessions", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success  bool                `json:"success"`
+		Sessions []WolfStreamSession `json:"sessions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return result.Sessions, nil
 }
 
 // StopSession stops a streaming session
@@ -568,3 +601,85 @@ func (c *Client) JoinLobby(ctx context.Context, req *JoinLobbyRequest) error {
 	return nil
 }
 
+// SystemMemoryResponse represents Wolf system memory and resource usage
+type SystemMemoryResponse struct {
+	ProcessRSSBytes       int64                   `json:"process_rss_bytes"`
+	GStreamerBufferBytes  int64                   `json:"gstreamer_buffer_bytes"`
+	TotalMemoryBytes      int64                   `json:"total_memory_bytes"`
+	Apps                  []AppMemoryInfo         `json:"apps"`
+	Lobbies               []LobbyMemoryInfo       `json:"lobbies"`
+	Clients               []ClientMemoryInfo      `json:"clients"`
+	GPUStats              *GPUStatsInfo           `json:"gpu_stats"`
+	GStreamerPipelines    *GStreamerPipelineStats `json:"gstreamer_pipelines"`
+}
+
+type AppMemoryInfo struct {
+	AppID       string `json:"app_id"`
+	AppName     string `json:"app_name"`
+	Resolution  string `json:"resolution"`
+	ClientCount int    `json:"client_count"`
+	MemoryBytes int64  `json:"memory_bytes"`
+}
+
+type LobbyMemoryInfo struct {
+	LobbyID     string `json:"lobby_id"`
+	LobbyName   string `json:"lobby_name"`
+	ClientCount int    `json:"client_count"`
+	MemoryBytes int64  `json:"memory_bytes"`
+}
+
+type ClientMemoryInfo struct {
+	ClientID    string `json:"client_id"`
+	MemoryBytes int64  `json:"memory_bytes"`
+}
+
+type GPUStatsInfo struct {
+	Available                 bool    `json:"available"`
+	GPUName                   string  `json:"gpu_name"`
+	EncoderSessionCount       int     `json:"encoder_session_count"`
+	EncoderAverageFPS         float64 `json:"encoder_average_fps"`
+	EncoderAverageLatencyUs   int     `json:"encoder_average_latency_us"`
+	EncoderUtilizationPercent int     `json:"encoder_utilization_percent"`
+	GPUUtilizationPercent     int     `json:"gpu_utilization_percent"`
+	MemoryUtilizationPercent  int     `json:"memory_utilization_percent"`
+	MemoryUsedMB              int     `json:"memory_used_mb"`
+	MemoryTotalMB             int     `json:"memory_total_mb"`
+	TemperatureCelsius        int     `json:"temperature_celsius"`
+	QueryDurationMs           int     `json:"query_duration_ms"`
+	Error                     string  `json:"error"`
+}
+
+type GStreamerPipelineStats struct {
+	ProducerPipelines int `json:"producer_pipelines"`
+	ConsumerPipelines int `json:"consumer_pipelines"`
+	TotalPipelines    int `json:"total_pipelines"`
+}
+
+// GetSystemMemory retrieves Wolf system memory and resource usage statistics
+func (c *Client) GetSystemMemory(ctx context.Context) (*SystemMemoryResponse, error) {
+	resp, err := c.Get(ctx, "/api/v1/system/memory")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system memory: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Success bool `json:"success"`
+		*SystemMemoryResponse
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return result.SystemMemoryResponse, nil
+}

@@ -57,6 +57,8 @@ RUN apt-get update \
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities
     grim lsof \
+    # Clipboard tools for Wayland clipboard sync
+    wl-clipboard \
     # Shell and Git for repository access
     bash git openssh-client \
     # Emoji and icon fonts for waybar

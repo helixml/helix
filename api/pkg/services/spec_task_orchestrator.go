@@ -172,11 +172,20 @@ func (o *SpecTaskOrchestrator) processTasks(ctx context.Context) {
 
 		err := o.processTask(ctx, task)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Str("task_id", task.ID).
-				Str("status", task.Status).
-				Msg("Failed to process task")
+			// Tasks with deleted projects are expected - don't spam logs
+			if strings.Contains(err.Error(), "record not found") || strings.Contains(err.Error(), "not found") {
+				log.Trace().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("status", task.Status).
+					Msg("Task references deleted project - skipping")
+			} else {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Str("status", task.Status).
+					Msg("Failed to process task")
+			}
 		}
 	}
 }
@@ -204,6 +213,52 @@ func (o *SpecTaskOrchestrator) processTask(ctx context.Context, task *types.Spec
 
 // handleBacklog handles tasks in backlog state - creates external agent and starts planning
 func (o *SpecTaskOrchestrator) handleBacklog(ctx context.Context, task *types.SpecTask) error {
+	// Check if project has auto-start enabled
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project: %w", err)
+	}
+
+	if !project.AutoStartBacklogTasks {
+		// Auto-start is disabled - don't process backlog tasks automatically
+		log.Trace().
+			Str("task_id", task.ID).
+			Str("project_id", task.ProjectID).
+			Msg("Skipping backlog task - auto-start is disabled for this project")
+		return nil
+	}
+
+	// Check WIP limits for planning column before auto-starting
+	// Get default project to load board settings
+	defaultProject, err := o.store.GetProject(ctx, "default")
+	if err == nil && len(defaultProject.Metadata) > 0 {
+		var metadata types.ProjectMetadata
+		if err := json.Unmarshal(defaultProject.Metadata, &metadata); err == nil {
+			if metadata.BoardSettings != nil && metadata.BoardSettings.WIPLimits != nil {
+				planningLimit, ok := metadata.BoardSettings.WIPLimits["planning"]
+				if ok && planningLimit > 0 {
+					// Count tasks currently in planning for THIS project
+					planningTasks, err := o.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+						ProjectID: task.ProjectID,
+						Status:    types.TaskStatusSpecGeneration,
+					})
+					if err != nil {
+						log.Warn().Err(err).Msg("Failed to check planning column WIP limit")
+					} else if len(planningTasks) >= planningLimit {
+						// Planning column is at WIP limit - don't auto-start
+						log.Info().
+							Str("task_id", task.ID).
+							Str("project_id", task.ProjectID).
+							Int("planning_count", len(planningTasks)).
+							Int("wip_limit", planningLimit).
+							Msg("Skipping backlog task - planning column at WIP limit")
+						return nil
+					}
+				}
+			}
+		}
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
 		Str("helix_app_id", task.HelixAppID).
@@ -457,18 +512,20 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// Parse attached repositories
-	var repos []types.AttachedRepository
-	if len(task.AttachedRepositories) > 0 {
-		json.Unmarshal(task.AttachedRepositories, &repos)
+	// Get repositories from parent project - repos are now managed at project level
+	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
+		projectRepos = nil
 	}
 
-	// Find primary repo and task directory
-	primaryRepoPath := "backend"
-	for _, repo := range repos {
-		if repo.IsPrimary {
-			primaryRepoPath = repo.LocalPath
-			break
+	// Find primary repo path (use first repo as fallback)
+	primaryRepoPath := "backend" // Default fallback
+	if len(projectRepos) > 0 {
+		// Use LocalPath from first repo (or we could fetch project.DefaultRepoID to find the primary)
+		primaryRepoPath = projectRepos[0].LocalPath
+		if primaryRepoPath == "" {
+			primaryRepoPath = "backend" // Fallback if LocalPath not set
 		}
 	}
 
@@ -490,15 +547,15 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 	promptBuilder.WriteString(fmt.Sprintf("**Description**: %s\n\n", task.Description))
 	promptBuilder.WriteString("**Your job is to:**\n\n")
 	promptBuilder.WriteString(fmt.Sprintf("1. Fetch latest design documents from helix-design-docs branch\n"))
-	promptBuilder.WriteString(fmt.Sprintf("2. Read design docs from: .git-worktrees/helix-design-docs/tasks/%s/\n", taskDirName))
+	promptBuilder.WriteString(fmt.Sprintf("2. Read design docs from: ~/work/helix-design-docs/tasks/%s/\n", taskDirName))
 	promptBuilder.WriteString(fmt.Sprintf("3. Create feature branch: feature/%s\n", task.ID))
 	promptBuilder.WriteString("4. Implement according to tasks.md\n")
 	promptBuilder.WriteString("5. Mark tasks in progress [ ] -> [~] and complete [~] -> [x] in tasks.md\n")
 	promptBuilder.WriteString("6. Push progress updates to helix-design-docs branch\n")
 	promptBuilder.WriteString("7. Push feature branch when ready\n\n")
 	promptBuilder.WriteString("**Git Workflow**:\n")
-	promptBuilder.WriteString(fmt.Sprintf("- Work in: /home/retro/work/%s\n", primaryRepoPath))
-	promptBuilder.WriteString("- Design docs: .git-worktrees/helix-design-docs\n")
+	promptBuilder.WriteString(fmt.Sprintf("- Work in: ~/work/%s\n", primaryRepoPath))
+	promptBuilder.WriteString("- Design docs: ~/work/helix-design-docs\n")
 	promptBuilder.WriteString("- Feature branch: feature/" + task.ID + "\n\n")
 	promptBuilder.WriteString("**Context from Planning Phase**:\n\n")
 	promptBuilder.WriteString(fmt.Sprintf("Requirements: %s\n\n", task.RequirementsSpec))
@@ -703,15 +760,64 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		Str("workspace_dir", workspaceDir).
 		Msg("Creating new external agent for SpecTask")
 
+	// Get project to access repository configuration
+	project, err := o.store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project for SpecTask: %w", err)
+	}
+
+	// Get all repositories for this project
+	repos, err := o.store.GetProjectRepositories(ctx, task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get project repositories, continuing without git")
+		repos = nil
+	}
+
+	// Extract repository IDs
+	var repositoryIDs []string
+	for _, repo := range repos {
+		repositoryIDs = append(repositoryIDs, repo.ID)
+	}
+
+	// Determine primary repository
+	primaryRepoID := project.DefaultRepoID
+	if primaryRepoID == "" && len(repositoryIDs) > 0 {
+		// Fall back to first repository if no default set
+		primaryRepoID = repositoryIDs[0]
+	}
+
+	log.Info().
+		Strs("repository_ids", repositoryIDs).
+		Str("primary_repository_id", primaryRepoID).
+		Msg("Attaching project repositories to external agent")
+
+	// Get or create API key for user (needed for git HTTP authentication)
+	userAPIKey, err := o.getOrCreateUserAPIKey(ctx, task.CreatedBy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user API key for git operations: %w", err)
+	}
+
+	log.Info().
+		Str("user_id", task.CreatedBy).
+		Msg("Using user's API key for git operations (RBAC enforced)")
+
 	// Create Wolf agent with per-SpecTask workspace
 	agentReq := &types.ZedAgent{
-		SessionID:      agentID, // Agent-level session ID (not tied to specific Helix session)
-		UserID:         task.CreatedBy,
-		WorkDir:        workspaceDir,
-		ProjectPath:    "backend", // Default primary repo path
-		DisplayWidth:   2560,
-		DisplayHeight:  1600,
-		DisplayRefreshRate: 60,
+		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
+		UserID:              task.CreatedBy,
+		WorkDir:             workspaceDir,
+		ProjectPath:         "backend",         // Default primary repo path
+		RepositoryIDs:       repositoryIDs,     // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID,     // Primary repository for design docs
+		SpecTaskID:          task.ID,           // Link to SpecTask
+		DisplayWidth:        2560,
+		DisplayHeight:       1600,
+		DisplayRefreshRate:  60,
+		Env: []string{
+			// Pass user's API key for git operations (NOT server's RunnerToken)
+			// This ensures RBAC is enforced - agent can only access repos the user can access
+			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKey),
+		},
 	}
 
 	agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
@@ -769,6 +875,7 @@ func (o *SpecTaskOrchestrator) createPlanningSession(ctx context.Context, task *
 	// Create session
 	session := &types.Session{
 		ID:             fmt.Sprintf("ses_planning_%s", task.ID),
+		Name:           fmt.Sprintf("Planning: %s", task.Name),
 		Owner:          task.CreatedBy,
 		OwnerType:      types.OwnerTypeUser,
 		ParentApp:      app.ID,
@@ -804,28 +911,47 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 		basePrompt = app.Config.Helix.Assistants[0].SystemPrompt
 	}
 
-	// Parse attached repositories
-	var repos []types.AttachedRepository
-	if len(task.AttachedRepositories) > 0 {
-		json.Unmarshal(task.AttachedRepositories, &repos)
+	// Get repositories from parent project - repos are now managed at project level
+	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
+		projectRepos = nil
 	}
 
-	// Build repository clone commands
+	// Note which repositories are available (already cloned by API server)
 	repoInstructions := ""
-	if len(repos) > 0 {
-		repoInstructions = "\n**Step 1: Clone all attached repositories**\n\n```bash\ncd /home/retro/work\n"
-		for _, repo := range repos {
-			repoInstructions += fmt.Sprintf("git clone %s %s\n", repo.CloneURL, repo.LocalPath)
+	if len(projectRepos) > 0 {
+		repoInstructions = "\n**Available Repositories (already cloned):**\n\n"
+		for _, repo := range projectRepos {
+			repoPath := repo.Name
+			if repo.RepoType == "internal" {
+				repoPath = ".helix-project"
+			}
+			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repoPath)
 		}
-		repoInstructions += "```\n"
+		repoInstructions += "\n"
 	}
 
-	// Find primary repo for helix-design-docs
-	primaryRepoPath := "backend" // Default
-	for _, repo := range repos {
-		if repo.IsPrimary {
-			primaryRepoPath = repo.LocalPath
-			break
+	// Get project's primary repo (or use first repo as fallback)
+	project, projErr := o.store.GetProject(context.Background(), task.ProjectID)
+	primaryRepoPath := "backend" // Default fallback
+	if projErr == nil && len(projectRepos) > 0 {
+		// Find the primary repo
+		for _, repo := range projectRepos {
+			if repo.ID == project.DefaultRepoID {
+				primaryRepoPath = repo.LocalPath
+				if primaryRepoPath == "" {
+					primaryRepoPath = "backend"
+				}
+				break
+			}
+		}
+		// If no primary set or not found, use first repo
+		if primaryRepoPath == "backend" && len(projectRepos) > 0 {
+			primaryRepoPath = projectRepos[0].LocalPath
+			if primaryRepoPath == "" {
+				primaryRepoPath = "backend"
+			}
 		}
 	}
 
@@ -846,31 +972,68 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	promptBuilder.WriteString("---\n")
 	promptBuilder.WriteString(task.OriginalPrompt)
 	promptBuilder.WriteString("\n---\n\n")
-	promptBuilder.WriteString("**Your job is to:**\n")
 	promptBuilder.WriteString(repoInstructions)
-	promptBuilder.WriteString("\n**Step 2: Setup helix-design-docs branch and worktree**\n\n")
-	promptBuilder.WriteString(fmt.Sprintf("cd /home/retro/work/%s\n", primaryRepoPath))
-	promptBuilder.WriteString("git branch helix-design-docs 2>/dev/null || true\n")
-	promptBuilder.WriteString("git worktree add .git-worktrees/helix-design-docs helix-design-docs 2>/dev/null || true\n")
-	promptBuilder.WriteString("cd .git-worktrees/helix-design-docs/tasks\n")
+	promptBuilder.WriteString("**Your job is to:**\n\n")
+	promptBuilder.WriteString("1. Analyze the existing codebase in the primary repository and other attached repositories\n")
+	promptBuilder.WriteString("2. Create design documents based on the user request and current codebase\n")
+	promptBuilder.WriteString("3. Commit and then push the design docs to the upstream repository\n\n")
+	promptBuilder.WriteString("**Step 1: Analyze the existing codebase**\n\n")
+	promptBuilder.WriteString("Read the application source code from the primary repository and any other relevant repositories.\n")
+	promptBuilder.WriteString("Understand the current architecture, patterns, and conventions before designing new features.\n\n")
+	promptBuilder.WriteString("**Step 2: Navigate to the design docs directory**\n\n")
+	promptBuilder.WriteString("The helix-design-docs git worktree is already set up at:\n")
+	promptBuilder.WriteString("`~/work/helix-design-docs`\n\n")
+	promptBuilder.WriteString("Create a dated task directory and navigate to it:\n\n")
+	promptBuilder.WriteString("```bash\n")
+	promptBuilder.WriteString("cd ~/work/helix-design-docs/tasks\n")
 	promptBuilder.WriteString(fmt.Sprintf("mkdir -p %s\n", taskDirName))
-	promptBuilder.WriteString(fmt.Sprintf("cd %s\n\n", taskDirName))
-	promptBuilder.WriteString("**Step 3: Write design documents**\n\n")
-	promptBuilder.WriteString("Create these markdown files:\n")
-	promptBuilder.WriteString("1. requirements.md - User stories + EARS acceptance criteria\n")
-	promptBuilder.WriteString("2. design.md - Architecture, diagrams, data models\n")
-	promptBuilder.WriteString("3. tasks.md - Implementation tasks with [ ]/[~]/[x] markers\n")
-	promptBuilder.WriteString("4. task-metadata.json - {\"name\": \"...\", \"description\": \"...\", \"type\": \"feature|bug|refactor\"}\n\n")
-	promptBuilder.WriteString("**Step 4: Commit and push to Helix git server**\n\n")
-	promptBuilder.WriteString("Commit each file separately, then push helix-design-docs branch.\n")
-	promptBuilder.WriteString("The helix-design-docs branch is forward-only (never rolled back).\n")
-	promptBuilder.WriteString("Push to Helix git server so UI can read design docs.\n\n")
-	promptBuilder.WriteString("Work in /home/retro/work/ - everything persists across sessions.")
+	promptBuilder.WriteString(fmt.Sprintf("cd %s\n", taskDirName))
+	promptBuilder.WriteString("```\n\n")
+	promptBuilder.WriteString("**Step 3: Create design documents**\n\n")
+	promptBuilder.WriteString("Write these markdown files in `~/work/helix-design-docs/tasks/` (the current directory):\n\n")
+	promptBuilder.WriteString("1. **requirements.md** - User stories + EARS acceptance criteria\n")
+	promptBuilder.WriteString("2. **design.md** - Architecture, diagrams, data models\n")
+	promptBuilder.WriteString("3. **tasks.md** - Implementation tasks with [ ]/[~]/[x] markers\n")
+	promptBuilder.WriteString("4. **task-metadata.json** - {\"name\": \"...\", \"description\": \"...\", \"type\": \"feature|bug|refactor\"}\n\n")
+	promptBuilder.WriteString("**Step 4: Commit and then push to upstream repository**\n\n")
+	promptBuilder.WriteString("This is **CRITICAL** - you must commit and then push to get design docs back to Helix:\n\n")
+	promptBuilder.WriteString("```bash\n")
+	promptBuilder.WriteString("git add .\n")
+	promptBuilder.WriteString(fmt.Sprintf("git commit -m \"Add design docs for %s\"\n", sanitizedName))
+	promptBuilder.WriteString("git push origin helix-design-docs\n")
+	promptBuilder.WriteString("```\n\n")
+	promptBuilder.WriteString("The helix-design-docs branch is **forward-only** (never rolled back).\n")
+	promptBuilder.WriteString("Pushing to upstream is how the Helix UI retrieves your design docs to display to the user.\n\n")
+	promptBuilder.WriteString("**All work persists in `~/work/` across sessions.**")
 
 	return promptBuilder.String()
 }
 
 // sanitizeForBranchName is already defined in design_docs_helpers.go
+
+// getOrCreateUserAPIKey gets user's existing API key for git operations
+func (o *SpecTaskOrchestrator) getOrCreateUserAPIKey(ctx context.Context, userID string) (string, error) {
+	// List user's existing API keys
+	keys, err := o.store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to list user API keys: %w", err)
+	}
+
+	// Use user's first API key
+	if len(keys) > 0 {
+		log.Debug().
+			Str("user_id", userID).
+			Str("api_key_name", keys[0].Name).
+			Msg("Using user's existing API key for git operations")
+		return keys[0].Key, nil
+	}
+
+	// User has no API keys - this is an error, they need to create one first
+	return "", fmt.Errorf("user %s has no API keys - cannot perform git operations (create one in Account Settings)", userID)
+}
 
 // GetLiveProgress returns current live progress for all running tasks
 func (o *SpecTaskOrchestrator) GetLiveProgress() []*LiveAgentProgress {

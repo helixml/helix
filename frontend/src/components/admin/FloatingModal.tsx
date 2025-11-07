@@ -15,6 +15,7 @@ import { useFloatingModal } from '../../contexts/floatingModal'
 import { useResize } from '../../hooks/useResize'
 import LogViewerModal from './LogViewerModal'
 import ScreenshotViewer from '../external-agent/ScreenshotViewer'
+import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
 
 interface FloatingModalProps {
   onClose?: () => void
@@ -46,7 +47,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const { size, setSize, isResizing, getResizeHandles } = useResize({
     initialSize: { width: 1000, height: 700 },
     minSize: { width: 600, height: 400 },
-    maxSize: { width: window.innerWidth - 40, height: window.innerHeight - 40 },
+    maxSize: { width: window.innerWidth, height: window.innerHeight },
     onResize: (newSize, direction, delta) => {
       // Adjust position when resizing from top or left edges
       if (direction.includes('w') || direction.includes('n')) {
@@ -88,10 +89,10 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
       setSize({ width: 1000, height: 700 })
       setPosition(getInitialPosition())
     } else {
-      // Maximize to full screen
+      // Maximize to full screen (no margins)
       setIsMaximized(true)
-      setSize({ width: window.innerWidth - 40, height: window.innerHeight - 40 })
-      setPosition({ x: 20, y: 20 })
+      setSize({ width: window.innerWidth, height: window.innerHeight })
+      setPosition({ x: 0, y: 0 })
     }
   }
 
@@ -188,6 +189,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
             <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1rem' }}>
               {modalConfig.type === 'logs' && 'Model Instance Logs'}
               {modalConfig.type === 'rdp' && 'Remote Desktop'}
+              {modalConfig.type === 'exploratory_session' && 'Exploratory Session'}
             </Typography>
             {modalConfig.type === 'logs' && modalConfig.runner && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
@@ -195,6 +197,11 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
               </Typography>
             )}
             {modalConfig.type === 'rdp' && (
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+                Session: {modalConfig.sessionId?.slice(-8)}
+              </Typography>
+            )}
+            {modalConfig.type === 'exploratory_session' && (
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
                 Session: {modalConfig.sessionId?.slice(-8)}
               </Typography>
@@ -247,6 +254,13 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
                 onError={(error) => {
                   console.error('RDP error:', error);
                 }}
+              />
+            )}
+            {modalConfig.type === 'exploratory_session' && modalConfig.sessionId && (
+              <ExternalAgentDesktopViewer
+                sessionId={modalConfig.sessionId}
+                wolfLobbyId={modalConfig.wolfLobbyId || modalConfig.sessionId}
+                height={size.height - 48}
               />
             )}
           </Box>

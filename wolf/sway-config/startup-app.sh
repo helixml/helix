@@ -183,6 +183,10 @@ EOF
     echo "# Map Caps Lock to Ctrl (replace caps lock entirely)" >> $HOME/.config/sway/config
     echo "input type:keyboard xkb_options caps:ctrl_nocaps" >> $HOME/.config/sway/config
     echo "" >> $HOME/.config/sway/config
+    echo "# Workaround for Moonlight keyboard modifier state desync bug" >> $HOME/.config/sway/config
+    echo "# Press Super+Escape to reset all modifier keys if they get stuck" >> $HOME/.config/sway/config
+    echo "bindsym \$mod+Escape exec swaymsg 'input type:keyboard xkb_switch_layout 0'" >> $HOME/.config/sway/config
+    echo "" >> $HOME/.config/sway/config
     echo "# Additional key bindings for our tools" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+Return exec ghostty" >> $HOME/.config/sway/config
     echo "bindsym \$mod+Shift+f exec firefox" >> $HOME/.config/sway/config

@@ -23,9 +23,10 @@ import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
+import Projects from './pages/Projects'
+import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
-import Fleet from './pages/Fleet'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -80,17 +81,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       <Apps />
     ),
   }, {
-    name: namePrefix + 'fleet',
-    path: routePrefix + '/fleet',
-    meta: {
-      drawer: false,
-      orgRouteAware: true,
-      title: 'Fleet',
-    },
-    render: () => (
-      <Fleet />
-    ),
-  }, {
     name: namePrefix + 'git-repos',
     path: routePrefix + '/git-repos',
     meta: {
@@ -136,12 +126,57 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'spec-tasks',
     path: routePrefix + '/spec-tasks',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
       title: 'SpecTasks',
     },
     render: () => (
       <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'projects',
+    path: routePrefix + '/projects',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Projects',
+    },
+    render: () => (
+      <Projects />
+    ),
+  }, {
+    name: namePrefix + 'project-specs',
+    path: routePrefix + '/projects/:id/specs',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Tasks',
+    },
+    render: () => (
+      <SpecTasksPage />
+    ),
+  }, {
+    name: namePrefix + 'project-settings',
+    path: routePrefix + '/projects/:id/settings',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Project Settings',
+    },
+    render: () => (
+      <ProjectSettings />
+    ),
+  }, {
+    name: namePrefix + 'project-session',
+    path: routePrefix + '/projects/:id/session/:session_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+      orgRouteAware: true,
+      title: 'Project Session',
+    },
+    render: () => (
+      <Session />
     ),
   }, {
     name: namePrefix + 'app',

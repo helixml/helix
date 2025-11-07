@@ -56,6 +56,7 @@ import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useApps from '../../hooks/useApps'
 import { getAppName } from '../../utils/apps'
+import { useGetProject } from '../../services'
 
 import {
   TOOLBAR_HEIGHT,
@@ -87,6 +88,7 @@ export const SessionToolbar: FC<{
   const {
     navigate,
     setParams,
+    params,
   } = useRouter()
   const snackbar = useSnackbar()
   const loading = useLoading()
@@ -97,6 +99,10 @@ export const SessionToolbar: FC<{
   const { apps } = useApps()
   const { mutate: deleteSession } = useDeleteSession(session.id || '')
   const { mutate: updateSession } = useUpdateSession(session.id || '')
+
+  // Check if we're in a project context and fetch project data
+  const projectId = params.id as string | undefined
+  const { data: project } = useGetProject(projectId || '', !!projectId)
 
   const isOwner = account.user?.id === session.owner
 
@@ -229,6 +235,31 @@ export const SessionToolbar: FC<{
               </Box>
             ) : (
               <>
+                {project && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}>
+                    <Link
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        account.orgNavigate('project-specs', { id: projectId })
+                      }}
+                      sx={{
+                        fontSize: { xs: 'small', sm: 'medium', md: 'large' },
+                        color: 'text.secondary',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          color: theme.palette.primary.main,
+                          textDecoration: 'underline',
+                        },
+                      }}
+                    >
+                      {project.name}
+                    </Link>
+                    <Typography sx={{ fontSize: { xs: 'small', sm: 'medium', md: 'large' }, color: 'text.secondary' }}>
+                      /
+                    </Typography>
+                  </Box>
+                )}
                 <Typography
                   component="h1"
                   sx={{
@@ -299,7 +330,7 @@ export const SessionToolbar: FC<{
                   ml: 1
                 }}
               >
-                {showRDPViewer ? 'Hide' : 'Show'} Zed
+                {showRDPViewer ? 'Hide' : 'Show'} Desktop
               </Button>
             )}
 
@@ -307,17 +338,19 @@ export const SessionToolbar: FC<{
             {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
               <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
                 <Tooltip title="Zoom Out">
-                  <IconButton
-                    size="small"
-                    onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
-                    disabled={rdpViewerHeight <= 300}
-                    sx={{
-                      p: 0.25,
-                      opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
-                    }}
-                  >
-                    <ZoomOut size={16} />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
+                      disabled={rdpViewerHeight <= 300}
+                      sx={{
+                        p: 0.25,
+                        opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
+                      }}
+                    >
+                      <ZoomOut size={16} />
+                    </IconButton>
+                  </span>
                 </Tooltip>
                 <Tooltip title="Zoom In">
                   <IconButton

@@ -71,6 +71,7 @@ const GitRepos: FC = () => {
   const [externalKoditIndexing, setExternalKoditIndexing] = useState(true)
 
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string>('')
 
   // Auto-fill name when sample type is selected
   const handleSampleTypeChange = (sampleTypeId: string) => {
@@ -121,13 +122,14 @@ const GitRepos: FC = () => {
     if (!repoName.trim() || !ownerId) return
 
     setCreating(true)
+    setCreateError('')
     try {
       const apiClient = api.getApiClient()
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: repoDescription,
         owner_id: ownerId,
-        repo_type: 'project' as any,
+        repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
         metadata: {
           kodit_indexing: koditIndexing,
@@ -141,8 +143,10 @@ const GitRepos: FC = () => {
       setRepoName('')
       setRepoDescription('')
       setKoditIndexing(true)
+      setCreateError('')
     } catch (error) {
       console.error('Failed to create repository:', error)
+      setCreateError(error instanceof Error ? error.message : 'Failed to create repository')
     } finally {
       setCreating(false)
     }
@@ -369,8 +373,17 @@ const GitRepos: FC = () => {
                     </Box>
                   </Box>
 
-                  {/* Action button */}
-                  <Box onClick={(e) => e.stopPropagation()}>
+                  {/* Action buttons */}
+                  <Box onClick={(e) => e.stopPropagation()} sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<Plus size={14} />}
+                      onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repo.id })}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      New Spec Task
+                    </Button>
                     {repo.metadata?.is_external && repo.metadata?.external_url ? (
                       <Button
                         size="small"
@@ -404,15 +417,8 @@ const GitRepos: FC = () => {
                 No repositories yet
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Create your first git repository to start collaborating with AI agents.
+                Create your first git repository to start collaborating with AI agents and your team.
               </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Plus size={18} />}
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                Create Repository
-              </Button>
             </CardContent>
           </Card>
         )}
@@ -501,16 +507,26 @@ const GitRepos: FC = () => {
         </Dialog>
 
         {/* Custom Repository Dialog */}
-        <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <Dialog open={createDialogOpen} onClose={() => {
+          setCreateDialogOpen(false)
+          setCreateError('')
+        }} maxWidth="sm" fullWidth>
           <DialogTitle>Create New Repository</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
+              {createError && (
+                <Alert severity="error" onClose={() => setCreateError('')}>
+                  {createError}
+                </Alert>
+              )}
+
               <TextField
                 label="Repository Name"
                 fullWidth
                 value={repoName}
                 onChange={(e) => setRepoName(e.target.value)}
                 helperText="Enter a name for your repository"
+                autoFocus
               />
 
               <TextField
@@ -555,6 +571,7 @@ const GitRepos: FC = () => {
               setRepoName('')
               setRepoDescription('')
               setKoditIndexing(true)
+              setCreateError('')
             }}>Cancel</Button>
             <Button
               onClick={handleCreateCustomRepo}

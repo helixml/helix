@@ -26,9 +26,8 @@ type SpecTask struct {
 	// NEW: Single Helix Agent for entire workflow (App type in code)
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
-	// Git repository attachments (multiple repos can be attached)
-	AttachedRepositories datatypes.JSON `json:"attached_repositories,omitempty" gorm:"type:jsonb"`
-	PrimaryRepositoryID  string         `json:"primary_repository_id,omitempty" gorm:"size:255;index"`
+	// Git repository attachments: REMOVED - now inherited from parent Project
+	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
 	// Session tracking (same agent, different Helix sessions per phase)
 	PlanningSessionID        string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
@@ -52,6 +51,7 @@ type SpecTask struct {
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
 	SpecRevisionCount int        `json:"spec_revision_count"` // Number of spec revisions requested
+	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
 
 	// Simple tracking
 	EstimatedHours int        `json:"estimated_hours,omitempty"`
@@ -62,6 +62,7 @@ type SpecTask struct {
 	CreatedBy string                 `json:"created_by"`
 	CreatedAt time.Time              `json:"created_at"`
 	UpdatedAt time.Time              `json:"updated_at"`
+	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
 	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
@@ -110,13 +111,15 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Status    string `json:"status,omitempty"`
-	UserID    string `json:"user_id,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Priority  string `json:"priority,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	UserID          string `json:"user_id,omitempty"`
+	Type            string `json:"type,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Offset          int    `json:"offset,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"` // If true, include both archived and non-archived
+	ArchivedOnly    bool   `json:"archived_only,omitempty"`    // If true, show only archived tasks
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
@@ -125,6 +128,7 @@ type SpecTaskUpdateRequest struct {
 	Priority    string `json:"priority,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+	YoloMode    *bool  `json:"yolo_mode,omitempty"` // Pointer to allow explicit false
 }
 
 // Two-phase workflow status constants
@@ -174,14 +178,6 @@ type SpecApprovalResponse struct {
 	ApprovedAt time.Time `json:"approved_at"`
 }
 
-// AttachedRepository represents a git repository attached to a SpecTask
-type AttachedRepository struct {
-	RepositoryID string `json:"repository_id"`
-	CloneURL     string `json:"clone_url"`
-	LocalPath    string `json:"local_path"` // Where to clone in workspace (e.g., "backend", "frontend")
-	IsPrimary    bool   `json:"is_primary"` // Primary repo hosts helix-design-docs branch
-}
-
 // SpecTaskExternalAgent represents the external agent (Wolf container) for a SpecTask
 // Single agent per SpecTask that spans multiple Helix sessions via Zed threads
 type SpecTaskExternalAgent struct {
@@ -204,6 +200,8 @@ type ExternalAgentActivity struct {
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
 	AgentType       string    `json:"agent_type" gorm:"size:50"`  // "spectask", "pde", "adhoc"
 	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"` // Wolf app ID for termination
+	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"size:255"` // Wolf lobby ID for cleanup even after session deleted
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"` // Wolf lobby PIN for cleanup
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 }

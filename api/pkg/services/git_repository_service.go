@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -31,32 +31,31 @@ type GitRepositoryService struct {
 
 // GitRepository represents a git repository hosted on the server
 type GitRepository struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	OwnerID       string                 `json:"owner_id"`
-	ProjectID     string                 `json:"project_id,omitempty"`
-	SpecTaskID    string                 `json:"spec_task_id,omitempty"`
-	RepoType      GitRepositoryType      `json:"repo_type"`
-	Status        GitRepositoryStatus    `json:"status"`
-	CloneURL      string                 `json:"clone_url"`
-	LocalPath     string                 `json:"local_path"`
-	DefaultBranch string                 `json:"default_branch"`
-	Branches      []string               `json:"branches,omitempty"`
-	LastActivity  time.Time              `json:"last_activity"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	OwnerID        string                 `json:"owner_id"`
+	OrganizationID string                 `json:"organization_id,omitempty"`
+	ProjectID      string                 `json:"project_id,omitempty"`
+	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
+	RepoType       GitRepositoryType      `json:"repo_type"`
+	Status         GitRepositoryStatus    `json:"status"`
+	CloneURL       string                 `json:"clone_url"`
+	LocalPath      string                 `json:"local_path"`
+	DefaultBranch  string                 `json:"default_branch"`
+	Branches       []string               `json:"branches,omitempty"`
+	LastActivity   time.Time              `json:"last_activity"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // GitRepositoryType defines the type of repository
 type GitRepositoryType string
 
 const (
-	GitRepositoryTypeProject  GitRepositoryType = "project"   // User project repository
-	GitRepositoryTypeSpecTask GitRepositoryType = "spec_task" // SpecTask-specific repository
-	GitRepositoryTypeSample   GitRepositoryType = "sample"    // Sample/demo repository
-	GitRepositoryTypeTemplate GitRepositoryType = "template"  // Template repository
+	GitRepositoryTypeInternal GitRepositoryType = "internal" // Internal project config repository
+	GitRepositoryTypeCode     GitRepositoryType = "code"     // Code repository (user projects, samples, external repos)
 )
 
 // GitRepositoryStatus defines the status of a repository
@@ -70,15 +69,23 @@ const (
 
 // GitRepositoryCreateRequest represents a request to create a new repository
 type GitRepositoryCreateRequest struct {
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	RepoType      GitRepositoryType      `json:"repo_type"`
-	OwnerID       string                 `json:"owner_id"`
-	ProjectID     string                 `json:"project_id,omitempty"`
-	SpecTaskID    string                 `json:"spec_task_id,omitempty"`
-	InitialFiles  map[string]string      `json:"initial_files,omitempty"`
-	DefaultBranch string                 `json:"default_branch,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	RepoType       GitRepositoryType      `json:"repo_type"`
+	OwnerID        string                 `json:"owner_id"`
+	OrganizationID string                 `json:"organization_id,omitempty"` // Organization ID - required for access control
+	ProjectID      string                 `json:"project_id,omitempty"`
+	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
+	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
+	DefaultBranch  string                 `json:"default_branch,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// GitRepositoryUpdateRequest represents a request to update a repository
+type GitRepositoryUpdateRequest struct {
+	Name        string                 `json:"name,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Conversion helpers between services.GitRepository and store.GitRepository
@@ -86,41 +93,43 @@ type GitRepositoryCreateRequest struct {
 // toStoreGitRepository converts services.GitRepository to store.GitRepository
 func toStoreGitRepository(repo *GitRepository) *store.GitRepository {
 	return &store.GitRepository{
-		ID:            repo.ID,
-		Name:          repo.Name,
-		Description:   repo.Description,
-		OwnerID:       repo.OwnerID,
-		ProjectID:     repo.ProjectID,
-		SpecTaskID:    repo.SpecTaskID,
-		RepoType:      string(repo.RepoType),
-		Status:        string(repo.Status),
-		CloneURL:      repo.CloneURL,
-		LocalPath:     repo.LocalPath,
-		DefaultBranch: repo.DefaultBranch,
-		LastActivity:  repo.LastActivity,
-		CreatedAt:     repo.CreatedAt,
-		UpdatedAt:     repo.UpdatedAt,
-		Metadata:      repo.Metadata,
+		ID:             repo.ID,
+		Name:           repo.Name,
+		Description:    repo.Description,
+		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
+		ProjectID:      repo.ProjectID,
+		SpecTaskID:     repo.SpecTaskID,
+		RepoType:       string(repo.RepoType),
+		Status:         string(repo.Status),
+		CloneURL:       repo.CloneURL,
+		LocalPath:      repo.LocalPath,
+		DefaultBranch:  repo.DefaultBranch,
+		LastActivity:   repo.LastActivity,
+		CreatedAt:      repo.CreatedAt,
+		UpdatedAt:      repo.UpdatedAt,
+		Metadata:       repo.Metadata,
 	}
 }
 
 // fromStoreGitRepository converts store.GitRepository to services.GitRepository
 func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
 	return &GitRepository{
-		ID:            repo.ID,
-		Name:          repo.Name,
-		Description:   repo.Description,
-		OwnerID:       repo.OwnerID,
-		ProjectID:     repo.ProjectID,
-		SpecTaskID:    repo.SpecTaskID,
-		RepoType:      GitRepositoryType(repo.RepoType),
-		Status:        GitRepositoryStatus(repo.Status),
-		CloneURL:      repo.CloneURL,
-		LocalPath:     repo.LocalPath,
-		DefaultBranch: repo.DefaultBranch,
-		LastActivity:  repo.LastActivity,
-		CreatedAt:     repo.CreatedAt,
-		UpdatedAt:     repo.UpdatedAt,
+		ID:             repo.ID,
+		Name:           repo.Name,
+		Description:    repo.Description,
+		OwnerID:        repo.OwnerID,
+		OrganizationID: repo.OrganizationID,
+		ProjectID:      repo.ProjectID,
+		SpecTaskID:     repo.SpecTaskID,
+		RepoType:       GitRepositoryType(repo.RepoType),
+		Status:         GitRepositoryStatus(repo.Status),
+		CloneURL:       repo.CloneURL,
+		LocalPath:      repo.LocalPath,
+		DefaultBranch:  repo.DefaultBranch,
+		LastActivity:   repo.LastActivity,
+		CreatedAt:      repo.CreatedAt,
+		UpdatedAt:      repo.UpdatedAt,
 		Metadata:      repo.Metadata,
 	}
 }
@@ -187,8 +196,41 @@ func (s *GitRepositoryService) CreateRepository(
 	ctx context.Context,
 	request *GitRepositoryCreateRequest,
 ) (*GitRepository, error) {
+	// Check for duplicate repository name for this owner
+	existingRepos, err := s.ListRepositories(ctx, request.OwnerID)
+	if err == nil {
+		// Only fail if we can successfully check for duplicates
+		for _, repo := range existingRepos {
+			if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
+				return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
+			}
+		}
+	}
+
 	// Generate repository ID
 	repoID := s.generateRepositoryID(request.RepoType, request.Name)
+
+	// Resolve organization ID
+	orgID := request.OrganizationID
+	if orgID == "" {
+		// If attached to a project, use project's organization
+		if request.ProjectID != "" {
+			project, err := s.store.GetProject(ctx, request.ProjectID)
+			if err == nil && project.OrganizationID != "" {
+				orgID = project.OrganizationID
+			}
+		}
+
+		// If still no org, get owner's first organization
+		if orgID == "" {
+			memberships, err := s.store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+				UserID: request.OwnerID,
+			})
+			if err == nil && len(memberships) > 0 {
+				orgID = memberships[0].OrganizationID
+			}
+		}
+	}
 
 	// Set default branch if not specified
 	defaultBranch := request.DefaultBranch
@@ -199,27 +241,40 @@ func (s *GitRepositoryService) CreateRepository(
 	// Create repository path
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 
-	// Create repository object
-	gitRepo := &GitRepository{
-		ID:            repoID,
-		Name:          request.Name,
-		Description:   request.Description,
-		OwnerID:       request.OwnerID,
-		ProjectID:     request.ProjectID,
-		SpecTaskID:    request.SpecTaskID,
-		RepoType:      request.RepoType,
-		Status:        GitRepositoryStatusActive,
-		CloneURL:      s.generateCloneURL(repoID),
-		LocalPath:     repoPath,
-		DefaultBranch: defaultBranch,
-		LastActivity:  time.Now(),
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Metadata:      request.Metadata,
+	// Determine clone URL - ONLY for external repos
+	// Internal repos get empty CloneURL (dynamically generated when needed)
+	cloneURL := ""
+	if request.Metadata != nil {
+		if isExternal, ok := request.Metadata["is_external"].(bool); ok && isExternal {
+			if externalURL, ok := request.Metadata["external_url"].(string); ok && externalURL != "" {
+				cloneURL = externalURL
+			}
+		}
 	}
 
-	// Initialize git repository
-	err := s.initializeGitRepository(repoPath, defaultBranch, request.InitialFiles)
+	// Create repository object
+	gitRepo := &GitRepository{
+		ID:             repoID,
+		Name:           request.Name,
+		Description:    request.Description,
+		OwnerID:        request.OwnerID,
+		OrganizationID: orgID,
+		ProjectID:      request.ProjectID,
+		SpecTaskID:     request.SpecTaskID,
+		RepoType:       request.RepoType,
+		Status:         GitRepositoryStatusActive,
+		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
+		LocalPath:      repoPath,
+		DefaultBranch:  defaultBranch,
+		LastActivity:   time.Now(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		Metadata:       request.Metadata,
+	}
+
+	// Initialize git repository as bare
+	// ALL filestore repos are bare - agents and API server push to them
+	err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository: %w", err)
 	}
@@ -241,22 +296,37 @@ func (s *GitRepositoryService) CreateRepository(
 
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*GitRepository, error) {
-	repoPath := filepath.Join(s.gitRepoBase, repoID)
-
-	// Check if repository exists
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("repository not found: %s", repoID)
-	}
-
-	// Try to get metadata from store first
+	// Try to get metadata from store first (has correct LocalPath for all repo types)
 	gitRepo, err := s.getRepositoryMetadata(ctx, repoID)
 	if err != nil {
-		// If not in store, create from filesystem
+		// Not in store - fallback to default path under gitRepoBase
+		repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+		// Check if repository exists at default path
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("repository not found: %s", repoID)
+		}
+
+		// Create from filesystem
 		gitRepo = &GitRepository{
 			ID:        repoID,
 			LocalPath: repoPath,
 			CloneURL:  s.generateCloneURL(repoID),
 			Status:    GitRepositoryStatusActive,
+		}
+	} else {
+		// Got from database - verify the LocalPath exists
+		if gitRepo.LocalPath != "" {
+			if _, err := os.Stat(gitRepo.LocalPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+		} else {
+			// No LocalPath in DB - try default path
+			repoPath := filepath.Join(s.gitRepoBase, repoID)
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+			gitRepo.LocalPath = repoPath
 		}
 	}
 
@@ -267,6 +337,78 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	}
 
 	return gitRepo, nil
+}
+
+// UpdateRepository updates an existing repository's metadata
+func (s *GitRepositoryService) UpdateRepository(
+	ctx context.Context,
+	repoID string,
+	request *GitRepositoryUpdateRequest,
+) (*GitRepository, error) {
+	// Get existing repository
+	existing, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	// Update fields if provided
+	if request.Name != "" {
+		existing.Name = request.Name
+	}
+	if request.Description != "" {
+		existing.Description = request.Description
+	}
+	if request.Metadata != nil {
+		// Merge metadata
+		if existing.Metadata == nil {
+			existing.Metadata = make(map[string]interface{})
+		}
+		for k, v := range request.Metadata {
+			existing.Metadata[k] = v
+		}
+	}
+
+	existing.UpdatedAt = time.Now()
+
+	// Update in store
+	err = s.storeRepositoryMetadata(ctx, existing)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Str("name", existing.Name).
+		Msg("updated git repository")
+
+	return existing, nil
+}
+
+// DeleteRepository deletes a repository
+func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID string) error {
+	repoPath := filepath.Join(s.gitRepoBase, repoID)
+
+	// Delete repository directory
+	if err := os.RemoveAll(repoPath); err != nil {
+		log.Warn().Err(err).Str("repo_id", repoID).Msg("failed to delete repository directory")
+		// Continue to delete metadata even if filesystem deletion fails
+	}
+
+	// Delete from database if store supports it
+	if postgresStore, ok := s.store.(interface {
+		DeleteGitRepository(ctx context.Context, id string) error
+	}); ok {
+		err := postgresStore.DeleteGitRepository(ctx, repoID)
+		if err != nil {
+			return fmt.Errorf("failed to delete repository metadata: %w", err)
+		}
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Msg("deleted git repository")
+
+	return nil
 }
 
 // ListRepositories lists all repositories
@@ -327,44 +469,6 @@ func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID str
 	return repositories, nil
 }
 
-// CreateSpecTaskRepository creates a repository specifically for a SpecTask
-func (s *GitRepositoryService) CreateSpecTaskRepository(
-	ctx context.Context,
-	specTask *types.SpecTask,
-	templateFiles map[string]string,
-) (*GitRepository, error) {
-	// Determine initial files for the repository
-	initialFiles := make(map[string]string)
-
-	// Add template files if provided
-	for path, content := range templateFiles {
-		initialFiles[path] = content
-	}
-
-	// Add basic project structure if no template provided
-	if len(initialFiles) == 0 {
-		initialFiles = s.getDefaultProjectFiles(specTask)
-	}
-
-	// Create repository request
-	request := &GitRepositoryCreateRequest{
-		Name:          fmt.Sprintf("%s-project", specTask.Name),
-		Description:   fmt.Sprintf("Project repository for SpecTask: %s", specTask.Name),
-		RepoType:      GitRepositoryTypeSpecTask,
-		OwnerID:       specTask.CreatedBy,
-		ProjectID:     specTask.ProjectID,
-		SpecTaskID:    specTask.ID,
-		InitialFiles:  initialFiles,
-		DefaultBranch: "main",
-		Metadata: map[string]interface{}{
-			"spec_task_name": specTask.Name,
-			"created_from":   "spec_task",
-		},
-	}
-
-	return s.CreateRepository(ctx, request)
-}
-
 // CreateSampleRepository creates a sample/demo repository
 func (s *GitRepositoryService) CreateSampleRepository(
 	ctx context.Context,
@@ -380,7 +484,7 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	request := &GitRepositoryCreateRequest{
 		Name:          name,
 		Description:   description,
-		RepoType:      GitRepositoryTypeSample,
+		RepoType:      GitRepositoryTypeCode,
 		OwnerID:       ownerID,
 		InitialFiles:  initialFiles,
 		DefaultBranch: "main",
@@ -424,7 +528,9 @@ func (s *GitRepositoryService) generateCloneURL(repoID string) string {
 func (s *GitRepositoryService) initializeGitRepository(
 	repoPath string,
 	defaultBranch string,
+	repoName string,
 	initialFiles map[string]string,
+	isBare bool,
 ) error {
 	// Create repository directory
 	err := os.MkdirAll(repoPath, 0755)
@@ -432,10 +538,100 @@ func (s *GitRepositoryService) initializeGitRepository(
 		return fmt.Errorf("failed to create repository directory: %w", err)
 	}
 
-	// Initialize git repository
-	repo, err := git.PlainInit(repoPath, false)
+	// For bare repos with initial files, we need to create a temp clone, commit files, then push
+	if isBare && len(initialFiles) > 0 {
+		// Initialize bare repository
+		_, err := git.PlainInit(repoPath, true)
+		if err != nil {
+			return fmt.Errorf("failed to initialize bare git repository: %w", err)
+		}
+
+		// Create temporary clone to add initial files
+		tempClone, err := os.MkdirTemp("", "helix-git-init-*")
+		if err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+		defer os.RemoveAll(tempClone) // Cleanup temp clone
+
+		repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
+			URL: repoPath, // Clone from the bare repo
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create temp clone: %w", err)
+		}
+
+		// Ensure we have at least one file
+		if len(initialFiles) == 0 {
+			initialFiles = map[string]string{
+				"README.md": fmt.Sprintf("# %s\n", repoName),
+			}
+		}
+
+		// Write initial files to temp clone
+		for filePath, content := range initialFiles {
+			fullPath := filepath.Join(tempClone, filePath)
+			dir := filepath.Dir(fullPath)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", filePath, err)
+			}
+		}
+
+		// Commit and push to bare repo
+		worktree, err := repo.Worktree()
+		if err != nil {
+			return fmt.Errorf("failed to get worktree: %w", err)
+		}
+
+		if _, err := worktree.Add("."); err != nil {
+			return fmt.Errorf("failed to add files: %w", err)
+		}
+
+		_, err = worktree.Commit("Initial commit", &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  "Helix System",
+				Email: "system@helix.ml",
+				When:  time.Now(),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to commit: %w", err)
+		}
+
+		// Push to bare repo
+		err = repo.Push(&git.PushOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to push to bare repo: %w", err)
+		}
+
+		log.Info().
+			Str("repo_path", repoPath).
+			Msg("Created bare git repository with initial files")
+
+		return nil
+	}
+
+	// For non-bare repos or bare repos without initial files
+	repo, err := git.PlainInit(repoPath, isBare)
 	if err != nil {
 		return fmt.Errorf("failed to initialize git repository: %w", err)
+	}
+
+	// If bare repo with no initial files, we're done
+	if isBare {
+		log.Info().
+			Str("repo_path", repoPath).
+			Msg("Created empty bare git repository (accepts pushes from agents)")
+		return nil
+	}
+
+	// Ensure we have at least one file to commit (can't create empty commits)
+	if len(initialFiles) == 0 {
+		initialFiles = map[string]string{
+			"README.md": fmt.Sprintf("# %s\n", repoName),
+		}
 	}
 
 	// Write initial files
@@ -524,67 +720,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *GitRepository) e
 	return nil
 }
 
-// getDefaultProjectFiles returns default files for a new project
-func (s *GitRepositoryService) getDefaultProjectFiles(specTask *types.SpecTask) map[string]string {
-	files := make(map[string]string)
-
-	// README.md
-	files["README.md"] = fmt.Sprintf(`# %s
-
-%s
-
-This project was created from SpecTask: %s
-
-## Getting Started
-
-<!-- Add your getting started instructions here -->
-
-## Development
-
-<!-- Add your development instructions here -->
-
-## License
-
-<!-- Add your license information here -->
-`, specTask.Name, specTask.Description, specTask.ID)
-
-	// .gitignore
-	files[".gitignore"] = `# Logs
-logs
-*.log
-npm-debug.log*
-
-# Dependencies
-node_modules/
-vendor/
-
-# Environment variables
-.env
-.env.local
-
-# Build outputs
-build/
-dist/
-target/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-`
-
-	// docs directory structure
-	files["docs/README.md"] = "# Project Documentation\n\nThis directory contains project documentation.\n"
-	files["src/README.md"] = "# Source Code\n\nThis directory contains the main source code.\n"
-	files["tests/README.md"] = "# Tests\n\nThis directory contains tests.\n"
-
-	return files
-}
 
 // getSampleProjectFiles returns sample files based on project type
 func (s *GitRepositoryService) getSampleProjectFiles(sampleType string) map[string]string {
@@ -1062,4 +1197,203 @@ func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID
 	}
 
 	return nil, fmt.Errorf("repository metadata not found in store")
+}
+
+// TreeEntry represents a file or directory in a repository
+type TreeEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
+	Size  int64  `json:"size"`
+}
+
+// GitRepositoryTreeResponse represents the response for browsing repository tree
+type GitRepositoryTreeResponse struct {
+	Path    string      `json:"path"`
+	Entries []TreeEntry `json:"entries"`
+}
+
+// GitRepositoryFileResponse represents the response for getting file contents
+type GitRepositoryFileResponse struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// BrowseTree lists files and directories at a given path in a specific branch
+func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]TreeEntry, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get reference for specified branch, default to HEAD
+	var ref *plumbing.Reference
+	if branch != "" {
+		// Try to resolve the branch
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		ref, err = gitRepo.Reference(branchRef, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
+		}
+	} else {
+		// Default to HEAD
+		ref, err = gitRepo.Head()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		}
+	}
+
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Navigate to the requested path
+	if path != "." && path != "" {
+		tree, err = tree.Tree(path)
+		if err != nil {
+			return nil, fmt.Errorf("path not found in repository: %w", err)
+		}
+	}
+
+	// Build tree entries
+	result := make([]TreeEntry, 0, len(tree.Entries))
+	for _, entry := range tree.Entries {
+		entryPath := path
+		if entryPath == "." || entryPath == "" {
+			entryPath = entry.Name
+		} else {
+			entryPath = filepath.Join(path, entry.Name)
+		}
+
+		// Determine if entry is a directory
+		isDir := entry.Mode == filemode.Dir
+
+		// Get size (only available for files/blobs)
+		var size int64
+		if !isDir {
+			// Get blob to read size
+			blob, err := gitRepo.BlobObject(entry.Hash)
+			if err == nil {
+				size = blob.Size
+			}
+		}
+
+		result = append(result, TreeEntry{
+			Name:  entry.Name,
+			Path:  entryPath,
+			IsDir: isDir,
+			Size:  size,
+		})
+	}
+
+	return result, nil
+}
+
+// ListBranches returns all branches in the repository
+func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get all references
+	refs, err := gitRepo.References()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get references: %w", err)
+	}
+
+	// Filter to branches only
+	var branches []string
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsBranch() {
+			branches = append(branches, ref.Name().Short())
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to iterate references: %w", err)
+	}
+
+	return branches, nil
+}
+
+// GetFileContents reads the contents of a file
+func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string) (string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return "", fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return "", fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get HEAD reference to read from default branch
+	ref, err := gitRepo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Get the file
+	file, err := tree.File(path)
+	if err != nil {
+		return "", fmt.Errorf("file not found in repository: %w", err)
+	}
+
+	// Read file contents
+	content, err := file.Contents()
+	if err != nil {
+		return "", fmt.Errorf("failed to read file contents: %w", err)
+	}
+
+	return content, nil
 }

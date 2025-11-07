@@ -39,7 +39,7 @@ func (apiServer *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *h
 		return
 	}
 	if request.RepoType == "" {
-		request.RepoType = services.GitRepositoryTypeProject
+		request.RepoType = services.GitRepositoryTypeCode
 	}
 
 	// Create repository
@@ -85,6 +85,73 @@ func (apiServer *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(repository)
 }
 
+// updateGitRepository updates an existing git repository
+// @Summary Update git repository
+// @Description Update an existing git repository's metadata
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param repository body services.GitRepositoryUpdateRequest true "Repository update request"
+// @Success 200 {object} services.GitRepository
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var request services.GitRepositoryUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	repository, err := apiServer.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to update git repository")
+		http.Error(w, fmt.Sprintf("Failed to update repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(repository)
+}
+
+// deleteGitRepository deletes a git repository
+// @Summary Delete git repository
+// @Description Delete a git repository and its metadata
+// @Tags git-repositories
+// @Param id path string true "Repository ID"
+// @Success 204 "No Content"
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to delete git repository")
+		http.Error(w, fmt.Sprintf("Failed to delete repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // listGitRepositories lists all repositories, optionally filtered by owner
 // @Summary List git repositories
 // @Description List all git repositories, optionally filtered by owner and type
@@ -122,54 +189,6 @@ func (apiServer *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(repositories)
 }
 
-// createSpecTaskRepository creates a repository for a SpecTask
-// @Summary Create SpecTask repository
-// @Description Create a git repository specifically for a SpecTask
-// @Tags specs
-// @Accept json
-// @Produce json
-// @Param request body CreateSpecTaskRepositoryRequest true "SpecTask repository creation request"
-// @Success 201 {object} services.GitRepository
-// @Failure 400 {object} types.APIError
-// @Failure 401 {object} types.APIError
-// @Failure 500 {object} types.APIError
-// @Router /api/v1/specs/repositories [post]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) createSpecTaskRepository(w http.ResponseWriter, r *http.Request) {
-	var request CreateSpecTaskRepositoryRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
-		return
-	}
-
-	if request.SpecTaskID == "" {
-		http.Error(w, "SpecTask ID is required", http.StatusBadRequest)
-		return
-	}
-
-	// Get SpecTask from store
-	specTask, err := apiServer.Store.GetSpecTask(r.Context(), request.SpecTaskID)
-	if err != nil {
-		log.Error().Err(err).Str("spec_task_id", request.SpecTaskID).Msg("Failed to get SpecTask")
-		http.Error(w, fmt.Sprintf("SpecTask not found: %s", err.Error()), http.StatusNotFound)
-		return
-	}
-
-	repository, err := apiServer.gitRepositoryService.CreateSpecTaskRepository(
-		r.Context(),
-		specTask,
-		request.TemplateFiles,
-	)
-	if err != nil {
-		log.Error().Err(err).Str("spec_task_id", request.SpecTaskID).Msg("Failed to create SpecTask repository")
-		http.Error(w, fmt.Sprintf("Failed to create SpecTask repository: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(repository)
-}
 
 // createSampleRepository creates a sample/demo repository
 // @Summary Create sample repository
@@ -374,12 +393,6 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 func (apiServer *HelixAPIServer) getSampleTypes(w http.ResponseWriter, r *http.Request) {
 	sampleTypes := []SampleType{
 		{
-			ID:          "empty",
-			Name:        "Empty Repository",
-			Description: "An empty project repository ready for any technology stack",
-			TechStack:   []string{"any", "blank-slate", "custom"},
-		},
-		{
 			ID:          "nodejs-todo",
 			Name:        "Node.js Todo App",
 			Description: "A simple todo application built with Node.js and Express",
@@ -436,15 +449,6 @@ type SampleTypesResponse struct {
 	Count       int          `json:"count"`
 }
 
-// CreateSpecTaskRepositoryRequest represents a request to create a SpecTask repository
-type CreateSpecTaskRepositoryRequest struct {
-	SpecTaskID    string            `json:"spec_task_id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	OwnerID       string            `json:"owner_id"`
-	ProjectID     string            `json:"project_id,omitempty"`
-	TemplateFiles map[string]string `json:"template_files,omitempty"`
-}
 
 // CreateSampleRepositoryRequest represents a request to create a sample repository
 type CreateSampleRepositoryRequest struct {
@@ -475,4 +479,123 @@ type InitializeSampleRepositoriesResponse struct {
 	CreatedCount        int                       `json:"created_count"`
 	Errors              []string                  `json:"errors,omitempty"`
 	Success             bool                      `json:"success"`
+}
+
+// browseGitRepositoryTree browses files and directories at a path
+// @Summary Browse repository tree
+// @Description Get list of files and directories at a specific path in a repository
+// @ID browseGitRepositoryTree
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param path query string false "Path to browse (default: root)"
+// @Param branch query string false "Branch to browse (default: HEAD)"
+// @Success 200 {object} services.GitRepositoryTreeResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/tree [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = "."
+	}
+
+	branch := r.URL.Query().Get("branch")
+
+	entries, err := apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path, branch)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Msg("Failed to browse repository tree")
+		http.Error(w, fmt.Sprintf("Failed to browse repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &services.GitRepositoryTreeResponse{
+		Path:    path,
+		Entries: entries,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// listGitRepositoryBranches lists all branches in a repository
+// @Summary List repository branches
+// @Description Get list of all branches in a repository
+// @ID listGitRepositoryBranches
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {array} string
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/branches [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	branches, err := apiServer.gitRepositoryService.ListBranches(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository branches")
+		http.Error(w, fmt.Sprintf("Failed to list branches: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(branches)
+}
+
+// getGitRepositoryFile gets the contents of a file
+// @Summary Get file contents
+// @Description Get the contents of a file at a specific path in a repository
+// @ID getGitRepositoryFile
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param path query string true "File path"
+// @Success 200 {object} services.GitRepositoryFileResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/file [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "File path is required", http.StatusBadRequest)
+		return
+	}
+
+	content, err := apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Msg("Failed to get file contents")
+		http.Error(w, fmt.Sprintf("Failed to get file contents: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &services.GitRepositoryFileResponse{
+		Path:    path,
+		Content: content,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -12,15 +12,16 @@ type SampleProjectCodeService struct {
 
 // SampleProjectCode contains the starter code and structure for a sample project
 type SampleProjectCode struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	GitHubRepo   string            `json:"github_repo"`
-	Technologies []string          `json:"technologies"`
-	Files        map[string]string `json:"files"` // filepath -> content
-	GitIgnore    string            `json:"gitignore"`
-	ReadmeURL    string            `json:"readme_url"`
-	Language     string            `json:"language"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	GitHubRepo    string            `json:"github_repo"`
+	Technologies  []string          `json:"technologies"`
+	Files         map[string]string `json:"files"` // filepath -> content
+	GitIgnore     string            `json:"gitignore"`
+	ReadmeURL     string            `json:"readme_url"`
+	Language      string            `json:"language"`
+	StartupScript string            `json:"startup_script"` // Custom startup script for this project
 }
 
 // NewSampleProjectCodeService creates a new service with hardcoded project codes
@@ -52,304 +53,99 @@ func (s *SampleProjectCodeService) ListAvailableProjects(ctx context.Context) []
 
 // loadSampleProjects initializes the hardcoded sample project starter codes
 func (s *SampleProjectCodeService) loadSampleProjects() {
-	// React Todo App
-	s.sampleProjects["react-todo-app"] = &SampleProjectCode{
-		ID:           "react-todo-app",
-		Name:         "React Todo Application",
-		Description:  "A modern todo application built with React, TypeScript, and Material-UI",
-		GitHubRepo:   "sample-react-todo",
-		Technologies: []string{"React", "TypeScript", "Material-UI", "Vite"},
+	// 1. Modern Todo App - has bug where delete doesn't persist to localStorage
+	s.sampleProjects["modern-todo-app"] = &SampleProjectCode{
+		ID:           "modern-todo-app",
+		Name:         "Modern Todo App",
+		Description:  "Full-stack todo application with React - perfect for learning modern web patterns",
+		GitHubRepo:   "helixml/sample-todo-app",
+		Technologies: []string{"React", "TypeScript", "Vite"},
 		Language:     "javascript",
-		ReadmeURL:    "/sample-projects/react-todo-app/README.md",
-		GitIgnore: `# Dependencies
-node_modules/
-.pnpm-debug.log*
+		ReadmeURL:    "https://github.com/helixml/sample-todo-app/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
 
-# Production build
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
+
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
+    exit 1
+fi
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting dev server in background..."
+nohup npm run dev > /tmp/dev-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/dev-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
+fi
+
+echo "✅ Startup complete - Todo app running at http://localhost:3000"
+`,
+		GitIgnore: `node_modules/
 dist/
-build/
-
-# Environment variables
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db`,
+.env`,
 		Files: map[string]string{
+			"README.md": `# Modern Todo App
+
+A simple todo app with a critical bug to fix!
+
+## Bug
+⚠️ Deleted todos reappear after page refresh - the delete doesn't persist to localStorage
+
+## Getting Started
+` + "```bash" + `
+npm install
+npm run dev
+` + "```",
 			"package.json": `{
-  "name": "react-todo-app",
+  "name": "modern-todo-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest"
+    "build": "tsc && vite build"
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@mui/material": "^5.14.0",
-    "@emotion/react": "^11.11.0",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.14.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
     "typescript": "^5.0.0",
-    "vite": "^4.4.0",
-    "vitest": "^0.34.0"
+    "vite": "^4.4.0"
   }
 }`,
-			"src/App.tsx": `import React, { useState } from 'react';
-import { Container, Typography, Paper, Box } from '@mui/material';
-import { TodoList } from './components/TodoList';
-import { AddTodo } from './components/AddTodo';
-import { Todo } from './types/Todo';
-
-function App() {
-  const [todos, setTodos] = useState<Todo[]>([
-    { id: 1, text: 'Learn React', completed: false },
-    { id: 2, text: 'Build a todo app', completed: false },
-  ]);
-
-  const addTodo = (text: string) => {
-    const newTodo: Todo = {
-      id: Date.now(),
-      text,
-      completed: false,
-    };
-    setTodos([...todos, newTodo]);
-  };
-
-  const toggleTodo = (id: number) => {
-    setTodos(todos.map(todo =>
-      todo.id === id ? { ...todo, completed: !todo.completed } : todo
-    ));
-  };
-
-  const deleteTodo = (id: number) => {
-    setTodos(todos.filter(todo => todo.id !== id));
-  };
-
-  return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Typography variant="h3" component="h1" gutterBottom align="center">
-        Todo App
-      </Typography>
-
-      <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
-        <AddTodo onAdd={addTodo} />
-      </Paper>
-
-      <TodoList
-        todos={todos}
-        onToggle={toggleTodo}
-        onDelete={deleteTodo}
-      />
-    </Container>
-  );
-}
-
-export default App;`,
-			"src/types/Todo.ts": `export interface Todo {
-  id: number;
-  text: string;
-  completed: boolean;
-}`,
-			"src/components/TodoList.tsx": `import React from 'react';
-import { List, Paper, Typography } from '@mui/material';
-import { TodoItem } from './TodoItem';
-import { Todo } from '../types/Todo';
-
-interface TodoListProps {
-  todos: Todo[];
-  onToggle: (id: number) => void;
-  onDelete: (id: number) => void;
-}
-
-export const TodoList: React.FC<TodoListProps> = ({ todos, onToggle, onDelete }) => {
-  if (todos.length === 0) {
-    return (
-      <Paper elevation={2} sx={{ p: 3, textAlign: 'center' }}>
-        <Typography color="textSecondary">
-          No todos yet. Add one above!
-        </Typography>
-      </Paper>
-    );
-  }
-
-  return (
-    <Paper elevation={2}>
-      <List>
-        {todos.map((todo) => (
-          <TodoItem
-            key={todo.id}
-            todo={todo}
-            onToggle={onToggle}
-            onDelete={onDelete}
-          />
-        ))}
-      </List>
-    </Paper>
-  );
-};`,
-			"src/components/TodoItem.tsx": `import React from 'react';
-import {
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  IconButton,
-  Checkbox,
-} from '@mui/material';
-import { Delete as DeleteIcon } from '@mui/icons-material';
-import { Todo } from '../types/Todo';
-
-interface TodoItemProps {
-  todo: Todo;
-  onToggle: (id: number) => void;
-  onDelete: (id: number) => void;
-}
-
-export const TodoItem: React.FC<TodoItemProps> = ({ todo, onToggle, onDelete }) => {
-  return (
-    <ListItem
-      secondaryAction={
-        <IconButton edge="end" onClick={() => onDelete(todo.id)}>
-          <DeleteIcon />
-        </IconButton>
-      }
-      disablePadding
-    >
-      <ListItemButton onClick={() => onToggle(todo.id)} dense>
-        <ListItemIcon>
-          <Checkbox
-            edge="start"
-            checked={todo.completed}
-            tabIndex={-1}
-            disableRipple
-          />
-        </ListItemIcon>
-        <ListItemText
-          primary={todo.text}
-          sx={{
-            textDecoration: todo.completed ? 'line-through' : 'none',
-            opacity: todo.completed ? 0.7 : 1,
-          }}
-        />
-      </ListItemButton>
-    </ListItem>
-  );
-};`,
-			"src/components/AddTodo.tsx": `import React, { useState } from 'react';
-import { Box, TextField, Button } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
-
-interface AddTodoProps {
-  onAdd: (text: string) => void;
-}
-
-export const AddTodo: React.FC<AddTodoProps> = ({ onAdd }) => {
-  const [text, setText] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (text.trim()) {
-      onAdd(text.trim());
-      setText('');
-    }
-  };
-
-  return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', gap: 2 }}>
-      <TextField
-        fullWidth
-        label="Add a new todo"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        variant="outlined"
-      />
-      <Button
-        type="submit"
-        variant="contained"
-        startIcon={<AddIcon />}
-        disabled={!text.trim()}
-      >
-        Add
-      </Button>
-    </Box>
-  );
-};`,
-			"vite.config.ts": `import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 3000,
-    host: true,
-  },
-})`,
-			"tsconfig.json": `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
-}`,
-			"src/main.tsx": `import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { ThemeProvider, createTheme } from '@mui/material/styles'
-import CssBaseline from '@mui/material/CssBaseline'
-import App from './App.tsx'
-
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    primary: {
-      main: '#1976d2',
-    },
-  },
-});
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <App />
-    </ThemeProvider>
-  </React.StrictMode>,
-)`,
 			"index.html": `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Todo App</title>
   </head>
@@ -358,654 +154,766 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>`,
+			"src/main.tsx": `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)`,
+			"src/App.tsx": `import { useState, useEffect } from 'react';
+
+interface Todo {
+  id: number;
+  text: string;
+  completed: boolean;
+}
+
+function App() {
+  const [todos, setTodos] = useState<Todo[]>([]);
+  const [input, setInput] = useState('');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('todos');
+    if (saved) setTodos(JSON.parse(saved));
+  }, []);
+
+  const addTodo = () => {
+    if (!input.trim()) return;
+    const newTodos = [...todos, { id: Date.now(), text: input, completed: false }];
+    setTodos(newTodos);
+    localStorage.setItem('todos', JSON.stringify(newTodos));
+    setInput('');
+  };
+
+  const toggleTodo = (id: number) => {
+    const newTodos = todos.map(t => t.id === id ? {...t, completed: !t.completed} : t);
+    setTodos(newTodos);
+    localStorage.setItem('todos', JSON.stringify(newTodos));
+  };
+
+  const deleteTodo = (id: number) => {
+    const newTodos = todos.filter(t => t.id !== id);
+    setTodos(newTodos);
+    // BUG: Missing localStorage save - todos come back after refresh!
+  };
+
+  return (
+    <div style={{maxWidth: '600px', margin: '0 auto', padding: '20px'}}>
+      <h1>Todo App</h1>
+      <div style={{display: 'flex', gap: '10px', marginBottom: '20px'}}>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && addTodo()}
+          placeholder="Add a todo..."
+          style={{flex: 1, padding: '8px'}}
+        />
+        <button onClick={addTodo}>Add</button>
+      </div>
+      <ul style={{listStyle: 'none', padding: 0}}>
+        {todos.map(todo => (
+          <li key={todo.id} style={{padding: '10px', borderBottom: '1px solid #ccc', display: 'flex', alignItems: 'center', gap: '10px'}}>
+            <input
+              type="checkbox"
+              checked={todo.completed}
+              onChange={() => toggleTodo(todo.id)}
+            />
+            <span style={{flex: 1, textDecoration: todo.completed ? 'line-through' : 'none'}}>
+              {todo.text}
+            </span>
+            <button onClick={() => deleteTodo(todo.id)}>Delete</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default App;`,
+			"src/index.css": `body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+input[type="text"] {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}`,
+			"vite.config.ts": `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 3000, host: true }
+})`,
+			"tsconfig.json": `{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true
+  }
+}`,
 		},
 	}
 
-	// Express API Server
-	s.sampleProjects["express-api-server"] = &SampleProjectCode{
-		ID:           "express-api-server",
-		Name:         "Express API Server",
-		Description:  "A RESTful API server built with Express.js, TypeScript, and PostgreSQL",
-		GitHubRepo:   "sample-express-api",
-		Technologies: []string{"Node.js", "Express", "TypeScript", "PostgreSQL", "Prisma"},
+	// 2. E-commerce API - has inventory race condition bug
+	s.sampleProjects["ecommerce-api"] = &SampleProjectCode{
+		ID:           "ecommerce-api",
+		Name:         "E-commerce REST API",
+		Description:  "API for an e-commerce platform with product management and orders",
+		GitHubRepo:   "helixml/sample-ecommerce-api",
+		Technologies: []string{"Node.js", "Express", "TypeScript"},
 		Language:     "javascript",
-		ReadmeURL:    "/sample-projects/express-api-server/README.md",
-		GitIgnore: `# Dependencies
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+		ReadmeURL:    "https://github.com/helixml/sample-ecommerce-api/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
 
-# Production build
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
+
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
+    exit 1
+fi
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting API server in background..."
+nohup npm run dev > /tmp/api-server.log 2>&1 &
+DEV_PID=$!
+
+echo "API server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/api-server.log"
+
+# Wait for server to be ready
+sleep 3
+
+echo "✅ Startup complete - E-commerce API running at http://localhost:3000"
+echo "📝 Test with: curl http://localhost:3000/api/products"
+`,
+		GitIgnore: `node_modules/
 dist/
-build/
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Database
-*.db
-*.sqlite
-
-# Logs
-logs/
-*.log
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db`,
+.env`,
 		Files: map[string]string{
+			"README.md": `# E-commerce API
+
+Simple e-commerce REST API.
+
+## Critical Bug
+⚠️ Inventory can go negative when multiple users order simultaneously (race condition)
+
+## API Endpoints
+- GET /api/products - List products
+- POST /api/orders - Create order
+
+## Start
+` + "```bash" + `
+npm install && npm run dev
+` + "```",
 			"package.json": `{
-  "name": "express-api-server",
+  "name": "ecommerce-api",
   "version": "1.0.0",
-  "description": "A RESTful API server with Express and TypeScript",
-  "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "jest",
-    "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate"
+    "dev": "ts-node src/index.ts"
   },
   "dependencies": {
     "express": "^4.18.0",
-    "cors": "^2.8.5",
-    "helmet": "^7.0.0",
-    "morgan": "^1.10.0",
-    "@prisma/client": "^5.0.0",
-    "bcrypt": "^5.1.0",
-    "jsonwebtoken": "^9.0.0",
-    "zod": "^3.22.0"
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/express": "^4.17.0",
     "@types/cors": "^2.8.0",
-    "@types/morgan": "^1.9.0",
-    "@types/bcrypt": "^5.0.0",
-    "@types/jsonwebtoken": "^9.0.0",
     "typescript": "^5.0.0",
-    "nodemon": "^3.0.0",
-    "ts-node": "^10.9.0",
-    "jest": "^29.0.0",
-    "prisma": "^5.0.0"
+    "ts-node": "^10.9.0"
   }
 }`,
 			"src/index.ts": `import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import { userRoutes } from './routes/users';
-import { postRoutes } from './routes/posts';
-import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(helmet());
 app.use(cors());
-app.use(morgan('combined'));
 app.use(express.json());
 
-// Routes
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// In-memory inventory (simulates database)
+const inventory: Record<string, { name: string; price: number; stock: number }> = {
+  'prod-1': { name: 'Widget', price: 29.99, stock: 10 },
+  'prod-2': { name: 'Gadget', price: 49.99, stock: 5 },
+};
+
+app.get('/api/products', (req, res) => {
+  res.json(Object.entries(inventory).map(([id, data]) => ({ id, ...data })));
 });
 
-app.use('/api/users', userRoutes);
-app.use('/api/posts', postRoutes);
+app.post('/api/orders', async (req, res) => {
+  const { productId, quantity } = req.body;
 
-// Error handling
-app.use(errorHandler);
+  // BUG: Race condition! No locking mechanism
+  const product = inventory[productId];
+  if (!product) return res.status(404).json({ error: 'Product not found' });
 
-app.listen(PORT, () => {
-  console.log(` + "`" + `Server running on port ${PORT}` + "`" + `);
-});`,
-			"src/routes/users.ts": `import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { z } from 'zod';
+  // Simulate async delay that makes race condition worse
+  await new Promise(resolve => setTimeout(resolve, 100));
 
-const router = Router();
-const prisma = new PrismaClient();
-
-const createUserSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1),
-});
-
-// GET /api/users
-router.get('/', async (req, res, next) => {
-  try {
-    const users = await prisma.user.findMany({
-      select: { id: true, email: true, name: true, createdAt: true },
-    });
-    res.json(users);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/users/:id
-router.get('/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const user = await prisma.user.findUnique({
-      where: { id: parseInt(id) },
-      select: { id: true, email: true, name: true, createdAt: true },
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/users
-router.post('/', async (req, res, next) => {
-  try {
-    const validatedData = createUserSchema.parse(req.body);
-
-    const user = await prisma.user.create({
-      data: validatedData,
-      select: { id: true, email: true, name: true, createdAt: true },
-    });
-
-    res.status(201).json(user);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /api/users/:id
-router.put('/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const validatedData = createUserSchema.partial().parse(req.body);
-
-    const user = await prisma.user.update({
-      where: { id: parseInt(id) },
-      data: validatedData,
-      select: { id: true, email: true, name: true, createdAt: true },
-    });
-
-    res.json(user);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// DELETE /api/users/:id
-router.delete('/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    await prisma.user.delete({
-      where: { id: parseInt(id) },
-    });
-
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
-
-export { router as userRoutes };`,
-			"src/routes/posts.ts": `import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { z } from 'zod';
-
-const router = Router();
-const prisma = new PrismaClient();
-
-const createPostSchema = z.object({
-  title: z.string().min(1),
-  content: z.string().min(1),
-  authorId: z.number(),
-});
-
-// GET /api/posts
-router.get('/', async (req, res, next) => {
-  try {
-    const posts = await prisma.post.findMany({
-      include: {
-        author: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(posts);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/posts/:id
-router.get('/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const post = await prisma.post.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        author: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-
-    res.json(post);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/posts
-router.post('/', async (req, res, next) => {
-  try {
-    const validatedData = createPostSchema.parse(req.body);
-
-    const post = await prisma.post.create({
-      data: validatedData,
-      include: {
-        author: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-    });
-
-    res.status(201).json(post);
-  } catch (error) {
-    next(error);
-  }
-});
-
-export { router as postRoutes };`,
-			"src/middleware/errorHandler.ts": `import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-
-export const errorHandler = (
-  error: Error,
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  console.error('Error:', error);
-
-  if (error instanceof ZodError) {
-    return res.status(400).json({
-      error: 'Validation error',
-      details: error.errors,
-    });
+  // BUG: Check happens BEFORE the delay, inventory gets decremented AFTER
+  if (product.stock < quantity) {
+    return res.status(400).json({ error: 'Insufficient inventory' });
   }
 
-  if (error instanceof PrismaClientKnownRequestError) {
-    if (error.code === 'P2002') {
-      return res.status(409).json({
-        error: 'A record with this information already exists',
-      });
-    }
-    if (error.code === 'P2025') {
-      return res.status(404).json({
-        error: 'Record not found',
-      });
-    }
-  }
+  // BUG: Another request can pass the check above before this executes!
+  product.stock -= quantity;
 
-  res.status(500).json({
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'production' ? undefined : error.message,
-  });
-};`,
-			"prisma/schema.prisma": `// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+  res.json({ message: 'Order placed', remaining: product.stock });
+});
 
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String
-  posts     Post[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("users")
-}
-
-model Post {
-  id        Int      @id @default(autoincrement())
-  title     String
-  content   String
-  published Boolean  @default(false)
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("posts")
-}`,
+app.listen(3000, () => console.log('API on http://localhost:3000'));`,
 			"tsconfig.json": `{
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["ES2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+    "esModuleInterop": true
+  }
 }`,
 		},
 	}
 
-	// Python Flask API
-	s.sampleProjects["flask-api"] = &SampleProjectCode{
-		ID:           "flask-api",
-		Name:         "Flask API Server",
-		Description:  "A RESTful API server built with Flask, SQLAlchemy, and PostgreSQL",
-		GitHubRepo:   "sample-flask-api",
-		Technologies: []string{"Python", "Flask", "SQLAlchemy", "PostgreSQL", "Marshmallow"},
-		Language:     "python",
-		ReadmeURL:    "/sample-projects/flask-api/README.md",
-		GitIgnore: `# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+	// 3. Weather App - React Native (minimal, missing offline mode)
+	s.sampleProjects["weather-app"] = &SampleProjectCode{
+		ID:           "weather-app",
+		Name:         "Weather App - React Native",
+		Description:  "Cross-platform weather app with location services",
+		GitHubRepo:   "helixml/sample-weather-app",
+		Technologies: []string{"React Native", "TypeScript", "Expo"},
+		Language:     "javascript",
+		ReadmeURL:    "https://github.com/helixml/sample-weather-app/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
 
-# Environment
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
+    exit 1
+fi
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
 
-# Database
-*.db
-*.sqlite
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
 
-# Logs
-*.log
+echo "🚀 Installing dependencies..."
+npm install
 
-# OS
-.DS_Store
-Thumbs.db`,
+echo "🚀 Starting Expo dev server in background..."
+nohup npx expo start --web > /tmp/expo-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Expo dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/expo-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser for web preview
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:19006 > /dev/null 2>&1 &
+fi
+
+echo "✅ Startup complete - Expo running at http://localhost:19006"
+echo "📱 Scan QR code in terminal to run on mobile device"
+`,
+		GitIgnore: `node_modules/
+.expo/
+dist/`,
 		Files: map[string]string{
-			"requirements.txt": `Flask==2.3.3
-Flask-SQLAlchemy==3.0.5
-Flask-Migrate==4.0.5
-Flask-CORS==4.0.0
-Flask-Marshmallow==0.15.0
-marshmallow-sqlalchemy==0.29.0
-python-dotenv==1.0.0
-psycopg2-binary==2.9.7
-gunicorn==21.2.0`,
-			"app.py": `from flask import Flask
-from flask_cors import CORS
-from config import Config
-from extensions import db, migrate, ma
-from routes import api_bp
+			"README.md": `# Weather App
 
+React Native weather app.
 
-def create_app(config_class=Config):
-    app = Flask(__name__)
-    app.config.from_object(config_class)
+## Missing Features
+- ⚠️ No offline mode - app crashes without internet
+- No weather animations
 
-    # Initialize extensions
-    db.init_app(app)
-    migrate.init_app(app, db)
-    ma.init_app(app)
-    CORS(app)
+## Start
+` + "```bash" + `
+npm install && npx expo start
+` + "```",
+			"package.json": `{
+  "name": "weather-app",
+  "version": "1.0.0",
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start"
+  },
+  "dependencies": {
+    "expo": "~49.0.0",
+    "react": "18.2.0",
+    "react-native": "0.72.0"
+  },
+  "devDependencies": {
+    "@types/react": "~18.2.0",
+    "typescript": "^5.0.0"
+  }
+}`,
+			"App.tsx": `import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 
-    # Register blueprints
-    app.register_blueprint(api_bp, url_prefix='/api')
+export default function App() {
+  const [weather, setWeather] = useState<any>(null);
 
-    # Health check endpoint
-    @app.route('/health')
-    def health():
-        return {'status': 'ok', 'message': 'Flask API is running'}
+  useEffect(() => {
+    // BUG: No offline handling - this will crash without internet!
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.41&current_weather=true')
+      .then(res => res.json())
+      .then(data => setWeather(data.current_weather));
+  }, []);
 
-    return app
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Weather</Text>
+      {weather ? (
+        <Text>Temperature: {weather.temperature}°C</Text>
+      ) : (
+        <Text>Loading...</Text>
+      )}
+    </View>
+  );
+}
 
-
-if __name__ == '__main__':
-    app = create_app()
-    app.run(debug=True, host='0.0.0.0', port=5000)`,
-			"config.py": `import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'postgresql://user:password@localhost/flask_api_db'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False`,
-			"extensions.py": `from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_marshmallow import Marshmallow
-
-db = SQLAlchemy()
-migrate = Migrate()
-ma = Marshmallow()`,
-			"models.py": `from datetime import datetime
-from extensions import db
-
-
-class User(db.Model):
-    __tablename__ = 'users'
-
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Relationship
-    posts = db.relationship('Post', backref='author', lazy=True, cascade='all, delete-orphan')
-
-    def __repr__(self):
-        return f'<User {self.email}>'
-
-
-class Post(db.Model):
-    __tablename__ = 'posts'
-
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    published = db.Column(db.Boolean, default=False)
-    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __repr__(self):
-        return f'<Post {self.title}>'`,
-			"schemas.py": `from marshmallow import fields, validate
-from extensions import ma
-from models import User, Post
-
-
-class UserSchema(ma.SQLAlchemyAutoSchema):
-    class Meta:
-        model = User
-        load_instance = True
-        exclude = ('updated_at',)
-
-    email = fields.Email(required=True)
-    name = fields.Str(required=True, validate=validate.Length(min=1, max=100))
-
-
-class PostSchema(ma.SQLAlchemyAutoSchema):
-    class Meta:
-        model = Post
-        load_instance = True
-        exclude = ('updated_at',)
-
-    title = fields.Str(required=True, validate=validate.Length(min=1, max=200))
-    content = fields.Str(required=True, validate=validate.Length(min=1))
-    author_id = fields.Int(required=True)
-    author = fields.Nested(UserSchema, dump_only=True)
-
-
-# Schema instances
-user_schema = UserSchema()
-users_schema = UserSchema(many=True)
-post_schema = PostSchema()
-posts_schema = PostSchema(many=True)`,
-			"routes.py": `from flask import Blueprint, request, jsonify
-from marshmallow import ValidationError
-from extensions import db
-from models import User, Post
-from schemas import user_schema, users_schema, post_schema, posts_schema
-
-api_bp = Blueprint('api', __name__)
-
-
-# User routes
-@api_bp.route('/users', methods=['GET'])
-def get_users():
-    users = User.query.all()
-    return users_schema.dump(users)
-
-
-@api_bp.route('/users/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    user = User.query.get_or_404(user_id)
-    return user_schema.dump(user)
-
-
-@api_bp.route('/users', methods=['POST'])
-def create_user():
-    try:
-        user_data = user_schema.load(request.json)
-    except ValidationError as err:
-        return {'error': 'Validation error', 'details': err.messages}, 400
-
-    # Check if email already exists
-    if User.query.filter_by(email=user_data.email).first():
-        return {'error': 'Email already exists'}, 409
-
-    db.session.add(user_data)
-    db.session.commit()
-
-    return user_schema.dump(user_data), 201
-
-
-@api_bp.route('/users/<int:user_id>', methods=['PUT'])
-def update_user(user_id):
-    user = User.query.get_or_404(user_id)
-
-    try:
-        user_data = user_schema.load(request.json, partial=True)
-    except ValidationError as err:
-        return {'error': 'Validation error', 'details': err.messages}, 400
-
-    # Update fields
-    if hasattr(user_data, 'email'):
-        user.email = user_data.email
-    if hasattr(user_data, 'name'):
-        user.name = user_data.name
-
-    db.session.commit()
-    return user_schema.dump(user)
-
-
-@api_bp.route('/users/<int:user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
-    return '', 204
-
-
-# Post routes
-@api_bp.route('/posts', methods=['GET'])
-def get_posts():
-    posts = Post.query.order_by(Post.created_at.desc()).all()
-    return posts_schema.dump(posts)
-
-
-@api_bp.route('/posts/<int:post_id>', methods=['GET'])
-def get_post(post_id):
-    post = Post.query.get_or_404(post_id)
-    return post_schema.dump(post)
-
-
-@api_bp.route('/posts', methods=['POST'])
-def create_post():
-    try:
-        post_data = post_schema.load(request.json)
-    except ValidationError as err:
-        return {'error': 'Validation error', 'details': err.messages}, 400
-
-    # Verify author exists
-    if not User.query.get(post_data.author_id):
-        return {'error': 'Author not found'}, 404
-
-    db.session.add(post_data)
-    db.session.commit()
-
-    return post_schema.dump(post_data), 201`,
+const styles = StyleSheet.create({
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+});`,
+			"app.json": `{
+  "expo": {
+    "name": "weather-app",
+    "slug": "weather-app",
+    "version": "1.0.0",
+    "platforms": ["ios", "android"],
+    "sdkVersion": "49.0.0"
+  }
+}`,
+			"tsconfig.json": `{
+  "compilerOptions": {
+    "strict": true
+  },
+  "extends": "expo/tsconfig.base"
+}`,
 		},
 	}
 
-	// Add more sample projects as needed
+	// 4. Blog CMS - Next.js (missing image uploads)
+	s.sampleProjects["blog-cms"] = &SampleProjectCode{
+		ID:           "blog-cms",
+		Name:         "Simple Blog CMS",
+		Description:  "Content management system for bloggers with markdown support",
+		GitHubRepo:   "helixml/sample-blog-cms",
+		Technologies: []string{"Next.js", "TypeScript", "TailwindCSS"},
+		Language:     "javascript",
+		ReadmeURL:    "https://github.com/helixml/sample-blog-cms/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
+
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
+    exit 1
+fi
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting Next.js dev server in background..."
+nohup npm run dev > /tmp/nextjs-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Next.js dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/nextjs-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
+fi
+
+echo "✅ Startup complete - Blog CMS running at http://localhost:3000"
+`,
+		GitIgnore: `node_modules/
+.next/
+out/`,
+		Files: map[string]string{
+			"README.md": `# Blog CMS
+
+Simple blog with markdown posts.
+
+## Missing
+- ⚠️ No image upload functionality
+- No comments
+- No SEO meta tags
+
+## Start
+` + "```bash" + `
+npm install && npm run dev
+` + "```",
+			"package.json": `{
+  "name": "blog-cms",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build"
+  },
+  "dependencies": {
+    "next": "14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "typescript": "^5.0.0"
+  }
+}`,
+			"app/page.tsx": `export default function Home() {
+  const posts = [
+    { id: 1, title: 'First Post', content: 'Hello world' },
+  ];
+
+  return (
+    <main style={{maxWidth: '800px', margin: '0 auto', padding: '20px'}}>
+      <h1>Blog</h1>
+      {posts.map(post => (
+        <article key={post.id}>
+          <h2>{post.title}</h2>
+          <p>{post.content}</p>
+        </article>
+      ))}
+    </main>
+  );
+}`,
+			"app/layout.tsx": `export const metadata = {
+  title: 'Blog CMS',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}`,
+			"tsconfig.json": `{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}`,
+			"next.config.js": `/** @type {import('next').NextConfig} */
+const nextConfig = {};
+module.exports = nextConfig;`,
+		},
+	}
+
+	// 5. React Dashboard - Material-UI (missing real-time updates)
+	s.sampleProjects["react-dashboard"] = &SampleProjectCode{
+		ID:           "react-dashboard",
+		Name:         "React Admin Dashboard",
+		Description:  "Modern admin dashboard with Material-UI components",
+		GitHubRepo:   "helixml/sample-react-dashboard",
+		Technologies: []string{"React", "TypeScript", "Material-UI"},
+		Language:     "javascript",
+		ReadmeURL:    "https://github.com/helixml/sample-react-dashboard/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Script runs in primary repository directory (wrapper already cd'd here)
+echo "📂 Working in: $(pwd)"
+
+# Verify we're in a Node.js project
+if [ ! -f "package.json" ]; then
+    echo "❌ Error: package.json not found in current directory"
+    exit 1
+fi
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+# Install Node.js if not present
+if ! command -v node &> /dev/null; then
+    echo "📦 Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    echo "✅ Node.js $(node --version) installed"
+fi
+
+echo "🚀 Installing dependencies..."
+npm install
+
+echo "🚀 Starting dev server in background..."
+nohup npm run dev > /tmp/dev-server.log 2>&1 &
+DEV_PID=$!
+
+echo "Dev server started (PID: $DEV_PID)"
+echo "Logs: tail -f /tmp/dev-server.log"
+
+# Wait for server to be ready
+sleep 5
+
+# Open browser
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000 > /dev/null 2>&1 &
+fi
+
+echo "✅ Startup complete - Dashboard running at http://localhost:3000"
+`,
+		GitIgnore: `node_modules/
+dist/`,
+		Files: map[string]string{
+			"README.md": `# React Admin Dashboard
+
+Dashboard with static data.
+
+## Missing
+- ⚠️ No real-time updates (data doesn't refresh)
+- No role-based access control
+- No export functionality
+
+## Start
+` + "```bash" + `
+npm install && npm run dev
+` + "```",
+			"package.json": `{
+  "name": "react-dashboard",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@mui/material": "^5.14.0",
+    "@emotion/react": "^11.11.0",
+    "@emotion/styled": "^11.11.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^4.4.0"
+  }
+}`,
+			"index.html": `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`,
+			"src/main.tsx": `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />)`,
+			"src/App.tsx": `import { Container, Typography, Paper, Grid } from '@mui/material';
+
+function App() {
+  // Static data - BUG: Should update in real-time via WebSocket
+  const metrics = {
+    users: 1234,
+    sales: 5678,
+    revenue: 91011,
+  };
+
+  return (
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Typography variant="h4" gutterBottom>Admin Dashboard</Typography>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6">Users</Typography>
+            <Typography variant="h3">{metrics.users}</Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6">Sales</Typography>
+            <Typography variant="h3">{metrics.sales}</Typography>
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6">Revenue</Typography>
+            <Typography variant="h3">${metrics.revenue}</Typography>
+          </Paper>
+        </Grid>
+      </Grid>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+        ⚠️ Data is static - implement WebSocket for real-time updates
+      </Typography>
+    </Container>
+  );
+}
+
+export default App;`,
+			"vite.config.ts": `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 3000 }
+})`,
+			"tsconfig.json": `{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "strict": true
+  }
+}`,
+		},
+	}
+
+	// 6. LinkedIn Outreach - Campaign tracker (markdown templates)
+	s.sampleProjects["linkedin-outreach"] = &SampleProjectCode{
+		ID:           "linkedin-outreach",
+		Name:         "LinkedIn Outreach Campaign",
+		Description:  "Multi-session campaign to reach out to 100 prospects",
+		GitHubRepo:   "helixml/sample-linkedin-outreach",
+		Technologies: []string{"Markdown", "CSV"},
+		Language:     "markdown",
+		ReadmeURL:    "https://github.com/helixml/sample-linkedin-outreach/blob/main/README.md",
+		StartupScript: `#!/bin/bash
+set -euo pipefail
+
+# Find the code repository directory (script runs from /home/retro/work)
+CODE_DIR=$(find . -mindepth 1 -maxdepth 1 -type d ! -name ".*" -print -quit)
+
+if [ -z "$CODE_DIR" ]; then
+    echo "❌ Error: Could not find code repository"
+    exit 1
+fi
+
+cd "$CODE_DIR"
+echo "📂 Working in: $CODE_DIR"
+
+# Fix ownership - directories are cloned as root, need to be owned by retro
+sudo chown -R retro:retro .
+
+echo "🚀 LinkedIn Outreach Campaign workspace ready"
+echo ""
+echo "📋 Campaign files:"
+echo "  - prospects.csv: Prospect tracking"
+echo "  - message-templates.md: Outreach templates"
+echo "  - metrics.md: Campaign metrics"
+echo ""
+echo "💡 Start by filling out prospects.csv with your target list"
+echo "✅ Workspace ready - no dev server needed"
+`,
+		GitIgnore: `*.csv.tmp
+.env`,
+		Files: map[string]string{
+			"README.md": `# LinkedIn Outreach Campaign
+
+Campaign to reach 100 AI/ML prospects.
+
+## Tasks
+1. Build prospect list
+2. Write personalized messages
+3. Track metrics
+4. Create follow-up sequence
+
+## Files
+- prospects.csv - Prospect list (empty - to be filled)
+- message-templates.md - Outreach templates
+- metrics.md - Campaign tracking`,
+			"prospects.csv": `name,title,company,linkedin_url,status,notes
+"","","","",pending,""
+`,
+			"message-templates.md": `# Message Templates
+
+## Initial Connection Request
+Hi {name}, I noticed your work on {recent_activity}. Would love to connect!
+
+## Follow-up 1
+Following up on my connection request...
+
+## Follow-up 2
+Wanted to share {value_add}...`,
+			"metrics.md": `# Campaign Metrics
+
+## Overview
+- Target: 100 prospects
+- Messages Sent: 0
+- Responses: 0
+- Meetings: 0
+
+## Tracking
+Update this file as campaign progresses.`,
+		},
+	}
 }
 
 // GetProjectCodeArchive returns a compressed archive of all project files

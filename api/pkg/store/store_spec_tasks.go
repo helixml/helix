@@ -83,10 +83,10 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		SELECT
 			id, project_id, name, description, type, priority, status,
 			original_prompt, requirements_spec, technical_design, implementation_plan,
-			spec_agent, implementation_agent, spec_session_id, implementation_session_id,
+			helix_app_id, spec_agent, implementation_agent, spec_session_id, implementation_session_id,
 			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
 			estimated_hours, started_at, completed_at,
-			created_by, created_at, updated_at, labels, metadata
+			created_by, created_at, updated_at, archived, labels, metadata
 		FROM spec_tasks`
 
 	// Build WHERE conditions
@@ -120,6 +120,15 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 			args = append(args, filters.Priority)
 			argIndex++
 		}
+		// Archive filtering logic
+		if filters.ArchivedOnly {
+			// Show only archived tasks
+			conditions = append(conditions, "archived = true")
+		} else if !filters.IncludeArchived {
+			// Default: exclude archived tasks
+			conditions = append(conditions, "(archived = false OR archived IS NULL)")
+		}
+		// If IncludeArchived is true and ArchivedOnly is false, show both (no filter added)
 	}
 
 	// Add WHERE clause if we have conditions

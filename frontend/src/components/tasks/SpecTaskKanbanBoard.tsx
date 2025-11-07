@@ -47,6 +47,10 @@ import {
   Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Close as CloseIcon,
+  Refresh as RefreshIcon,
+  Restore as RestoreIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from '@mui/material/styles';
@@ -54,6 +58,9 @@ import { useTheme } from '@mui/material/styles';
 
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
+import useRouter from '../../hooks/useRouter';
+import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer';
+import DesignDocViewer from './DesignDocViewer';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -70,6 +77,73 @@ import gitRepositoryService, {
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
 
+// Minimal wrapper for desktop viewer with custom overlay for Kanban cards
+// Uses screenshot mode (not live stream) to avoid performance issues with many cards
+const LiveAgentScreenshot: React.FC<{
+  sessionId: string;
+  projectId?: string;
+}> = React.memo(({ sessionId, projectId }) => {
+  const account = useAccount();
+
+  const handleClick = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    account.orgNavigate('project-session', { id: projectId, session_id: sessionId });
+  }, [account, projectId, sessionId]);
+
+  return (
+    <Box
+      sx={{
+        mt: 1,
+        mb: 1,
+        cursor: 'pointer',
+        position: 'relative',
+        borderRadius: 1,
+        overflow: 'hidden',
+        border: '1px solid',
+        borderColor: 'divider',
+        minHeight: 80,
+        '&:hover': {
+          borderColor: 'primary.main',
+          boxShadow: 2,
+        },
+        transition: 'all 0.2s',
+      }}
+      onClick={handleClick}
+    >
+      <Box sx={{ position: 'relative', height: 150 }}>
+        <ExternalAgentDesktopViewer
+          sessionId={sessionId}
+          height={150}
+          mode="screenshot"
+        />
+      </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+          color: 'white',
+          p: 0.5,
+          px: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          pointerEvents: 'none',
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <ViewIcon fontSize="small" />
+          <Typography variant="caption" sx={{ fontWeight: 500 }}>
+            Planning Agent
+          </Typography>
+        </Box>
+      </Box>
+    </Box>
+  );
+});
+
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
 type SpecTaskPriority = 'low' | 'medium' | 'high' | 'critical';
@@ -85,6 +159,7 @@ interface SpecTaskWithExtras extends SpecTask {
   activeSessionsCount?: number;
   completedSessionsCount?: number;
   specApprovalNeeded?: boolean;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
 }
 
 interface KanbanColumn {
@@ -99,116 +174,191 @@ interface KanbanColumn {
 
 interface SpecTaskKanbanBoardProps {
   userId?: string;
-  onTaskClick?: (task: SpecTaskWithExtras) => void;
+  projectId?: string; // Filter tasks by project ID
+  onCreateTask?: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshTrigger?: number;
+  wipLimits?: {
+    planning: number;
+    review: number;
+    implementation: number;
+  };
+  // repositories prop removed - repos are now managed at project level
 }
+
+// TaskCard component - moved outside to prevent recreation on every render
+const TaskCard: React.FC<{
+  task: SpecTaskWithExtras;
+  index: number;
+  columns: KanbanColumn[];
+  onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  projectId?: string;
+}> = ({ task, index, columns, onStartPlanning, onArchiveTask, projectId }) => {
+  const account = useAccount();
+
+  // Check if planning column is full
+  const planningColumn = columns.find(col => col.id === 'planning');
+  const isPlanningFull = planningColumn && planningColumn.limit
+    ? planningColumn.tasks.length >= planningColumn.limit
+    : false;
+
+  const handleStartPlanning = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onStartPlanning) {
+      await onStartPlanning(task);
+    }
+  };
+
+  return (
+    <Card
+      sx={{
+        mb: 1,
+        backgroundColor: 'background.paper',
+      }}
+    >
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', flex: 1 }}>
+            {task.name}
+          </Typography>
+          <Tooltip title={task.archived ? "Restore" : "Archive"}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onArchiveTask) {
+                  onArchiveTask(task, !task.archived);
+                }
+              }}
+              sx={{ ml: 1 }}
+            >
+              {task.archived ? <RestoreIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Session chips - repositories managed at project level */}
+        {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
+            {(task.activeSessionsCount ?? 0) > 0 && (
+              <Chip
+                size="small"
+                label={`${task.activeSessionsCount ?? 0} Active`}
+                color="warning"
+              />
+            )}
+
+            {(task.completedSessionsCount ?? 0) > 0 && (
+              <Chip
+                size="small"
+                label={`${task.completedSessionsCount ?? 0} Done`}
+                color="success"
+              />
+            )}
+          </Box>
+        )}
+
+        {/* Live screenshot widget for active planning sessions */}
+        {task.spec_session_id && (
+          <LiveAgentScreenshot
+            sessionId={task.spec_session_id}
+            projectId={projectId}
+          />
+        )}
+
+        {/* Show "Start Planning" button only for backlog tasks */}
+        {task.phase === 'backlog' && (
+          <Box sx={{ mt: 1 }}>
+            {/* Show error if present */}
+            {task.metadata?.error && (
+              <Box sx={{
+                mb: 1,
+                p: 1,
+                backgroundColor: 'error.light',
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'error.main'
+              }}>
+                <Typography variant="caption" color="error.dark" sx={{ fontWeight: 600 }}>
+                  ⚠️ {task.metadata.error as string}
+                </Typography>
+              </Box>
+            )}
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              startIcon={<PlayIcon />}
+              onClick={handleStartPlanning}
+              disabled={isPlanningFull}
+              fullWidth
+            >
+              {task.metadata?.error ? 'Retry Planning' : isPlanningFull ? 'Planning Full' : 'Start Planning'}
+            </Button>
+            {isPlanningFull && (
+              <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
+                Planning column full ({planningColumn?.limit} max)
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Show "Review Documents" button for review phase tasks */}
+        {task.phase === 'review' && task.onReviewDocs && (
+          <Box sx={{ mt: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              color="info"
+              startIcon={<SpecIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                task.onReviewDocs(task);
+              }}
+              fullWidth
+            >
+              Review Documents
+            </Button>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const DroppableColumn: React.FC<{
   column: KanbanColumn;
-  onTaskClick?: (task: SpecTaskWithExtras) => void;
-  onAssignAgent: (taskId: string, agentType: string) => void;
+  columns: KanbanColumn[];
+  onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  projectId?: string;
   theme: any;
-}> = ({ column, onTaskClick, onAssignAgent, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, projectId, theme }): JSX.Element => {
+  const router = useRouter();
+  const account = useAccount();
+
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
   // Render task card wrapper - simplified
   const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
-    const TaskCard: React.FC<{ task: SpecTaskWithExtras; index: number }> = ({ task, index }) => {
-      // Removed drag and drop functionality
-      const style = {
-        opacity: 1,
-      };
-
-      return (
-        <Card
-          style={style}
-          sx={{
-            mb: 1,
-            cursor: 'pointer',
-            backgroundColor: 'background.paper',
-          }}
-          onClick={() => onTaskClick?.(task)}
-        >
-          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-              {task.name}
-            </Typography>
-            
-            {task.description && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {task.description.length > 100 
-                  ? `${task.description.substring(0, 100)}...` 
-                  : task.description}
-              </Typography>
-            )}
-
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Chip 
-                size="small" 
-                label={task.phase || 'backlog'} 
-                color={task.phase === 'completed' ? 'success' : 'default'}
-              />
-              
-              {task.hasSpecs && (
-                <Chip size="small" label="Has Specs" color="info" />
-              )}
-
-              {(task.activeSessionsCount ?? 0) > 0 && (
-                <Chip 
-                  size="small" 
-                  label={`${task.activeSessionsCount ?? 0} Active`}
-                  color="warning" 
-                />
-              )}
-
-              {(task.completedSessionsCount ?? 0) > 0 && (
-                <Chip 
-                  size="small" 
-                  label={`${task.completedSessionsCount ?? 0} Done`}
-                  color="success" 
-                />
-              )}
-            </Box>
-
-            {task.phase === 'planning' && (
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="primary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAssignAgent(task.id || '', 'zed');
-                  }}
-                  sx={{ mr: 1 }}
-                >
-                  Assign Zed Agent
-                </Button>
-                {task.planningStatus === 'active' && (
-                  <Box sx={{ mt: 1 }}>
-                    <Chip
-                      size="small"
-                      label="Agent Working..."
-                      color="info"
-                      sx={{ mb: 1 }}
-                    />
-                    {/* TODO: Add live RDP view for Zed sessions here */}
-                    {/* TODO: Add session progress indicator */}
-                    {/* TODO: Add "View Live Session" button */}
-                  </Box>
-                )}
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      );
-    };
-
-    return <TaskCard key={task.id || `task-${index}`} task={task} index={index} />;
+    return (
+      <TaskCard
+        key={task.id || `task-${index}`}
+        task={task}
+        index={index}
+        columns={columns}
+        onStartPlanning={onStartPlanning}
+        onArchiveTask={onArchiveTask}
+        projectId={projectId}
+      />
+    );
   };
 
     return (
-      <Box key={column.id} sx={{ width: 320, flexShrink: 0, height: '100%' }}>
+      <Box key={column.id} sx={{ width: 280, flexShrink: 0, height: '100%' }}>
         <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <CardHeader
             title={
@@ -266,7 +416,12 @@ const DroppableColumn: React.FC<{
 
 const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   userId,
-  onTaskClick,
+  projectId,
+  onCreateTask,
+  onRefresh,
+  refreshing = false,
+  refreshTrigger,
+  wipLimits = { planning: 3, review: 2, implementation: 5 },
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -278,14 +433,15 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  // Create task form state
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
+  // Design doc viewer state
+  const [docViewerOpen, setDocViewerOpen] = useState(false);
+  const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
+
+  // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
   const [selectedSampleType, setSelectedSampleType] = useState('');
 
@@ -297,12 +453,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     console.log('Sample types data updated:', sampleTypes);
   }, [sampleTypes]);
 
-  // WIP limits for kanban columns
+  // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
     backlog: undefined,
-    planning: 3,
-    review: 2,
-    implementation: 5,
+    planning: wipLimits.planning,
+    review: wipLimits.review,
+    implementation: wipLimits.implementation,
     completed: undefined,
   };
 
@@ -351,7 +507,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       description: 'Completed tasks',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'completed'),
     },
-  ], [tasks, theme]);
+  ], [tasks, theme, wipLimits]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
@@ -359,22 +515,25 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Initial load
   useEffect(() => {
     if (!account.user?.id) return;
-    
+
     const loadTasks = async () => {
       try {
         setLoading(true);
         const response = await api.get('/api/v1/spec-tasks', {
-          params: { project_id: 'default' }
+          params: {
+            project_id: projectId || 'default',
+            archived_only: showArchived
+          }
         });
-        
+
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-        
+
         // Better phase mapping based on actual status
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
           let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-          
+
           if (task.status === 'spec_generation') {
             phase = 'planning';
             planningStatus = 'active';
@@ -391,7 +550,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             phase = 'completed';
             planningStatus = 'completed';
           }
-          
+
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
+          }
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -399,6 +563,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -412,7 +577,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     };
 
     loadTasks();
-  }, [account.user?.id]);
+  }, [account.user?.id, projectId, showArchived, refreshTrigger]);
 
   // Set up polling for real-time updates
   useEffect(() => {
@@ -421,16 +586,19 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     const interval = setInterval(async () => {
       try {
         const response = await api.get('/api/v1/spec-tasks', {
-          params: { project_id: 'default' }
+          params: {
+            project_id: projectId || 'default',
+            archived_only: showArchived
+          }
         });
-        
+
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-        
+
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
           let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-            
+
           if (task.status === 'spec_generation') {
             phase = 'planning';
             planningStatus = 'active';
@@ -447,7 +615,12 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             phase = 'completed';
             planningStatus = 'completed';
           }
-            
+
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
+          }
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -455,6 +628,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -462,10 +636,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       } catch (err) {
         console.error('Failed to poll tasks:', err);
       }
-    }, 10000);
+    }, 3000); // Faster polling: 3 seconds instead of 10 for responsive updates
 
     return () => clearInterval(interval);
-  }, [account.user?.id]);
+  }, [account.user?.id, projectId, showArchived]);
 
   // Update sample types when data loads
   useEffect(() => {
@@ -501,20 +675,20 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         agent_type: agentType,
         work_data: {
           task_id: taskId,
-          project_id: 'default',
+          project_id: projectId || 'default',
           action: 'generate_specs'
         }
       });
-      
+
       if (response && response.data) {
         console.log('Agent session started:', response.data);
-        
+
         // Don't update task status from frontend - let backend handle this
         // The backend should update task status based on agent progress
         // Reload tasks immediately to show the session was created
         try {
           const refreshResponse = await api.get('/api/v1/spec-tasks', {
-            params: { project_id: 'default' }
+            params: { project_id: projectId || 'default' }
           });
           
           const tasksData = refreshResponse.data || refreshResponse;
@@ -689,7 +863,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const response = await api.post('/api/v1/spec-tasks/from-prompt', {
         name: newTaskName,
         description: newTaskDescription,
-        project_id: 'default',
+        project_id: projectId || 'default',
       });
 
       if (response.data) {
@@ -734,12 +908,347 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       return { icon: <CircularProgress size={16} />, color: theme.palette.warning.main, text: 'Generating specs' };
     } else if (task.planningStatus === 'pending_review') {
       return { icon: <ViewIcon />, color: theme.palette.info.main, text: 'Review needed' };
-    } else if (task.planningStatus === 'completed') {
-      return { icon: <ApproveIcon />, color: theme.palette.success.main, text: 'Specs approved' };
     } else if (task.planningStatus === 'failed') {
       return { icon: <CancelIcon />, color: theme.palette.error.main, text: 'Planning failed' };
+    } else if (task.planningStatus === 'completed') {
+      return { icon: <ApproveIcon />, color: theme.palette.success.main, text: 'Specs approved' };
     }
     return { icon: <SpecIcon />, color: theme.palette.grey[500], text: 'Unknown' };
+  };
+
+  // Handle archiving/unarchiving a task
+  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
+    try {
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, { archived });
+
+      // Refresh tasks
+      const response = await api.get('/api/v1/spec-tasks', {
+        params: {
+          project_id: projectId || 'default',
+          archived_only: showArchived
+        }
+      });
+
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status === 'spec_approved' || t.status === 'implementing' || t.status === 'completed',
+          planningStatus,
+          phase,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+        };
+      });
+
+      setTasks(enhancedTasks);
+    } catch (error) {
+      console.error('Failed to archive task:', error);
+      setError('Failed to archive task');
+    }
+  };
+
+  // Handle starting planning for a task
+  const handleStartPlanning = async (task: SpecTaskWithExtras) => {
+    // Check WIP limit
+    const planningColumn = columns.find(col => col.id === 'planning');
+    const isPlanningFull = planningColumn && planningColumn.limit
+      ? planningColumn.tasks.length >= planningColumn.limit
+      : false;
+
+    if (isPlanningFull) {
+      setError(`Planning column is full (${planningColumn?.limit} tasks max). Please complete existing planning tasks first.`);
+      return;
+    }
+
+    try {
+      // Call the start-planning endpoint which actually starts spec generation
+      await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id!);
+
+      // Aggressive polling after starting planning to catch spec_session_id update
+      // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
+      const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
+        const response = await api.getApiClient().v1SpecTasksList({
+          project_id: projectId || 'default'
+        });
+
+        const tasksData = response.data || response;
+        const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+          let phase: SpecTaskPhase = 'backlog';
+          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+          if (t.status === 'spec_generation') {
+            phase = 'planning';
+            planningStatus = 'active';
+          } else if (t.status === 'spec_review') {
+            phase = 'review';
+            planningStatus = 'pending_review';
+          } else if (t.status === 'spec_approved') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'implementing') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'completed') {
+            phase = 'completed';
+            planningStatus = 'completed';
+          }
+
+          return {
+            ...t,
+            hasSpecs: t.status !== 'backlog',
+            phase,
+            planningStatus,
+            activeSessionsCount: 0,
+            completedSessionsCount: 0,
+          };
+        });
+
+        setTasks(enhancedTasks);
+
+        // Check if the task has spec_session_id now
+        const updatedTask = specTasks.find(t => t.id === task.id);
+
+        // Check if task failed during async agent launch (error stored in metadata)
+        if (updatedTask?.status === 'backlog' && updatedTask?.metadata?.error) {
+          console.error('❌ Planning failed:', updatedTask.metadata.error);
+          setError(updatedTask.metadata.error as string);
+          return;
+        }
+
+        if (updatedTask?.spec_session_id) {
+          console.log('✅ Session ID populated:', updatedTask.spec_session_id);
+          return; // Session ID found, stop polling
+        }
+
+        // If session ID not found and we haven't exhausted retries, poll again
+        if (retryCount < maxRetries) {
+          const delay = retryCount < 3 ? 1000 : 2000; // 1s for first 3 retries, 2s after
+          console.log(`⏳ Polling for session ID (attempt ${retryCount + 1}/${maxRetries}), waiting ${delay}ms...`);
+          setTimeout(() => pollForSessionId(retryCount + 1, maxRetries), delay);
+        } else {
+          console.warn('⚠️ Session ID not populated after max retries');
+        }
+      };
+
+      // Start aggressive polling
+      await pollForSessionId();
+    } catch (err: any) {
+      console.error('Failed to start planning:', err);
+      // Extract error message from API response
+      const errorMessage = err?.response?.data?.error
+        || err?.response?.data?.message
+        || err?.message
+        || 'Failed to start planning. Please try again.';
+      setError(errorMessage);
+    }
+  };
+
+  // Handle reviewing documents
+  const handleReviewDocs = (task: SpecTaskWithExtras) => {
+    setReviewingTask(task);
+    setDocViewerOpen(true);
+  };
+
+  // Handle approving specs
+  const handleApproveSpecs = async (comment?: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Call approve specs API
+      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
+        approved: true,
+        comments: comment || 'Specs approved',
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to approve specs:', err);
+      setError('Failed to approve specs');
+    }
+  };
+
+  // Handle rejecting specs (request changes)
+  const handleRejectSpecs = async (comment: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Call approve specs API with approved = false
+      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
+        approved: false,
+        comments: comment,
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to request changes:', err);
+      setError('Failed to request changes');
+    }
+  };
+
+  // Handle rejecting completely (archive)
+  const handleRejectCompletely = async (comment: string) => {
+    if (!reviewingTask) return;
+
+    try {
+      // Archive the task
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(reviewingTask.id!, {
+        archived: true,
+      });
+
+      // Refresh tasks
+      const response = await api.getApiClient().v1SpecTasksList({
+        project_id: projectId || 'default',
+        archived_only: showArchived,
+      });
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status !== 'backlog',
+          phase,
+          planningStatus,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+          onReviewDocs: handleReviewDocs,
+        };
+      });
+
+      setTasks(enhancedTasks);
+      setDocViewerOpen(false);
+      setReviewingTask(null);
+    } catch (err) {
+      console.error('Failed to reject completely:', err);
+      setError('Failed to reject completely');
+    }
   };
 
   // Render draggable task card
@@ -912,69 +1421,61 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Header */}
       <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600 }}>
-          SpecTask Board
-        </Typography>
-
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            SpecTask Board
+          </Typography>
+          {onCreateTask && (
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<AddIcon />}
+              onClick={onCreateTask}
+              sx={{
+                '& .MuiButton-endIcon': {
+                  ml: 1,
+                  opacity: 0.7,
+                  fontSize: '0.75rem',
+                },
+              }}
+              endIcon={
+                <Box component="span" sx={{
+                  fontSize: '0.75rem',
+                  opacity: 0.7,
+                  fontFamily: 'monospace',
+                  ml: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: '4px',
+                }}>
+                  ↵
+                </Box>
+              }
+            >
+              New SpecTask
+            </Button>
+          )}
+        </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          {onRefresh && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
+              onClick={onRefresh}
+              disabled={refreshing}
+            >
+              Refresh
+            </Button>
+          )}
           <Button
+            size="small"
             variant="outlined"
-            startIcon={refreshing ? <CircularProgress size={16} /> : <TimelineIcon />}
-            onClick={() => {
-              setRefreshing(true);
-              // Inline refresh logic to avoid function dependencies
-              const refresh = async () => {
-                try {
-                  setError(null);
-                  if (!account.user?.id) {
-                    setTasks([]);
-                    return;
-                  }
-
-                  const response = await api.get('/api/v1/spec-tasks', {
-                    params: {
-                      project_id: 'default'
-                    },
-                  });
-
-                  if (!response || !response.data) {
-                    setTasks([]);
-                    return;
-                  }
-
-                  const specTasks = Array.isArray(response.data) ? response.data : [];
-                  const enhancedTasks = specTasks.map((task: any) => ({
-                    ...task,
-                    hasSpecs: task.status === 'spec_approved' || task.status === 'implementing' || task.status === 'completed',
-                    planningStatus: 'none' as const,
-                    phase: task.status === 'completed' ? 'completed' as const : 'backlog' as const,
-                    activeSessionsCount: 0,
-                    completedSessionsCount: 0,
-                  }));
-
-                  setTasks(enhancedTasks);
-                } catch (err: any) {
-                  console.error('Failed to refresh tasks:', err);
-                  const errorMessage = err?.response?.status === 404
-                    ? 'Spec tasks feature is not available yet.'
-                    : 'Failed to load tasks. Please try again.';
-                  setError(errorMessage);
-                }
-              };
-
-              refresh().finally(() => setRefreshing(false));
-            }}
-            disabled={refreshing}
+            startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
+            onClick={() => setShowArchived(!showArchived)}
           >
-            Refresh
-          </Button>
-
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            New Task
+            {showArchived ? 'Show Active' : 'Show Archived'}
           </Button>
         </Box>
       </Box>
@@ -987,71 +1488,29 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           <DroppableColumn
             key={column.id}
             column={column}
-            onTaskClick={onTaskClick}
-            onAssignAgent={handleAssignAgent}
+            columns={columns}
+            onStartPlanning={handleStartPlanning}
+            onArchiveTask={handleArchiveTask}
+            projectId={projectId}
             theme={theme}
           />
         ))}
       </Box>
 
-      {/* Create Task Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Create New SpecTask</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Task Name"
-              fullWidth
-              value={newTaskName}
-              onChange={(e) => setNewTaskName(e.target.value)}
-            />
-            <TextField
-              label="Description"
-              fullWidth
-              multiline
-              rows={3}
-              value={newTaskDescription}
-              onChange={(e) => setNewTaskDescription(e.target.value)}
-            />
-            
-            <FormControl fullWidth>
-              <InputLabel>Project Template</InputLabel>
-              <Select
-                value={selectedSampleType}
-                onChange={(e) => {
-                  console.log('🔥 CREATE DIALOG SELECT ONCHANGE FIRED!', e.target.value);
-                  setSelectedSampleType(e.target.value as string);
-                }}
-                onOpen={() => console.log('🔥 CREATE DIALOG SELECT OPENED')}
-                onClose={() => console.log('🔥 CREATE DIALOG SELECT CLOSED')}
-                displayEmpty
-              >
-                <MenuItem value="">
-                  <em>Select a project template</em>
-                </MenuItem>
-                {sampleTypes.map((type: SampleType, index) => {
-                  const typeId = type.id || `sample-${index}`;
-                  
-                  return (
-                    <MenuItem 
-                      key={typeId} 
-                      value={typeId}
-                    >
-                      {getSampleTypeIcon(type.id || '')} {type.name}
-                    </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button onClick={createTask} variant="contained" disabled={!newTaskName.trim()}>
-            Create Task
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Design Document Viewer */}
+      <DesignDocViewer
+        open={docViewerOpen}
+        onClose={() => {
+          setDocViewerOpen(false);
+          setReviewingTask(null);
+        }}
+        taskId={reviewingTask?.id || ''}
+        taskName={reviewingTask?.name || ''}
+        sessionId={reviewingTask?.spec_session_id}
+        onApprove={handleApproveSpecs}
+        onReject={handleRejectSpecs}
+        onRejectCompletely={handleRejectCompletely}
+      />
 
       {/* Planning Dialog */}
       <Dialog open={planningDialogOpen} onClose={() => setPlanningDialogOpen(false)} maxWidth="md" fullWidth>

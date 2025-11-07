@@ -43,6 +43,20 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
 }
 
+// AttachRepositoryToProject mocks base method.
+func (m *MockStore) AttachRepositoryToProject(ctx context.Context, projectID, repoID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AttachRepositoryToProject", ctx, projectID, repoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AttachRepositoryToProject indicates an expected call of AttachRepositoryToProject.
+func (mr *MockStoreMockRecorder) AttachRepositoryToProject(ctx, projectID, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AttachRepositoryToProject", reflect.TypeOf((*MockStore)(nil).AttachRepositoryToProject), ctx, projectID, repoID)
+}
+
 // CleanupExpiredSessions mocks base method.
 func (m *MockStore) CleanupExpiredSessions(ctx context.Context, timeout time.Duration) error {
 	m.ctrl.T.Helper()
@@ -247,6 +261,20 @@ func (m *MockStore) CreateDynamicModelInfo(ctx context.Context, modelInfo *types
 func (mr *MockStoreMockRecorder) CreateDynamicModelInfo(ctx, modelInfo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).CreateDynamicModelInfo), ctx, modelInfo)
+}
+
+// CreateGitRepository mocks base method.
+func (m *MockStore) CreateGitRepository(ctx context.Context, repo *GitRepository) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateGitRepository", ctx, repo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateGitRepository indicates an expected call of CreateGitRepository.
+func (mr *MockStoreMockRecorder) CreateGitRepository(ctx, repo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGitRepository", reflect.TypeOf((*MockStore)(nil).CreateGitRepository), ctx, repo)
 }
 
 // CreateHelpRequest mocks base method.
@@ -549,6 +577,21 @@ func (m *MockStore) CreateSSHKey(ctx context.Context, key *types.SSHKey) (*types
 func (mr *MockStoreMockRecorder) CreateSSHKey(ctx, key any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSSHKey", reflect.TypeOf((*MockStore)(nil).CreateSSHKey), ctx, key)
+}
+
+// CreateSampleProject mocks base method.
+func (m *MockStore) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSampleProject", ctx, sample)
+	ret0, _ := ret[0].(*types.SampleProject)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateSampleProject indicates an expected call of CreateSampleProject.
+func (mr *MockStoreMockRecorder) CreateSampleProject(ctx, sample any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSampleProject", reflect.TypeOf((*MockStore)(nil).CreateSampleProject), ctx, sample)
 }
 
 // CreateSecret mocks base method.
@@ -942,6 +985,20 @@ func (mr *MockStoreMockRecorder) DeleteExternalAgentActivity(ctx, agentID any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).DeleteExternalAgentActivity), ctx, agentID)
 }
 
+// DeleteGitRepository mocks base method.
+func (m *MockStore) DeleteGitRepository(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteGitRepository", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteGitRepository indicates an expected call of DeleteGitRepository.
+func (mr *MockStoreMockRecorder) DeleteGitRepository(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGitRepository", reflect.TypeOf((*MockStore)(nil).DeleteGitRepository), ctx, id)
+}
+
 // DeleteInteraction mocks base method.
 func (m *MockStore) DeleteInteraction(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1096,6 +1153,20 @@ func (mr *MockStoreMockRecorder) DeletePersonalDevEnvironment(ctx, id any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).DeletePersonalDevEnvironment), ctx, id)
 }
 
+// DeleteProject mocks base method.
+func (m *MockStore) DeleteProject(ctx context.Context, projectID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteProject", ctx, projectID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteProject indicates an expected call of DeleteProject.
+func (mr *MockStoreMockRecorder) DeleteProject(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProject", reflect.TypeOf((*MockStore)(nil).DeleteProject), ctx, projectID)
+}
+
 // DeleteProviderEndpoint mocks base method.
 func (m *MockStore) DeleteProviderEndpoint(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
@@ -1136,6 +1207,20 @@ func (m *MockStore) DeleteSSHKey(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteSSHKey(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSSHKey", reflect.TypeOf((*MockStore)(nil).DeleteSSHKey), ctx, id)
+}
+
+// DeleteSampleProject mocks base method.
+func (m *MockStore) DeleteSampleProject(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSampleProject", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSampleProject indicates an expected call of DeleteSampleProject.
+func (mr *MockStoreMockRecorder) DeleteSampleProject(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSampleProject", reflect.TypeOf((*MockStore)(nil).DeleteSampleProject), ctx, id)
 }
 
 // DeleteSecret mocks base method.
@@ -1361,6 +1446,20 @@ func (m *MockStore) DeleteZedSettingsOverride(ctx context.Context, sessionID str
 func (mr *MockStoreMockRecorder) DeleteZedSettingsOverride(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).DeleteZedSettingsOverride), ctx, sessionID)
+}
+
+// DetachRepositoryFromProject mocks base method.
+func (m *MockStore) DetachRepositoryFromProject(ctx context.Context, repoID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DetachRepositoryFromProject", ctx, repoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DetachRepositoryFromProject indicates an expected call of DetachRepositoryFromProject.
+func (mr *MockStoreMockRecorder) DetachRepositoryFromProject(ctx, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DetachRepositoryFromProject", reflect.TypeOf((*MockStore)(nil).DetachRepositoryFromProject), ctx, repoID)
 }
 
 // EnsureUserMeta mocks base method.
@@ -1678,6 +1777,36 @@ func (mr *MockStoreMockRecorder) GetExternalAgentActivity(ctx, agentID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExternalAgentActivity", reflect.TypeOf((*MockStore)(nil).GetExternalAgentActivity), ctx, agentID)
 }
 
+// GetExternalAgentActivityByLobbyID mocks base method.
+func (m *MockStore) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExternalAgentActivityByLobbyID", ctx, lobbyID)
+	ret0, _ := ret[0].(*types.ExternalAgentActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExternalAgentActivityByLobbyID indicates an expected call of GetExternalAgentActivityByLobbyID.
+func (mr *MockStoreMockRecorder) GetExternalAgentActivityByLobbyID(ctx, lobbyID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExternalAgentActivityByLobbyID", reflect.TypeOf((*MockStore)(nil).GetExternalAgentActivityByLobbyID), ctx, lobbyID)
+}
+
+// GetGitRepository mocks base method.
+func (m *MockStore) GetGitRepository(ctx context.Context, id string) (*GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGitRepository", ctx, id)
+	ret0, _ := ret[0].(*GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetGitRepository indicates an expected call of GetGitRepository.
+func (mr *MockStoreMockRecorder) GetGitRepository(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGitRepository", reflect.TypeOf((*MockStore)(nil).GetGitRepository), ctx, id)
+}
+
 // GetHelpRequestByID mocks base method.
 func (m *MockStore) GetHelpRequestByID(ctx context.Context, requestID string) (*types.HelpRequest, error) {
 	m.ctrl.T.Helper()
@@ -1948,19 +2077,49 @@ func (mr *MockStoreMockRecorder) GetPersonalDevEnvironment(ctx, id any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).GetPersonalDevEnvironment), ctx, id)
 }
 
-// GetPersonalDevEnvironmentByWolfAppID mocks base method.
-func (m *MockStore) GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error) {
+// GetProject mocks base method.
+func (m *MockStore) GetProject(ctx context.Context, projectID string) (*types.Project, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPersonalDevEnvironmentByWolfAppID", ctx, wolfAppID)
-	ret0, _ := ret[0].(*types.PersonalDevEnvironment)
+	ret := m.ctrl.Call(m, "GetProject", ctx, projectID)
+	ret0, _ := ret[0].(*types.Project)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPersonalDevEnvironmentByWolfAppID indicates an expected call of GetPersonalDevEnvironmentByWolfAppID.
-func (mr *MockStoreMockRecorder) GetPersonalDevEnvironmentByWolfAppID(ctx, wolfAppID any) *gomock.Call {
+// GetProject indicates an expected call of GetProject.
+func (mr *MockStoreMockRecorder) GetProject(ctx, projectID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPersonalDevEnvironmentByWolfAppID", reflect.TypeOf((*MockStore)(nil).GetPersonalDevEnvironmentByWolfAppID), ctx, wolfAppID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProject", reflect.TypeOf((*MockStore)(nil).GetProject), ctx, projectID)
+}
+
+// GetProjectExploratorySession mocks base method.
+func (m *MockStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProjectExploratorySession", ctx, projectID)
+	ret0, _ := ret[0].(*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProjectExploratorySession indicates an expected call of GetProjectExploratorySession.
+func (mr *MockStoreMockRecorder) GetProjectExploratorySession(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectExploratorySession", reflect.TypeOf((*MockStore)(nil).GetProjectExploratorySession), ctx, projectID)
+}
+
+// GetProjectRepositories mocks base method.
+func (m *MockStore) GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetProjectRepositories", ctx, projectID)
+	ret0, _ := ret[0].([]*GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetProjectRepositories indicates an expected call of GetProjectRepositories.
+func (mr *MockStoreMockRecorder) GetProjectRepositories(ctx, projectID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProjectRepositories", reflect.TypeOf((*MockStore)(nil).GetProjectRepositories), ctx, projectID)
 }
 
 // GetProviderDailyUsageMetrics mocks base method.
@@ -2038,6 +2197,21 @@ func (mr *MockStoreMockRecorder) GetSSHKey(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSSHKey", reflect.TypeOf((*MockStore)(nil).GetSSHKey), ctx, id)
 }
 
+// GetSampleProject mocks base method.
+func (m *MockStore) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSampleProject", ctx, id)
+	ret0, _ := ret[0].(*types.SampleProject)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSampleProject indicates an expected call of GetSampleProject.
+func (mr *MockStoreMockRecorder) GetSampleProject(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSampleProject", reflect.TypeOf((*MockStore)(nil).GetSampleProject), ctx, id)
+}
+
 // GetSecret mocks base method.
 func (m *MockStore) GetSecret(ctx context.Context, id string) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -2066,6 +2240,21 @@ func (m *MockStore) GetSession(ctx context.Context, id string) (*types.Session, 
 func (mr *MockStoreMockRecorder) GetSession(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockStore)(nil).GetSession), ctx, id)
+}
+
+// GetSessionIncludingDeleted mocks base method.
+func (m *MockStore) GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSessionIncludingDeleted", ctx, id)
+	ret0, _ := ret[0].(*types.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSessionIncludingDeleted indicates an expected call of GetSessionIncludingDeleted.
+func (mr *MockStoreMockRecorder) GetSessionIncludingDeleted(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionIncludingDeleted", reflect.TypeOf((*MockStore)(nil).GetSessionIncludingDeleted), ctx, id)
 }
 
 // GetSessionsNeedingHelp mocks base method.
@@ -2624,6 +2813,21 @@ func (mr *MockStoreMockRecorder) ListDynamicModelInfos(ctx, q any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDynamicModelInfos", reflect.TypeOf((*MockStore)(nil).ListDynamicModelInfos), ctx, q)
 }
 
+// ListGitRepositories mocks base method.
+func (m *MockStore) ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListGitRepositories", ctx, ownerID)
+	ret0, _ := ret[0].([]*GitRepository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListGitRepositories indicates an expected call of ListGitRepositories.
+func (mr *MockStoreMockRecorder) ListGitRepositories(ctx, ownerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGitRepositories", reflect.TypeOf((*MockStore)(nil).ListGitRepositories), ctx, ownerID)
+}
+
 // ListHelpRequests mocks base method.
 func (m *MockStore) ListHelpRequests(ctx context.Context, query *ListHelpRequestsQuery) (*types.HelpRequestsListResponse, error) {
 	m.ctrl.T.Helper()
@@ -2806,6 +3010,21 @@ func (mr *MockStoreMockRecorder) ListPersonalDevEnvironments(ctx, userID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPersonalDevEnvironments", reflect.TypeOf((*MockStore)(nil).ListPersonalDevEnvironments), ctx, userID)
 }
 
+// ListProjects mocks base method.
+func (m *MockStore) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListProjects", ctx, userID)
+	ret0, _ := ret[0].([]*types.Project)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListProjects indicates an expected call of ListProjects.
+func (mr *MockStoreMockRecorder) ListProjects(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProjects", reflect.TypeOf((*MockStore)(nil).ListProjects), ctx, userID)
+}
+
 // ListProviderEndpoints mocks base method.
 func (m *MockStore) ListProviderEndpoints(ctx context.Context, q *ListProviderEndpointsQuery) ([]*types.ProviderEndpoint, error) {
 	m.ctrl.T.Helper()
@@ -2849,6 +3068,21 @@ func (m *MockStore) ListSSHKeys(ctx context.Context, userID string) ([]*types.SS
 func (mr *MockStoreMockRecorder) ListSSHKeys(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSSHKeys", reflect.TypeOf((*MockStore)(nil).ListSSHKeys), ctx, userID)
+}
+
+// ListSampleProjects mocks base method.
+func (m *MockStore) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSampleProjects", ctx)
+	ret0, _ := ret[0].([]*types.SampleProject)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSampleProjects indicates an expected call of ListSampleProjects.
+func (mr *MockStoreMockRecorder) ListSampleProjects(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSampleProjects", reflect.TypeOf((*MockStore)(nil).ListSampleProjects), ctx)
 }
 
 // ListSecrets mocks base method.
@@ -3238,6 +3472,20 @@ func (mr *MockStoreMockRecorder) SetLicenseKey(ctx, licenseKey any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLicenseKey", reflect.TypeOf((*MockStore)(nil).SetLicenseKey), ctx, licenseKey)
 }
 
+// SetProjectPrimaryRepository mocks base method.
+func (m *MockStore) SetProjectPrimaryRepository(ctx context.Context, projectID, repoID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetProjectPrimaryRepository", ctx, projectID, repoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetProjectPrimaryRepository indicates an expected call of SetProjectPrimaryRepository.
+func (mr *MockStoreMockRecorder) SetProjectPrimaryRepository(ctx, projectID, repoID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProjectPrimaryRepository", reflect.TypeOf((*MockStore)(nil).SetProjectPrimaryRepository), ctx, projectID, repoID)
+}
+
 // SpawnWorkSession mocks base method.
 func (m *MockStore) SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -3380,6 +3628,20 @@ func (m *MockStore) UpdateDynamicModelInfo(ctx context.Context, modelInfo *types
 func (mr *MockStoreMockRecorder) UpdateDynamicModelInfo(ctx, modelInfo any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).UpdateDynamicModelInfo), ctx, modelInfo)
+}
+
+// UpdateGitRepository mocks base method.
+func (m *MockStore) UpdateGitRepository(ctx context.Context, repo *GitRepository) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateGitRepository", ctx, repo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateGitRepository indicates an expected call of UpdateGitRepository.
+func (mr *MockStoreMockRecorder) UpdateGitRepository(ctx, repo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGitRepository", reflect.TypeOf((*MockStore)(nil).UpdateGitRepository), ctx, repo)
 }
 
 // UpdateHelpRequest mocks base method.
@@ -3543,6 +3805,20 @@ func (m *MockStore) UpdatePersonalDevEnvironment(ctx context.Context, pde *types
 func (mr *MockStoreMockRecorder) UpdatePersonalDevEnvironment(ctx, pde any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePersonalDevEnvironment", reflect.TypeOf((*MockStore)(nil).UpdatePersonalDevEnvironment), ctx, pde)
+}
+
+// UpdateProject mocks base method.
+func (m *MockStore) UpdateProject(ctx context.Context, project *types.Project) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProject", ctx, project)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProject indicates an expected call of UpdateProject.
+func (mr *MockStoreMockRecorder) UpdateProject(ctx, project any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProject", reflect.TypeOf((*MockStore)(nil).UpdateProject), ctx, project)
 }
 
 // UpdateProviderEndpoint mocks base method.

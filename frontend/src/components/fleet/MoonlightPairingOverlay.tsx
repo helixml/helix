@@ -45,7 +45,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   onPairingComplete,
 }) => {
   const api = useApi()
-  
+
   const [pendingRequests, setPendingRequests] = useState<PendingPairRequest[]>([])
   const [selectedRequest, setSelectedRequest] = useState<PendingPairRequest | null>(null)
   const [enteredPin, setEnteredPin] = useState('')
@@ -91,10 +91,10 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
 
       setSuccess(true)
       setEnteredPin('')
-      
+
       // Refresh pending requests
       await loadPendingRequests()
-      
+
       if (onPairingComplete) {
         onPairingComplete()
       }
@@ -103,7 +103,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
       setTimeout(() => {
         handleClose()
       }, 2000)
-      
+
     } catch (err: any) {
       console.error('Failed to complete pairing:', err)
       setError(err.message || 'Pairing failed')
@@ -164,9 +164,9 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
           </Alert>
         ) : (
           <>
-            <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>
+            <Alert severity="error" sx={{ mb: 2, fontWeight: 'bold' }}>
               <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-                ⚠️ CRITICAL: Your Moonlight client MUST connect at 4K resolution @ 60Hz (3840x2160 @ 60fps)
+                CRITICAL: Your Moonlight client MUST connect at 4K resolution @ 60Hz (3840x2160 @ 60fps)
               </Typography>
               <Typography variant="body2">
                 Using any other resolution or frame rate will result in severe video corruption and unusable streaming quality.

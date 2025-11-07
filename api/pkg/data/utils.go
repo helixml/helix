@@ -3,8 +3,10 @@ package data
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"runtime/debug"
 	"strconv"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -102,4 +104,33 @@ func ContentHash(b []byte) string {
 	hashString := hex.EncodeToString(hash[:])
 
 	return hashString[:10]
+}
+
+// SlugifyName converts a name to a URL-friendly slug without spaces
+// Similar to GitHub repository names: lowercase, alphanumeric, hyphens/underscores only
+// Example: "Modern Todo App" -> "modern-todo-app"
+func SlugifyName(name string) string {
+	// Convert to lowercase
+	slug := strings.ToLower(name)
+
+	// Replace spaces with hyphens
+	slug = strings.ReplaceAll(slug, " ", "-")
+
+	// Replace other non-alphanumeric characters (except hyphens and underscores) with hyphens
+	reg := regexp.MustCompile(`[^a-z0-9_-]+`)
+	slug = reg.ReplaceAllString(slug, "-")
+
+	// Remove leading/trailing hyphens
+	slug = strings.Trim(slug, "-")
+
+	// Collapse multiple consecutive hyphens
+	reg = regexp.MustCompile(`-+`)
+	slug = reg.ReplaceAllString(slug, "-")
+
+	// Ensure slug is not empty
+	if slug == "" {
+		slug = "unnamed"
+	}
+
+	return slug
 }

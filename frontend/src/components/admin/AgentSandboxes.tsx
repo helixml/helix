@@ -19,8 +19,10 @@ import MemoryIcon from '@mui/icons-material/Memory'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import TimelineIcon from '@mui/icons-material/Timeline'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import CloseIcon from '@mui/icons-material/Close'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 
 
 
@@ -339,13 +341,18 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
             if (!pos) return null
 
             // In apps mode, session.app_id is the direct connection (no interpipe needed)
-            // In lobbies mode, connectionMap tracks which lobby the session is connected to
-            const connectedContainerId = isAppsMode ? session.app_id : connectionMap.get(session.session_id)
+            // In lobbies mode, session.lobby_id shows which lobby the session is connected to
+            const connectedContainerId = isAppsMode ? session.app_id : (session.lobby_id || connectionMap.get(session.session_id))
             const isOrphaned = !connectedContainerId
 
             return (
               <g key={`session-${uniqueKey}`}>
-                <Tooltip title={`Session: ${session.session_id} | App: ${session.app_id} | IP: ${session.client_ip}`} arrow>
+                <Tooltip title={
+                  `Wolf-UI Session: ${session.session_id.slice(-8)}\n` +
+                  `Client ID: ${session.client_unique_id || 'N/A'}\n` +
+                  `Connected to: ${session.lobby_id ? `Lobby ${session.lobby_id.slice(-8)}` : session.app_id ? `App ${session.app_id}` : 'None (orphaned)'}\n` +
+                  `IP: ${session.client_ip}`
+                } arrow>
                   <circle
                     cx={pos.x}
                     cy={pos.y}
@@ -362,7 +369,7 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
                   fill="white"
                   fontSize="10"
                 >
-                  {session.session_id.slice(-4)}
+                  {session.client_unique_id ? session.client_unique_id.slice(-12) : session.session_id.slice(-4)}
                 </text>
                 <text
                   x={pos.x}
@@ -525,6 +532,7 @@ const AgentSandboxes: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
+  const snackbar = useSnackbar()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['agent-sandboxes-debug'],
@@ -533,6 +541,30 @@ const AgentSandboxes: FC = () => {
       return response.data
     },
     refetchInterval: 5000,
+  })
+
+  // Mutation to stop Wolf lobby
+  const stopLobbyMutation = useMutation({
+    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId),
+    onSuccess: () => {
+      snackbar.success('Lobby stopped successfully')
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+    },
+    onError: (err: any) => {
+      snackbar.error(`Failed to stop lobby: ${err.message || 'Unknown error'}`)
+    },
+  })
+
+  // Mutation to stop Wolf streaming session
+  const stopSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId),
+    onSuccess: () => {
+      snackbar.success('Streaming session stopped successfully')
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+    },
+    onError: (err: any) => {
+      snackbar.error(`Failed to stop session: ${err.message || 'Unknown error'}`)
+    },
   })
 
   const memoryData = data?.memory
@@ -563,6 +595,119 @@ const AgentSandboxes: FC = () => {
       )}
 
       <Grid container spacing={3}>
+        {/* GPU Stats Panel - Only show if GPU is available */}
+        {data?.gpu_stats?.available && (
+          <Grid item xs={12}>
+            <Card>
+              <CardHeader
+                avatar={<MemoryIcon />}
+                title="GPU Encoder Stats"
+                subheader={
+                  <>
+                    {data.gpu_stats.gpu_name || 'NVIDIA GPU'}
+                    {data.gstreamer_pipelines && (
+                      <>
+                        {' • '}
+                        {data.gstreamer_pipelines.total_pipelines} GStreamer Pipelines
+                        {' ('}
+                        {data.gstreamer_pipelines.producer_pipelines} producers + {data.gstreamer_pipelines.consumer_pipelines} consumers)
+                      </>
+                    )}
+                    {data.gpu_stats.query_duration_ms > 0 && (
+                      <>
+                        {' • '}
+                        nvidia-smi: {data.gpu_stats.query_duration_ms}ms (cached 2s)
+                      </>
+                    )}
+                  </>
+                }
+                action={
+                  <Chip
+                    label="Available"
+                    color="success"
+                    size="small"
+                  />
+                }
+              />
+              <CardContent>
+                <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          NVENC Sessions
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_session_count}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder FPS
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_average_fps.toFixed(0)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder Latency
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.encoder_average_latency_us}µs
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          GPU Temperature
+                        </Typography>
+                        <Typography variant="h4">
+                          {data.gpu_stats.temperature_celsius}°C
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Encoder Utilization
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.encoder_utilization_percent}%
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          GPU Utilization
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.gpu_utilization_percent}%
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          VRAM Usage
+                        </Typography>
+                        <Typography variant="h6">
+                          {data.gpu_stats.memory_used_mb} / {data.gpu_stats.memory_total_mb} MB
+                          ({Math.round((data.gpu_stats.memory_used_mb / data.gpu_stats.memory_total_mb) * 100)}%)
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         {/* Pipeline Network Visualization */}
         {data && (
           <Grid item xs={12}>
@@ -662,16 +807,20 @@ const AgentSandboxes: FC = () => {
                           p: 2,
                           border: '1px solid rgba(255,255,255,0.1)',
                           borderRadius: 1,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
                         }}
                       >
-                        <Typography variant="subtitle1" fontWeight="bold">
-                          <Tooltip title={containerName} placement="top">
-                            <span>{truncateName(containerName)}</span>
-                          </Tooltip>
-                        </Typography>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                          {containerId}
-                        </Typography>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            <Tooltip title={containerName} placement="top">
+                              <span>{truncateName(containerName)}</span>
+                            </Tooltip>
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                            {containerId}
+                          </Typography>
                         {!isAppsMode && (
                           <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                             <Chip
@@ -689,6 +838,17 @@ const AgentSandboxes: FC = () => {
                             GStreamer: interpipesink name="{containerId}_video" | interpipesink name="{containerId}_audio"
                           </Typography>
                         )}
+                        </Box>
+                        <Tooltip title="Stop lobby and terminate container">
+                          <IconButton
+                            size="small"
+                            onClick={() => stopLobbyMutation.mutate(containerId)}
+                            disabled={stopLobbyMutation.isPending}
+                            sx={{ color: 'error.main' }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </Box>
                     )
                   })}
@@ -737,17 +897,29 @@ const AgentSandboxes: FC = () => {
                           }}
                         >
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Box>
+                            <Box sx={{ flex: 1 }}>
                               <Typography variant="subtitle2">{session.session_id}</Typography>
                               <Typography variant="caption" color="text.secondary">
                                 IP: {session.client_ip}
                               </Typography>
                             </Box>
-                            {containerName ? (
-                              <Chip label={`→ ${containerName}`} size="small" color="primary" />
-                            ) : (
-                              <Chip label="Orphaned" size="small" color="error" />
-                            )}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {containerName ? (
+                                <Chip label={`→ ${containerName}`} size="small" color="primary" />
+                              ) : (
+                                <Chip label="Orphaned" size="small" color="error" />
+                              )}
+                              <Tooltip title="Stop streaming session and release GPU memory">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => stopSessionMutation.mutate(session.session_id)}
+                                  disabled={stopSessionMutation.isPending}
+                                  sx={{ color: 'error.main' }}
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
                           </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             {session.display_mode.width}x{session.display_mode.height}@

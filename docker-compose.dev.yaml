@@ -82,6 +82,8 @@ services:
             # Discord integration
             - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
             - ADMIN_USER_SOURCE=${ADMIN_USER_SOURCE:-}
+            # AI Providers management - enable/disable user-facing AI provider API keys management
+            - PROVIDERS_MANAGEMENT_ENABLED=${PROVIDERS_MANAGEMENT_ENABLED:-true}
             # Socket configuration for haystack communication
             - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
             - RAG_HAYSTACK_ENABLED=true
@@ -263,9 +265,10 @@ services:
         - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
         # Debug logging for HTTPS connection issues and UDP/RTP activity
         - WOLF_LOG_LEVEL=DEBUG
-        # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
-        # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
-        - GST_DEBUG=1
+        # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG, 5=LOG (full trace)
+        # Level 3 (INFO) temporarily enabled for buffer pool diagnosis
+        # WARNING: Level 5 produces massive logs - use sparingly
+        - GST_DEBUG=3
         # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
         # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
         # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
@@ -320,12 +323,13 @@ services:
       command: bash -c "/app/server/init-moonlight-config.sh"
       ports:
         - "8081:8080"  # Web interface
-        - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+        - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
       networks:
         - default
       environment:
         # Enable trace logging for debugging UDP/streaming issues
-        - RUST_LOG=moonlight_common=trace,moonlight_web=trace
+        # Reduce webrtc_sctp noise to warn level (debug floods logs with peer_last_tsn messages)
+        - RUST_LOG=moonlight_common=trace,moonlight_web=trace,streamer::video=info,webrtc_sctp=warn
         # Internal pairing PIN (shared with Wolf, secure random in production)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
         # Moonlight credentials for API authentication (must match config.json)

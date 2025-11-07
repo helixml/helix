@@ -21,7 +21,26 @@ const Providers: React.FC = () => {
 
   const orgName = router.params.org_id
 
-  // Get org if orgName is set  
+  // Check if providers management is enabled
+  const providersManagementEnabled = account.serverConfig.providers_management_enabled
+
+  // If providers management is disabled and user is not admin, show message
+  if (!providersManagementEnabled && !account.admin) {
+    return (
+      <Page breadcrumbTitle="Providers" topbarContent={null}>
+        <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
+            AI Providers
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 4, textAlign: 'center' }}>
+            Provider management is not enabled on this installation.
+          </Typography>
+        </Container>
+      </Page>
+    )
+  }
+
+  // Get org if orgName is set
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
 
   // Get provider endpoints

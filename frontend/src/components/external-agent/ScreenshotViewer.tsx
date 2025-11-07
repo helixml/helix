@@ -15,6 +15,7 @@ interface ScreenshotViewerProps {
   autoRefresh?: boolean;
   refreshInterval?: number; // in milliseconds
   enableStreaming?: boolean; // Enable streaming mode toggle
+  showToolbar?: boolean; // Show refresh/fullscreen buttons
 }
 
 const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
@@ -29,8 +30,14 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
   autoRefresh = true,
   refreshInterval = 1000, // Default 1 second
   enableStreaming = true, // Enable streaming by default
+  showToolbar = true, // Show toolbar by default
 }) => {
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  // Dual-buffer system for smooth image transitions
+  const [imageA, setImageA] = useState<string | null>(null);
+  const [imageB, setImageB] = useState<string | null>(null);
+  const [showingA, setShowingA] = useState(true);
+  const [hasFirstImage, setHasFirstImage] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -70,18 +77,35 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       }
 
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const newUrl = URL.createObjectURL(blob);
 
-      // Revoke old URL to prevent memory leaks
-      if (screenshotUrl) {
-        URL.revokeObjectURL(screenshotUrl);
-      }
+      // Preload the image before swapping to prevent flicker
+      const img = new Image();
+      img.onload = () => {
+        // Swap to the inactive buffer
+        if (showingA) {
+          // Clean up old imageB, then set new imageB
+          if (imageB) URL.revokeObjectURL(imageB);
+          setImageB(newUrl);
+        } else {
+          // Clean up old imageA, then set new imageA
+          if (imageA) URL.revokeObjectURL(imageA);
+          setImageA(newUrl);
+        }
 
-      setScreenshotUrl(url);
-      setLastRefresh(new Date());
-      setIsLoading(false);
-      setIsInitialLoading(false); // First successful fetch ends initial loading
-      setError(null);
+        // Trigger crossfade
+        setShowingA(!showingA);
+        setHasFirstImage(true);
+        setLastRefresh(new Date());
+        setIsLoading(false);
+        setIsInitialLoading(false);
+        setError(null);
+      };
+      img.onerror = () => {
+        // Failed to load image, clean up the blob URL
+        URL.revokeObjectURL(newUrl);
+      };
+      img.src = newUrl;
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to fetch screenshot';
 
@@ -141,14 +165,13 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
     return () => clearTimeout(timer);
   }, []);
 
-  // Cleanup screenshot URL on unmount
+  // Cleanup screenshot URLs on unmount
   useEffect(() => {
     return () => {
-      if (screenshotUrl) {
-        URL.revokeObjectURL(screenshotUrl);
-      }
+      if (imageA) URL.revokeObjectURL(imageA);
+      if (imageB) URL.revokeObjectURL(imageB);
     };
-  }, [screenshotUrl]);
+  }, [imageA, imageB]);
 
   // Toggle fullscreen
   const toggleFullscreen = useCallback(() => {
@@ -272,35 +295,37 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
       )}
 
       {/* Toolbar */}
-      <Box
-        sx={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          zIndex: 1000,
-          backgroundColor: 'rgba(0,0,0,0.7)',
-          borderRadius: 1,
-          display: 'flex',
-          gap: 1,
-        }}
-      >
-        <IconButton
-          size="small"
-          onClick={fetchScreenshot}
-          sx={{ color: 'white' }}
-          title="Refresh Screenshot"
+      {showToolbar && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1000,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            borderRadius: 1,
+            display: 'flex',
+            gap: 1,
+          }}
         >
-          <Refresh fontSize="small" />
-        </IconButton>
-        <IconButton
-          size="small"
-          onClick={toggleFullscreen}
-          sx={{ color: 'white' }}
-          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-        >
-          {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
-        </IconButton>
-      </Box>
+          <IconButton
+            size="small"
+            onClick={fetchScreenshot}
+            sx={{ color: 'white' }}
+            title="Refresh Screenshot"
+          >
+            <Refresh fontSize="small" />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={toggleFullscreen}
+            sx={{ color: 'white' }}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <FullscreenExit fontSize="small" /> : <Fullscreen fontSize="small" />}
+          </IconButton>
+        </Box>
+      )}
 
       {/* Status Chip */}
       {lastRefresh && (
@@ -337,21 +362,44 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         </Box>
       )}
 
-      {/* Screenshot Display */}
-      {screenshotUrl && !error && (
-        <img
-          src={screenshotUrl}
-          alt="Remote Desktop Screenshot"
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-          }}
-        />
+      {/* Dual-buffer Screenshot Display - instant swap, no darkening */}
+      {!error && (
+        <>
+          {imageA && (
+            <img
+              src={imageA}
+              alt="Remote Desktop Screenshot"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: showingA ? 'block' : 'none',
+              }}
+            />
+          )}
+          {imageB && (
+            <img
+              src={imageB}
+              alt="Remote Desktop Screenshot"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                display: showingA ? 'none' : 'block',
+              }}
+            />
+          )}
+        </>
       )}
 
-      {/* Loading State */}
-      {isLoading && !screenshotUrl && (
+      {/* Loading State - only show before first image */}
+      {isLoading && !hasFirstImage && (
         <Box
           sx={{
             display: 'flex',

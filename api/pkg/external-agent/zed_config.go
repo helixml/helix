@@ -16,10 +16,10 @@ import (
 type ZedMCPConfig struct {
 	ContextServers map[string]ContextServerConfig `json:"context_servers"`
 	LanguageModels map[string]LanguageModelConfig `json:"language_models,omitempty"`
-	Assistant      *AssistantSettings              `json:"assistant,omitempty"`
-	ExternalSync   *ExternalSyncConfig             `json:"external_sync,omitempty"`
-	Agent          *AgentConfig                    `json:"agent,omitempty"`
-	Theme          string                          `json:"theme,omitempty"`
+	Assistant      *AssistantSettings             `json:"assistant,omitempty"`
+	ExternalSync   *ExternalSyncConfig            `json:"external_sync,omitempty"`
+	Agent          *AgentConfig                   `json:"agent,omitempty"`
+	Theme          string                         `json:"theme,omitempty"`
 }
 
 type ExternalSyncConfig struct {
@@ -40,8 +40,8 @@ type AgentConfig struct {
 }
 
 type LanguageModelConfig struct {
-	APIURL          string            `json:"api_url"` // Custom API URL (empty = use default provider URL)
-	AvailableModels []AvailableModel  `json:"available_models,omitempty"` // Custom models to add
+	APIURL          string           `json:"api_url"`                    // Custom API URL (empty = use default provider URL)
+	AvailableModels []AvailableModel `json:"available_models,omitempty"` // Custom models to add
 }
 
 type AvailableModel struct {
@@ -104,10 +104,10 @@ func GenerateZedMCPConfig(
 	// 	}
 	// }
 
-	// Force sonnet-4-5-latest for now
+	// Use Haiku 4.5 for faster, cheaper responses
 	assistant := types.AssistantConfig{
 		Provider: "anthropic",
-		Model:    "claude-sonnet-4-5-latest",
+		Model:    "claude-haiku-4-5-latest",
 	}
 
 	// Configure agent with default model (CRITICAL: default_model goes in agent, not assistant!)

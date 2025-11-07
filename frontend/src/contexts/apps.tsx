@@ -34,6 +34,7 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
+  agentType?: string; // Agent type: 'helix_basic', 'helix_agent', or 'zed_external'
   // Models and providers
   reasoningModelProvider: string;
   reasoningModel: string;
@@ -41,11 +42,11 @@ export interface ICreateAgentParams {
 
   generationModelProvider: string;
   generationModel: string;
-  
+
   smallReasoningModelProvider: string;
   smallReasoningModel: string;
   smallReasoningModelEffort: string;
-  
+
   smallGenerationModelProvider: string;
   smallGenerationModel: string;
 }
@@ -123,11 +124,12 @@ export const useAppsContext = (): IAppsContext => {
             description: params.description || '',
             avatar: params.avatar || '',
             image: params.image || '',
-            default_agent_type: 'helix_basic',
+            default_agent_type: params.agentType || 'helix_basic',
             assistants: [{
               name: params.name,
               description: '',
               agent_mode: false,
+              agent_type: params.agentType || 'helix_basic',
               reasoning_model_provider: params.reasoningModelProvider,
               reasoning_model: params.reasoningModel,
               reasoning_model_effort: params.reasoningModelEffort,

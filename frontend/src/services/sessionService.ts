@@ -93,6 +93,31 @@ export function useDeleteSession(sessionId: string, options?: { enabled?: boolea
   })
 }
 
+export function useStopExternalAgent(sessionId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiClient.v1SessionsStopExternalAgentDelete(sessionId),
+    onSuccess: () => {
+      // Invalidate session query to refresh wolf-app-state
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
+    }
+  })
+}
+
+export function useGetSessionIdleStatus(sessionId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: ['session-idle-status', sessionId],
+    queryFn: () => apiClient.v1SessionsIdleStatusDetail(sessionId),
+    enabled: options?.enabled ?? true,
+    refetchInterval: 30000, // Refetch every 30 seconds to update idle time
+  })
+}
+
 export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
 }

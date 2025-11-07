@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // Project represents a Helix project that can contain tasks and agent work
@@ -13,13 +14,29 @@ type Project struct {
 	Description    string         `json:"description"`
 	UserID         string         `json:"user_id" gorm:"index"`
 	OrganizationID string         `json:"organization_id" gorm:"index"`
-	GitHubRepoURL string   `json:"github_repo_url"`
-	DefaultBranch string   `json:"default_branch"`
-	Technologies  []string `json:"technologies" gorm:"type:jsonb;serializer:json"`
-	Status        string   `json:"status"` // "active", "archived", "completed"
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	Metadata       datatypes.JSON `json:"metadata,omitempty"`
+	GitHubRepoURL  string         `json:"github_repo_url"`
+	DefaultBranch  string         `json:"default_branch"`
+	Technologies   []string       `json:"technologies" gorm:"type:jsonb;serializer:json"`
+	Status         string         `json:"status"` // "active", "archived", "completed"
+
+	// Project-level repository management
+	DefaultRepoID string `json:"default_repo_id" gorm:"type:varchar(255)"` // Primary repository for the project
+
+	// Internal project Git repository (stores project config, tasks, design docs)
+	// IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
+	// It is NEVER stored in the database - Git is the single source of truth
+	InternalRepoPath string `json:"internal_repo_path" gorm:"type:varchar(500)"` // Path to internal git repo in filestore
+
+	// Transient field - loaded from Git, never persisted to database
+	StartupScript string `json:"startup_script" gorm:"-"` // Loaded from .helix/startup.sh in internal Git repo
+
+	// Automation settings
+	AutoStartBacklogTasks bool `json:"auto_start_backlog_tasks" gorm:"default:false"` // Automatically move backlog tasks to planning when capacity available
+
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"` // Soft delete timestamp
+	Metadata  datatypes.JSON `json:"metadata,omitempty"`
 }
 
 // ProjectTask represents a task within a project (extends AgentWorkItem for project-specific tasks)
@@ -113,16 +130,21 @@ type ProjectCreateRequest struct {
 	GitHubRepoURL string   `json:"github_repo_url,omitempty"`
 	DefaultBranch string   `json:"default_branch,omitempty"`
 	Technologies  []string `json:"technologies,omitempty"`
+	DefaultRepoID string   `json:"default_repo_id,omitempty"`
+	StartupScript string   `json:"startup_script,omitempty"`
 }
 
 // ProjectUpdateRequest represents a request to update a project
 type ProjectUpdateRequest struct {
-	Name          *string  `json:"name,omitempty"`
-	Description   *string  `json:"description,omitempty"`
-	GitHubRepoURL *string  `json:"github_repo_url,omitempty"`
-	DefaultBranch *string  `json:"default_branch,omitempty"`
-	Technologies  []string `json:"technologies,omitempty"`
-	Status        *string  `json:"status,omitempty"`
+	Name                  *string  `json:"name,omitempty"`
+	Description           *string  `json:"description,omitempty"`
+	GitHubRepoURL         *string  `json:"github_repo_url,omitempty"`
+	DefaultBranch         *string  `json:"default_branch,omitempty"`
+	Technologies          []string `json:"technologies,omitempty"`
+	Status                *string  `json:"status,omitempty"`
+	DefaultRepoID         *string  `json:"default_repo_id,omitempty"`
+	StartupScript         *string  `json:"startup_script,omitempty"`
+	AutoStartBacklogTasks *bool    `json:"auto_start_backlog_tasks,omitempty"`
 }
 
 // ProjectTaskCreateRequest represents a request to create a new project task
@@ -213,4 +235,47 @@ type ProjectTaskTemplate struct {
 	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
 	TechnicalNotes     string   `json:"technical_notes,omitempty"`
 	FilesToModify      []string `json:"files_to_modify,omitempty"`
+}
+
+// SampleProject represents a pre-built sample project that can be instantiated
+type SampleProject struct {
+	ID            string         `json:"id" gorm:"primaryKey;type:varchar(255)"`
+	Name          string         `json:"name" gorm:"type:varchar(255);not null"`
+	Description   string         `json:"description" gorm:"type:text"`
+	Category      string         `json:"category" gorm:"type:varchar(100)"` // 'web', 'mobile', 'api', 'ml', etc.
+	Difficulty    string         `json:"difficulty" gorm:"type:varchar(50)"` // 'beginner', 'intermediate', 'advanced'
+	RepositoryURL string         `json:"repository_url" gorm:"type:text;not null"`
+	// NOTE: StartupScript is stored in the sample's Git repo at .helix/startup.sh, not in database
+	ThumbnailURL  string         `json:"thumbnail_url" gorm:"type:text"`
+	SampleTasks   datatypes.JSON `json:"sample_tasks" gorm:"type:jsonb"` // Array of {title, description, priority, type}
+	CreatedAt     time.Time      `json:"created_at" gorm:"default:CURRENT_TIMESTAMP"`
+}
+
+// SampleProjectTask represents a pre-defined task for a sample project
+type SampleProjectTask struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Priority    string `json:"priority"`
+	Type        string `json:"type"`
+}
+
+// SampleProjectInstantiateRequest represents a request to instantiate a sample project
+type SampleProjectInstantiateRequest struct {
+	ProjectName string `json:"project_name,omitempty"` // Optional custom name for the instantiated project
+}
+
+// SampleProjectInstantiateResponse represents the response after instantiating a sample project
+type SampleProjectInstantiateResponse struct {
+	ProjectID string `json:"project_id"`
+	Message   string `json:"message"`
+}
+
+// ProjectMetadata represents the metadata stored in Project.Metadata field
+type ProjectMetadata struct {
+	BoardSettings *BoardSettings `json:"board_settings,omitempty"`
+}
+
+// BoardSettings represents the Kanban board settings for a project
+type BoardSettings struct {
+	WIPLimits map[string]int `json:"wip_limits"`
 }

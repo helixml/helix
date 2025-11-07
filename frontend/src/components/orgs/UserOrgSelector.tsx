@@ -371,24 +371,10 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       },
       {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View spec tasks kanban board",
-        isActive: isActive('spec-tasks'),
-        onClick: () => orgNavigateTo('spec-tasks'),
-        label: "Specs",
-      },
-      {
-        icon: <Activity size={NAV_BUTTON_SIZE} />,
-        tooltip: "View agent fleet dashboard",
-        isActive: isActive('fleet'),
-        onClick: () => orgNavigateTo('fleet'),
-        label: "Fleet",
-      },
-      {
-        icon: <GitBranch size={NAV_BUTTON_SIZE} />,
-        tooltip: "View git repositories",
-        isActive: isActive('git-repos'),
-        onClick: () => orgNavigateTo('git-repos'),
-        label: "Repos",
+        tooltip: "View projects",
+        isActive: isActive('projects') || isActive('project-specs') || isActive('project-settings'),
+        onClick: () => orgNavigateTo('projects'),
+        label: "Projects",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,

@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
 
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
@@ -28,7 +30,8 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
-import { useGetSession, useUpdateSession } from '../services/sessionService'
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
+import { useGetSession, useUpdateSession, useStopExternalAgent, useGetSessionIdleStatus } from '../services/sessionService'
 
 import {
   INTERACTION_STATE_EDITING,
@@ -55,6 +58,146 @@ import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay
 import ZedSettingsViewer from '../components/session/ZedSettingsViewer'
 import WolfAppStateIndicator from '../components/session/WolfAppStateIndicator'
 import OpenInNew from '@mui/icons-material/OpenInNew'
+import PlayArrow from '@mui/icons-material/PlayArrow'
+import CircularProgress from '@mui/material/CircularProgress'
+import StopIcon from '@mui/icons-material/Stop'
+import IconButton from '@mui/material/IconButton'
+
+// Hook to track Wolf app state for external agent sessions
+const useWolfAppState = (sessionId: string) => {
+  const api = useApi();
+  const [wolfState, setWolfState] = React.useState<string>('loading');
+
+  React.useEffect(() => {
+    const apiClient = api.getApiClient();
+    const fetchState = async () => {
+      try {
+        const response = await apiClient.v1SessionsWolfAppStateDetail(sessionId);
+        if (response.data) {
+          setWolfState(response.data.state || 'absent');
+        }
+      } catch (err) {
+        console.error('Failed to fetch Wolf state:', err);
+      }
+    };
+
+    fetchState();
+    const interval = setInterval(fetchState, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [sessionId]); // Removed 'api' - getApiClient() is stable
+
+  const isRunning = wolfState === 'running' || wolfState === 'resumable';
+  const isPaused = wolfState === 'absent' || (!isRunning && wolfState !== 'loading');
+
+  return { wolfState, isRunning, isPaused };
+};
+
+// Desktop controls component - only shows Stop button when running
+const DesktopControls: React.FC<{
+  sessionId: string,
+  onStop: () => void,
+  isStopping: boolean
+}> = ({ sessionId, onStop, isStopping }) => {
+  const { isRunning } = useWolfAppState(sessionId);
+
+  // Only show Stop button when desktop is running
+  if (isRunning) {
+    return (
+      <Button
+        variant="outlined"
+        size="small"
+        color="warning"
+        startIcon={isStopping ? <CircularProgress size={16} /> : <StopIcon />}
+        onClick={onStop}
+        disabled={isStopping}
+      >
+        {isStopping ? 'Stopping...' : 'Stop'}
+      </Button>
+    );
+  }
+
+  return null;
+};
+
+// Desktop viewer for external agent sessions - shows live screenshot or paused state
+const ExternalAgentDesktopViewer: React.FC<{
+  sessionId: string;
+  wolfLobbyId?: string;
+  height: number;
+}> = ({ sessionId, wolfLobbyId, height }) => {
+  const api = useApi();
+  const snackbar = useSnackbar();
+  const { isRunning, isPaused } = useWolfAppState(sessionId);
+  const [isResuming, setIsResuming] = React.useState(false);
+
+  const handleResume = async () => {
+    setIsResuming(true);
+    try {
+      await api.post(`/api/v1/sessions/${sessionId}/resume`);
+      snackbar.success('External agent started successfully');
+    } catch (error: any) {
+      console.error('Failed to resume agent:', error);
+      snackbar.error(error?.message || 'Failed to start agent');
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  if (isPaused) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: height,
+          backgroundColor: '#1a1a1a',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          gap: 2,
+        }}
+      >
+        <Typography variant="body1" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
+          Desktop Paused
+        </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          startIcon={isResuming ? <CircularProgress size={20} /> : <PlayArrow />}
+          onClick={handleResume}
+          disabled={isResuming}
+        >
+          {isResuming ? 'Starting...' : 'Start Desktop'}
+        </Button>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{
+      height: height,
+      border: '1px solid',
+      borderColor: 'divider',
+      borderRadius: 1,
+      overflow: 'hidden'
+    }}>
+      <ScreenshotViewer
+        sessionId={sessionId}
+        isRunner={false}
+        wolfLobbyId={wolfLobbyId}
+        enableStreaming={true}
+        onError={(error) => {
+          console.error('Screenshot viewer error:', error);
+        }}
+        height={height}
+      />
+    </Box>
+  );
+};
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -215,6 +358,32 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   })
 
   const isOwner = account.user?.id == session?.data?.owner
+
+  // Stop external agent hook (works for any external agent session)
+  const stopExternalAgentMutation = useStopExternalAgent(sessionID || '')
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
+
+  // Get idle status for external agent sessions (check session data directly)
+  const { data: idleStatus } = useGetSessionIdleStatus(sessionID || '', {
+    enabled: !!sessionID && session?.data?.config?.agent_type === 'zed_external'
+  })
+
+  // Get Wolf app state to check if desktop is running
+  const { isRunning: isDesktopRunning } = useWolfAppState(sessionID || '')
+
+  const handleStopExternalAgent = () => {
+    setShowStopConfirm(true)
+  }
+
+  const handleConfirmStop = async () => {
+    setShowStopConfirm(false)
+    try {
+      await stopExternalAgentMutation.mutateAsync()
+      snackbar.success('External Zed agent stopped')
+    } catch (err) {
+      snackbar.error('Failed to stop external agent')
+    }
+  }
 
   // Test RDP Mode state
   const [testRDPMode, setTestRDPMode] = useState(false)
@@ -1370,11 +1539,34 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
               />
               {/* Show desktop state for external agent sessions */}
               {isExternalAgent && (
-                <Box sx={{ px: 2, pt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Desktop State:
-                  </Typography>
-                  <WolfAppStateIndicator sessionId={sessionID} />
+                <Box sx={{ px: 2, pt: 1, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+                      Desktop:
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <WolfAppStateIndicator sessionId={sessionID} />
+                      <DesktopControls
+                        sessionId={sessionID}
+                        onStop={handleStopExternalAgent}
+                        isStopping={stopExternalAgentMutation.isPending}
+                      />
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+
+              {/* Idle timeout warning for external agent sessions - only show when desktop is running */}
+              {isExternalAgent && idleStatus?.data?.warning_threshold && isDesktopRunning && (
+                <Box sx={{ px: 2, pt: 1, pb: 1 }}>
+                  <Alert severity="warning" sx={{ py: 0.5 }}>
+                    <AlertTitle sx={{ fontSize: '0.875rem', mb: 0.5 }}>Idle Session Warning</AlertTitle>
+                    <Typography variant="body2" sx={{ fontSize: '0.8125rem' }}>
+                      This external agent has been idle for {idleStatus.data.idle_minutes} minutes.
+                      It will be automatically terminated in {idleStatus.data.will_terminate_in} minutes to free GPU resources.
+                      <br /><strong>Send a message to keep the agent alive.</strong>
+                    </Typography>
+                  </Alert>
                 </Box>
               )}
             </Box>
@@ -1400,24 +1592,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>
-              <Box sx={{
-                height: rdpViewerHeight,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 1,
-                overflow: 'hidden'
-              }}>
-                <ScreenshotViewer
-                  sessionId={sessionID}
-                  isRunner={false}
-                  wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
-                  enableStreaming={true}
-                  onError={(error) => {
-                    console.error('Screenshot viewer error:', error);
-                  }}
-                  height={rdpViewerHeight}
-                />
-              </Box>
+              <ExternalAgentDesktopViewer
+                sessionId={sessionID}
+                wolfLobbyId={session?.data?.config?.wolf_lobby_id || sessionID}
+                height={rdpViewerHeight}
+              />
             </Box>
           )}
 
@@ -1759,6 +1938,18 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           snackbar.success('Moonlight client paired successfully!')
         }}
       />
+
+      {/* Stop Confirmation Dialog */}
+      {showStopConfirm && (
+        <SimpleConfirmWindow
+          title="Stop External Zed Agent?"
+          message="Stopping the external agent will terminate the running container. Any unsaved files or in-memory state will be lost. The conversation history will be preserved."
+          confirmTitle="Stop Agent"
+          cancelTitle="Cancel"
+          onCancel={() => setShowStopConfirm(false)}
+          onSubmit={handleConfirmStop}
+        />
+      )}
 
     </Box>
   )

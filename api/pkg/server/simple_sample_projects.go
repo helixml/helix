@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -41,10 +44,10 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		ID:            "modern-todo-app",
 		Name:          "Modern Todo App",
 		Description:   "Full-stack todo application with React and Node.js - perfect for learning modern web patterns",
-		GitHubRepo:    "helix-ai/sample-todo-app",
+		GitHubRepo:    "helixml/sample-todo-app",
 		DefaultBranch: "main",
 		Technologies:  []string{"React", "TypeScript", "Node.js", "Express", "PostgreSQL", "Tailwind CSS"},
-		ReadmeURL:     "https://github.com/helix-ai/sample-todo-app/blob/main/README.md",
+		ReadmeURL:     "https://github.com/helixml/sample-todo-app/blob/main/README.md",
 		DemoURL:       "https://sample-todo-app.vercel.app",
 		Difficulty:    "intermediate",
 		Category:      "web",
@@ -79,10 +82,10 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		ID:            "ecommerce-api",
 		Name:          "E-commerce REST API",
 		Description:   "Comprehensive API for an e-commerce platform with product management and order processing",
-		GitHubRepo:    "helix-ai/sample-ecommerce-api",
+		GitHubRepo:    "helixml/sample-ecommerce-api",
 		DefaultBranch: "main",
 		Technologies:  []string{"Node.js", "Express", "MongoDB", "Redis", "Stripe", "JWT"},
-		ReadmeURL:     "https://github.com/helix-ai/sample-ecommerce-api/blob/main/README.md",
+		ReadmeURL:     "https://github.com/helixml/sample-ecommerce-api/blob/main/README.md",
 		Difficulty:    "advanced",
 		Category:      "api",
 		TaskPrompts: []SampleTaskPrompt{
@@ -111,10 +114,10 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		ID:            "weather-app",
 		Name:          "Weather App - React Native",
 		Description:   "Cross-platform weather app with location services and offline caching",
-		GitHubRepo:    "helix-ai/sample-weather-app",
+		GitHubRepo:    "helixml/sample-weather-app",
 		DefaultBranch: "main",
 		Technologies:  []string{"React Native", "TypeScript", "Expo", "AsyncStorage"},
-		ReadmeURL:     "https://github.com/helix-ai/sample-weather-app/blob/main/README.md",
+		ReadmeURL:     "https://github.com/helixml/sample-weather-app/blob/main/README.md",
 		Difficulty:    "beginner",
 		Category:      "mobile",
 		TaskPrompts: []SampleTaskPrompt{
@@ -136,10 +139,10 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 		ID:            "blog-cms",
 		Name:          "Simple Blog CMS",
 		Description:   "Content management system for bloggers with markdown support and media uploads",
-		GitHubRepo:    "helix-ai/sample-blog-cms",
+		GitHubRepo:    "helixml/sample-blog-cms",
 		DefaultBranch: "main",
 		Technologies:  []string{"Next.js", "Prisma", "PostgreSQL", "TailwindCSS", "S3"},
-		ReadmeURL:     "https://github.com/helix-ai/sample-blog-cms/blob/main/README.md",
+		ReadmeURL:     "https://github.com/helixml/sample-blog-cms/blob/main/README.md",
 		Difficulty:    "intermediate",
 		Category:      "web",
 		TaskPrompts: []SampleTaskPrompt{
@@ -160,6 +163,113 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 				Priority: "low",
 				Labels:   []string{"seo", "performance"},
 				Context:  "Blog posts need proper meta tags, Open Graph tags, and automatic sitemap generation for better search engine visibility.",
+			},
+		},
+	},
+	{
+		ID:            "react-dashboard",
+		Name:          "React Admin Dashboard",
+		Description:   "Modern admin dashboard with Material-UI components and data visualization",
+		GitHubRepo:    "helixml/sample-react-dashboard",
+		DefaultBranch: "main",
+		Technologies:  []string{"React", "TypeScript", "Material-UI", "Recharts", "React Router"},
+		ReadmeURL:     "https://github.com/helixml/sample-react-dashboard/blob/main/README.md",
+		DemoURL:       "https://sample-react-dashboard.vercel.app",
+		Difficulty:    "intermediate",
+		Category:      "web",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Add real-time data updates to the dashboard using WebSockets",
+				Priority: "high",
+				Labels:   []string{"real-time", "websockets", "frontend"},
+				Context:  "Dashboard metrics should update in real-time without page refresh. Use WebSocket connection to backend for live data.",
+			},
+			{
+				Prompt:   "Implement user role-based access control for dashboard features",
+				Priority: "critical",
+				Labels:   []string{"security", "rbac", "authorization"},
+				Context:  "Different user roles (admin, manager, viewer) should see different dashboard features and data based on permissions.",
+			},
+			{
+				Prompt:   "Add export functionality to download dashboard data as CSV and PDF",
+				Priority: "medium",
+				Labels:   []string{"export", "reports", "feature"},
+				Context:  "Users need to export dashboard data and charts for reports. Support both CSV data export and PDF report generation.",
+			},
+		},
+	},
+	{
+		ID:            "linkedin-outreach",
+		Name:          "LinkedIn Outreach Campaign",
+		Description:   "Multi-session campaign to reach out to 100 prospects using LinkedIn automation",
+		GitHubRepo:    "helixml/sample-linkedin-outreach",
+		DefaultBranch: "main",
+		Technologies:  []string{"LinkedIn", "Outreach", "Sales", "Marketing Automation"},
+		ReadmeURL:     "https://github.com/helixml/sample-linkedin-outreach/blob/main/README.md",
+		Difficulty:    "advanced",
+		Category:      "business",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Build prospect list of 100 qualified leads in AI/ML industry",
+				Priority: "critical",
+				Labels:   []string{"research", "prospecting", "lead-generation"},
+				Context:  "Create a list of 100 qualified prospects matching our ICP (CTOs, VPs of Engineering, AI Leads). Include their LinkedIn profiles, company info, and recent activity.",
+			},
+			{
+				Prompt:   "Write personalized outreach messages based on prospect profiles",
+				Priority: "high",
+				Labels:   []string{"messaging", "personalization", "outreach"},
+				Context:  "For each prospect, analyze their LinkedIn profile and recent posts to craft personalized connection requests and follow-up messages.",
+			},
+			{
+				Prompt:   "Set up tracking system for campaign metrics and responses",
+				Priority: "medium",
+				Labels:   []string{"tracking", "analytics", "reporting"},
+				Context:  "Build a tracking sheet to monitor: messages sent, response rate, positive responses, meetings scheduled, and conversion metrics.",
+			},
+			{
+				Prompt:   "Create follow-up sequence for non-responders",
+				Priority: "medium",
+				Labels:   []string{"follow-up", "automation", "engagement"},
+				Context:  "Design a 3-touch follow-up sequence for prospects who don't respond. Each message should add value and reference recent activity.",
+			},
+		},
+	},
+	{
+		ID:            "helix-blog-posts",
+		Name:          "Helix Technical Blog Series",
+		Description:   "Write 10 comprehensive technical blog posts about Helix by analyzing the codebase",
+		GitHubRepo:    "helixml/helix",
+		DefaultBranch: "main",
+		Technologies:  []string{"Technical Writing", "Code Analysis", "Documentation", "Markdown"},
+		ReadmeURL:     "https://github.com/helixml/helix/blob/main/README.md",
+		Difficulty:    "advanced",
+		Category:      "content",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Analyze Helix repository structure and create content outline for 10 blog posts",
+				Priority: "critical",
+				Labels:   []string{"planning", "research", "architecture"},
+				Context:  "Clone and analyze the Helix repository. Create a detailed outline for 10 blog posts covering: getting started, architecture, custom skills, multi-model orchestration, security, deployment, advanced features, platform comparison, contributing guide, and roadmap.",
+				Constraints: "Must be based on actual code analysis, not generic content. Each post should reference specific files and implementations.",
+			},
+			{
+				Prompt:   "Write 'Getting Started with Helix' tutorial with step-by-step examples",
+				Priority: "high",
+				Labels:   []string{"tutorial", "onboarding", "documentation"},
+				Context:  "Create a beginner-friendly tutorial walking users through their first Helix AI assistant. Include installation, configuration, and first conversation with code examples from the repository.",
+			},
+			{
+				Prompt:   "Write technical deep-dive on Helix architecture and API design",
+				Priority: "high",
+				Labels:   []string{"architecture", "technical", "deep-dive"},
+				Context:  "Analyze api/pkg/ structure and write comprehensive post explaining Helix's architecture, API design patterns, session management, and model integration. Include diagrams and code snippets.",
+			},
+			{
+				Prompt:   "Document Helix skills system with practical examples",
+				Priority: "medium",
+				Labels:   []string{"skills", "integration", "tutorial"},
+				Context:  "Analyze the skills system code and write guide for building custom skills. Show how skills extend Helix with API integrations and tool usage.",
 			},
 		},
 	},
@@ -244,37 +354,274 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError404("sample project not found")
 	}
 
-	// Generate project ID
-	projectID := fmt.Sprintf("proj_%s_%d", req.SampleProjectID, time.Now().Unix())
-
 	// Create project name
 	projectName := req.ProjectName
 	if projectName == "" {
-		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Username)
+		projectName = sampleProject.Name
+	}
+
+	description := req.Description
+	if description == "" {
+		description = sampleProject.Description
+	}
+
+	// Get user's organization
+	orgID := ""
+	memberships, err := s.Store.ListOrganizationMemberships(ctx, &store.ListOrganizationMembershipsQuery{
+		UserID: user.ID,
+	})
+	if err == nil && len(memberships) > 0 {
+		orgID = memberships[0].OrganizationID
 	}
 
 	log.Info().
 		Str("user_id", user.ID).
 		Str("sample_project_id", req.SampleProjectID).
 		Str("project_name", projectName).
+		Str("organization_id", orgID).
 		Msg("Forking simple sample project")
 
-	// Simulated GitHub repo URL (in real implementation, this would fork the actual repo)
-	forkedRepoURL := fmt.Sprintf("https://github.com/%s/helix-%s", user.Username, req.SampleProjectID)
+	// Get sample project code to retrieve startup script
+	sampleCodeService := services.NewSampleProjectCodeService()
+	sampleCode, err := sampleCodeService.GetProjectCode(ctx, req.SampleProjectID)
+	var startupScript string
+	if err == nil && sampleCode.StartupScript != "" {
+		startupScript = sampleCode.StartupScript
+	}
+
+	// Create actual Project in database
+	project := &types.Project{
+		ID:             system.GenerateUUID(),
+		Name:           projectName,
+		Description:    description,
+		UserID:         user.ID,
+		OrganizationID: orgID,
+		Technologies:   sampleProject.Technologies,
+		StartupScript:  startupScript, // Use sample's startup script
+		Status:         "active",
+	}
+
+	createdProject, err := s.Store.CreateProject(ctx, project)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_name", projectName).
+			Msg("failed to create project for sample")
+		return nil, system.NewHTTPError500("failed to create project")
+	}
+
+	// Create internal repo (config only - .helix/ directory)
+	internalRepoPath, repoErr := s.projectInternalRepoService.InitializeProjectRepo(ctx, createdProject)
+	if repoErr != nil {
+		log.Error().
+			Err(repoErr).
+			Str("project_id", createdProject.ID).
+			Str("user_id", user.ID).
+			Str("sample_project_id", req.SampleProjectID).
+			Msg("❌ Failed to initialize internal repository")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize internal repository: %v", repoErr))
+	}
+
+	if internalRepoPath == "" {
+		log.Error().
+			Str("project_id", createdProject.ID).
+			Str("user_id", user.ID).
+			Msg("❌ Internal repo path is empty after initialization")
+		return nil, system.NewHTTPError500("internal repository path is empty")
+	}
+
+	// Update project with internal repo path
+	createdProject.InternalRepoPath = internalRepoPath
+	err = s.Store.UpdateProject(ctx, createdProject)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", createdProject.ID).
+			Msg("❌ Failed to update project with internal repo path")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update project: %v", err))
+	}
+
+	// Create GitRepository entry for internal repo
+	internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
+	internalRepo := &store.GitRepository{
+		ID:             internalRepoID,
+		Name:           fmt.Sprintf("%s-internal", data.SlugifyName(createdProject.Name)),
+		Description:    "Internal project repository for configuration and metadata",
+		OwnerID:        user.ID,
+		OrganizationID: createdProject.OrganizationID,
+		ProjectID:      createdProject.ID,
+		RepoType:       "internal",
+		Status:         "ready",
+		LocalPath:      internalRepoPath,
+		DefaultBranch:  "main",
+		MetadataJSON:   "{}",
+	}
+
+	log.Info().
+		Str("project_id", createdProject.ID).
+		Str("repo_id", internalRepoID).
+		Str("local_path", internalRepoPath).
+		Str("organization_id", createdProject.OrganizationID).
+		Msg("📝 Creating GitRepository entry for internal repo")
+
+	err = s.Store.CreateGitRepository(ctx, internalRepo)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", createdProject.ID).
+			Str("repo_id", internalRepoID).
+			Str("local_path", internalRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Interface("repo", internalRepo).
+			Msg("❌ Failed to create git repository entry for internal repo")
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create internal repository entry: %v", err))
+	}
+
+	log.Info().
+		Str("project_id", createdProject.ID).
+		Str("repo_id", internalRepoID).
+		Msg("✅ Internal repository created successfully")
+
+	// Create separate code repository with sample files
+	if req.SampleProjectID == "helix-blog-posts" {
+		// Special case: Clone real HelixML/helix repo as code repo
+		codeRepoPath, repoErr := s.projectInternalRepoService.CloneSampleProject(ctx, createdProject, "https://github.com/helixml/helix.git")
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Str("sample_id", req.SampleProjectID).
+				Msg("❌ Failed to clone helix-blog-posts repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to clone repository: %v", repoErr))
+		}
+
+		// Create GitRepository entry for code repo
+		codeRepoID := fmt.Sprintf("%s-code", createdProject.ID)
+		codeRepo := &store.GitRepository{
+			ID:             codeRepoID,
+			Name:           data.SlugifyName(createdProject.Name),
+			Description:    fmt.Sprintf("Helix codebase for %s", createdProject.Name),
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code",
+			Status:         "ready",
+			LocalPath:      codeRepoPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   "{}",
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Str("local_path", codeRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Msg("📝 Creating GitRepository entry for helix code repo")
+
+		err = s.Store.CreateGitRepository(ctx, codeRepo)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("repo_id", codeRepoID).
+				Str("local_path", codeRepoPath).
+				Str("organization_id", createdProject.OrganizationID).
+				Interface("repo", codeRepo).
+				Msg("❌ Failed to create git repository entry for helix code repo")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Msg("✅ Helix code repository created successfully")
+	} else {
+		// Use hardcoded sample code for all other samples
+		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID)
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Str("sample_id", req.SampleProjectID).
+				Msg("❌ Failed to initialize code repository from sample")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize code repository: %v", repoErr))
+		}
+
+		// Create GitRepository entry for code repo
+		codeRepo := &store.GitRepository{
+			ID:             codeRepoID,
+			Name:           data.SlugifyName(createdProject.Name),
+			Description:    fmt.Sprintf("Code repository for %s", createdProject.Name),
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code", // Helix-hosted code repo (cloned from LocalPath)
+			Status:         "ready",
+			LocalPath:      codeRepoPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   "{}",
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Str("local_path", codeRepoPath).
+			Str("organization_id", createdProject.OrganizationID).
+			Msg("📝 Creating GitRepository entry for sample code repo")
+
+		err = s.Store.CreateGitRepository(ctx, codeRepo)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("repo_id", codeRepoID).
+				Str("local_path", codeRepoPath).
+				Str("organization_id", createdProject.OrganizationID).
+				Interface("repo", codeRepo).
+				Msg("❌ Failed to create git repository entry for sample code repo")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create code repository entry: %v", err))
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", codeRepoID).
+			Msg("✅ Sample code repository created successfully")
+
+		// Set code repo as default
+		createdProject.DefaultRepoID = codeRepo.ID
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("project_id", createdProject.ID).
+				Str("default_repo_id", codeRepo.ID).
+				Msg("❌ Failed to set default repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to set default repository: %v", err))
+		}
+	}
+
+	// Get user's default external agent app for spec tasks
+	defaultApp, err := s.getUserDefaultExternalAgentApp(ctx, user.ID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("user_id", user.ID).
+			Msg("Failed to get default external agent app, spec tasks may fail to start")
+	}
 
 	// Create spec-driven tasks from the natural language prompts
 	tasksCreated := 0
-	for i, taskPrompt := range sampleProject.TaskPrompts {
+	for _, taskPrompt := range sampleProject.TaskPrompts {
 		task := &types.SpecTask{
-			ID:          fmt.Sprintf("spec_task_%s_%d", projectID, i),
-			ProjectID:   projectID,
+			ID:          system.GenerateUUID(),
+			ProjectID:   createdProject.ID,
 			Name:        generateTaskNameFromPrompt(taskPrompt.Prompt),
 			Description: taskPrompt.Prompt, // The description IS the prompt
 			Type:        inferTaskType(taskPrompt.Labels),
 			Priority:    taskPrompt.Priority,
 			Status:      "backlog",
 
-			// Kiro-style: store the original prompt, specs will be generated later
+			// Store the original prompt, specs will be generated later
 			OriginalPrompt:     taskPrompt.Prompt,
 			RequirementsSpec:   "", // Will be generated when agent picks up task
 			TechnicalDesign:    "", // Will be generated when agent picks up task
@@ -286,23 +633,25 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			UpdatedAt:      time.Now(),
 		}
 
+		// Set HelixAppID if we found a default app
+		if defaultApp != nil {
+			task.HelixAppID = defaultApp.ID
+		}
+
 		// Store labels directly (GORM serializer handles JSON conversion)
 		task.Labels = taskPrompt.Labels
 
 		// Store context and constraints in metadata (GORM serializer handles JSON conversion)
 		task.Metadata = map[string]interface{}{
-			"project_id":     projectID,
-			"github_repo":    forkedRepoURL,
 			"context":        taskPrompt.Context,
 			"constraints":    taskPrompt.Constraints,
 			"sample_project": sampleProject.ID,
 		}
 
-		// Store the task (assuming we have a spec tasks store method)
 		err := s.Store.CreateSpecTask(ctx, task)
 		if err != nil {
 			log.Warn().Err(err).
-				Str("project_id", projectID).
+				Str("project_id", createdProject.ID).
 				Str("task_prompt", taskPrompt.Prompt).
 				Msg("Failed to create spec task")
 		} else {
@@ -311,19 +660,18 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	}
 
 	log.Info().
-		Str("project_id", projectID).
+		Str("project_id", createdProject.ID).
 		Str("user_id", user.ID).
-		Str("repo_url", forkedRepoURL).
 		Int("tasks_created", tasksCreated).
 		Msg("Successfully forked simple sample project")
 
 	return &ForkSimpleProjectResponse{
-		ProjectID:     projectID,
-		GitHubRepoURL: forkedRepoURL,
+		ProjectID:     createdProject.ID,
+		GitHubRepoURL: sampleProject.GitHubRepo,
 		TasksCreated:  tasksCreated,
-		Message: fmt.Sprintf("🎉 Forked %s! Created %d tasks from natural language prompts. "+
-			"When you assign agents to these tasks, they'll automatically generate requirements, "+
-			"technical design, and implementation plans following spec-driven development.",
+		Message: fmt.Sprintf("Created %s with %d tasks from natural language prompts. "+
+			"Assign agents to these tasks to automatically generate requirements, "+
+			"technical design, and implementation plans.",
 			sampleProject.Name, tasksCreated),
 	}, nil
 }
