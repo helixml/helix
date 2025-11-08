@@ -1132,6 +1132,544 @@ cat main.go
 - **Session D**: Advanced topics and strategic content
 `
 
+	case "jupyter-notebooks":
+		files["README.md"] = `# Jupyter Financial Analysis - Notebooks
+
+This repository contains Jupyter notebooks for financial data analysis.
+
+## Quick Start
+
+The agent can run notebooks using ipynb commands from the terminal:
+
+` + "```bash" + `
+# Execute notebook and save results in-place
+jupyter nbconvert --execute --to notebook --inplace portfolio_analysis.ipynb
+
+# Execute and export to HTML for viewing
+jupyter nbconvert --execute --to html portfolio_analysis.ipynb
+
+# View the HTML output in browser
+# The HTML file will be at portfolio_analysis.html
+` + "```" + `
+
+## Notebooks
+
+- **portfolio_analysis.ipynb**: Microsoft stock returns analysis with pyforest library
+
+## Related Repositories
+
+- **pyforest**: Python library for financial calculations (in separate repository)
+
+## Setup
+
+See AGENT_INSTRUCTIONS.md for setup and workflow details.
+`
+		files["AGENT_INSTRUCTIONS.md"] = `# Agent Instructions for Jupyter Workflow
+
+## Running Notebooks from Command Line
+
+You can execute Jupyter notebooks without opening the browser using these commands:
+
+` + "```bash" + `
+# Method 1: Execute and save results in the notebook
+jupyter nbconvert --execute --to notebook --inplace portfolio_analysis.ipynb
+
+# Method 2: Execute and generate HTML output
+jupyter nbconvert --execute --to html portfolio_analysis.ipynb
+
+# Method 3: Execute and show output in terminal
+jupyter nbconvert --execute --to notebook --stdout portfolio_analysis.ipynb | grep -A 10 "output"
+` + "```" + `
+
+## Viewing Results
+
+After running a notebook:
+1. The .ipynb file will contain cell outputs if you used --inplace
+2. The .html file can be viewed in a browser to see rendered results
+3. You can use the Bash tool to open the HTML: ` + "`open portfolio_analysis.html`" + ` (macOS) or ` + "`xdg-open portfolio_analysis.html`" + ` (Linux)
+
+## Iterative Development Workflow
+
+1. **Read the notebook**: Use the Read tool on the .ipynb file to see the code
+2. **Modify the notebook**: Use the Edit tool to change notebook cells
+3. **Run the notebook**: Use jupyter nbconvert to execute
+4. **Check results**: Read the updated .ipynb or generated .html
+5. **Iterate**: Repeat based on results
+
+## Working with PyForest Library
+
+The pyforest library is in a separate repository. To make changes:
+1. Navigate to the pyforest repository
+2. Edit files in pyforest/pyforest/ directory
+3. The library is installed with ` + "`pip install -e .`" + ` so changes are immediately available
+4. Restart Python kernel or re-import to pick up changes
+
+## Example Task Flow
+
+For "Add multiple tickers" task:
+1. Read portfolio_analysis.ipynb to understand current structure
+2. Edit the notebook to download multiple tickers
+3. Run: ` + "`jupyter nbconvert --execute --to html portfolio_analysis.ipynb`" + `
+4. Check portfolio_analysis.html to verify the new ticker data appears
+5. Commit changes to git
+`
+		files["requirements.txt"] = `jupyterlab==4.0.9
+pandas==2.1.4
+numpy==1.26.2
+matplotlib==3.8.2
+yfinance==0.2.33
+scipy==1.11.4
+seaborn==0.13.0
+`
+		// Notebook file
+		files["portfolio_analysis.ipynb"] = `{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Microsoft Portfolio Returns Analysis\n",
+    "\n",
+    "This notebook calculates portfolio returns for Microsoft (MSFT) over different date ranges.\n",
+    "\n",
+    "**Note**: This notebook uses the pyforest library from the separate pyforest repository."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import yfinance as yf\n",
+    "import matplotlib.pyplot as plt\n",
+    "from datetime import datetime, timedelta\n",
+    "\n",
+    "# Import pyforest library (install from ../pyforest with: pip install -e ../pyforest)\n",
+    "try:\n",
+    "    from pyforest import calculate_returns, calculate_cumulative_returns, calculate_sharpe_ratio\n",
+    "    print(\"PyForest library imported successfully\")\n",
+    "except ImportError:\n",
+    "    print(\"WARNING: PyForest library not found. Install with: pip install -e ../pyforest\")\n",
+    "    print(\"Falling back to basic pandas calculations\")\n",
+    "\n",
+    "# Set display options\n",
+    "pd.set_option('display.max_columns', None)\n",
+    "pd.set_option('display.width', None)\n",
+    "\n",
+    "print(\"Libraries imported successfully\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Download Microsoft stock data\n",
+    "ticker = 'MSFT'\n",
+    "print(f\"Downloading {ticker} data...\")\n",
+    "\n",
+    "# Get data for last 5 years\n",
+    "end_date = datetime.now()\n",
+    "start_date = end_date - timedelta(days=5*365)\n",
+    "\n",
+    "msft = yf.download(ticker, start=start_date, end=end_date, progress=False)\n",
+    "print(f\"Downloaded {len(msft)} days of data\")\n",
+    "msft.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Calculate returns using pyforest library if available, otherwise use pandas\n",
+    "try:\n",
+    "    msft['Daily_Return'] = calculate_returns(msft['Close'])\n",
+    "    msft['Cumulative_Return'] = calculate_cumulative_returns(msft['Daily_Return'])\n",
+    "    sharpe = calculate_sharpe_ratio(msft['Daily_Return'])\n",
+    "except NameError:\n",
+    "    # Fallback if pyforest not imported\n",
+    "    msft['Daily_Return'] = msft['Close'].pct_change()\n",
+    "    msft['Cumulative_Return'] = (1 + msft['Daily_Return']).cumprod() - 1\n",
+    "    sharpe = (msft['Daily_Return'].mean() / msft['Daily_Return'].std()) * np.sqrt(252)\n",
+    "\n",
+    "print(\"\\nReturn Statistics:\")\n",
+    "print(f\"Total Return: {msft['Cumulative_Return'].iloc[-1]:.2%}\")\n",
+    "print(f\"Average Daily Return: {msft['Daily_Return'].mean():.4%}\")\n",
+    "print(f\"Daily Return Std Dev: {msft['Daily_Return'].std():.4%}\")\n",
+    "print(f\"Sharpe Ratio (annualized): {sharpe:.2f}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Analyze returns over different date ranges\n",
+    "date_ranges = [\n",
+    "    ('1 Month', 30),\n",
+    "    ('3 Months', 90),\n",
+    "    ('6 Months', 180),\n",
+    "    ('1 Year', 365),\n",
+    "    ('2 Years', 730),\n",
+    "    ('5 Years', 1825),\n",
+    "]\n",
+    "\n",
+    "results = []\n",
+    "for label, days in date_ranges:\n",
+    "    if len(msft) >= days:\n",
+    "        period_data = msft.iloc[-days:]\n",
+    "        total_return = (period_data['Close'].iloc[-1] / period_data['Close'].iloc[0] - 1)\n",
+    "        results.append({\n",
+    "            'Period': label,\n",
+    "            'Days': days,\n",
+    "            'Return': total_return,\n",
+    "            'Start_Price': period_data['Close'].iloc[0],\n",
+    "            'End_Price': period_data['Close'].iloc[-1],\n",
+    "        })\n",
+    "\n",
+    "returns_df = pd.DataFrame(results)\n",
+    "print(\"\\nReturns by Period:\")\n",
+    "print(returns_df.to_string(index=False))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Plot cumulative returns\n",
+    "plt.figure(figsize=(14, 7))\n",
+    "plt.plot(msft.index, msft['Cumulative_Return'] * 100, linewidth=2, color='#1f77b4')\n",
+    "plt.title(f'{ticker} Cumulative Returns Over Time', fontsize=16, fontweight='bold')\n",
+    "plt.xlabel('Date', fontsize=12)\n",
+    "plt.ylabel('Cumulative Return (%)', fontsize=12)\n",
+    "plt.grid(True, alpha=0.3)\n",
+    "plt.tight_layout()\n",
+    "plt.savefig('msft_returns.png', dpi=150, bbox_inches='tight')\n",
+    "plt.show()\n",
+    "\n",
+    "print(f\"\\nCurrent Price: ${msft['Close'].iloc[-1]:.2f}\")\n",
+    "print(f\"52-Week High: ${msft['Close'].iloc[-252:].max():.2f}\")\n",
+    "print(f\"52-Week Low: ${msft['Close'].iloc[-252:].min():.2f}\")\n",
+    "print(\"\\nChart saved to msft_returns.png\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}`
+
+	case "pyforest-library":
+		files["README.md"] = `# PyForest - Financial Analysis Library
+
+A Python library for financial data analysis and portfolio management.
+
+## Installation
+
+` + "```bash" + `
+pip install -e .
+` + "```" + `
+
+## Modules
+
+- **returns.py**: Return calculations (simple, log, cumulative, Sharpe ratio)
+- **portfolio.py**: Portfolio management and optimization
+- **indicators.py**: Technical indicators (to be implemented)
+
+## Usage
+
+` + "```python" + `
+from pyforest import calculate_returns, Portfolio
+
+# Calculate returns
+returns = calculate_returns(price_series)
+
+# Create portfolio
+portfolio = Portfolio(['MSFT', 'AAPL'], weights=[0.6, 0.4])
+` + "```" + `
+
+## Development
+
+This library is designed to be extended by the agent with new financial analysis functions.
+`
+		files["setup.py"] = `from setuptools import setup, find_packages
+
+setup(
+    name="pyforest",
+    version="0.1.0",
+    description="Financial analysis library for portfolio returns calculation",
+    packages=find_packages(),
+    install_requires=[
+        "pandas>=2.0.0",
+        "numpy>=1.24.0",
+    ],
+)
+`
+		files["pyforest/__init__.py"] = `"""
+PyForest - Financial Analysis Library
+"""
+
+from .returns import calculate_returns, calculate_cumulative_returns, calculate_sharpe_ratio
+from .portfolio import Portfolio, PortfolioOptimizer
+
+__version__ = "0.1.0"
+__all__ = [
+    "calculate_returns",
+    "calculate_cumulative_returns",
+    "calculate_sharpe_ratio",
+    "Portfolio",
+    "PortfolioOptimizer",
+]
+`
+		files["pyforest/returns.py"] = `"""
+Return calculation utilities for financial analysis
+"""
+
+import pandas as pd
+import numpy as np
+
+
+def calculate_returns(prices: pd.Series, method='simple') -> pd.Series:
+    """
+    Calculate returns from a price series.
+
+    Parameters:
+    -----------
+    prices : pd.Series
+        Time series of prices
+    method : str
+        'simple' for simple returns, 'log' for logarithmic returns
+
+    Returns:
+    --------
+    pd.Series
+        Series of returns
+    """
+    if method == 'simple':
+        return prices.pct_change()
+    elif method == 'log':
+        return np.log(prices / prices.shift(1))
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+
+def calculate_cumulative_returns(returns: pd.Series) -> pd.Series:
+    """
+    Calculate cumulative returns from a returns series.
+
+    Parameters:
+    -----------
+    returns : pd.Series
+        Series of period returns
+
+    Returns:
+    --------
+    pd.Series
+        Cumulative returns
+    """
+    return (1 + returns).cumprod() - 1
+
+
+def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.02, periods_per_year: int = 252) -> float:
+    """
+    Calculate annualized Sharpe ratio.
+
+    Parameters:
+    -----------
+    returns : pd.Series
+        Series of period returns
+    risk_free_rate : float
+        Annual risk-free rate (default 2%)
+    periods_per_year : int
+        Number of periods per year (252 for daily trading days)
+
+    Returns:
+    --------
+    float
+        Annualized Sharpe ratio
+    """
+    excess_returns = returns - (risk_free_rate / periods_per_year)
+    return (excess_returns.mean() / excess_returns.std()) * np.sqrt(periods_per_year)
+
+
+def calculate_period_returns(df: pd.DataFrame, price_column: str = 'Close') -> pd.DataFrame:
+    """
+    Calculate returns over multiple standard periods.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        DataFrame with price data
+    price_column : str
+        Name of the price column
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with period returns
+    """
+    periods = [
+        ('1M', 21),
+        ('3M', 63),
+        ('6M', 126),
+        ('1Y', 252),
+        ('2Y', 504),
+        ('5Y', 1260),
+    ]
+
+    results = []
+    for label, days in periods:
+        if len(df) >= days:
+            period_data = df.iloc[-days:]
+            total_return = (period_data[price_column].iloc[-1] / period_data[price_column].iloc[0] - 1)
+            results.append({
+                'Period': label,
+                'Days': days,
+                'Return': total_return,
+                'Start_Price': period_data[price_column].iloc[0],
+                'End_Price': period_data[price_column].iloc[-1],
+            })
+
+    return pd.DataFrame(results)
+`
+		files["pyforest/portfolio.py"] = `"""
+Portfolio management and optimization utilities
+"""
+
+import pandas as pd
+import numpy as np
+from typing import List, Dict
+
+
+class Portfolio:
+    """
+    Portfolio class for managing multiple assets and calculating portfolio metrics.
+    """
+
+    def __init__(self, tickers: List[str], weights: List[float] = None):
+        """
+        Initialize portfolio with tickers and optional weights.
+
+        Parameters:
+        -----------
+        tickers : List[str]
+            List of ticker symbols
+        weights : List[float], optional
+            Portfolio weights (must sum to 1.0). If None, equal weights are used.
+        """
+        self.tickers = tickers
+
+        if weights is None:
+            self.weights = np.array([1.0 / len(tickers)] * len(tickers))
+        else:
+            self.weights = np.array(weights)
+            if not np.isclose(self.weights.sum(), 1.0):
+                raise ValueError("Weights must sum to 1.0")
+
+    def calculate_portfolio_returns(self, returns_df: pd.DataFrame) -> pd.Series:
+        """
+        Calculate portfolio returns from individual asset returns.
+
+        Parameters:
+        -----------
+        returns_df : pd.DataFrame
+            DataFrame with returns for each ticker (columns = tickers)
+
+        Returns:
+        --------
+        pd.Series
+            Portfolio returns time series
+        """
+        return (returns_df[self.tickers] * self.weights).sum(axis=1)
+
+    def calculate_metrics(self, returns: pd.Series, periods_per_year: int = 252) -> Dict:
+        """
+        Calculate portfolio performance metrics.
+
+        Returns:
+        --------
+        Dict with metrics: mean_return, volatility, sharpe_ratio, max_drawdown
+        """
+        metrics = {
+            'mean_return': returns.mean() * periods_per_year,
+            'volatility': returns.std() * np.sqrt(periods_per_year),
+            'sharpe_ratio': (returns.mean() / returns.std()) * np.sqrt(periods_per_year),
+        }
+
+        # Calculate maximum drawdown
+        cumulative = (1 + returns).cumprod()
+        running_max = cumulative.expanding().max()
+        drawdown = (cumulative - running_max) / running_max
+        metrics['max_drawdown'] = drawdown.min()
+
+        return metrics
+
+
+class PortfolioOptimizer:
+    """
+    Portfolio optimization using mean-variance optimization.
+    """
+
+    def __init__(self, returns_df: pd.DataFrame):
+        """
+        Initialize optimizer with historical returns data.
+
+        Parameters:
+        -----------
+        returns_df : pd.DataFrame
+            DataFrame with returns for each ticker
+        """
+        self.returns_df = returns_df
+        self.mean_returns = returns_df.mean()
+        self.cov_matrix = returns_df.cov()
+
+    def optimize_sharpe(self) -> Dict:
+        """
+        Find portfolio weights that maximize Sharpe ratio.
+
+        Returns:
+        --------
+        Dict with optimal weights and expected metrics
+        """
+        # Simple implementation - can be improved with scipy.optimize
+        # For now, return equal weights
+        n_assets = len(self.returns_df.columns)
+        weights = np.array([1.0 / n_assets] * n_assets)
+
+        return {
+            'weights': dict(zip(self.returns_df.columns, weights)),
+            'expected_return': np.dot(weights, self.mean_returns),
+            'expected_volatility': np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix, weights))),
+        }
+`
+
 	default:
 		// Generic project
 		files["README.md"] = fmt.Sprintf("# %s\n\nA sample project.\n", sampleType)

@@ -34,6 +34,7 @@ import {
 
 import Page from '../components/system/Page';
 import SpecTaskKanbanBoard from '../components/tasks/SpecTaskKanbanBoard';
+import SpecTaskDetailDialog from '../components/tasks/SpecTaskDetailDialog';
 
 import useAccount from '../hooks/useAccount';
 import useApi from '../hooks/useApi';
@@ -107,6 +108,9 @@ const SpecTasksPage: FC = () => {
   const [selectedHelixAgent, setSelectedHelixAgent] = useState('');
   const [yoloMode, setYoloMode] = useState(false); // YOLO mode: skip human review
   // Repository configuration moved to project level - no task-level repo selection needed
+
+  // Task detail windows state - array to support multiple windows
+  const [openTaskWindows, setOpenTaskWindows] = useState<TypesSpecTask[]>([]);
 
   // Ref for task prompt text field to manually focus
   const taskPromptRef = useRef<HTMLTextAreaElement>(null);
@@ -527,6 +531,14 @@ const SpecTasksPage: FC = () => {
               userId={account.user?.id}
               projectId={projectId}
               onCreateTask={() => setCreateDialogOpen(true)}
+              onTaskClick={(task) => {
+                // Add to array of open windows if not already open
+                setOpenTaskWindows(prev => {
+                  const alreadyOpen = prev.some(t => t.id === task.id);
+                  if (alreadyOpen) return prev;
+                  return [...prev, task];
+                });
+              }}
               onRefresh={() => {
                 setRefreshing(true);
                 setTimeout(() => setRefreshing(false), 2000);
@@ -719,6 +731,22 @@ Examples:
         </Box>
 
       </Box>
+
+      {/* Task Detail Dialogs - one per open task */}
+      {openTaskWindows.map((task) => (
+        <SpecTaskDetailDialog
+          key={task.id}
+          task={task}
+          open={true}
+          onClose={() => {
+            setOpenTaskWindows(prev => prev.filter(t => t.id !== task.id));
+          }}
+          onEdit={(task) => {
+            // TODO: Implement task editing
+            console.log('Edit task:', task);
+          }}
+        />
+      ))}
 
     </Page>
   );

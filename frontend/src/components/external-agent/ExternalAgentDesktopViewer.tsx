@@ -41,6 +41,7 @@ interface ExternalAgentDesktopViewerProps {
   wolfLobbyId?: string;
   height: number;
   mode?: 'screenshot' | 'stream'; // Screenshot mode for Kanban cards, stream mode for floating window
+  onClientIdCalculated?: (clientId: string) => void;
 }
 
 const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
@@ -48,6 +49,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
   wolfLobbyId,
   height,
   mode = 'stream', // Default to stream for floating window
+  onClientIdCalculated,
 }) => {
   const api = useApi();
   const snackbar = useSnackbar();
@@ -169,6 +171,7 @@ const ExternalAgentDesktopViewer: FC<ExternalAgentDesktopViewerProps> = ({
         onError={(error) => {
           console.error('Stream viewer error:', error);
         }}
+        onClientIdCalculated={onClientIdCalculated}
       />
     </Box>
   );

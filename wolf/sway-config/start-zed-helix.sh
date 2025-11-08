@@ -150,15 +150,29 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
         # Create branch if it doesn't exist (for external repos not created by Helix)
         if [ "$BRANCH_EXISTS" = false ]; then
             echo "  📝 Creating helix-design-docs orphan branch (empty)..."
+
+            # Detect the default branch (could be main or master)
+            REPO_DEFAULT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+            if [ -z "$REPO_DEFAULT_BRANCH" ]; then
+                # Fallback: try main first, then master
+                if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
+                    REPO_DEFAULT_BRANCH="main"
+                elif git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
+                    REPO_DEFAULT_BRANCH="master"
+                else
+                    REPO_DEFAULT_BRANCH="main"  # Last resort fallback
+                fi
+            fi
+
             # 1. Create orphan branch (no parent, no files)
             # 2. Commit empty state
             # 3. Push to remote
-            # 4. Switch back to main
+            # 4. Switch back to default branch
             if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-design-docs 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-design-docs branch" 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" push origin helix-design-docs 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" checkout main 2>&1; then
+               git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1; then
                 echo "  ✅ helix-design-docs orphan branch created (empty, no code files)"
                 BRANCH_EXISTS=true
             else
@@ -283,10 +297,27 @@ if [ -d "$INTERNAL_REPO_PATH/.git" ]; then
     echo "========================================="
     echo "Checking for startup script updates..."
     echo "========================================="
-    if git -C "$INTERNAL_REPO_PATH" pull origin main 2>&1; then
-        echo "✅ Internal repo up to date"
-    else
-        echo "⚠️  Git pull failed (may have local changes or network issue)"
+
+    # Detect the default branch (could be main or master)
+    DEFAULT_BRANCH=$(git -C "$INTERNAL_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    if [ -z "$DEFAULT_BRANCH" ]; then
+        # Fallback: try main first, then master
+        if git -C "$INTERNAL_REPO_PATH" show-ref --verify refs/remotes/origin/main >/dev/null 2>&1; then
+            DEFAULT_BRANCH="main"
+        elif git -C "$INTERNAL_REPO_PATH" show-ref --verify refs/remotes/origin/master >/dev/null 2>&1; then
+            DEFAULT_BRANCH="master"
+        else
+            echo "⚠️  Could not detect default branch, skipping pull"
+            DEFAULT_BRANCH=""
+        fi
+    fi
+
+    if [ -n "$DEFAULT_BRANCH" ]; then
+        if git -C "$INTERNAL_REPO_PATH" pull origin "$DEFAULT_BRANCH" 2>&1; then
+            echo "✅ Internal repo up to date (branch: $DEFAULT_BRANCH)"
+        else
+            echo "⚠️  Git pull failed (may have local changes or network issue)"
+        fi
     fi
     echo ""
 fi

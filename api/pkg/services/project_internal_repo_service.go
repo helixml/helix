@@ -419,7 +419,8 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 	}
 
 	// Create code repo in /filestore/repos/ (not in project dir)
-	repoID = fmt.Sprintf("%s-code", project.ID)
+	// Include sample ID to ensure uniqueness when multiple repos are created for one project
+	repoID = fmt.Sprintf("%s-%s", project.ID, sampleID)
 	repoPath = filepath.Join(s.basePath, "..", "repos", repoID)
 
 	log.Info().

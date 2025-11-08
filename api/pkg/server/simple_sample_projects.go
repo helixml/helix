@@ -273,6 +273,458 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 			},
 		},
 	},
+	{
+		ID:            "jupyter-financial-analysis",
+		Name:          "Jupyter Financial Analysis",
+		Description:   "Financial data analysis using Jupyter notebooks with S&P 500 data, trading signals, and portfolio optimization",
+		GitHubRepo:    "", // Created from sample files
+		DefaultBranch: "main",
+		Technologies:  []string{"Python", "Jupyter", "Pandas", "NumPy", "Finance", "Data Analysis"},
+		ReadmeURL:     "",
+		Difficulty:    "intermediate",
+		Category:      "data-science",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Run the initial portfolio_analysis.ipynb notebook using jupyter nbconvert and verify the Microsoft stock analysis works correctly",
+				Priority: "high",
+				Labels:   []string{"jupyter", "setup", "verification"},
+				Context:  "Use 'jupyter nbconvert --execute --to notebook --inplace portfolio_analysis.ipynb' to run the notebook from command line. Verify it downloads data and calculates returns.",
+			},
+			{
+				Prompt:   "Extend the notebook to analyze multiple tickers (AAPL, GOOGL, AMZN, NVDA) alongside MSFT and create comparison charts",
+				Priority: "medium",
+				Labels:   []string{"multi-ticker", "visualization"},
+				Context:  "Download data for all tickers, calculate returns for each, and create comparison visualizations showing relative performance.",
+			},
+			{
+				Prompt:   "Implement Simple Moving Average (SMA) and Exponential Moving Average (EMA) functions in the pyforest library",
+				Priority: "medium",
+				Labels:   []string{"indicators", "library"},
+				Context:  "Add SMA and EMA calculation functions to pyforest/pyforest/indicators.py. Common periods: 20, 50, 200 days.",
+			},
+			{
+				Prompt:   "Calculate RSI (Relative Strength Index) indicator and add it to the pyforest library and notebook analysis",
+				Priority: "medium",
+				Labels:   []string{"indicators", "rsi"},
+				Context:  "RSI measures momentum. Add to pyforest library and create visualization showing RSI with overbought (70) and oversold (30) levels.",
+			},
+			{
+				Prompt:   "Implement MACD indicator with signal line crossovers in pyforest and visualize buy/sell signals",
+				Priority: "medium",
+				Labels:   []string{"indicators", "signals"},
+				Context:  "MACD = 12-day EMA - 26-day EMA. Signal line = 9-day EMA of MACD. Identify crossover points as potential trading signals.",
+			},
+			{
+				Prompt:   "Create a correlation matrix showing relationships between all analyzed tickers",
+				Priority: "low",
+				Labels:   []string{"portfolio", "correlation"},
+				Context:  "Calculate and visualize correlation matrix to understand diversification. Use seaborn heatmap for visualization.",
+			},
+			{
+				Prompt:   "Implement Value at Risk (VaR) and maximum drawdown calculations in pyforest",
+				Priority: "medium",
+				Labels:   []string{"risk", "metrics"},
+				Context:  "VaR estimates potential loss at 95% confidence. Maximum drawdown shows worst peak-to-trough decline. Both critical for risk management.",
+			},
+			{
+				Prompt:   "Add portfolio optimization using mean-variance optimization to find optimal asset weights",
+				Priority: "high",
+				Labels:   []string{"portfolio", "optimization"},
+				Context:  "Use scipy.optimize to find portfolio weights that maximize Sharpe ratio. Compare equal-weight vs optimized portfolios.",
+			},
+			{
+				Prompt:   "Create a backtesting framework to test trading strategies based on calculated signals",
+				Priority: "high",
+				Labels:   []string{"backtesting", "strategy"},
+				Context:  "Build framework to simulate trading based on MACD/RSI signals. Track portfolio value, win rate, and returns over time.",
+			},
+			{
+				Prompt:   "Build a comprehensive trading dashboard notebook that combines all signals, metrics, and visualizations",
+				Priority: "medium",
+				Labels:   []string{"dashboard", "visualization"},
+				Context:  "Create master notebook with interactive charts showing: price history, all indicators, signals, portfolio allocation, risk metrics.",
+			},
+		},
+	},
+	{
+		ID:            "data-platform-api-migration",
+		Name:          "Data Platform API Migration Suite",
+		Description:   "Migrate data pipeline APIs from legacy infrastructure to modern data platform with automated schema mapping and ETL generation",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Python", "FastAPI", "Apache Airflow", "Pandas", "SQLAlchemy", "Pydantic"},
+		ReadmeURL:     "",
+		Difficulty:    "advanced",
+		Category:      "data-engineering",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Set up the FastAPI project structure with example legacy API endpoints to migrate",
+				Priority: "high",
+				Labels:   []string{"setup", "fastapi", "architecture"},
+				Context:  "Create a working FastAPI application with 3-5 example legacy API endpoints that return sample data. These represent the APIs we need to migrate to a modern data platform.",
+			},
+			{
+				Prompt:   "Create data schema mapping configuration that maps legacy API response schemas to modern data warehouse schemas",
+				Priority: "high",
+				Labels:   []string{"schema", "data-modeling", "migration"},
+				Context:  "Build a schema mapping system (YAML or JSON) that defines how legacy API fields map to target data warehouse columns. Include data type conversions and transformations.",
+			},
+			{
+				Prompt:   "Generate Airflow DAG that orchestrates the migration of all API endpoints in dependency order",
+				Priority: "critical",
+				Labels:   []string{"airflow", "orchestration", "etl"},
+				Context:  "Create an Airflow DAG that calls each legacy API, transforms the data using the schema mappings, and loads it into the target data warehouse. Handle dependencies between APIs.",
+			},
+			{
+				Prompt:   "Implement data quality validation checks that compare source API data with migrated warehouse data",
+				Priority: "high",
+				Labels:   []string{"data-quality", "validation", "testing"},
+				Context:  "Build validation framework that checks: row counts match, data types are correct, key fields are populated, referential integrity is maintained, no data loss occurred.",
+			},
+			{
+				Prompt:   "Add rollback capability that can revert a failed migration and restore previous state",
+				Priority: "medium",
+				Labels:   []string{"rollback", "recovery", "reliability"},
+				Context:  "Implement migration versioning and rollback mechanism. Should be able to undo a migration and return to the previous data state if validation fails.",
+			},
+			{
+				Prompt:   "Generate data lineage documentation showing the flow from source APIs through transformations to target tables",
+				Priority: "medium",
+				Labels:   []string{"documentation", "lineage", "catalog"},
+				Context:  "Create automated documentation that shows: which APIs feed which tables, what transformations are applied, data freshness/update schedules, and dependencies between datasets.",
+			},
+			{
+				Prompt:   "Build a migration dashboard that shows progress, data volumes, and quality metrics for the API migration project",
+				Priority: "low",
+				Labels:   []string{"monitoring", "dashboard", "metrics"},
+				Context:  "Create a simple web dashboard (can be Flask or FastAPI + HTML) showing: APIs migrated vs remaining, data volume processed, validation results, error rates.",
+			},
+		},
+	},
+	{
+		ID:            "portfolio-management-dotnet",
+		Name:          "Portfolio Management System (.NET)",
+		Description:   "Production-grade portfolio management and trade execution system with real-time P&L calculation and compliance",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"C#", ".NET 8", "Entity Framework Core", "In-Memory Queue", "xUnit", "SignalR"},
+		ReadmeURL:     "",
+		Difficulty:    "advanced",
+		Category:      "backend",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Set up the .NET 8 project structure with clean architecture (Domain, Application, Infrastructure layers)",
+				Priority: "critical",
+				Labels:   []string{"architecture", "dotnet", "setup"},
+				Context:  "Create a .NET solution with separate projects for Domain (entities, interfaces), Application (business logic, DTOs), Infrastructure (database, external services), and API (controllers). Use Entity Framework Core for data access.",
+			},
+			{
+				Prompt:   "Implement the Portfolio aggregate with position tracking, cash balances, and P&L calculation",
+				Priority: "critical",
+				Labels:   []string{"domain-model", "portfolio", "business-logic"},
+				Context:  "Create Portfolio entity that tracks positions (symbol, quantity, cost basis), cash balance, and calculates real-time P&L based on current market prices. Include methods for adding/removing positions.",
+			},
+			{
+				Prompt:   "Build the trade execution service with pre-trade compliance checks and order validation",
+				Priority: "high",
+				Labels:   []string{"trading", "compliance", "validation"},
+				Context:  "Implement trade execution that validates: sufficient cash/positions, position limits not exceeded, no restricted securities, valid price limits. Return detailed validation errors.",
+			},
+			{
+				Prompt:   "Add in-memory message queue for asynchronous order processing and event publishing",
+				Priority: "high",
+				Labels:   []string{"messaging", "async", "background-jobs"},
+				Context:  "Implement an in-memory message queue using System.Threading.Channels to process trade orders asynchronously. Publish events for: OrderCreated, OrderFilled, OrderRejected, PositionUpdated. This allows local development without external dependencies.",
+			},
+			{
+				Prompt:   "Implement real-time market data integration with SignalR to push price updates to clients",
+				Priority: "medium",
+				Labels:   []string{"signalr", "real-time", "market-data"},
+				Context:  "Create SignalR hub that pushes simulated real-time market price updates. Clients can subscribe to specific symbols and receive price updates every few seconds.",
+			},
+			{
+				Prompt:   "Build comprehensive unit tests for portfolio calculations and trade validation logic",
+				Priority: "high",
+				Labels:   []string{"testing", "xunit", "tdd"},
+				Context:  "Write xUnit tests covering: P&L calculations, position updates, compliance rule validation, edge cases (fractional shares, short positions, margin). Aim for >80% code coverage on business logic.",
+			},
+			{
+				Prompt:   "Add audit logging that tracks all portfolio changes and trade executions for regulatory compliance",
+				Priority: "medium",
+				Labels:   []string{"audit", "compliance", "logging"},
+				Context:  "Implement audit trail that logs: who made changes, what changed, when, why (if provided). Store in separate audit table. Include search and export capabilities for regulatory reviews.",
+			},
+			{
+				Prompt:   "Create a REST API with Swagger/OpenAPI documentation for all portfolio and trading operations",
+				Priority: "medium",
+				Labels:   []string{"api", "swagger", "documentation"},
+				Context:  "Build RESTful API controllers with full Swagger annotations. Endpoints for: get portfolio, get positions, place order, get order status, get P&L summary, get transaction history.",
+			},
+		},
+	},
+	{
+		ID:            "research-analysis-toolkit",
+		Name:          "Research Analysis Toolkit (PyForest)",
+		Description:   "Financial research notebooks using PyForest library for backtesting strategies and portfolio optimization",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Python", "Jupyter", "Pandas", "NumPy", "Matplotlib", "PyForest"},
+		ReadmeURL:     "",
+		Difficulty:    "intermediate",
+		Category:      "data-science",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Create initial research notebook that uses PyForest to load sample portfolio data and calculate basic metrics",
+				Priority: "high",
+				Labels:   []string{"setup", "notebook", "pyforest"},
+				Context:  "Build a Jupyter notebook that imports PyForest, loads sample portfolio holdings data (CSV or mock data), and calculates: total value, sector allocation, top positions, daily P&L.",
+			},
+			{
+				Prompt:   "Implement a simple moving average crossover strategy and backtest it against historical data",
+				Priority: "high",
+				Labels:   []string{"backtesting", "strategy", "sma"},
+				Context:  "Create strategy that buys when 50-day SMA crosses above 200-day SMA, sells on opposite cross. Backtest on sample tickers, calculate: total return, Sharpe ratio, max drawdown, win rate.",
+			},
+			{
+				Prompt:   "Build portfolio optimization notebook that finds optimal asset weights using mean-variance optimization",
+				Priority: "medium",
+				Labels:   []string{"optimization", "portfolio", "markowitz"},
+				Context:  "Use scipy.optimize to find portfolio weights that maximize Sharpe ratio for a basket of 5-10 stocks. Compare efficient frontier of different weight combinations. Visualize risk-return tradeoff.",
+			},
+			{
+				Prompt:   "Add risk factor analysis that decomposes portfolio returns into systematic and idiosyncratic components",
+				Priority: "medium",
+				Labels:   []string{"risk", "factor-analysis", "attribution"},
+				Context:  "Implement factor model (Fama-French 3-factor or simple market model). Decompose portfolio returns into: market beta, size factor, value factor, alpha. Show which factors drive performance.",
+			},
+			{
+				Prompt:   "Create parameter sweep notebook that tests strategy performance across different parameter combinations",
+				Priority: "low",
+				Labels:   []string{"optimization", "parameter-tuning", "analysis"},
+				Context:  "Test SMA crossover strategy with different period combinations (20/50, 50/100, 50/200, 100/200). Generate heatmap showing performance across parameter space to identify optimal parameters.",
+			},
+		},
+	},
+	{
+		ID:            "data-validation-toolkit",
+		Name:          "Data Validation Toolkit (Jupyter)",
+		Description:   "Compare data structures between systems, generate quality reports, and validate migrations",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Python", "Jupyter", "Pandas", "Great Expectations", "Matplotlib"},
+		ReadmeURL:     "",
+		Difficulty:    "intermediate",
+		Category:      "data-engineering",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Build a data profiling notebook that analyzes structure and quality of source and target datasets",
+				Priority: "high",
+				Labels:   []string{"profiling", "analysis", "data-quality"},
+				Context:  "Create notebook that profiles both datasets: column names/types, null counts, unique values, min/max/mean, distribution charts. Identify structural differences between source and target.",
+			},
+			{
+				Prompt:   "Implement automated comparison logic that detects schema mismatches and data type inconsistencies",
+				Priority: "critical",
+				Labels:   []string{"validation", "schema", "comparison"},
+				Context:  "Compare source vs target: missing/extra columns, data type mismatches, constraint violations, referential integrity issues. Generate detailed mismatch report with severity levels.",
+			},
+			{
+				Prompt:   "Create Great Expectations test suite that validates data quality rules for the migration",
+				Priority: "high",
+				Labels:   []string{"great-expectations", "testing", "validation"},
+				Context:  "Define Great Expectations suite with expectations for: column existence, data types, value ranges, null constraints, uniqueness, referential integrity. Generate HTML validation report.",
+			},
+			{
+				Prompt:   "Build visual data quality dashboard showing validation results with charts and summary statistics",
+				Priority: "medium",
+				Labels:   []string{"visualization", "dashboard", "reporting"},
+				Context:  "Create comprehensive visual report with: pass/fail counts by category, trend charts over time, top data quality issues, affected row counts. Use matplotlib/seaborn for charts.",
+			},
+			{
+				Prompt:   "Add row-level data reconciliation that identifies specific records with discrepancies",
+				Priority: "medium",
+				Labels:   []string{"reconciliation", "data-quality", "debugging"},
+				Context:  "Compare source and target datasets row-by-row. Identify: missing rows, extra rows, rows with different values. Generate CSV report of discrepancies for investigation.",
+			},
+		},
+	},
+	{
+		ID:            "angular-analytics-dashboard",
+		Name:          "Multi-Tenant Analytics Dashboard (Angular)",
+		Description:   "Multi-tenant analytics dashboard with RBAC, real-time updates, and configurable visualizations",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Angular", "TypeScript", "RxJS", "NgRx", "PrimeNG", "Chart.js"},
+		ReadmeURL:     "",
+		Difficulty:    "advanced",
+		Category:      "frontend",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Set up Angular 18 project with NgRx state management and PrimeNG component library",
+				Priority: "critical",
+				Labels:   []string{"setup", "angular", "ngrx"},
+				Context:  "Create new Angular application with: NgRx for state management, PrimeNG for UI components, routing configured, environment setup for dev/prod. Include sample authentication guard.",
+			},
+			{
+				Prompt:   "Implement multi-tenant context management that switches data and branding based on selected tenant",
+				Priority: "critical",
+				Labels:   []string{"multi-tenant", "context", "isolation"},
+				Context:  "Build tenant context service that: stores current tenant ID, fetches tenant-specific configuration (colors, logo, name), filters all API calls by tenant, prevents cross-tenant data leakage.",
+			},
+			{
+				Prompt:   "Create configurable dashboard layout with drag-and-drop widget positioning using Angular CDK",
+				Priority: "high",
+				Labels:   []string{"dashboard", "drag-drop", "layout"},
+				Context:  "Build dashboard grid where users can add/remove/resize widgets. Widgets include: KPI cards, line charts, bar charts, data tables. Save layout preferences per user. Use Angular CDK drag-drop.",
+			},
+			{
+				Prompt:   "Add real-time data updates using RxJS WebSocket integration with automatic reconnection",
+				Priority: "high",
+				Labels:   []string{"websocket", "real-time", "rxjs"},
+				Context:  "Implement WebSocket service with RxJS that: connects to backend WebSocket, handles reconnection on disconnect, broadcasts updates to dashboard widgets, manages subscription lifecycle.",
+			},
+			{
+				Prompt:   "Implement role-based access control (RBAC) that shows/hides features based on user permissions",
+				Priority: "critical",
+				Labels:   []string{"rbac", "authorization", "security"},
+				Context:  "Create permission service that: checks user roles (Admin, Manager, Viewer), shows/hides UI elements based on permissions, prevents unauthorized API calls, handles permission changes without page reload.",
+			},
+			{
+				Prompt:   "Build data export functionality that generates PDF reports and Excel downloads from dashboard data",
+				Priority: "medium",
+				Labels:   []string{"export", "reporting", "pdf-excel"},
+				Context:  "Add export buttons to dashboard that: generate PDF reports with charts using jsPDF, create Excel files with data tables using SheetJS, include filters and date ranges in exports.",
+			},
+			{
+				Prompt:   "Add Chart.js integration with interactive charts that respond to user filters and selections",
+				Priority: "medium",
+				Labels:   []string{"charts", "visualization", "chartjs"},
+				Context:  "Integrate Chart.js for data visualization. Charts should: update when filters change, support drill-down on click, show tooltips with details, be responsive on mobile, support dark/light themes.",
+			},
+			{
+				Prompt:   "Implement comprehensive error handling with user-friendly error messages and retry logic",
+				Priority: "medium",
+				Labels:   []string{"error-handling", "ux", "resilience"},
+				Context:  "Build global error handler that: catches HTTP errors, displays user-friendly messages, offers retry for transient failures, logs errors for debugging, prevents app crashes from unhandled exceptions.",
+			},
+		},
+	},
+	{
+		ID:            "angular-version-migration",
+		Name:          "Angular Version Migration (15 → 18)",
+		Description:   "Migrate an Angular 15 application to Angular 18 with standalone components and modern patterns",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"Angular", "TypeScript", "Migration", "Refactoring"},
+		ReadmeURL:     "",
+		Difficulty:    "advanced",
+		Category:      "frontend",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Analyze the Angular 15 codebase and document all breaking changes needed for Angular 18 migration",
+				Priority: "critical",
+				Labels:   []string{"analysis", "breaking-changes", "migration-planning"},
+				Context:  "Review the codebase and create a comprehensive list of: deprecated APIs in use, NgModule dependencies, non-standalone components, old routing patterns, deprecated RxJS operators. Generate migration checklist.",
+			},
+			{
+				Prompt:   "Update package.json dependencies from Angular 15 to Angular 18 and resolve peer dependency conflicts",
+				Priority: "high",
+				Labels:   []string{"dependencies", "npm", "version-upgrade"},
+				Context:  "Update all @angular/* packages to ^18.0.0, update TypeScript to ~5.4.0, update RxJS to ^7.8.0. Run npm install and resolve any peer dependency warnings. Document any packages that need major version updates.",
+			},
+			{
+				Prompt:   "Migrate NgModule-based components to standalone components throughout the application",
+				Priority: "critical",
+				Labels:   []string{"standalone-components", "refactoring", "architecture"},
+				Context:  "Convert all components from NgModule declarations to standalone components. Add standalone: true, move imports from NgModule to component imports array. Update app bootstrapping to use bootstrapApplication.",
+			},
+			{
+				Prompt:   "Update routing configuration to use new provideRouter and standalone routing patterns",
+				Priority: "high",
+				Labels:   []string{"routing", "standalone", "migration"},
+				Context:  "Replace RouterModule.forRoot() with provideRouter() in main.ts. Update lazy loading to use loadComponent instead of loadChildren. Migrate route guards to functional guards.",
+			},
+			{
+				Prompt:   "Fix deprecated RxJS operators and update to pipeable operators throughout the codebase",
+				Priority: "medium",
+				Labels:   []string{"rxjs", "deprecated", "refactoring"},
+				Context:  "Replace any remaining deprecated RxJS patterns: import from 'rxjs/operators', update .pipe() chains, fix deprecated operators like do() → tap(), switch() → switchMap().",
+			},
+			{
+				Prompt:   "Update HttpClient usage to remove deprecated HttpModule and ensure proper injection",
+				Priority: "medium",
+				Labels:   []string{"http", "providers", "migration"},
+				Context:  "Ensure HttpClient is provided via provideHttpClient() in main.ts. Remove old HttpModule/HttpClientModule imports. Update interceptor registration to new functional pattern.",
+			},
+			{
+				Prompt:   "Run Angular update schematics and apply automated migrations where possible",
+				Priority: "high",
+				Labels:   []string{"ng-update", "automation", "tooling"},
+				Context:  "Use 'ng update @angular/core@18 @angular/cli@18' to run automated migrations. Review and commit schematic changes. Document any manual fixes needed after automated migration.",
+			},
+			{
+				Prompt:   "Test the migrated application thoroughly and fix any runtime errors or behavioral changes",
+				Priority: "critical",
+				Labels:   []string{"testing", "qa", "validation"},
+				Context:  "Run the app in dev mode, test all routes and features, check console for errors/warnings. Fix any runtime issues: dependency injection errors, routing problems, API changes. Ensure feature parity with Angular 15 version.",
+			},
+		},
+	},
+	{
+		ID:            "cobol-modernization",
+		Name:          "Legacy COBOL Modernization",
+		Description:   "Analyze COBOL mainframe code, write modern specs, and implement in Python/Java",
+		GitHubRepo:    "",
+		DefaultBranch: "main",
+		Technologies:  []string{"COBOL", "Legacy Modernization", "Python", "Spec Writing"},
+		ReadmeURL:     "",
+		Difficulty:    "advanced",
+		Category:      "modernization",
+		TaskPrompts: []SampleTaskPrompt{
+			{
+				Prompt:   "Analyze the legacy COBOL batch processing program and document its business logic and data flows",
+				Priority: "critical",
+				Labels:   []string{"analysis", "cobol", "reverse-engineering"},
+				Context:  "Read the COBOL source code and understand: what it does, input files and formats, output files and formats, business rules and calculations, error handling logic, dependencies on other programs. Create high-level flow diagram.",
+			},
+			{
+				Prompt:   "Write comprehensive requirements specification based on COBOL program behavior",
+				Priority: "critical",
+				Labels:   []string{"requirements", "specification", "documentation"},
+				Context:  "Document functional requirements extracted from COBOL: input validation rules, business logic steps, calculation formulas, output format requirements, error handling requirements, performance requirements. Write as if specifying a new system.",
+			},
+			{
+				Prompt:   "Create technical design for modern Python implementation that matches COBOL program behavior",
+				Priority: "high",
+				Labels:   []string{"design", "architecture", "modernization"},
+				Context:  "Design modern Python architecture: module structure, data models (dataclasses/Pydantic), processing pipeline, file I/O patterns, error handling strategy, logging approach. Ensure it can produce identical outputs to COBOL version.",
+			},
+			{
+				Prompt:   "Implement the Python version of the COBOL batch processor with identical business logic",
+				Priority: "critical",
+				Labels:   []string{"implementation", "python", "migration"},
+				Context:  "Code the Python implementation following the technical design. Use Pandas for data processing, pathlib for file operations, logging for audit trails. Replicate COBOL calculations exactly, handle edge cases the same way.",
+			},
+			{
+				Prompt:   "Create validation test suite that compares COBOL output with Python output for test datasets",
+				Priority: "critical",
+				Labels:   []string{"validation", "testing", "quality-assurance"},
+				Context:  "Build comprehensive test suite: generate test input files, run both COBOL and Python versions, compare outputs byte-by-byte or field-by-field. Ensure 100% match for calculation logic. Document any intentional differences.",
+			},
+			{
+				Prompt:   "Generate migration runbook with step-by-step cutover procedures and rollback plan",
+				Priority: "high",
+				Labels:   []string{"runbook", "operations", "deployment"},
+				Context:  "Create detailed runbook for production cutover: pre-migration checklist, parallel run procedures, validation gates, rollback procedures if issues found, post-migration monitoring. Include decision points and escalation paths.",
+			},
+			{
+				Prompt:   "Document the COBOL-to-Python mapping showing how legacy logic translates to modern code",
+				Priority: "medium",
+				Labels:   []string{"documentation", "knowledge-transfer", "mapping"},
+				Context:  "Create reference documentation showing: COBOL paragraph → Python function mapping, COBOL data structures → Python data models, COBOL file operations → Python file I/O. This helps future maintenance and explains design decisions.",
+			},
+		},
+	},
 }
 
 // listSimpleSampleProjects godoc
@@ -536,6 +988,85 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Str("project_id", createdProject.ID).
 			Str("repo_id", codeRepoID).
 			Msg("✅ Helix code repository created successfully")
+	} else if req.SampleProjectID == "jupyter-financial-analysis" {
+		// Special case: Create TWO repositories - one for notebooks, one for pyforest library
+
+		// Repository 1: Jupyter notebooks
+		notebooksRepoID, notebooksPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "jupyter-notebooks")
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Msg("❌ Failed to initialize notebooks repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize notebooks repository: %v", repoErr))
+		}
+
+		notebooksRepo := &store.GitRepository{
+			ID:             notebooksRepoID,
+			Name:           fmt.Sprintf("%s-notebooks", data.SlugifyName(createdProject.Name)),
+			Description:    "Jupyter notebooks for financial analysis",
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code",
+			Status:         "ready",
+			LocalPath:      notebooksPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   `{"repo_purpose": "notebooks"}`,
+		}
+
+		err = s.Store.CreateGitRepository(ctx, notebooksRepo)
+		if err != nil {
+			log.Error().Err(err).Msg("❌ Failed to create notebooks repository entry")
+			return nil, system.NewHTTPError500("failed to create notebooks repository")
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", notebooksRepoID).
+			Msg("✅ Notebooks repository created")
+
+		// Repository 2: pyforest library
+		pyforestRepoID, pyforestPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, "pyforest-library")
+		if repoErr != nil {
+			log.Error().
+				Err(repoErr).
+				Str("project_id", createdProject.ID).
+				Msg("❌ Failed to initialize pyforest library repository")
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize pyforest repository: %v", repoErr))
+		}
+
+		pyforestRepo := &store.GitRepository{
+			ID:             pyforestRepoID,
+			Name:           "pyforest",
+			Description:    "Python library for financial analysis and portfolio management",
+			OwnerID:        user.ID,
+			OrganizationID: createdProject.OrganizationID,
+			ProjectID:      createdProject.ID,
+			RepoType:       "code",
+			Status:         "ready",
+			LocalPath:      pyforestPath,
+			DefaultBranch:  "main",
+			MetadataJSON:   `{"repo_purpose": "library"}`,
+		}
+
+		err = s.Store.CreateGitRepository(ctx, pyforestRepo)
+		if err != nil {
+			log.Error().Err(err).Msg("❌ Failed to create pyforest repository entry")
+			return nil, system.NewHTTPError500("failed to create pyforest repository")
+		}
+
+		log.Info().
+			Str("project_id", createdProject.ID).
+			Str("repo_id", pyforestRepoID).
+			Msg("✅ PyForest library repository created")
+
+		// Set notebooks repo as primary (default repo)
+		createdProject.DefaultRepoID = notebooksRepoID
+		err = s.Store.UpdateProject(ctx, createdProject)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to set default repo, continuing anyway")
+		}
 	} else {
 		// Use hardcoded sample code for all other samples
 		codeRepoID, codeRepoPath, repoErr := s.projectInternalRepoService.InitializeCodeRepoFromSample(ctx, createdProject, req.SampleProjectID)
@@ -610,8 +1141,10 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Create spec-driven tasks from the natural language prompts
+	// Iterate in reverse order so first task appears at top of backlog (newest CreatedAt)
 	tasksCreated := 0
-	for _, taskPrompt := range sampleProject.TaskPrompts {
+	for i := len(sampleProject.TaskPrompts) - 1; i >= 0; i-- {
+		taskPrompt := sampleProject.TaskPrompts[i]
 		task := &types.SpecTask{
 			ID:          system.GenerateUUID(),
 			ProjectID:   createdProject.ID,
