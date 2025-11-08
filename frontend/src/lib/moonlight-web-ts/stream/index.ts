@@ -48,6 +48,7 @@ export class Stream {
     private settings: StreamSettings
     private mode: "create" | "join" | "keepalive" | "peer"
     private streamerId?: string
+    private clientUniqueId?: string | null
 
     private eventTarget = new EventTarget()
 
@@ -74,6 +75,7 @@ export class Stream {
     ) {
         this.mode = mode
         this.streamerId = streamerId
+        this.clientUniqueId = clientUniqueId
         this.api = api
         this.hostId = hostId
         this.appId = appId
@@ -91,26 +93,27 @@ export class Stream {
 
         // Build WebSocket URL (browser sends HttpOnly auth cookie automatically)
         const wsUrl = `${api.host_url}${wsEndpoint}`;
-        console.log('[Stream] Creating WebSocket connection to:', wsUrl);
+        const wsLogPrefix = `[WS:${clientUniqueId?.substring(0, 20) || 'no-id'}...]`;
+        console.log(`${wsLogPrefix} Creating WebSocket connection to:`, wsUrl);
         this.ws = new WebSocket(wsUrl)
-        console.log('[Stream] WebSocket object created, readyState:', this.ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+        console.log(`${wsLogPrefix} WebSocket object created, readyState:`, this.ws.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
 
         this.ws.addEventListener("error", (event) => {
-            console.error('[Stream] WebSocket ERROR event:', event);
+            console.error(`${wsLogPrefix} WebSocket ERROR event:`, event);
             this.onError(event);
         })
         this.ws.addEventListener("open", (event) => {
-            console.log('[Stream] WebSocket OPEN event - connection established!');
+            console.log(`${wsLogPrefix} WebSocket OPEN event - connection established!`);
             try {
-                console.log('[Stream] About to call onWsOpen()...');
+                console.log(`${wsLogPrefix} About to call onWsOpen()...`);
                 this.onWsOpen();
-                console.log('[Stream] onWsOpen() completed successfully');
+                console.log(`${wsLogPrefix} onWsOpen() completed successfully`);
             } catch (err) {
-                console.error('[Stream] ERROR in onWsOpen():', err);
+                console.error(`${wsLogPrefix} ERROR in onWsOpen():`, err);
             }
         })
         this.ws.addEventListener("close", (event) => {
-            console.log('[Stream] WebSocket CLOSE event:', event.code, event.reason);
+            console.log(`${wsLogPrefix} WebSocket CLOSE event:`, event.code, event.reason);
             this.onWsClose();
         })
         this.ws.addEventListener("message", this.onRawWsMessage.bind(this))
@@ -123,7 +126,7 @@ export class Stream {
         // In "peer" mode, don't send AuthenticateAndInit (streamer already initialized)
         // In other modes, send AuthenticateAndInit to establish the session
         if (mode !== "peer") {
-            this.sendWsMessage({
+            const authMessage = {
                 AuthenticateAndInit: {
                     credentials: this.api.credentials,
                     session_id: finalSessionId,
@@ -146,7 +149,15 @@ export class Stream {
                     video_colorspace: "Rec709",
                     video_color_range_full: true,  // Full range (JPEG, 0-255) - trying this again
                 }
-            })
+            }
+            console.log('[Stream] Sending AuthenticateAndInit:', {
+                session_id: finalSessionId,
+                client_unique_id: clientUniqueId,
+                mode: mode,
+                host_id: this.hostId,
+                app_id: this.appId
+            });
+            this.sendWsMessage(authMessage)
         }
 
         // Stream Input
@@ -226,13 +237,17 @@ export class Stream {
     }
 
     private async onMessage(message: StreamServerMessage | StreamServerGeneralMessage) {
+        const logPrefix = `[${this.clientUniqueId || 'no-client-id'}]`;
+
         if (typeof message == "string") {
+            console.log(`[Stream] ${logPrefix} Received error message:`, message);
             const event: InfoEvent = new CustomEvent("stream-info", {
                 detail: { type: "error", message }
             })
 
             this.eventTarget.dispatchEvent(event)
         } else if ("StageStarting" in message) {
+            console.log(`[Stream] ${logPrefix} Stage starting:`, message.StageStarting.stage);
             const event: InfoEvent = new CustomEvent("stream-info", {
                 detail: { type: "stageStarting", stage: message.StageStarting.stage }
             })
@@ -443,13 +458,16 @@ export class Stream {
             this.debugLog("OnConnectionStateChange without a peer")
             return
         }
-        this.debugLog(`Changing Peer State to ${this.peer.connectionState}`)
+        const logPrefix = `[${this.clientUniqueId || 'no-client-id'}]`;
+        this.debugLog(`${logPrefix} Changing Peer State to ${this.peer.connectionState}`)
+        console.log(`[Stream] ${logPrefix} RTCPeerConnection state:`, this.peer.connectionState);
 
         if (this.peer.connectionState == "failed" || this.peer.connectionState == "disconnected" || this.peer.connectionState == "closed") {
+            console.error(`[Stream] ${logPrefix} Connection failed! State:`, this.peer.connectionState);
             const customEvent: InfoEvent = new CustomEvent("stream-info", {
                 detail: {
                     type: "error",
-                    message: `Connection state is ${this.peer.connectionState}`
+                    message: `Connection state is ${this.peer.connectionState} (client: ${this.clientUniqueId})`
                 }
             })
 
@@ -461,7 +479,9 @@ export class Stream {
             this.debugLog("OnIceConnectionStateChange without a peer")
             return
         }
-        this.debugLog(`Changing Peer Ice State to ${this.peer.iceConnectionState}`)
+        const logPrefix = `[${this.clientUniqueId || 'no-client-id'}]`;
+        this.debugLog(`${logPrefix} Changing Peer Ice State to ${this.peer.iceConnectionState}`)
+        console.log(`[Stream] ${logPrefix} ICE connection state:`, this.peer.iceConnectionState);
     }
 
     private onDataChannel(event: RTCDataChannelEvent) {

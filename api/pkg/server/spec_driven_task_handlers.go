@@ -488,6 +488,52 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// When archiving, stop any running external agents
+	if req.Archived {
+		// Stop the planning session external agent if it's running
+		if task.SpecSessionID != "" {
+			session, sessionErr := s.Store.GetSession(r.Context(), task.SpecSessionID)
+			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
+				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.SpecSessionID)
+				if stopErr != nil {
+					log.Warn().
+						Err(stopErr).
+						Str("task_id", taskID).
+						Str("session_id", task.SpecSessionID).
+						Msg("Failed to stop planning session agent when archiving (continuing anyway)")
+				} else {
+					log.Info().
+						Str("task_id", taskID).
+						Str("session_id", task.SpecSessionID).
+						Msg("Stopped planning session agent before archiving")
+				}
+			}
+		}
+
+		// Stop any implementation session agents
+		// Get all sessions for this task's project and stop ones related to this task
+		externalAgent, agentErr := s.Store.GetSpecTaskExternalAgent(r.Context(), taskID)
+		if agentErr == nil && externalAgent != nil && externalAgent.Status == "running" {
+			stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), externalAgent.ID)
+			if stopErr != nil {
+				log.Warn().
+					Err(stopErr).
+					Str("task_id", taskID).
+					Str("agent_id", externalAgent.ID).
+					Msg("Failed to stop external agent when archiving (continuing anyway)")
+			} else {
+				// Update agent status
+				externalAgent.Status = "stopped"
+				s.Store.UpdateSpecTaskExternalAgent(r.Context(), externalAgent)
+
+				log.Info().
+					Str("task_id", taskID).
+					Str("agent_id", externalAgent.ID).
+					Msg("Stopped external agent before archiving")
+			}
+		}
+	}
+
 	// Update archived status
 	task.Archived = req.Archived
 

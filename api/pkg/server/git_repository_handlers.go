@@ -422,6 +422,54 @@ func (apiServer *HelixAPIServer) getSampleTypes(w http.ResponseWriter, r *http.R
 			Description: "Write 10 blog posts about Helix system by analyzing the actual codebase",
 			TechStack:   []string{"documentation", "git", "markdown", "technical-writing"},
 		},
+		{
+			ID:          "jupyter-financial-analysis",
+			Name:        "Jupyter Financial Analysis",
+			Description: "Financial data analysis using Jupyter notebooks with S&P 500 data and trading signals",
+			TechStack:   []string{"python", "jupyter", "pandas", "numpy", "finance", "data-analysis"},
+		},
+		{
+			ID:          "data-platform-api-migration",
+			Name:        "Data Platform API Migration Suite",
+			Description: "Migrate data pipeline APIs from legacy infrastructure to modern data platform",
+			TechStack:   []string{"python", "fastapi", "airflow", "pandas", "sqlalchemy", "pydantic"},
+		},
+		{
+			ID:          "portfolio-management-dotnet",
+			Name:        "Portfolio Management System (.NET)",
+			Description: "Production-grade portfolio management and trade execution system",
+			TechStack:   []string{"csharp", "dotnet", "entity-framework", "messaging", "xunit", "signalr"},
+		},
+		{
+			ID:          "research-analysis-toolkit",
+			Name:        "Research Analysis Toolkit (PyForest)",
+			Description: "Financial research notebooks for backtesting and portfolio optimization",
+			TechStack:   []string{"python", "jupyter", "pandas", "numpy", "pyforest", "backtesting"},
+		},
+		{
+			ID:          "data-validation-toolkit",
+			Name:        "Data Validation Toolkit",
+			Description: "Compare data structures and validate migrations with quality reports",
+			TechStack:   []string{"python", "jupyter", "pandas", "great-expectations", "data-quality"},
+		},
+		{
+			ID:          "angular-analytics-dashboard",
+			Name:        "Multi-Tenant Analytics Dashboard",
+			Description: "Multi-tenant analytics dashboard with RBAC and real-time updates",
+			TechStack:   []string{"angular", "typescript", "rxjs", "ngrx", "primeng", "chartjs"},
+		},
+		{
+			ID:          "angular-version-migration",
+			Name:        "Angular Version Migration (15 → 18)",
+			Description: "Migrate Angular 15 app to Angular 18 with standalone components",
+			TechStack:   []string{"angular", "typescript", "migration", "refactoring"},
+		},
+		{
+			ID:          "cobol-modernization",
+			Name:        "Legacy COBOL Modernization",
+			Description: "Analyze COBOL code, write specs, and implement in modern language",
+			TechStack:   []string{"cobol", "legacy", "python", "modernization", "spec-writing"},
+		},
 	}
 
 	response := SampleTypesResponse{

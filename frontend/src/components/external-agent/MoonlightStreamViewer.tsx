@@ -29,6 +29,7 @@ interface MoonlightStreamViewerProps {
   isRestart?: boolean; // Whether this is a restart (vs first start)
   onConnectionChange?: (isConnected: boolean) => void;
   onError?: (error: string) => void;
+  onClientIdCalculated?: (clientId: string) => void; // Callback when client unique ID is calculated
   width?: number;
   height?: number;
   className?: string;
@@ -56,6 +57,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   isRestart = false,
   onConnectionChange,
   onError,
+  onClientIdCalculated,
   width = 3840,
   height = 2160,
   className = '',
@@ -65,6 +67,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const streamRef = useRef<any>(null); // Stream instance from moonlight-web
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
+
+  // Generate unique ID for this component instance (persists across re-renders)
+  const componentInstanceIdRef = useRef<string>(`${Math.random().toString(36).substring(2, 15)}`)
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -227,6 +232,16 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
 
         const lobbyIdPart = wolfLobbyId ? `-${wolfLobbyId}` : '';
         const uniqueClientId = `helix-agent-${sessionId}${lobbyIdPart}-${FRONTEND_INSTANCE_ID}`;
+
+        console.log(`[MoonlightStream] Creating stream with uniqueClientId: ${uniqueClientId}`, {
+          sessionId,
+          wolfLobbyId,
+          FRONTEND_INSTANCE_ID,
+          componentInstanceId: componentInstanceIdRef.current,
+        });
+
+        // Notify parent component of calculated client ID
+        onClientIdCalculated?.(uniqueClientId);
 
         stream = new Stream(
           api,

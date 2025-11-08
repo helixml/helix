@@ -143,6 +143,7 @@ export const SessionToolbar: FC<{
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [showPin, setShowPin] = useState(false)
   const [clientMenuAnchor, setClientMenuAnchor] = useState<null | HTMLElement>(null)
+  const [showMoonlightControls, setShowMoonlightControls] = useState(false)
 
   useEffect(() => {
     setSessionName(session.name)
@@ -382,7 +383,7 @@ export const SessionToolbar: FC<{
             )}
 
             {/* Streaming Setup Process - Right aligned */}
-            {(isOwner || account.admin) && isExternalAgent && (
+            {(isOwner || account.admin) && isExternalAgent && showMoonlightControls && (
               <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -562,6 +563,24 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
+              {(isOwner || account.admin) && isExternalAgent && (
+                <Cell>
+                  <Tooltip title={showMoonlightControls ? "Hide Moonlight Setup" : "Show Moonlight Setup"}>
+                    <IconButton
+                      onClick={() => setShowMoonlightControls(!showMoonlightControls)}
+                      size="small"
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        },
+                      }}
+                    >
+                      <ConnectedTv sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Cell>
+              )}
               <Cell>
                 <Tooltip title="New Session">
                   <IconButton

@@ -83,32 +83,18 @@ const LiveAgentScreenshot: React.FC<{
   sessionId: string;
   projectId?: string;
 }> = React.memo(({ sessionId, projectId }) => {
-  const account = useAccount();
-
-  const handleClick = React.useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    account.orgNavigate('project-session', { id: projectId, session_id: sessionId });
-  }, [account, projectId, sessionId]);
-
   return (
     <Box
       sx={{
         mt: 1,
         mb: 1,
-        cursor: 'pointer',
         position: 'relative',
         borderRadius: 1,
         overflow: 'hidden',
         border: '1px solid',
         borderColor: 'divider',
         minHeight: 80,
-        '&:hover': {
-          borderColor: 'primary.main',
-          boxShadow: 2,
-        },
-        transition: 'all 0.2s',
       }}
-      onClick={handleClick}
     >
       <Box sx={{ position: 'relative', height: 150 }}>
         <ExternalAgentDesktopViewer
@@ -176,6 +162,7 @@ interface SpecTaskKanbanBoardProps {
   userId?: string;
   projectId?: string; // Filter tasks by project ID
   onCreateTask?: () => void;
+  onTaskClick?: (task: any) => void;
   onRefresh?: () => void;
   refreshing?: boolean;
   refreshTrigger?: number;
@@ -194,8 +181,9 @@ const TaskCard: React.FC<{
   columns: KanbanColumn[];
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  onTaskClick?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
-}> = ({ task, index, columns, onStartPlanning, onArchiveTask, projectId }) => {
+}> = ({ task, index, columns, onStartPlanning, onArchiveTask, onTaskClick, projectId }) => {
   const account = useAccount();
 
   // Check if planning column is full
@@ -213,9 +201,14 @@ const TaskCard: React.FC<{
 
   return (
     <Card
+      onClick={() => onTaskClick && onTaskClick(task)}
       sx={{
         mb: 1,
         backgroundColor: 'background.paper',
+        cursor: 'pointer',
+        '&:hover': {
+          boxShadow: 2,
+        },
       }}
     >
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
@@ -333,9 +326,10 @@ const DroppableColumn: React.FC<{
   columns: KanbanColumn[];
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
+  onTaskClick?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, projectId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, projectId, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -352,6 +346,7 @@ const DroppableColumn: React.FC<{
         columns={columns}
         onStartPlanning={onStartPlanning}
         onArchiveTask={onArchiveTask}
+        onTaskClick={onTaskClick}
         projectId={projectId}
       />
     );
@@ -418,6 +413,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   userId,
   projectId,
   onCreateTask,
+  onTaskClick,
   onRefresh,
   refreshing = false,
   refreshTrigger,
@@ -436,6 +432,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
 
   // Design doc viewer state
   const [docViewerOpen, setDocViewerOpen] = useState(false);
@@ -918,6 +916,19 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   // Handle archiving/unarchiving a task
   const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
+    // If archiving (not unarchiving), show confirmation dialog
+    if (archived) {
+      setTaskToArchive(task);
+      setArchiveConfirmOpen(true);
+      return;
+    }
+
+    // Unarchiving doesn't need confirmation
+    await performArchive(task, archived);
+  };
+
+  // Actually perform the archive operation (called after confirmation or for unarchive)
+  const performArchive = async (task: SpecTaskWithExtras, archived: boolean) => {
     try {
       await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, { archived });
 
@@ -1491,6 +1502,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             columns={columns}
             onStartPlanning={handleStartPlanning}
             onArchiveTask={handleArchiveTask}
+            onTaskClick={onTaskClick}
             projectId={projectId}
             theme={theme}
           />
@@ -1574,6 +1586,47 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             disabled={!newTaskRequirements.trim() || !selectedSampleType}
           >
             Start Planning
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Archive Confirmation Dialog */}
+      <Dialog open={archiveConfirmOpen} onClose={() => setArchiveConfirmOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Archive Task?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              Archiving this task will:
+            </Typography>
+            <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+              <li><Typography variant="body2">Stop any running external agents</Typography></li>
+              <li><Typography variant="body2">Lose any unsaved data in the desktop</Typography></li>
+              <li><Typography variant="body2">Hide the task from the board</Typography></li>
+            </ul>
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            The conversation history will be preserved and you can restore the task later.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setArchiveConfirmOpen(false);
+            setTaskToArchive(null);
+          }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (taskToArchive) {
+                setArchiveConfirmOpen(false);
+                await performArchive(taskToArchive, true);
+                setTaskToArchive(null);
+              }
+            }}
+            variant="contained"
+            color="warning"
+          >
+            Archive Task
           </Button>
         </DialogActions>
       </Dialog>
