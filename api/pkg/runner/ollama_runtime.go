@@ -547,9 +547,24 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
-		return nil, nil, fmt.Errorf("ollama not found in PATH")
+		// Fallback to common macOS installation paths if PATH lookup fails
+		commonPaths := []string{
+			"/usr/local/bin/ollama",
+			"/opt/homebrew/bin/ollama",
+		}
+		for _, path := range commonPaths {
+			if _, err := os.Stat(path); err == nil {
+				ollamaPath = path
+				log.Debug().Str("ollama_path", ollamaPath).Msg("Found ollama at fallback path")
+				break
+			}
+		}
+		if ollamaPath == "" {
+			return nil, nil, fmt.Errorf("ollama not found in PATH or common installation directories (/usr/local/bin/ollama, /opt/homebrew/bin/ollama)")
+		}
+	} else {
+		log.Debug().Str("ollama_path", ollamaPath).Msg("Found ollama in PATH")
 	}
-	log.Debug().Str("ollama_path", ollamaPath).Msg("Found ollama")
 
 	// Prepare ollama serve command
 	log.Debug().Msg("Preparing ollama serve command")
