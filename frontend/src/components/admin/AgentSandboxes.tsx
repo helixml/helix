@@ -150,8 +150,12 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
         <svg width={svgWidth} height={svgHeight} style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
           {/* Draw container-to-session connection lines */}
           {sessions.map((session) => {
-            // In apps mode, session.app_id directly identifies the connected container
-            const connectedContainerId = session.app_id
+            // Find Wolf client connection data to get lobby_id (in lobbies mode)
+            const wolfClient = clientConnections.find(c => c.session_id === session.session_id)
+
+            // In lobbies mode, check if session is in a lobby (has lobby_id)
+            // Otherwise, use app_id (Wolf UI or app)
+            const connectedContainerId = wolfClient?.lobby_id || session.app_id
             if (!connectedContainerId) return null
 
             const uniqueKey = `${session.session_id}-${session.app_id}`
@@ -186,62 +190,21 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
 
           {/* Draw session-to-client connection lines */}
           {moonlightClients.map((client) => {
-            // Extract Helix session ID from moonlight client session ID (format: "agent-{sessionId}")
-            const helixSessionId = client.session_id.replace(/^agent-/, '')
-
-            // Find the app this client corresponds to by matching title
-            // Title format changed to "Agent {last4}" for compact display
-            const shortId = helixSessionId.slice(-4)
-            const expectedAppTitle = `Agent ${shortId}`
-            const clientApp = apps.find(app => app.title === expectedAppTitle)
-            if (!clientApp) {
-              console.warn(`[Dashboard] No app found for client ${client.session_id}`, {
-                expectedTitle: expectedAppTitle,
-                availableApps: apps.map(a => ({ id: a.id, title: a.title }))
-              })
-              return null
-            }
-            console.log(`[Dashboard] Found app for client ${client.session_id}:`, clientApp)
-
-            // Find Wolf session connected to this app
-            // Wolf sessions have app_id field directly
-            const matchingSession = sessions.find(s => s.app_id === clientApp.id)
+            // Find Wolf session for this moonlight client by matching client_unique_id
+            const matchingSession = sessions.find(s => s.client_unique_id === client.client_unique_id)
 
             if (!matchingSession) {
-              console.warn(`[Dashboard] No Wolf session found for app ${clientApp.id}`, {
-                clientSessionId: client.session_id,
-                appId: clientApp.id,
-                appTitle: clientApp.title,
-                sessionsCount: sessions.length,
-                firstFewSessions: sessions.slice(0, 3).map(s => ({ session_id: s.session_id, app_id: s.app_id }))
-              })
+              console.warn(`[Dashboard] No Wolf session found for moonlight client ${client.session_id}`)
               return null
             }
-            console.log(`[Dashboard] Found Wolf session for app ${clientApp.id}:`, matchingSession)
 
             const clientPos = clientPositions.get(client.session_id)
             const sessionUniqueKey = `${matchingSession.session_id}-${matchingSession.app_id}`
             const sessionPos = sessionPositions.get(sessionUniqueKey)
 
-            console.log(`[Dashboard] Checking positions for client ${client.session_id}:`, {
-              clientPos,
-              sessionUniqueKey,
-              sessionPos,
-              hasClient: !!clientPos,
-              hasSession: !!sessionPos
-            })
-
             if (!clientPos || !sessionPos) {
-              console.warn(`[Dashboard] Missing position for connection line`, {
-                client: client.session_id,
-                sessionKey: sessionUniqueKey,
-                hasClientPos: !!clientPos,
-                hasSessionPos: !!sessionPos
-              })
               return null
             }
-
-            console.log(`[Dashboard] Drawing connection line from client ${client.session_id} to session ${sessionUniqueKey}`)
 
             return (
               <g key={`client-connection-${client.session_id}`}>

@@ -86,45 +86,62 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
 
         # Wait for Wolf to be ready (check if port 47989 is accepting connections)
         echo "⏳ Waiting for Wolf to be ready..."
-        for i in {1..60}; do
+        for i in {1..120}; do
             if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/wolf/47989' 2>/dev/null; then
                 echo "✅ Wolf port is responding"
-                # Wait additional 5 seconds for HTTPS endpoint to fully initialize
+                # Wait additional 10 seconds for HTTPS endpoint to fully initialize
                 # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
-                echo "⏳ Waiting 5s for Wolf HTTPS endpoint to initialize..."
-                sleep 5
+                echo "⏳ Waiting 10s for Wolf HTTPS endpoint to initialize..."
+                sleep 10
                 echo "✅ Wolf is ready for pairing"
                 break
             fi
-            if [ $i -eq 60 ]; then
-                echo "❌ Wolf failed to start within 60 seconds, skipping auto-pair"
+            if [ $i -eq 120 ]; then
+                echo "❌ Wolf failed to start within 120 seconds, skipping auto-pair"
                 exit 0  # Don't fail the container, just skip pairing
             fi
             sleep 1
         done
 
-        # Trigger pairing via internal API (Wolf will auto-accept with PIN)
+        # Trigger pairing via internal API with retries (Wolf will auto-accept with PIN)
         # Use bash /dev/tcp since curl is not available in container
         # Store credentials in variable to ensure proper expansion
         CREDS="${MOONLIGHT_CREDENTIALS:-helix}"
-        exec 3<>/dev/tcp/localhost/8080
-        {
-            echo -ne "POST /api/pair HTTP/1.1\r\n"
-            echo -ne "Host: localhost:8080\r\n"
-            echo -ne "Content-Type: application/json\r\n"
-            echo -ne "Authorization: Bearer $CREDS\r\n"
-            echo -ne "Content-Length: 13\r\n"
-            echo -ne "\r\n"
-            echo -ne '{"host_id":0}'
-        } >&3
-        cat <&3 > /tmp/pair-response.log
-        exec 3<&-
-        exec 3>&-
 
-        if grep -q '"Paired"' /tmp/pair-response.log; then
-            echo "✅ Auto-pairing with Wolf completed successfully"
-        else
-            echo "⚠️  Auto-pairing may have failed, check logs: cat /tmp/pair-response.log"
+        PAIRED=false
+        for attempt in {1..5}; do
+            echo "🔗 Pairing attempt $attempt/5..."
+
+            exec 3<>/dev/tcp/localhost/8080
+            {
+                echo -ne "POST /api/pair HTTP/1.1\r\n"
+                echo -ne "Host: localhost:8080\r\n"
+                echo -ne "Content-Type: application/json\r\n"
+                echo -ne "Authorization: Bearer $CREDS\r\n"
+                echo -ne "Content-Length: 13\r\n"
+                echo -ne "\r\n"
+                echo -ne '{"host_id":0}'
+            } >&3
+            cat <&3 > /tmp/pair-response.log
+            exec 3<&-
+            exec 3>&-
+
+            if grep -q '"Paired"' /tmp/pair-response.log; then
+                echo "✅ Auto-pairing with Wolf completed successfully on attempt $attempt"
+                PAIRED=true
+                break
+            else
+                echo "⚠️  Pairing attempt $attempt failed, check logs: cat /tmp/pair-response.log"
+                if [ $attempt -lt 5 ]; then
+                    echo "⏳ Waiting 3 seconds before retry..."
+                    sleep 3
+                fi
+            fi
+        done
+
+        if [ "$PAIRED" = false ]; then
+            echo "❌ Auto-pairing failed after 5 attempts"
+            echo "Moonlight-web will start but may not be able to stream until manually paired"
         fi
     else
         echo "ℹ️  moonlight-web already paired with Wolf, skipping auto-pair"
