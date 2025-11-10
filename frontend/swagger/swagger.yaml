@@ -6837,18 +6837,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -8342,42 +8342,6 @@ paths:
       summary: Set session clipboard content
       tags:
       - ExternalAgents
-  /api/v1/external-agents/{sessionID}/keepalive:
-    get:
-      consumes:
-      - application/json
-      description: Get keepalive session health status for an external agent
-      parameters:
-      - description: Session ID
-        in: path
-        name: sessionID
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - ApiKeyAuth: []
-      summary: Get keepalive session status
-      tags:
-      - ExternalAgents
   /api/v1/filestore/config:
     get:
       consumes:
@@ -9491,6 +9455,21 @@ paths:
       summary: Update an existing dynamic model info
       tags:
       - model-info
+  /api/v1/moonlight/status:
+    get:
+      description: Returns active streaming sessions, client certificates, and WebSocket
+        connection state from moonlight-web
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get moonlight-web internal state
+      tags:
+      - Moonlight
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.

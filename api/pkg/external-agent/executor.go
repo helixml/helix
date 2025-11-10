@@ -90,14 +90,8 @@ type ZedSession struct {
 	StartTime      time.Time `json:"start_time"`
 	LastAccess     time.Time `json:"last_access"`
 	ProjectPath    string    `json:"project_path,omitempty"`
-	WolfAppID      string    `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
-	WolfSessionID  int64     `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
-	WolfLobbyID    string    `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
-	ContainerName  string    `json:"container_name,omitempty"`  // Container hostname for DNS lookup
-
-	// Keepalive session tracking (prevents stale buffer crash on rejoin)
-	KeepaliveStatus    string     `json:"keepalive_status"`               // "active", "starting", "failed", "disabled"
-	KeepaliveStartTime *time.Time `json:"keepalive_start_time,omitempty"` // When keepalive was started
-	KeepaliveLastCheck *time.Time `json:"keepalive_last_check,omitempty"` // Last health check time
-	KeepaliveError     string     `json:"keepalive_error,omitempty"`      // Error message if keepalive failed
+	WolfAppID     string `json:"wolf_app_id,omitempty"`     // Deprecated: Used for old app-based approach
+	WolfSessionID int64  `json:"wolf_session_id,omitempty"` // Deprecated: Used for old session-based approach
+	WolfLobbyID   string `json:"wolf_lobby_id,omitempty"`   // Lobby ID (PIN always read from DB session.Metadata.WolfLobbyPIN)
+	ContainerName string `json:"container_name,omitempty"`  // Container hostname for DNS lookup
 }

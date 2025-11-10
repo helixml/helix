@@ -657,7 +657,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
-	authRouter.HandleFunc("/external-agents/{sessionID}/keepalive", apiServer.getExternalAgentKeepaliveStatus).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
 
 	// Wolf pairing routes
@@ -846,6 +845,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
+
+	// Moonlight Web observability endpoint (authenticated)
+	authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
 
 	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
 	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()

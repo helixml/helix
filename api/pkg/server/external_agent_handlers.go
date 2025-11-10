@@ -972,65 +972,6 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		Msg("Successfully set clipboard in external agent container")
 }
 
-// @Summary Get keepalive session status
-// @Description Get keepalive session health status for an external agent
-// @Tags ExternalAgents
-// @Accept json
-// @Produce json
-// @Param sessionID path string true "Session ID"
-// @Success 200 {object} map[string]interface{}
-// @Failure 401 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/external-agents/{sessionID}/keepalive [get]
-func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.ResponseWriter, req *http.Request) {
-	user := getRequestUser(req)
-	if user == nil {
-		http.Error(res, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["sessionID"]
-
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Get session from executor
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Session not found for keepalive status")
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
-		return
-	}
-
-	// Calculate connection uptime
-	var uptimeSeconds int64
-	if session.KeepaliveStartTime != nil {
-		uptimeSeconds = int64(time.Since(*session.KeepaliveStartTime).Seconds())
-	}
-
-	// Build response
-	response := types.ExternalAgentKeepaliveStatus{
-		SessionID:              session.SessionID,
-		LobbyID:                session.WolfLobbyID,
-		KeepaliveStatus:        session.KeepaliveStatus,
-		KeepaliveStartTime:     session.KeepaliveStartTime,
-		KeepaliveLastCheck:     session.KeepaliveLastCheck,
-		ConnectionUptimeSeconds: uptimeSeconds,
-	}
-
-	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
-}
 
 // @Summary Auto-join Wolf lobby after connection
 // @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
