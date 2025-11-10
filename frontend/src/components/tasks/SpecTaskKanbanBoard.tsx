@@ -1469,17 +1469,6 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          {onRefresh && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon />}
-              onClick={onRefresh}
-              disabled={refreshing}
-            >
-              Refresh
-            </Button>
-          )}
           <Button
             size="small"
             variant="outlined"
