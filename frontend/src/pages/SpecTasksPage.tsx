@@ -495,16 +495,6 @@ const SpecTasksPage: FC = () => {
           transition: 'all 0.3s ease-in-out',
           px: 3,
         }}>
-          {/* Project Header */}
-          <Box sx={{ flexShrink: 0, mb: 2, minWidth: 0, mt: 2 }}>
-            <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
-              {project ? project.name : 'Project'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Spec Work for Agents: Create tasks, review plans, supervise execution, and provide guidance.
-            </Typography>
-          </Box>
-
           {/* No repositories warning */}
           {projectRepositories.length === 0 && (
             <Alert
