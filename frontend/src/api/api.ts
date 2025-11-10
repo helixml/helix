@@ -3958,11 +3958,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -5349,25 +5349,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get keepalive session health status for an external agent
-     *
-     * @tags ExternalAgents
-     * @name V1ExternalAgentsKeepaliveDetail
-     * @summary Get keepalive session status
-     * @request GET:/api/v1/external-agents/{sessionID}/keepalive
-     * @secure
-     */
-    v1ExternalAgentsKeepaliveDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/keepalive`,
-        method: "GET",
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get the filestore configuration including user prefix and available folders
      *
      * @tags filestore
@@ -6272,6 +6253,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
+     *
+     * @tags Moonlight
+     * @name V1MoonlightStatusList
+     * @summary Get moonlight-web internal state
+     * @request GET:/api/v1/moonlight/status
+     * @secure
+     */
+    v1MoonlightStatusList: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/moonlight/status`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

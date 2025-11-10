@@ -16,7 +16,6 @@ import { defaultStreamSettings } from '../../lib/moonlight-web-ts/component/sett
 import { getSupportedVideoFormats } from '../../lib/moonlight-web-ts/stream/video';
 import useApi from '../../hooks/useApi';
 import { useAccount } from '../../contexts/account';
-import { FRONTEND_INSTANCE_ID } from '../../utils/instanceId';
 import { TypesClipboardData } from '../../api/api';
 
 interface MoonlightStreamViewerProps {
@@ -68,8 +67,15 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const retryAttemptRef = useRef(0); // Use ref to avoid closure issues
   const previousLobbyIdRef = useRef<string | undefined>(undefined); // Track lobby changes
 
-  // Generate unique ID for this component instance (persists across re-renders)
-  const componentInstanceIdRef = useRef<string>(`${Math.random().toString(36).substring(2, 15)}`)
+  // Generate unique UUID for this component instance (persists across re-renders)
+  // This ensures multiple floating windows get different Moonlight client IDs
+  const componentInstanceIdRef = useRef<string>(
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    })
+  )
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -209,7 +215,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Multi-WebRTC architecture: backend created streamer via POST /api/streamers
         // Connect to persistent streamer via peer endpoint
         // Include instance ID for multi-tab support
-        const streamerID = `agent-${sessionId}-${FRONTEND_INSTANCE_ID}`;
+        const streamerID = `agent-${sessionId}-${componentInstanceIdRef.current}`;
         stream = new Stream(
           api,
           hostId, // Wolf host ID (always 0 for local)
@@ -219,7 +225,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           [width, height],
           "peer", // Peer mode - connects to existing streamer
           undefined, // No session ID needed
-          streamerID // Streamer ID - unique per browser tab
+          streamerID // Streamer ID - unique per component instance
         );
       } else {
         // Single mode (kickoff approach): Fresh "create" connection with explicit client_unique_id
@@ -231,12 +237,11 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
         // Unique client_unique_id per browser tab → Multiple tabs can stream simultaneously!
 
         const lobbyIdPart = wolfLobbyId ? `-${wolfLobbyId}` : '';
-        const uniqueClientId = `helix-agent-${sessionId}${lobbyIdPart}-${FRONTEND_INSTANCE_ID}`;
+        const uniqueClientId = `helix-agent-${sessionId}${lobbyIdPart}-${componentInstanceIdRef.current}`;
 
         console.log(`[MoonlightStream] Creating stream with uniqueClientId: ${uniqueClientId}`, {
           sessionId,
           wolfLobbyId,
-          FRONTEND_INSTANCE_ID,
           componentInstanceId: componentInstanceIdRef.current,
         });
 
@@ -251,9 +256,9 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           supportedFormats,
           [width, height],
           "create", // Create mode - fresh session/streamer (kickoff already terminated)
-          `agent-${sessionId}-${FRONTEND_INSTANCE_ID}`, // Unique per browser tab
+          `agent-${sessionId}-${componentInstanceIdRef.current}`, // Unique per component instance
           undefined, // No streamer ID
-          uniqueClientId // Unique per lobby+tab → prevents stale session conflicts on restart
+          uniqueClientId // Unique per lobby+component → prevents conflicts
         );
       }
 
