@@ -108,10 +108,11 @@ const MoonlightMonitor: FC = () => {
     queryFn: async () => {
       const response = await apiClient.v1AdminAgentSandboxesDebugList()
       console.log('[MoonlightMonitor] Wolf debug response:', response)
-      console.log('[MoonlightMonitor] Memory data:', response.memory)
-      console.log('[MoonlightMonitor] Memory.lobbies:', response.memory?.lobbies)
-      console.log('[MoonlightMonitor] Memory.clients:', response.memory?.clients)
-      return response
+      console.log('[MoonlightMonitor] Response.data:', response.data)
+      console.log('[MoonlightMonitor] Memory data:', response.data?.memory)
+      console.log('[MoonlightMonitor] Memory.lobbies:', response.data?.memory?.lobbies)
+      console.log('[MoonlightMonitor] Memory.clients:', response.data?.memory?.clients)
+      return response.data
     },
     refetchInterval: 3000,
     retry: 1,
@@ -483,20 +484,30 @@ const MoonlightMonitor: FC = () => {
           </Grid>
         </Grid>
 
-        {/* Mismatch detection */}
+        {/* Mismatch detection - only warn if streaming to non-existent lobbies */}
         {(() => {
           const moonlightSessionCount = sessions.length
           const wolfLobbyCount = wolfMemory?.lobbies?.length || 0
           const wolfClientCount = wolfMemory?.clients?.length || 0
-          const mismatch = moonlightSessionCount !== wolfLobbyCount
 
-          if (mismatch) {
+          // PROBLEM: More Moonlight sessions than Wolf lobbies (streaming to ghost lobby)
+          if (moonlightSessionCount > wolfLobbyCount) {
             return (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                ⚠️ Mismatch detected: Moonlight has {moonlightSessionCount} session(s) but Wolf has {wolfLobbyCount} lobby/lobbies and {wolfClientCount} active client(s)
+              <Alert severity="error" sx={{ mt: 2 }}>
+                ⚠️ Critical: Moonlight has {moonlightSessionCount} session(s) but Wolf only has {wolfLobbyCount} lobby/lobbies - sessions streaming to non-existent lobbies!
               </Alert>
             )
           }
+
+          // INFO: More lobbies than sessions (normal - agents running but not being viewed)
+          if (wolfLobbyCount > moonlightSessionCount && moonlightSessionCount === 0) {
+            return (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                {wolfLobbyCount} agent(s) running but no browser connections
+              </Alert>
+            )
+          }
+
           return null
         })()}
       </Box>
@@ -515,16 +526,16 @@ const MoonlightMonitor: FC = () => {
             <Box component="thead">
               <Box component="tr" sx={{ bgcolor: 'action.hover' }}>
                 <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider', minWidth: 200 }}>
-                  <Typography variant="subtitle2">Moonlight Client (from moonlight-web)</Typography>
+                  <Typography variant="subtitle2">Moonlight Client</Typography>
                 </Box>
                 <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider' }}>
-                  <Typography variant="subtitle2">Moonlight State</Typography>
+                  <Typography variant="subtitle2">Wolf UI App State</Typography>
                 </Box>
                 <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider' }}>
-                  <Typography variant="subtitle2">Wolf Lobby (from Wolf)</Typography>
+                  <Typography variant="subtitle2">Current Lobby</Typography>
                 </Box>
                 <Box component="th" sx={{ p: 2, textAlign: 'left', fontWeight: 600, borderBottom: '2px solid', borderColor: 'divider' }}>
-                  <Typography variant="subtitle2">Consistency Check</Typography>
+                  <Typography variant="subtitle2">Moonlight Session</Typography>
                 </Box>
               </Box>
             </Box>
@@ -532,66 +543,96 @@ const MoonlightMonitor: FC = () => {
               {clients.map((client) => {
                 const clientSessions = sessions.filter(s => s.client_unique_id === client.client_unique_id)
                 const activeSession = clientSessions.find(s => s.has_websocket)
-
-                // Get expected lobby for this client (from Helix session ID in client_unique_id)
                 const helixSessionId = activeSession ? extractHelixSessionId(activeSession.session_id) : null
 
-                // Find ALL Wolf clients that might correspond to this Moonlight client
-                // Wolf clients are separate - we need to correlate somehow
-                const wolfClientsForLobbies = wolfMemory?.clients?.filter(c => c.lobby_id) || []
+                // Find Wolf session for this Moonlight client using client_unique_id correlation
+                const wolfSession = wolfDebugData?.sessions?.find(s =>
+                  s.client_unique_id === client.client_unique_id
+                )
+
+                // Get lobby_id from Wolf memory clients (has the actual lobby_id from Wolf)
+                const wolfClient = wolfSession ? wolfMemory?.clients?.find(c =>
+                  c.session_id === wolfSession.session_id
+                ) : null
+
+                // Check if this client has a Wolf UI app session
+                // Wolf UI app = app_id 134906179
+                const hasWolfUISession = wolfSession && wolfSession.app_id === '134906179'
+
+                // Check if this client is in a lobby (from Wolf's live data)
+                const currentLobbyId = wolfClient?.lobby_id
+                const currentLobby = currentLobbyId ? wolfMemory?.lobbies?.find(l => l.lobby_id === currentLobbyId) : null
+
+                // Determine Wolf UI app state from this client's perspective
+                let wolfUIState = 'stopped'
+                if (hasWolfUISession) {
+                  // Has Wolf UI session - check if actively streaming or just resumable
+                  wolfUIState = activeSession ? 'connected' : 'resumable'
+                }
 
                 return (
                   <Box component="tr" key={client.client_unique_id} sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
                     <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
                       <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', fontSize: '0.7rem', wordBreak: 'break-all' }}>
-                        {client.client_unique_id.substring(0, 50)}...
+                        {client.client_unique_id}
                       </Typography>
                       <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.65rem', display: 'block', mt: 0.5 }}>
                         Helix: {helixSessionId?.slice(-8) || 'N/A'}
                       </Typography>
                     </Box>
                     <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                        {activeSession ? (
-                          <Chip label="STREAMING" size="small" color="success" />
-                        ) : clientSessions.length > 0 ? (
-                          <Chip label="Idle Session" size="small" color="default" />
-                        ) : (
-                          <Chip label="Cert Only" size="small" variant="outlined" />
-                        )}
-                        {activeSession && (
-                          <Chip label={activeSession.mode.toUpperCase()} size="small" variant="outlined" />
-                        )}
-                      </Box>
-                    </Box>
-                    <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
-                      {wolfClientsForLobbies.length > 0 ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                          {wolfClientsForLobbies.slice(0, 3).map(wc => {
-                            const lobby = wolfMemory?.lobbies?.find(l => l.lobby_id === wc.lobby_id)
-                            return (
-                              <Typography key={wc.session_id} variant="caption" sx={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
-                                {lobby ? lobby.lobby_name : `Lobby ${wc.lobby_id?.slice(0, 8)}`}
-                              </Typography>
-                            )
-                          })}
+                      {wolfUIState === 'connected' ? (
+                        <Box>
+                          <Chip icon={<PlayArrowIcon />} label="CONNECTED" size="small" color="success" />
+                          <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5, fontSize: '0.65rem' }}>
+                            Actively streaming
+                          </Typography>
+                        </Box>
+                      ) : wolfUIState === 'resumable' ? (
+                        <Box>
+                          <Chip icon={<PauseIcon />} label="RESUMABLE" size="small" color="info" />
+                          <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5, fontSize: '0.65rem' }}>
+                            Container running (shows play/stop)
+                          </Typography>
                         </Box>
                       ) : (
-                        <Typography variant="caption" color="textSecondary">No Wolf clients</Typography>
+                        <Box>
+                          <Chip label="STOPPED" size="small" variant="outlined" />
+                          <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5, fontSize: '0.65rem' }}>
+                            No session (click starts fresh)
+                          </Typography>
+                        </Box>
                       )}
                     </Box>
                     <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
-                      {(() => {
-                        const mlActive = activeSession !== undefined
-                        const wolfHasClients = wolfClientsForLobbies.length > 0
-                        if (mlActive && wolfHasClients) {
-                          return <Chip label="✓ Both Active" size="small" color="success" />
-                        } else if (!mlActive && !wolfHasClients) {
-                          return <Chip label="✓ Both Idle" size="small" color="default" />
-                        } else {
-                          return <Chip label="⚠ Mismatch" size="small" color="warning" />
-                        }
-                      })()}
+                      {currentLobby ? (
+                        <Box>
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', fontWeight: 600 }}>
+                            {currentLobby.lobby_name}
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary" sx={{ fontSize: '0.65rem' }}>
+                            {currentLobby.client_count} client(s) | Lobby {currentLobby.lobby_id.slice(0, 8)}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="textSecondary">
+                          {hasWolfUISession ? 'In lobby selector' : 'Not connected'}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Box component="td" sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', verticalAlign: 'top' }}>
+                      {activeSession ? (
+                        <Box>
+                          <Chip label="STREAMING" size="small" color="success" />
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontSize: '0.65rem', fontFamily: 'monospace' }}>
+                            {activeSession.mode.toUpperCase()}
+                          </Typography>
+                        </Box>
+                      ) : clientSessions.length > 0 ? (
+                        <Chip label="Idle" size="small" color="default" />
+                      ) : (
+                        <Chip label="Cert Only" size="small" variant="outlined" />
+                      )}
                     </Box>
                   </Box>
                 )
