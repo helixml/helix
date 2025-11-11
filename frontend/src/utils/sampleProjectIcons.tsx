@@ -21,95 +21,100 @@ import {
 } from 'react-icons/si'
 
 /**
- * Get technology-specific icon with brand color for sample projects/repositories
+ * Get technology-specific icon for sample projects/repositories
+ * Uses consistent Helix brand color like the selected sidebar items
  */
 export const getSampleProjectIcon = (
   sampleId?: string,
   category?: string,
   size: number = 18
 ): JSX.Element => {
-  // Map by specific ID first - using actual brand icons with brand-appropriate colors
-  // NOTE: Colors adjusted for visibility on dark backgrounds
+  // Helix brand color - matches selected sidebar items (GREEN_BUTTON_HOVER)
+  const iconColor = '#00d5ff'
+  const iconStyle = { color: iconColor }
+
+  // Map by specific ID first
   const iconMap: Record<string, JSX.Element> = {
     // Empty/Generic
-    'empty': <FilePlus size={size} style={{ color: '#94a3b8' }} />,
-    'blank': <FilePlus size={size} style={{ color: '#94a3b8' }} />,
+    'empty': <FilePlus size={size} style={iconStyle} />,
+    'blank': <FilePlus size={size} style={iconStyle} />,
 
     // Sample Projects (simple_sample_projects.go)
-    'modern-todo-app': <SiReact size={size} style={{ color: '#61DAFB' }} />, // React cyan
-    'ecommerce-api': <ShoppingCart size={size} style={{ color: '#10b981' }} />, // E-commerce green
-    'weather-app': <Cloud size={size} style={{ color: '#38bdf8' }} />, // Weather sky blue
-    'blog-cms': <SiNextdotjs size={size} style={{ color: '#ffffff' }} />, // Next.js white
+    'modern-todo-app': <SiReact size={size} style={iconStyle} />,
+    'ecommerce-api': <ShoppingCart size={size} style={iconStyle} />,
+    'weather-app': <Cloud size={size} style={iconStyle} />,
+    'blog-cms': <SiNextdotjs size={size} style={iconStyle} />,
 
-    // Development Projects - Real brand icons with adjusted contrast
-    'nodejs-todo': <SiNodedotjs size={size} style={{ color: '#68a063' }} />, // Node.js green (brighter)
-    'react-app': <SiReact size={size} style={{ color: '#61DAFB' }} />, // React cyan
-    'react-dashboard': <SiReact size={size} style={{ color: '#61DAFB' }} />, // React cyan
-    'python-api': <SiPython size={size} style={{ color: '#4B8BBE' }} />, // Python blue (brighter)
-    'nextjs-app': <SiNextdotjs size={size} style={{ color: '#ffffff' }} />, // Next.js white (not black)
-    'express-api': <SiExpress size={size} style={{ color: '#ffffff' }} />, // Express white (not black)
-    'vue-app': <SiVuedotjs size={size} style={{ color: '#42b883' }} />, // Vue green
-    'angular-app': <SiAngular size={size} style={{ color: '#DD0031' }} />, // Angular red
-    'django-app': <SiDjango size={size} style={{ color: '#0C4B33' }} />, // Django green (much brighter)
-    'flask-api': <SiFlask size={size} style={{ color: '#ffffff' }} />, // Flask white (not black)
-    'spring-boot': <SiSpringboot size={size} style={{ color: '#6DB33F' }} />, // Spring Boot green
+    // Development Projects
+    'nodejs-todo': <SiNodedotjs size={size} style={iconStyle} />,
+    'react-app': <SiReact size={size} style={iconStyle} />,
+    'react-dashboard': <SiReact size={size} style={iconStyle} />,
+    'python-api': <SiPython size={size} style={iconStyle} />,
+    'nextjs-app': <SiNextdotjs size={size} style={iconStyle} />,
+    'express-api': <SiExpress size={size} style={iconStyle} />,
+    'vue-app': <SiVuedotjs size={size} style={iconStyle} />,
+    'angular-app': <SiAngular size={size} style={iconStyle} />,
+    'django-app': <SiDjango size={size} style={iconStyle} />,
+    'flask-api': <SiFlask size={size} style={iconStyle} />,
+    'spring-boot': <SiSpringboot size={size} style={iconStyle} />,
 
     // Business Tasks
-    'linkedin-outreach': <SiLinkedin size={size} style={{ color: '#0A66C2' }} />, // LinkedIn blue
-    'email-campaign': <Mail size={size} style={{ color: '#ea4335' }} />, // Email red
-    'social-media': <Hash size={size} style={{ color: '#1da1f2' }} />, // Twitter blue
-    'sales-automation': <TrendingUp size={size} style={{ color: '#10b981' }} />, // Growth green
-    'lead-generation': <Target size={size} style={{ color: '#f59e0b' }} />, // Target amber
-    'customer-service': <Headphones size={size} style={{ color: '#a78bfa' }} />, // Support purple (brighter)
+    'linkedin-outreach': <SiLinkedin size={size} style={iconStyle} />,
+    'email-campaign': <Mail size={size} style={iconStyle} />,
+    'social-media': <Hash size={size} style={iconStyle} />,
+    'sales-automation': <TrendingUp size={size} style={iconStyle} />,
+    'lead-generation': <Target size={size} style={iconStyle} />,
+    'customer-service': <Headphones size={size} style={iconStyle} />,
 
     // Content Creation
-    'blog-posts': <FileText size={size} style={{ color: '#60a5fa' }} />, // Blog blue (brighter)
-    'helix-blog-posts': <FileCode size={size} style={{ color: '#a78bfa' }} />, // Technical blog with code icon
-    'documentation': <BookOpen size={size} style={{ color: '#34d399' }} />, // Docs green (brighter)
-    'marketing-content': <Megaphone size={size} style={{ color: '#f472b6' }} />, // Marketing pink (brighter)
-    'technical-writing': <PenTool size={size} style={{ color: '#818cf8' }} />, // Writing indigo (brighter)
-    'social-posts': <MessageCircle size={size} style={{ color: '#2dd4bf' }} />, // Social teal (brighter)
-    'newsletter': <Newspaper size={size} style={{ color: '#fb923c' }} />, // Newsletter orange (brighter)
+    'blog-posts': <FileText size={size} style={iconStyle} />,
+    'helix-blog-posts': <FileCode size={size} style={iconStyle} />,
+    'documentation': <BookOpen size={size} style={iconStyle} />,
+    'marketing-content': <Megaphone size={size} style={iconStyle} />,
+    'technical-writing': <PenTool size={size} style={iconStyle} />,
+    'social-posts': <MessageCircle size={size} style={iconStyle} />,
+    'newsletter': <Newspaper size={size} style={iconStyle} />,
 
     // Data & Analytics Projects
-    'jupyter-financial-analysis': <SiJupyter size={size} style={{ color: '#F37626' }} />, // Jupyter orange
-    'data-platform-api-migration': <SiApacheairflow size={size} style={{ color: '#E43921' }} />, // Airflow red (official color, better contrast)
-    'research-analysis-toolkit': <SiPandas size={size} style={{ color: '#E70488' }} />, // Pandas pink (much brighter official alt color)
-    'data-validation-toolkit': <CheckCircle2 size={size} style={{ color: '#22c55e' }} />, // Validation green (brighter)
+    'jupyter-financial-analysis': <SiJupyter size={size} style={iconStyle} />,
+    'data-platform-api-migration': <SiApacheairflow size={size} style={iconStyle} />,
+    'research-analysis-toolkit': <SiPandas size={size} style={iconStyle} />,
+    'data-validation-toolkit': <CheckCircle2 size={size} style={iconStyle} />,
 
     // Enterprise & .NET
-    'portfolio-management-dotnet': <SiDotnet size={size} style={{ color: '#7c3aed' }} />, // .NET purple (brighter)
+    'portfolio-management-dotnet': <SiDotnet size={size} style={iconStyle} />,
 
     // Frontend Frameworks
-    'angular-analytics-dashboard': <SiAngular size={size} style={{ color: '#DD0031' }} />, // Angular red
-    'angular-version-migration': <SiAngular size={size} style={{ color: '#DD0031' }} />, // Angular red
+    'angular-analytics-dashboard': <SiAngular size={size} style={iconStyle} />,
+    'angular-version-migration': <SiAngular size={size} style={iconStyle} />,
 
     // Legacy Modernization
-    'cobol-modernization': <Database size={size} style={{ color: '#9ca3af' }} />, // Legacy gray (brighter)
+    'cobol-modernization': <Database size={size} style={iconStyle} />,
   }
 
   if (sampleId && iconMap[sampleId]) {
     return iconMap[sampleId]
   }
 
-  // Fallback to category-based icons (with good contrast on dark backgrounds)
+  // Fallback to category-based icons
   if (category) {
     switch (category.toLowerCase()) {
       case 'development':
       case 'web':
       case 'api':
       case 'mobile':
-        return <Rocket size={size} style={{ color: '#60a5fa' }} />
+        return <Rocket size={size} style={iconStyle} />
       case 'business':
-        return <TrendingUp size={size} style={{ color: '#34d399' }} />
+        return <TrendingUp size={size} style={iconStyle} />
       case 'content':
-        return <FileText size={size} style={{ color: '#a78bfa' }} />
+        return <FileText size={size} style={iconStyle} />
       default:
-        return <Rocket size={size} style={{ color: '#94a3b8' }} />
+        return <Rocket size={size} style={iconStyle} />
     }
   }
 
   // Default fallback
-  return <Rocket size={size} style={{ color: '#94a3b8' }} />
+  return <Rocket size={size} style={iconStyle} />
 }
  
+// Build check

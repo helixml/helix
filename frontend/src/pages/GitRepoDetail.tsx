@@ -23,6 +23,10 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Tabs,
+  Tab,
+  Tooltip,
+  Paper,
 } from '@mui/material'
 import {
   GitBranch,
@@ -39,6 +43,10 @@ import {
   FileText,
   ChevronRight,
   X as CloseIcon,
+  Settings,
+  Users,
+  Code as CodeIcon,
+  Download,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -82,8 +90,12 @@ const GitRepoDetail: FC = () => {
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
+
+  // UI State
+  const [currentTab, setCurrentTab] = useState(0)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
@@ -101,6 +113,18 @@ const GitRepoDetail: FC = () => {
     selectedFile || '',
     !!selectedFile
   )
+
+  // Auto-load README.md when repository loads
+  React.useEffect(() => {
+    if (treeData?.entries && !selectedFile) {
+      const readme = treeData.entries.find(entry =>
+        entry.name?.toLowerCase() === 'readme.md' && !entry.is_dir
+      )
+      if (readme && readme.path) {
+        setSelectedFile(readme.path)
+      }
+    }
+  }, [treeData, selectedFile])
 
   const handleOpenEdit = () => {
     if (repository) {
@@ -131,8 +155,10 @@ const GitRepoDetail: FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
       setEditDialogOpen(false)
+      snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
+      snackbar.error('Failed to update repository')
     } finally {
       setUpdating(false)
     }
@@ -149,10 +175,12 @@ const GitRepoDetail: FC = () => {
       // Invalidate queries
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
-      // Navigate back to list
-      navigate('git-repos')
+      // Navigate back to repositories tab in Projects
+      navigate('projects', { tab: 'repositories' })
+      snackbar.success('Repository deleted successfully')
     } catch (error) {
       console.error('Failed to delete repository:', error)
+      snackbar.error('Failed to delete repository')
       setDeleting(false)
     }
   }
@@ -160,6 +188,7 @@ const GitRepoDetail: FC = () => {
   const handleCopyCloneCommand = (command: string) => {
     navigator.clipboard.writeText(command)
     setCopiedClone(true)
+    snackbar.success('Clone URL copied to clipboard')
     setTimeout(() => setCopiedClone(false), 2000)
   }
 
@@ -218,7 +247,7 @@ const GitRepoDetail: FC = () => {
   if (isLoading) {
     return (
       <Page breadcrumbTitle="" orgBreadcrumbs={false}>
-        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
             <CircularProgress />
           </Box>
@@ -230,13 +259,13 @@ const GitRepoDetail: FC = () => {
   if (error || !repository) {
     return (
       <Page breadcrumbTitle="" orgBreadcrumbs={false}>
-        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
           <Alert severity="error" sx={{ mb: 2 }}>
             {error instanceof Error ? error.message : 'Repository not found'}
           </Alert>
           <Button
             startIcon={<ArrowLeft size={16} />}
-            onClick={() => navigate('git-repos')}
+            onClick={() => navigate('projects', { view: 'repositories' })}
           >
             Back to Repositories
           </Button>
@@ -245,433 +274,603 @@ const GitRepoDetail: FC = () => {
     )
   }
 
-  const cloneUrl = repository.clone_url || `git@github.com:${ownerSlug}/${repository.name}.git`
+  // Generate proper clone URL
+  // External repos: use their external URL
+  // Helix repos: use the git server URL format
   const isExternal = repository.metadata?.is_external || false
+  const cloneUrl = isExternal
+    ? (repository.metadata?.external_url || '')
+    : (repository.clone_url || `${window.location.origin}/git/${repoId}`)
 
   return (
-    <Page breadcrumbTitle="" orgBreadcrumbs={false}>
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        {/* Header with breadcrumb-style navigation */}
+    <Page
+      breadcrumbTitle={repository.name || 'Repository'}
+      breadcrumbs={[
+        {
+          title: 'Repositories',
+          routeName: 'projects',
+          params: { view: 'repositories' }
+        }
+      ]}
+      orgBreadcrumbs={true}
+    >
+      <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+        {/* GitHub-style header */}
         <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Button
-              startIcon={<ArrowLeft size={16} />}
-              onClick={() => navigate('git-repos')}
-              sx={{ textTransform: 'none', color: '#0969da' }}
-            >
-              Repositories
-            </Button>
-          </Box>
 
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <GitBranch size={32} color="#656d76" />
-              <Box>
-                <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span
-                    style={{ color: '#0969da', cursor: 'pointer' }}
-                    onClick={() => navigate('git-repos')}
-                  >
-                    {ownerSlug}
-                  </span>
-                  <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
-                  <span style={{ fontWeight: 600 }}>{repository.name}</span>
-                </Typography>
-                {repository.description && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                    {repository.description}
-                  </Typography>
-                )}
-              </Box>
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <IconButton
-                onClick={handleOpenEdit}
-                size="small"
-                sx={{ border: 1, borderColor: 'divider' }}
-              >
-                <Edit size={16} />
-              </IconButton>
-              <IconButton
-                onClick={() => setDeleteDialogOpen(true)}
-                size="small"
-                sx={{ border: 1, borderColor: 'divider' }}
-              >
-                <Trash2 size={16} />
-              </IconButton>
-            </Box>
-          </Box>
-
-          {/* Chips */}
-          <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-            {isExternal && (
-              <Chip
-                icon={<Link size={12} />}
-                label={repository.metadata?.external_type || 'External'}
-                size="small"
-              />
-            )}
-            {repository.metadata?.kodit_indexing && (
-              <Chip
-                icon={<Brain size={12} />}
-                label="Code Intelligence"
-                size="small"
-                color="success"
-              />
-            )}
-            <Chip
-              label={repository.repo_type || 'project'}
-              size="small"
-              variant="outlined"
-            />
-          </Box>
-        </Box>
-
-        <Divider sx={{ mb: 3 }} />
-
-        {/* New Spec Task Button */}
-        <Box sx={{ mb: 3 }}>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<Plus size={16} />}
-            onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repoId })}
-            sx={{ textTransform: 'none' }}
-          >
-            New Spec Task
-          </Button>
-        </Box>
-
-        {/* Clone instructions */}
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-              Clone this repository
-            </Typography>
-
-            {isExternal && repository.metadata?.external_url ? (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  This is an external repository. Use the URL below to clone it:
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                  <TextField
-                    fullWidth
-                    value={repository.metadata.external_url}
-                    InputProps={{
-                      readOnly: true,
-                      sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-                    }}
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={copiedClone ? undefined : <Copy size={16} />}
-                    onClick={() => handleCopyCloneCommand(repository.metadata.external_url)}
-                  >
-                    {copiedClone ? 'Copied!' : 'Copy'}
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<ExternalLink size={16} />}
-                    onClick={() => window.open(repository.metadata.external_url, '_blank')}
-                  >
-                    Open
-                  </Button>
-                </Box>
-              </>
-            ) : isExternal ? (
-              <Alert severity="warning">
-                <Typography variant="body2">
-                  This external repository does not have a clone URL configured.
-                </Typography>
-              </Alert>
-            ) : (
-              <Alert severity="info">
-                <Typography variant="body2">
-                  This is a Helix-hosted repository. It is automatically cloned by agents when working on tasks.
-                  You can browse files using the file browser below.
-                </Typography>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Repository information */}
-        <Card>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-              Repository Information
-            </Typography>
-
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Repository ID
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                  {repository.id}
-                </Typography>
-              </Box>
-
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Type
-                </Typography>
-                <Typography variant="body2">
-                  {repository.repo_type || 'project'}
-                </Typography>
-              </Box>
-
-              {repository.default_branch && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Default Branch
-                  </Typography>
-                  <Typography variant="body2">
-                    {repository.default_branch}
-                  </Typography>
-                </Box>
-              )}
-
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Created
-                </Typography>
-                <Typography variant="body2">
-                  {repository.created_at ? new Date(repository.created_at).toLocaleString() : 'N/A'}
-                </Typography>
-              </Box>
-
-              {repository.updated_at && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Last Updated
-                  </Typography>
-                  <Typography variant="body2">
-                    {new Date(repository.updated_at).toLocaleString()}
-                  </Typography>
-                </Box>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
-
-        {/* File Browser */}
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-              Browse Files
-            </Typography>
-
-            {/* Branch selector */}
-            <Box sx={{ mb: 2 }}>
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Branch</InputLabel>
-                <Select
-                  value={currentBranch}
-                  label="Branch"
-                  onChange={(e) => {
-                    setCurrentBranch(e.target.value)
-                    setCurrentPath('.') // Reset to root when switching branches
-                    setSelectedFile(null) // Clear selected file
-                  }}
-                  startAdornment={<GitBranch size={16} style={{ marginRight: 8, marginLeft: 4 }} />}
+          {/* Repo name and actions */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: 'text.primary' }}>
+                <GitBranch size={24} style={{ color: 'currentColor', opacity: 0.6 }} />
+                <Box
+                  component="span"
+                  onClick={() => navigate('projects', { view: 'repositories' })}
+                  sx={{ color: '#3b82f6', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
                 >
-                  <MenuItem value="">
-                    <em>Default ({repository?.default_branch || 'main'})</em>
-                  </MenuItem>
-                  {branches.map((branch) => (
-                    <MenuItem key={branch} value={branch}>
-                      {branch}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
-
-            {/* Breadcrumb navigation */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-              <Chip
-                label={repository.name}
-                size="small"
-                onClick={() => handleNavigateToDirectory('.')}
-                sx={{ cursor: 'pointer' }}
-              />
-              {getPathBreadcrumbs().map((part, index, arr) => {
-                const path = arr.slice(0, index + 1).join('/')
-                return (
-                  <React.Fragment key={path}>
-                    <ChevronRight size={16} color="#656d76" />
-                    <Chip
-                      label={part}
-                      size="small"
-                      onClick={() => handleNavigateToDirectory(path)}
-                      sx={{ cursor: 'pointer' }}
-                    />
-                  </React.Fragment>
-                )
-              })}
-            </Box>
-
-            <Divider sx={{ mb: 2 }} />
-
-            {treeLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress size={24} />
-              </Box>
-            ) : (
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                {/* File tree */}
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  {currentPath !== '.' && (
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        p: 1,
-                        cursor: 'pointer',
-                        borderRadius: 1,
-                        '&:hover': {
-                          backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                        },
-                      }}
-                      onClick={handleNavigateUp}
-                    >
-                      <Folder size={16} color="#54aeff" />
-                      <Typography variant="body2">
-                        ..
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {treeData?.entries && treeData.entries.length > 0 ? (
-                    treeData.entries
-                      .sort((a, b) => {
-                        // Directories first, then files
-                        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-                        return (a.name || '').localeCompare(b.name || '')
-                      })
-                      .map((entry) => (
-                        <Box
-                          key={entry.path}
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            p: 1,
-                            cursor: 'pointer',
-                            borderRadius: 1,
-                            backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
-                            '&:hover': {
-                              backgroundColor: selectedFile === entry.path
-                                ? 'rgba(25, 118, 210, 0.12)'
-                                : 'rgba(0, 0, 0, 0.04)',
-                            },
-                          }}
-                          onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
-                        >
-                          {entry.is_dir ? (
-                            <Folder size={16} color="#54aeff" />
-                          ) : (
-                            <FileText size={16} color="#656d76" />
-                          )}
-                          <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {entry.name}
-                          </Typography>
-                          {!entry.is_dir && (
-                            <Typography variant="caption" color="text.secondary">
-                              {(entry.size || 0) > 1024
-                                ? `${Math.round((entry.size || 0) / 1024)} KB`
-                                : `${entry.size || 0} B`}
-                            </Typography>
-                          )}
-                        </Box>
-                      ))
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                      Empty directory
-                    </Typography>
-                  )}
+                  {ownerSlug}
                 </Box>
+                <Box component="span" sx={{ color: 'text.secondary', fontWeight: 300 }}>/</Box>
+                <Box component="span" sx={{ fontWeight: 600 }}>{repository.name}</Box>
+              </Typography>
+
+              {repository.description && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  {repository.description}
+                </Typography>
+              )}
+
+              {/* Chips */}
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {isExternal && (
+                  <Chip
+                    icon={<Link size={12} />}
+                    label={repository.metadata?.external_type || 'External'}
+                    size="small"
+                  />
+                )}
+                {repository.metadata?.kodit_indexing && (
+                  <Chip
+                    icon={<Brain size={12} />}
+                    label="Code Intelligence"
+                    size="small"
+                    color="success"
+                  />
+                )}
+                <Chip
+                  label={repository.repo_type || 'project'}
+                  size="small"
+                  variant="outlined"
+                />
+              </Box>
+            </Box>
+
+            {/* Action buttons */}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Download size={16} />}
+                onClick={() => setCloneDialogOpen(true)}
+                sx={{ textTransform: 'none' }}
+              >
+                Code
+              </Button>
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                startIcon={<Plus size={16} />}
+                onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repoId })}
+              >
+                New Spec Task
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Navigation tabs */}
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
+              <Tab
+                icon={<CodeIcon size={16} />}
+                iconPosition="start"
+                label="Code"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                icon={<Settings size={16} />}
+                iconPosition="start"
+                label="Settings"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                icon={<Users size={16} />}
+                iconPosition="start"
+                label="Access"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+            </Tabs>
+          </Box>
+        </Box>
+
+        {/* Tab panels */}
+        <Box sx={{ mt: 3 }}>
+          {/* Code Tab */}
+          {currentTab === 0 && (
+            <Box sx={{ display: 'flex', gap: 3 }}>
+              {/* Main content - File browser */}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+                  {/* Branch selector bar */}
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    p: 2,
+                    borderBottom: 1,
+                    borderColor: 'divider',
+                    bgcolor: 'rgba(0, 0, 0, 0.02)'
+                  }}>
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                      <Select
+                        value={currentBranch}
+                        onChange={(e) => {
+                          setCurrentBranch(e.target.value)
+                          setCurrentPath('.') // Reset to root when switching branches
+                          setSelectedFile(null) // Clear selected file
+                        }}
+                        displayEmpty
+                        renderValue={(value) => (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <GitBranch size={14} />
+                            <span>{value || repository?.default_branch || 'main'}</span>
+                          </Box>
+                        )}
+                        sx={{ fontWeight: 500 }}
+                      >
+                        <MenuItem value="">
+                          {repository?.default_branch || 'main'}
+                        </MenuItem>
+                        {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+                          <MenuItem key={branch} value={branch}>
+                            {branch}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    {/* Breadcrumb navigation */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
+                      <Chip
+                        label={repository.name}
+                        size="small"
+                        onClick={() => handleNavigateToDirectory('.')}
+                        sx={{ cursor: 'pointer', fontWeight: 500 }}
+                        variant={currentPath === '.' ? 'filled' : 'outlined'}
+                      />
+                      {getPathBreadcrumbs().map((part, index, arr) => {
+                        const path = arr.slice(0, index + 1).join('/')
+                        const isLast = index === arr.length - 1
+                        return (
+                          <React.Fragment key={path}>
+                            <ChevronRight size={14} color="#656d76" />
+                            <Chip
+                              label={part}
+                              size="small"
+                              onClick={() => handleNavigateToDirectory(path)}
+                              sx={{ cursor: 'pointer', fontWeight: 500 }}
+                              variant={isLast ? 'filled' : 'outlined'}
+                            />
+                          </React.Fragment>
+                        )
+                      })}
+                    </Box>
+                  </Box>
+
+                  {/* File tree */}
+                  <Box>
+                    {treeLoading ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                        <CircularProgress size={24} />
+                      </Box>
+                    ) : (
+                      <>
+                        {currentPath !== '.' && (
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 2,
+                              px: 3,
+                              py: 1.5,
+                              cursor: 'pointer',
+                              borderBottom: 1,
+                              borderColor: 'divider',
+                              '&:hover': {
+                                backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                              },
+                            }}
+                            onClick={handleNavigateUp}
+                          >
+                            <Folder size={18} color="#54aeff" />
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              ..
+                            </Typography>
+                          </Box>
+                        )}
+
+                        {treeData?.entries && treeData.entries.length > 0 ? (
+                          treeData.entries
+                            .sort((a, b) => {
+                              // Directories first, then files
+                              if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+                              return (a.name || '').localeCompare(b.name || '')
+                            })
+                            .map((entry) => (
+                              <Box
+                                key={entry.path}
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 2,
+                                  px: 3,
+                                  py: 1.5,
+                                  cursor: 'pointer',
+                                  borderBottom: 1,
+                                  borderColor: 'divider',
+                                  backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+                                  '&:hover': {
+                                    backgroundColor: selectedFile === entry.path
+                                      ? 'rgba(25, 118, 210, 0.12)'
+                                      : 'rgba(0, 0, 0, 0.02)',
+                                  },
+                                  '&:last-child': {
+                                    borderBottom: 0,
+                                  },
+                                }}
+                                onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
+                              >
+                                {entry.is_dir ? (
+                                  <Folder size={18} color="#54aeff" />
+                                ) : (
+                                  <FileText size={18} color="#656d76" />
+                                )}
+                                <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
+                                  {entry.name}
+                                </Typography>
+                                {!entry.is_dir && entry.size !== undefined && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {entry.size > 1024
+                                      ? `${Math.round(entry.size / 1024)} KB`
+                                      : `${entry.size} B`}
+                                  </Typography>
+                                )}
+                              </Box>
+                            ))
+                        ) : (
+                          <Box sx={{ py: 8, textAlign: 'center' }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Empty directory
+                            </Typography>
+                          </Box>
+                        )}
+                      </>
+                    )}
+                  </Box>
+                </Paper>
 
                 {/* File viewer */}
                 {selectedFile && (
-                  <Box sx={{ flex: 2, minWidth: 0 }}>
-                    <Card variant="outlined">
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                          <Typography variant="subtitle2" sx={{ fontFamily: 'monospace' }}>
-                            {selectedFile}
-                          </Typography>
-                          <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                            <CloseIcon />
-                          </IconButton>
-                        </Box>
-                        {fileLoading ? (
-                          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                            <CircularProgress size={20} />
-                          </Box>
-                        ) : (
-                          <Box
-                            component="pre"
-                            sx={{
-                              fontFamily: 'monospace',
-                              fontSize: '0.75rem',
-                              backgroundColor: 'background.paper',
-                              color: 'text.primary',
-                              padding: 2,
-                              borderRadius: 1,
-                              overflow: 'auto',
-                              maxHeight: '500px',
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-all',
-                              border: 1,
-                              borderColor: 'divider',
-                            }}
-                          >
-                            {fileData?.content || 'No content'}
-                          </Box>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Box>
+                  <Paper variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
+                    <Box sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      px: 3,
+                      py: 2,
+                      borderBottom: 1,
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0, 0, 0, 0.02)'
+                    }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                        {selectedFile.split('/').pop()}
+                      </Typography>
+                      <IconButton size="small" onClick={() => setSelectedFile(null)}>
+                        <CloseIcon size={16} />
+                      </IconButton>
+                    </Box>
+                    {fileLoading ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                        <CircularProgress size={24} />
+                      </Box>
+                    ) : (
+                      <Box
+                        component="pre"
+                        sx={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.875rem',
+                          color: 'text.primary',
+                          p: 3,
+                          overflow: 'auto',
+                          maxHeight: '600px',
+                          whiteSpace: 'pre',
+                          margin: 0,
+                        }}
+                      >
+                        {fileData?.content || 'No content'}
+                      </Box>
+                    )}
+                  </Paper>
                 )}
               </Box>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Members & Access Control */}
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-              Members & Access
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Manage who has access to this repository and their roles.
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
+              {/* Sidebar - About */}
+              <Box sx={{ width: 300, flexShrink: 0 }}>
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
+                    About
+                  </Typography>
 
-            {repository.organization_id ? (
-              <AccessManagement
-                appId={repoId || ''}
-                accessGrants={accessGrants}
-                isLoading={accessGrantsLoading}
-                isReadOnly={repository.owner_id !== account.user?.id && !account.user?.admin}
-                onCreateGrant={handleCreateAccessGrant}
-                onDeleteGrant={handleDeleteAccessGrant}
-              />
-            ) : (
-              <Box sx={{ textAlign: 'center', py: 4, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  This repository is not associated with an organization. Only the owner can access it.
-                </Typography>
+                  <Stack spacing={2}>
+                    {repository.description && (
+                      <Typography variant="body2" color="text.secondary">
+                        {repository.description}
+                      </Typography>
+                    )}
+
+                    <Divider />
+
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        Type
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {repository.repo_type || 'project'}
+                      </Typography>
+                    </Box>
+
+                    {repository.default_branch && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Default Branch
+                        </Typography>
+                        <Chip
+                          icon={<GitBranch size={12} />}
+                          label={repository.default_branch}
+                          size="small"
+                          sx={{ fontWeight: 500 }}
+                        />
+                      </Box>
+                    )}
+
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        Created
+                      </Typography>
+                      <Typography variant="body2">
+                        {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
+                      </Typography>
+                    </Box>
+
+                    {repository.updated_at && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Last Updated
+                        </Typography>
+                        <Typography variant="body2">
+                          {new Date(repository.updated_at).toLocaleDateString()}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Stack>
+                </Paper>
               </Box>
-            )}
-          </CardContent>
-        </Card>
+            </Box>
+          )}
+
+          {/* Settings Tab */}
+          {currentTab === 1 && (
+            <Box sx={{ maxWidth: 800 }}>
+              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
+                  Repository Settings
+                </Typography>
+
+                <Stack spacing={3}>
+                  <TextField
+                    label="Repository Name"
+                    fullWidth
+                    value={editName || repository.name}
+                    onChange={(e) => setEditName(e.target.value)}
+                    helperText="The name of this repository"
+                  />
+
+                  <TextField
+                    label="Description"
+                    fullWidth
+                    multiline
+                    rows={3}
+                    value={editDescription || repository.description}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    helperText="A short description of what this repository contains"
+                  />
+
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.metadata?.kodit_indexing || false)}
+                        onChange={(e) => setEditKoditIndexing(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Brain size={18} />
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            Code Intelligence
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Index this repository with Kodit for AI-powered code understanding
+                          </Typography>
+                        </Box>
+                      </Box>
+                    }
+                  />
+
+                  <Divider />
+
+                  <Box sx={{ display: 'flex', gap: 2 }}>
+                    <Button
+                      onClick={handleUpdateRepository}
+                      variant="contained"
+                      disabled={updating}
+                    >
+                      {updating ? <CircularProgress size={20} /> : 'Save Changes'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setEditName('')
+                        setEditDescription('')
+                        setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+                      }}
+                      variant="outlined"
+                    >
+                      Reset
+                    </Button>
+                  </Box>
+
+                  <Divider sx={{ my: 2 }} />
+
+                  <Box>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'error.main' }}>
+                      Danger Zone
+                    </Typography>
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                      Once you delete a repository, there is no going back. This action cannot be undone.
+                    </Alert>
+                    <Button
+                      onClick={() => setDeleteDialogOpen(true)}
+                      variant="outlined"
+                      color="error"
+                      startIcon={<Trash2 size={16} />}
+                    >
+                      Delete Repository
+                    </Button>
+                  </Box>
+                </Stack>
+              </Paper>
+            </Box>
+          )}
+
+          {/* Access Tab */}
+          {currentTab === 2 && (
+            <Box sx={{ maxWidth: 800 }}>
+              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
+                  Members & Access
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Manage who has access to this repository and their roles.
+                </Typography>
+
+                {repository.organization_id ? (
+                  <AccessManagement
+                    appId={repoId || ''}
+                    accessGrants={accessGrants}
+                    isLoading={accessGrantsLoading}
+                    isReadOnly={repository.owner_id !== account.user?.id && !account.user?.admin}
+                    onCreateGrant={handleCreateAccessGrant}
+                    onDeleteGrant={handleDeleteAccessGrant}
+                  />
+                ) : (
+                  <Box sx={{ textAlign: 'center', py: 8, backgroundColor: 'rgba(0, 0, 0, 0.02)', borderRadius: 2 }}>
+                    <Users size={48} color="#656d76" style={{ marginBottom: 16 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      This repository is not associated with an organization. Only the owner can access it.
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          )}
+        </Box>
+
+        {/* Clone Dialog */}
+        <Dialog open={cloneDialogOpen} onClose={() => setCloneDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Clone Repository</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              {isExternal && repository.metadata?.external_url ? (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    This is an external repository. Use the URL below to clone it:
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <TextField
+                      fullWidth
+                      value={repository.metadata.external_url}
+                      InputProps={{
+                        readOnly: true,
+                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                      }}
+                    />
+                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
+                      <IconButton
+                        onClick={() => handleCopyCloneCommand(repository.metadata.external_url)}
+                        color={copiedClone ? 'success' : 'default'}
+                      >
+                        <Copy size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    startIcon={<ExternalLink size={16} />}
+                    onClick={() => window.open(repository.metadata.external_url, '_blank')}
+                  >
+                    Open in {repository.metadata.external_type || 'Browser'}
+                  </Button>
+                </>
+              ) : isExternal ? (
+                <Alert severity="warning">
+                  This external repository does not have a clone URL configured.
+                </Alert>
+              ) : (
+                <>
+                  <Alert severity="info">
+                    This is a Helix-hosted repository. It is automatically cloned by agents when working on spec tasks.
+                  </Alert>
+                  <Typography variant="body2" color="text.secondary">
+                    Clone command (for reference):
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <TextField
+                      fullWidth
+                      value={cloneUrl}
+                      InputProps={{
+                        readOnly: true,
+                        sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
+                      }}
+                    />
+                    <Tooltip title={copiedClone ? 'Copied!' : 'Copy'}>
+                      <IconButton
+                        onClick={() => handleCopyCloneCommand(cloneUrl)}
+                        color={copiedClone ? 'success' : 'default'}
+                      >
+                        <Copy size={18} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCloneDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Edit Dialog */}
         <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -729,7 +928,7 @@ const GitRepoDetail: FC = () => {
         <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Delete Repository</DialogTitle>
           <DialogContent>
-            <Alert severity="warning" sx={{ mb: 2 }}>
+            <Alert severity="error" sx={{ mb: 2 }}>
               This action cannot be undone. This will permanently delete the repository metadata.
             </Alert>
             <Typography variant="body2">

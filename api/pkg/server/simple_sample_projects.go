@@ -42,7 +42,7 @@ type SampleTaskPrompt struct {
 var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 	{
 		ID:            "modern-todo-app",
-		Name:          "Modern Todo App",
+		Name:          "Modern Todo App (React)",
 		Description:   "Full-stack todo application with React and Node.js - perfect for learning modern web patterns",
 		GitHubRepo:    "helixml/sample-todo-app",
 		DefaultBranch: "main",
@@ -80,7 +80,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 	},
 	{
 		ID:            "ecommerce-api",
-		Name:          "E-commerce REST API",
+		Name:          "E-commerce REST API (Node.js)",
 		Description:   "Comprehensive API for an e-commerce platform with product management and order processing",
 		GitHubRepo:    "helixml/sample-ecommerce-api",
 		DefaultBranch: "main",
@@ -137,7 +137,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 	},
 	{
 		ID:            "blog-cms",
-		Name:          "Simple Blog CMS",
+		Name:          "Simple Blog CMS (Next.js)",
 		Description:   "Content management system for bloggers with markdown support and media uploads",
 		GitHubRepo:    "helixml/sample-blog-cms",
 		DefaultBranch: "main",

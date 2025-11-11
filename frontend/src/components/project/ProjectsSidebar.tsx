@@ -6,10 +6,11 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 const ProjectsSidebar: FC = () => {
   const router = useRouter()
-  const currentView = router.route?.params?.view || 'projects'
+  const { view } = router.params
+  const currentView = view || 'projects'
 
-  const handleNavigationClick = (view: string) => {
-    router.setParams({ view })
+  const handleNavigationClick = (viewValue: string) => {
+    router.setParams({ view: viewValue })
   }
 
   const sections: ContextSidebarSection[] = [
@@ -17,7 +18,7 @@ const ProjectsSidebar: FC = () => {
       items: [
         {
           id: 'projects',
-          label: 'Projects',
+          label: 'Boards',
           icon: <Kanban size={18} />,
           isActive: currentView === 'projects',
           onClick: () => handleNavigationClick('projects')

@@ -33,7 +33,7 @@ const QUERY_KEYS = {
 
 export function useGitRepositories(ownerId?: string, repoType?: string) {
   const api = useApi();
-  
+
   return useQuery({
     queryKey: [...QUERY_KEYS.gitRepositories, ownerId, repoType],
     queryFn: async () => {
@@ -41,7 +41,13 @@ export function useGitRepositories(ownerId?: string, repoType?: string) {
         owner_id: ownerId,
         repo_type: repoType,
       });
-      return response.data;
+      // Sort repositories by created_at descending (newest first)
+      const repos = response.data || [];
+      return repos.sort((a: any, b: any) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA; // Descending order
+      });
     },
   });
 }

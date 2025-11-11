@@ -237,8 +237,8 @@ const GitRepos: FC = () => {
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span style={{ color: '#0969da', cursor: 'pointer' }}>{ownerSlug}</span>
-                  <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
+                  <span style={{ color: '#3b82f6', cursor: 'pointer' }}>{ownerSlug}</span>
+                  <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
                   <span style={{ fontWeight: 600 }}>repositories</span>
                 </Typography>
               </Box>
@@ -264,14 +264,10 @@ const GitRepos: FC = () => {
               </Button>
               <Button
                 variant="contained"
+                color="secondary"
                 size="small"
                 startIcon={<Plus size={16} />}
                 onClick={() => setCreateDialogOpen(true)}
-                sx={{
-                  bgcolor: '#1a7f37',
-                  '&:hover': { bgcolor: '#1a7f37dd' },
-                  textTransform: 'none'
-                }}
               >
                 New
               </Button>
@@ -317,7 +313,7 @@ const GitRepos: FC = () => {
                         sx={{
                           fontSize: '1.25rem',
                           fontWeight: 600,
-                          color: '#0969da',
+                          color: '#3b82f6',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 0.5,
@@ -327,7 +323,7 @@ const GitRepos: FC = () => {
                         }}
                       >
                         {ownerSlug}
-                        <span style={{ color: '#656d76', fontWeight: 400 }}>/</span>
+                        <span style={{ color: 'text.secondary', fontWeight: 400 }}>/</span>
                         {repo.name || repo.id}
                       </Typography>
 
@@ -374,38 +370,6 @@ const GitRepos: FC = () => {
                     </Box>
                   </Box>
 
-                  {/* Action buttons */}
-                  <Box onClick={(e) => e.stopPropagation()} sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<Plus size={14} />}
-                      onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repo.id })}
-                      sx={{ textTransform: 'none' }}
-                    >
-                      New Spec Task
-                    </Button>
-                    {repo.metadata?.is_external && repo.metadata?.external_url ? (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<ExternalLink size={14} />}
-                        onClick={() => window.open(repo.metadata.external_url, '_blank')}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        View
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        Clone
-                      </Button>
-                    )}
-                  </Box>
                 </Box>
               </Box>
             ))}

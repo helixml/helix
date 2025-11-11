@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -470,7 +472,26 @@ func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID str
 	return repositories, nil
 }
 
+// incrementRepositoryName intelligently increments a repository name suffix
+// Examples: "repo" -> "repo-2", "repo-2" -> "repo-3", "repo-5" -> "repo-6"
+func incrementRepositoryName(name string) string {
+	// Check if name ends with -<number>
+	re := regexp.MustCompile(`^(.+)-(\d+)$`)
+	matches := re.FindStringSubmatch(name)
+
+	if len(matches) == 3 {
+		// Name has a numeric suffix, increment it
+		baseName := matches[1]
+		currentNum, _ := strconv.Atoi(matches[2])
+		return fmt.Sprintf("%s-%d", baseName, currentNum+1)
+	}
+
+	// No numeric suffix, add -2
+	return fmt.Sprintf("%s-2", name)
+}
+
 // CreateSampleRepository creates a sample/demo repository
+// Automatically handles name conflicts by appending -2, -3, -4, etc.
 func (s *GitRepositoryService) CreateSampleRepository(
 	ctx context.Context,
 	name string,
@@ -482,21 +503,52 @@ func (s *GitRepositoryService) CreateSampleRepository(
 	// Get sample files based on type
 	initialFiles := s.getSampleProjectFiles(sampleType)
 
-	request := &GitRepositoryCreateRequest{
-		Name:          name,
-		Description:   description,
-		RepoType:      GitRepositoryTypeCode,
-		OwnerID:       ownerID,
-		InitialFiles:  initialFiles,
-		DefaultBranch: "main",
-		Metadata: map[string]interface{}{
-			"sample_type":    sampleType,
-			"created_from":   "sample",
-			"kodit_indexing": koditIndexing,
-		},
+	// Try creating with incremented names if there's a conflict
+	maxRetries := 100
+	currentName := name
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		request := &GitRepositoryCreateRequest{
+			Name:          currentName,
+			Description:   description,
+			RepoType:      GitRepositoryTypeCode,
+			OwnerID:       ownerID,
+			InitialFiles:  initialFiles,
+			DefaultBranch: "main",
+			Metadata: map[string]interface{}{
+				"sample_type":    sampleType,
+				"created_from":   "sample",
+				"kodit_indexing": koditIndexing,
+			},
+		}
+
+		repo, err := s.CreateRepository(ctx, request)
+		if err == nil {
+			// Success!
+			if currentName != name {
+				log.Info().
+					Str("original_name", name).
+					Str("final_name", currentName).
+					Msg("Created sample repository with auto-incremented name")
+			}
+			return repo, nil
+		}
+
+		// Check if error is due to name conflict
+		if !strings.Contains(err.Error(), "already exists") {
+			// Different error, return it
+			return nil, err
+		}
+
+		// Name conflict, try next increment
+		currentName = incrementRepositoryName(currentName)
+		log.Debug().
+			Str("next_name", currentName).
+			Int("attempt", attempt+1).
+			Msg("Repository name conflict, trying incremented name")
 	}
 
-	return s.CreateRepository(ctx, request)
+	return nil, fmt.Errorf("failed to create repository after %d attempts (name conflicts)", maxRetries)
 }
 
 // GetCloneCommand returns the git clone command for a repository
@@ -547,18 +599,17 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to initialize bare git repository: %w", err)
 		}
 
-		// Create temporary clone to add initial files
+		// Create temporary working directory to add initial files
 		tempClone, err := os.MkdirTemp("", "helix-git-init-*")
 		if err != nil {
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}
 		defer os.RemoveAll(tempClone) // Cleanup temp clone
 
-		repo, err := git.PlainClone(tempClone, false, &git.CloneOptions{
-			URL: repoPath, // Clone from the bare repo
-		})
+		// Initialize a new non-bare repo in the temp directory
+		repo, err := git.PlainInit(tempClone, false)
 		if err != nil {
-			return fmt.Errorf("failed to create temp clone: %w", err)
+			return fmt.Errorf("failed to initialize temp repository: %w", err)
 		}
 
 		// Ensure we have at least one file
@@ -626,8 +677,18 @@ func (s *GitRepositoryService) initializeGitRepository(
 			}
 		}
 
+		// Add the bare repo as a remote
+		_, err = repo.CreateRemote(&config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{repoPath},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to add remote: %w", err)
+		}
+
 		// Push to bare repo
 		err = repo.Push(&git.PushOptions{
+			RemoteName: "origin",
 			RefSpecs: []config.RefSpec{
 				config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", defaultBranch, defaultBranch)),
 			},
