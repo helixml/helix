@@ -246,3 +246,28 @@ func (s *PostgresStore) RequestDesignChanges(ctx context.Context, reviewID, user
 
 	return s.UpdateSpecTaskDesignReview(ctx, review)
 }
+
+// Get comment by interaction ID (for linking agent responses)
+func (s *PostgresStore) GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error) {
+	var comment types.SpecTaskDesignReviewComment
+	err := s.gdb.WithContext(ctx).
+		Where("interaction_id = ?", interactionID).
+		First(&comment).Error
+	if err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
+// Get all unresolved comments for a spec task (for auto-resolution)
+func (s *PostgresStore) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) {
+	var comments []types.SpecTaskDesignReviewComment
+	err := s.gdb.WithContext(ctx).
+		Joins("JOIN spec_task_design_reviews ON spec_task_design_reviews.id = spec_task_design_review_comments.review_id").
+		Where("spec_task_design_reviews.spec_task_id = ? AND spec_task_design_review_comments.resolved = ?", specTaskID, false).
+		Find(&comments).Error
+	if err != nil {
+		return nil, err
+	}
+	return comments, nil
+}

@@ -1,8 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
   Box,
   Tabs,
   Tab,
@@ -17,12 +14,21 @@ import {
   Divider,
   Paper,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import EditIcon from '@mui/icons-material/Edit'
 import CodeIcon from '@mui/icons-material/Code'
 import GitHubIcon from '@mui/icons-material/GitHub'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import GridViewOutlined from '@mui/icons-material/GridViewOutlined'
+import CommentIcon from '@mui/icons-material/Comment'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -40,6 +46,9 @@ import {
 } from '../../services/designReviewService'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
+import { useResize } from '../../hooks/useResize'
+
+type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
 interface DesignReviewViewerProps {
   open: boolean
@@ -66,15 +75,43 @@ export default function DesignReviewViewer({
 }: DesignReviewViewerProps) {
   const snackbar = useSnackbar()
   const api = useApi()
+  const nodeRef = useRef(null)
+
+  // Window positioning state
+  const [position, setPosition] = useState<WindowPosition>('center')
+  const [isSnapped, setIsSnapped] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [windowPos, setWindowPos] = useState({ x: 100, y: 100 })
+  const [snapPreview, setSnapPreview] = useState<string | null>(null)
+  const [tileMenuAnchor, setTileMenuAnchor] = useState<null | HTMLElement>(null)
+
+  // Resize support
+  const { size, setSize, isResizing, getResizeHandles } = useResize({
+    initialSize: { width: Math.min(1400, window.innerWidth * 0.7), height: window.innerHeight * 0.85 },
+    minSize: { width: 800, height: 500 },
+    maxSize: { width: window.innerWidth, height: window.innerHeight },
+    onResize: (newSize, direction) => {
+      if (direction.includes('w') || direction.includes('n')) {
+        setWindowPos(prev => ({
+          x: direction.includes('w') ? prev.x + (size.width - newSize.width) : prev.x,
+          y: direction.includes('n') ? prev.y + (size.height - newSize.height) : prev.y
+        }))
+      }
+    }
+  })
+
+  // Review state
   const [activeTab, setActiveTab] = useState<DocumentType>('requirements')
   const [showCommentForm, setShowCommentForm] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [commentText, setCommentText] = useState('')
-  const [commentType, setCommentType] = useState<DesignReviewComment['comment_type']>('general')
   const [overallComment, setOverallComment] = useState('')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [submitDecision, setSubmitDecision] = useState<'approve' | 'request_changes'>('approve')
   const [startingImplementation, setStartingImplementation] = useState(false)
+  const [showCommentLog, setShowCommentLog] = useState(false)
 
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId)
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId)
@@ -152,14 +189,13 @@ export default function DesignReviewViewer({
         document_type: activeTab,
         quoted_text: selectedText || undefined,
         comment_text: commentText,
-        comment_type: commentType,
+        // comment_type removed - simplified to single type
       })
 
       snackbar.success('Comment added successfully')
       setCommentText('')
       setSelectedText('')
       setShowCommentForm(false)
-      setCommentType('general')
     } catch (error: any) {
       snackbar.error(`Failed to add comment: ${error.message}`)
     }
@@ -253,6 +289,154 @@ export default function DesignReviewViewer({
     }
   }
 
+  // Tiling and dragging handlers
+  const handleTile = (tilePosition: string) => {
+    setTileMenuAnchor(null)
+    setPosition(tilePosition as WindowPosition)
+    setIsSnapped(true)
+  }
+
+  const getPositionStyle = () => {
+    const w = window.innerWidth
+    const h = window.innerHeight
+
+    switch (position) {
+      case 'full':
+        return { top: 0, left: 0, width: w, height: h }
+      case 'half-left':
+        return { top: 0, left: 0, width: w / 2, height: h }
+      case 'half-right':
+        return { top: 0, left: w / 2, width: w / 2, height: h }
+      case 'corner-tl':
+        return { top: 0, left: 0, width: w / 2, height: h / 2 }
+      case 'corner-tr':
+        return { top: 0, left: w / 2, width: w / 2, height: h / 2 }
+      case 'corner-bl':
+        return { top: h / 2, left: 0, width: w / 2, height: h / 2 }
+      case 'corner-br':
+        return { top: h / 2, left: w / 2, width: w / 2, height: h / 2 }
+      case 'center':
+      default:
+        return { top: windowPos.y, left: windowPos.x, width: size.width, height: size.height }
+    }
+  }
+
+  const getSnapPreviewStyle = () => {
+    if (!snapPreview) return null
+
+    const w = window.innerWidth
+    const h = window.innerHeight
+
+    switch (snapPreview) {
+      case 'full':
+        return { top: 0, left: 0, width: w, height: h }
+      case 'half-left':
+        return { top: 0, left: 0, width: w / 2, height: h }
+      case 'half-right':
+        return { top: 0, left: w / 2, width: w / 2, height: h }
+      case 'corner-tl':
+        return { top: 0, left: 0, width: w / 2, height: h / 2 }
+      case 'corner-tr':
+        return { top: 0, left: w / 2, width: w / 2, height: h / 2 }
+      case 'corner-bl':
+        return { top: h / 2, left: 0, width: w / 2, height: h / 2 }
+      case 'corner-br':
+        return { top: h / 2, left: w / 2, width: w / 2, height: h / 2 }
+      default:
+        return null
+    }
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isResizing) return
+    setDragStart({ x: e.clientX, y: e.clientY })
+    setDragOffset({
+      x: e.clientX - windowPos.x,
+      y: e.clientY - windowPos.y
+    })
+  }
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (dragStart && !isDragging && !isResizing) {
+        const dx = Math.abs(e.clientX - dragStart.x)
+        const dy = Math.abs(e.clientY - dragStart.y)
+        const dragThreshold = isSnapped ? 15 : 5
+
+        if (dx > dragThreshold || dy > dragThreshold) {
+          setIsDragging(true)
+          setIsSnapped(false)
+          if (position !== 'center') {
+            setPosition('center')
+          }
+        }
+        return
+      }
+
+      if (isDragging && position === 'center' && !isResizing) {
+        const newX = e.clientX - dragOffset.x
+        const newY = e.clientY - dragOffset.y
+
+        const boundedX = Math.max(0, Math.min(newX, window.innerWidth - size.width))
+        const boundedY = Math.max(0, Math.min(newY, window.innerHeight - size.height))
+
+        setWindowPos({ x: boundedX, y: boundedY })
+
+        // Detect snap zones
+        const snapThreshold = 50
+        const mouseX = e.clientX
+        const mouseY = e.clientY
+        const w = window.innerWidth
+        const h = window.innerHeight
+
+        let preview: string | null = null
+
+        if (mouseX < snapThreshold) {
+          if (mouseY < h / 3) {
+            preview = 'corner-tl'
+          } else if (mouseY > (2 * h) / 3) {
+            preview = 'corner-bl'
+          } else {
+            preview = 'half-left'
+          }
+        } else if (mouseX > w - snapThreshold) {
+          if (mouseY < h / 3) {
+            preview = 'corner-tr'
+          } else if (mouseY > (2 * h) / 3) {
+            preview = 'corner-br'
+          } else {
+            preview = 'half-right'
+          }
+        } else if (mouseY < snapThreshold && mouseX > w / 3 && mouseX < (2 * w) / 3) {
+          preview = 'full'
+        }
+
+        setSnapPreview(preview)
+      }
+    }
+
+    const handleMouseUp = () => {
+      if (snapPreview) {
+        handleTile(snapPreview)
+        setSnapPreview(null)
+      }
+      setIsDragging(false)
+      setDragStart(null)
+    }
+
+    if (isDragging || dragStart) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, dragStart, dragOffset, isResizing, position, isSnapped, size, snapPreview])
+
+  const posStyle = getPositionStyle()
+
   if (reviewLoading || commentsLoading) {
     return (
       <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -276,31 +460,59 @@ export default function DesignReviewViewer({
   }
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="xl"
-      fullWidth
-      PaperProps={{
-        sx: {
-          height: '90vh',
-          bgcolor: '#fafafa',
-        },
-      }}
-    >
-      <DialogTitle
+    <>
+      {/* Snap Preview Overlay */}
+      {snapPreview && (
+        <Box
+          sx={{
+            position: 'fixed',
+            ...getSnapPreviewStyle(),
+            zIndex: 100000,
+            backgroundColor: 'rgba(33, 150, 243, 0.3)',
+            border: '2px solid rgba(33, 150, 243, 0.8)',
+            pointerEvents: 'none',
+            transition: 'all 0.1s ease',
+          }}
+        />
+      )}
+
+      {/* Floating Window */}
+      <Paper
+        ref={nodeRef}
         sx={{
-          display: 'flex',
+          position: 'fixed',
+          ...posStyle,
+          display: open ? 'flex' : 'none',
           flexDirection: 'column',
-          gap: 1.5,
-          borderBottom: '1px solid rgba(0,0,0,0.12)',
-          bgcolor: 'white',
-          pb: 2,
+          zIndex: 10000,
+          bgcolor: '#fafafa',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          overflow: 'hidden',
         }}
       >
-        <Box display="flex" alignItems="center" justifyContent="space-between">
+        {/* Resize Handles */}
+        {position === 'center' && getResizeHandles().map((handle) => (
+          <Box key={handle.position} {...handle} />
+        ))}
+
+        {/* Draggable Title Bar */}
+        <Box
+          onMouseDown={handleMouseDown}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 2,
+            py: 1.5,
+            borderBottom: '1px solid rgba(0,0,0,0.12)',
+            bgcolor: 'white',
+            cursor: 'move',
+            userSelect: 'none',
+          }}
+        >
           <Box display="flex" alignItems="center" gap={2}>
-            <Typography variant="h5" sx={{ fontFamily: "'Palatino Linotype', Georgia, serif" }}>
+            <DragIndicatorIcon sx={{ color: 'text.secondary' }} />
+            <Typography variant="h6" sx={{ fontFamily: "'Palatino Linotype', Georgia, serif" }}>
               Design Review
             </Typography>
             <Chip label={review.status.replace('_', ' ')} color={getStatusColor(review.status) as any} size="small" />
@@ -313,13 +525,29 @@ export default function DesignReviewViewer({
               />
             )}
           </Box>
-          <IconButton onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
+
+          <Box display="flex" alignItems="center" gap={1}>
+            {/* Comment Log Toggle */}
+            <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)}>
+              <Badge badgeContent={unresolvedCount} color="error">
+                <CommentIcon />
+              </Badge>
+            </IconButton>
+
+            {/* Tiling Menu */}
+            <IconButton size="small" onClick={(e) => setTileMenuAnchor(e.currentTarget)}>
+              <GridViewOutlined />
+            </IconButton>
+
+            {/* Close Button */}
+            <IconButton size="small" onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </Box>
 
         {/* Git information */}
-        <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+        <Box display="flex" alignItems="center" gap={2} px={2} py={1} bgcolor="white" borderBottom="1px solid rgba(0,0,0,0.12)">
           <Tooltip title={`Commit: ${review.git_commit_hash}`}>
             <Chip
               icon={<GitHubIcon />}
@@ -332,351 +560,472 @@ export default function DesignReviewViewer({
             Pushed {new Date(review.git_pushed_at).toLocaleString()}
           </Typography>
         </Box>
-      </DialogTitle>
 
-      <Box display="flex" flex={1} overflow="hidden">
-        {/* Main document area */}
-        <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
-          <Tabs
-            value={activeTab}
-            onChange={(_, value) => setActiveTab(value)}
-            sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'white' }}
-          >
-            <Tab label={DOCUMENT_LABELS.requirements} value="requirements" />
-            <Tab label={DOCUMENT_LABELS.technical_design} value="technical_design" />
-            <Tab label={DOCUMENT_LABELS.implementation_plan} value="implementation_plan" />
-          </Tabs>
+        {/* Main Content Area */}
+        <Box display="flex" flex={1} overflow="hidden">
+          {/* Document Viewer */}
+          <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
+            <Tabs
+              value={activeTab}
+              onChange={(_, value) => setActiveTab(value)}
+              sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'white' }}
+            >
+              <Tab label={DOCUMENT_LABELS.requirements} value="requirements" />
+              <Tab label={DOCUMENT_LABELS.technical_design} value="technical_design" />
+              <Tab label={DOCUMENT_LABELS.implementation_plan} value="implementation_plan" />
+            </Tabs>
 
-          <Box
-            flex={1}
-            overflow="auto"
-            p={4}
-            onMouseUp={handleTextSelection}
-            sx={{
-              bgcolor: '#f5f3f0',
-              '& .markdown-body': {
-                bgcolor: '#ffffff',
-                p: 5,
-                borderRadius: 1,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                maxWidth: '850px',
-                margin: '0 auto',
-                fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
-                fontSize: '16px',
-                lineHeight: 1.9,
-                color: '#2c2c2c',
-
-                // Beautiful typography
-                '& h1': {
-                  fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
-                  fontSize: '2.5rem',
-                  fontWeight: 400,
-                  color: '#1a1a1a',
-                  marginTop: '1.5rem',
-                  marginBottom: '1rem',
-                  lineHeight: 1.3,
-                  borderBottom: '2px solid #e0e0e0',
-                  paddingBottom: '0.5rem',
-                },
-                '& h2': {
-                  fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
-                  fontSize: '2rem',
-                  fontWeight: 400,
+            <Box
+              flex={1}
+              overflow="auto"
+              p={4}
+              onMouseUp={handleTextSelection}
+              sx={{
+                bgcolor: '#f5f3f0',
+                '& .markdown-body': {
+                  bgcolor: '#ffffff',
+                  p: 5,
+                  borderRadius: 1,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+                  maxWidth: '850px',
+                  margin: '0 auto',
+                  fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
+                  fontSize: '16px',
+                  lineHeight: 1.9,
                   color: '#2c2c2c',
-                  marginTop: '2rem',
-                  marginBottom: '0.75rem',
-                  lineHeight: 1.35,
-                },
-                '& h3': {
-                  fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
-                  fontSize: '1.5rem',
-                  fontWeight: 500,
-                  color: '#3c3c3c',
-                  marginTop: '1.5rem',
-                  marginBottom: '0.5rem',
-                },
-                '& p': {
-                  marginBottom: '1.2rem',
-                  textAlign: 'justify',
-                  hyphens: 'auto',
-                },
-                '& ul, & ol': {
-                  marginBottom: '1.2rem',
-                  paddingLeft: '2rem',
-                },
-                '& li': {
-                  marginBottom: '0.5rem',
-                },
-                '& blockquote': {
-                  borderLeft: '4px solid #d0d0d0',
-                  paddingLeft: '1.5rem',
-                  marginLeft: 0,
-                  fontStyle: 'italic',
-                  color: '#5c5c5c',
-                },
-                '& code': {
-                  fontFamily: 'Monaco, Consolas, monospace',
-                  fontSize: '0.9em',
-                  bgcolor: '#f5f5f5',
-                  padding: '2px 6px',
-                  borderRadius: '3px',
-                  border: '1px solid #e0e0e0',
-                },
-                '& pre': {
-                  marginBottom: '1.2rem',
-                  borderRadius: '4px',
-                  overflow: 'auto',
-                },
 
-                // Selection highlighting
-                '&::selection': {
-                  bgcolor: '#b3d7ff',
-                  color: '#000',
-                },
-              },
-            }}
-          >
-            <Paper className="markdown-body" elevation={2}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code({ node, inline, className, children, ...props }: any) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={oneLight as any}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          borderRadius: '4px',
-                          border: '1px solid #e0e0e0',
-                          fontSize: '14px',
-                        }}
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    )
+                  '& h1': {
+                    fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
+                    fontSize: '2.5rem',
+                    fontWeight: 400,
+                    color: '#1a1a1a',
+                    marginTop: '1.5rem',
+                    marginBottom: '1rem',
+                    lineHeight: 1.3,
+                    borderBottom: '2px solid #e0e0e0',
+                    paddingBottom: '0.5rem',
                   },
-                }}
-              >
-                {getDocumentContent()}
-              </ReactMarkdown>
-            </Paper>
-
-            {/* Comment form (appears after text selection) */}
-            {showCommentForm && (
-              <Paper
-                sx={{
-                  position: 'sticky',
-                  bottom: 16,
-                  p: 3,
-                  mt: 3,
-                  maxWidth: '900px',
-                  margin: '16px auto',
-                  border: '2px solid #2196f3',
-                }}
-              >
-                <Typography variant="subtitle2" gutterBottom>
-                  Add Comment
-                  {selectedText && (
-                    <Chip label={`"${selectedText.substring(0, 50)}..."`} size="small" sx={{ ml: 1 }} />
-                  )}
-                </Typography>
-
-                <Box display="flex" gap={1} mb={2}>
-                  {(['general', 'question', 'suggestion', 'critical', 'praise'] as const).map(type => (
-                    <Chip
-                      key={type}
-                      label={`${getCommentTypeIcon(type)} ${type}`}
-                      onClick={() => setCommentType(type)}
-                      color={commentType === type ? 'primary' : 'default'}
-                      size="small"
-                      sx={{ bgcolor: commentType === type ? getCommentTypeColor(type) : undefined }}
-                    />
-                  ))}
-                </Box>
-
-                <TextField
-                  fullWidth
-                  multiline
-                  rows={3}
-                  placeholder="Enter your comment..."
-                  value={commentText}
-                  onChange={e => setCommentText(e.target.value)}
-                  sx={{ mb: 2 }}
-                />
-
-                <Box display="flex" gap={2}>
-                  <Button variant="contained" onClick={handleCreateComment} disabled={createCommentMutation.isPending}>
-                    Add Comment
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => {
-                      setShowCommentForm(false)
-                      setCommentText('')
-                      setSelectedText('')
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </Box>
+                  '& h2': {
+                    fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
+                    fontSize: '2rem',
+                    fontWeight: 400,
+                    color: '#2c2c2c',
+                    marginTop: '2rem',
+                    marginBottom: '0.75rem',
+                    lineHeight: 1.35,
+                  },
+                  '& h3': {
+                    fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
+                    fontSize: '1.5rem',
+                    fontWeight: 500,
+                    color: '#3c3c3c',
+                    marginTop: '1.5rem',
+                    marginBottom: '0.5rem',
+                  },
+                  '& p': {
+                    marginBottom: '1.2rem',
+                    textAlign: 'justify',
+                    hyphens: 'auto',
+                  },
+                  '& ul, & ol': {
+                    marginBottom: '1.2rem',
+                    paddingLeft: '2rem',
+                  },
+                  '& li': {
+                    marginBottom: '0.5rem',
+                  },
+                  '& blockquote': {
+                    borderLeft: '4px solid #d0d0d0',
+                    paddingLeft: '1.5rem',
+                    marginLeft: 0,
+                    fontStyle: 'italic',
+                    color: '#5c5c5c',
+                  },
+                  '& code': {
+                    fontFamily: 'Monaco, Consolas, monospace',
+                    fontSize: '0.9em',
+                    bgcolor: '#f5f5f5',
+                    padding: '2px 6px',
+                    borderRadius: '3px',
+                    border: '1px solid #e0e0e0',
+                  },
+                  '& pre': {
+                    marginBottom: '1.2rem',
+                    borderRadius: '4px',
+                    overflow: 'auto',
+                  },
+                  '&::selection': {
+                    bgcolor: '#b3d7ff',
+                    color: '#000',
+                  },
+                },
+              }}
+            >
+              <Paper className="markdown-body" elevation={2}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({ node, inline, className, children, ...props }: any) {
+                      const match = /language-(\w+)/.exec(className || '')
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={oneLight as any}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{
+                            borderRadius: '4px',
+                            border: '1px solid #e0e0e0',
+                            fontSize: '14px',
+                          }}
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      )
+                    },
+                  }}
+                >
+                  {getDocumentContent()}
+                </ReactMarkdown>
               </Paper>
-            )}
-          </Box>
-        </Box>
 
-        {/* Comment sidebar */}
-        <Box
-          width="400px"
-          borderLeft="1px solid rgba(0,0,0,0.12)"
-          display="flex"
-          flexDirection="column"
-          bgcolor="white"
-        >
-          <Box p={2} borderBottom="1px solid rgba(0,0,0,0.12)">
-            <Typography variant="h6">
-              Comments ({activeDocComments.length})
-            </Typography>
-            <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
-              <Typography variant="caption" color="text.secondary" display="block">
-                <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
-              </Typography>
-            </Box>
-          </Box>
-
-          <Box flex={1} overflow="auto" p={2}>
-            {activeDocComments.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" align="center" mt={4}>
-                No comments yet. Select text in the document to add a comment.
-              </Typography>
-            ) : (
-              activeDocComments.map(comment => (
-                <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
-                  <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                    <Chip
-                      label={`${getCommentTypeIcon(comment.comment_type)} ${comment.comment_type}`}
-                      size="small"
-                      sx={{ bgcolor: getCommentTypeColor(comment.comment_type), color: 'white' }}
-                    />
-                    {!comment.resolved && (
-                      <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
-                        <CheckCircleIcon fontSize="small" />
-                      </IconButton>
+              {/* Comment form (appears after text selection) */}
+              {showCommentForm && (
+                <Paper
+                  sx={{
+                    position: 'sticky',
+                    bottom: 16,
+                    p: 3,
+                    mt: 3,
+                    maxWidth: '900px',
+                    margin: '16px auto',
+                    border: '2px solid #2196f3',
+                  }}
+                >
+                  <Typography variant="subtitle2" gutterBottom>
+                    Add Comment
+                    {selectedText && (
+                      <Chip label={`"${selectedText.substring(0, 50)}..."`} size="small" sx={{ ml: 1 }} />
                     )}
-                  </Box>
+                  </Typography>
 
-                  {comment.quoted_text && (
-                    <Box
-                      sx={{
-                        bgcolor: '#f5f5f5',
-                        p: 1,
-                        borderLeft: '3px solid #2196f3',
-                        mb: 1,
-                        fontStyle: 'italic',
-                        fontSize: '0.875rem',
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={3}
+                    placeholder="Enter your comment..."
+                    value={commentText}
+                    onChange={e => setCommentText(e.target.value)}
+                    sx={{ mb: 2 }}
+                  />
+
+                  <Box display="flex" gap={2}>
+                    <Button variant="contained" onClick={handleCreateComment} disabled={createCommentMutation.isPending}>
+                      Add Comment
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setShowCommentForm(false)
+                        setCommentText('')
+                        setSelectedText('')
                       }}
                     >
-                      "{comment.quoted_text}"
-                    </Box>
-                  )}
-
-                  <Typography variant="body2">{comment.comment_text}</Typography>
-
-                  {comment.resolved && (
-                    <Chip
-                      label="Resolved"
-                      size="small"
-                      color="success"
-                      icon={<CheckCircleIcon />}
-                      sx={{ mt: 1 }}
-                    />
-                  )}
-
-                  <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                    {new Date(comment.created_at).toLocaleString()}
-                  </Typography>
+                      Cancel
+                    </Button>
+                  </Box>
                 </Paper>
-              ))
+              )}
+            </Box>
+          </Box>
+
+          {/* Comment Sidebar */}
+          <Box
+            width="400px"
+            borderLeft="1px solid rgba(0,0,0,0.12)"
+            display="flex"
+            flexDirection="column"
+            bgcolor="white"
+          >
+            <Box p={2} borderBottom="1px solid rgba(0,0,0,0.12)">
+              <Typography variant="h6">
+                Comments ({activeDocComments.length})
+              </Typography>
+              <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box flex={1} overflow="auto" p={2}>
+              {activeDocComments.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" align="center" mt={4}>
+                  No comments yet. Select text in the document to add a comment.
+                </Typography>
+              ) : (
+                activeDocComments.map(comment => (
+                  <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
+                    <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
+                      <Chip
+                        label="Comment"
+                        size="small"
+                        sx={{ bgcolor: '#2196f3', color: 'white' }}
+                      />
+                      {!comment.resolved && (
+                        <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Box>
+
+                    {comment.quoted_text && (
+                      <Box
+                        sx={{
+                          bgcolor: '#f5f5f5',
+                          p: 1,
+                          borderLeft: '3px solid #2196f3',
+                          mb: 1,
+                          fontStyle: 'italic',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        "{comment.quoted_text}"
+                      </Box>
+                    )}
+
+                    <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
+
+                    {/* Agent Response */}
+                    {comment.agent_response && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          bgcolor: '#e3f2fd',
+                          borderLeft: '3px solid #1976d2',
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
+                          Agent Response:
+                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {comment.agent_response}
+                        </Typography>
+                        {comment.agent_response_at && (
+                          <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                            {new Date(comment.agent_response_at).toLocaleString()}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+
+                    {comment.resolved && (
+                      <Chip
+                        label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
+                        size="small"
+                        color="success"
+                        icon={<CheckCircleIcon />}
+                        sx={{ mt: 1 }}
+                      />
+                    )}
+
+                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                      {new Date(comment.created_at).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                ))
+              )}
+            </Box>
+
+            {/* Review submit controls */}
+            {review.status === 'approved' ? (
+              <Box p={3} borderTop="1px solid rgba(0,0,0,0.12)" bgcolor="success.light" sx={{ bgcolor: '#e8f5e9' }}>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Design approved! Ready to start implementation.
+                </Alert>
+
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  startIcon={<CodeIcon />}
+                  onClick={handleStartImplementation}
+                  disabled={startingImplementation}
+                  sx={{
+                    py: 1.5,
+                    fontSize: '1.1rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
+                </Button>
+
+                <Typography variant="caption" color="text.secondary" display="block" mt={1} textAlign="center">
+                  This will create a feature branch and initialize the implementation workspace
+                </Typography>
+              </Box>
+            ) : review.status !== 'superseded' ? (
+              <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
+                {unresolvedCount > 0 && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
+                  </Alert>
+                )}
+
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="success"
+                  onClick={() => {
+                    setSubmitDecision('approve')
+                    setShowSubmitDialog(true)
+                  }}
+                  sx={{ mb: 1 }}
+                  disabled={unresolvedCount > 0}
+                >
+                  Approve Design
+                </Button>
+
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  color="warning"
+                  onClick={() => {
+                    setSubmitDecision('request_changes')
+                    setShowSubmitDialog(true)
+                  }}
+                >
+                  Request Changes
+                </Button>
+              </Box>
+            ) : (
+              <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
+                <Alert severity="info">
+                  This review has been superseded by a newer version
+                </Alert>
+              </Box>
             )}
           </Box>
 
-          {/* Review submit controls */}
-          {review.status === 'approved' ? (
-            <Box p={3} borderTop="1px solid rgba(0,0,0,0.12)" bgcolor="success.light" sx={{ bgcolor: '#e8f5e9' }}>
-              <Alert severity="success" sx={{ mb: 2 }}>
-                Design approved! Ready to start implementation.
-              </Alert>
+          {/* Comment Log Panel (Google Docs style) */}
+          {showCommentLog && (
+            <Box
+              width="300px"
+              borderLeft="1px solid rgba(0,0,0,0.12)"
+              display="flex"
+              flexDirection="column"
+              bgcolor="white"
+            >
+              <Box p={2} borderBottom="1px solid rgba(0,0,0,0.12)">
+                <Typography variant="h6">All Comments</Typography>
+              </Box>
 
-              <Button
-                fullWidth
-                variant="contained"
-                color="primary"
-                size="large"
-                startIcon={<CodeIcon />}
-                onClick={handleStartImplementation}
-                disabled={startingImplementation}
-                sx={{
-                  py: 1.5,
-                  fontSize: '1.1rem',
-                  fontWeight: 600,
-                }}
-              >
-                {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
-              </Button>
+              <Box flex={1} overflow="auto" p={2}>
+                {allComments.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" align="center" mt={4}>
+                    No comments yet.
+                  </Typography>
+                ) : (
+                  allComments.map(comment => (
+                    <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
+                      <Typography variant="caption" color="primary" display="block" mb={0.5}>
+                        {DOCUMENT_LABELS[comment.document_type]}
+                      </Typography>
 
-              <Typography variant="caption" color="text.secondary" display="block" mt={1} textAlign="center">
-                This will create a feature branch and initialize the implementation workspace
-              </Typography>
-            </Box>
-          ) : review.status !== 'superseded' ? (
-            <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
-              {unresolvedCount > 0 && (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
-                </Alert>
-              )}
+                      {comment.quoted_text && (
+                        <Box
+                          sx={{
+                            bgcolor: '#f5f5f5',
+                            p: 1,
+                            borderLeft: '3px solid #2196f3',
+                            mb: 1,
+                            fontStyle: 'italic',
+                            fontSize: '0.75rem',
+                          }}
+                        >
+                          "{comment.quoted_text.substring(0, 100)}..."
+                        </Box>
+                      )}
 
-              <Button
-                fullWidth
-                variant="contained"
-                color="success"
-                onClick={() => {
-                  setSubmitDecision('approve')
-                  setShowSubmitDialog(true)
-                }}
-                sx={{ mb: 1 }}
-                disabled={unresolvedCount > 0}
-              >
-                Approve Design
-              </Button>
+                      <Typography variant="body2" fontSize="0.875rem" sx={{ mb: 1 }}>
+                        {comment.comment_text}
+                      </Typography>
 
-              <Button
-                fullWidth
-                variant="outlined"
-                color="warning"
-                onClick={() => {
-                  setSubmitDecision('request_changes')
-                  setShowSubmitDialog(true)
-                }}
-              >
-                Request Changes
-              </Button>
-            </Box>
-          ) : (
-            <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
-              <Alert severity="info">
-                This review has been superseded by a newer version
-              </Alert>
+                      {comment.agent_response && (
+                        <Box
+                          sx={{
+                            mt: 1,
+                            p: 1,
+                            bgcolor: '#e3f2fd',
+                            borderLeft: '2px solid #1976d2',
+                            borderRadius: 0.5,
+                          }}
+                        >
+                          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={0.5}>
+                            Agent:
+                          </Typography>
+                          <Typography variant="body2" fontSize="0.75rem">
+                            {comment.agent_response.substring(0, 150)}...
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {comment.resolved && (
+                        <Chip
+                          label={comment.resolution_reason === 'auto_text_removed' ? 'Auto-resolved' : 'Resolved'}
+                          size="small"
+                          color="success"
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+
+                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                        {new Date(comment.created_at).toLocaleString()}
+                      </Typography>
+                    </Paper>
+                  ))
+                )}
+              </Box>
             </Box>
           )}
         </Box>
-      </Box>
+      </Paper>
+
+      {/* Tiling Menu */}
+      <Menu
+        anchorEl={tileMenuAnchor}
+        open={Boolean(tileMenuAnchor)}
+        onClose={() => setTileMenuAnchor(null)}
+      >
+        <MenuItem onClick={() => handleTile('full')}>
+          <ListItemText>Full Screen</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('half-left')}>
+          <ListItemText>Half Left</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('half-right')}>
+          <ListItemText>Half Right</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('corner-tl')}>
+          <ListItemText>Top Left Quarter</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('corner-tr')}>
+          <ListItemText>Top Right Quarter</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('corner-bl')}>
+          <ListItemText>Bottom Left Quarter</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleTile('corner-br')}>
+          <ListItemText>Bottom Right Quarter</ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* Submit dialog */}
       <Dialog open={showSubmitDialog} onClose={() => setShowSubmitDialog(false)} maxWidth="sm" fullWidth>
@@ -706,6 +1055,6 @@ export default function DesignReviewViewer({
           </Button>
         </Box>
       </Dialog>
-    </Dialog>
+    </>
   )
 }
