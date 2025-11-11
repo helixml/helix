@@ -507,7 +507,8 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 
 	// Post-push hook: Check for design doc commits (async, don't block response)
 	if strings.HasSuffix(gitPath, "/git-receive-pack") {
-		go s.handlePostPushHook(r.Context(), repoID, repo.LocalPath)
+		// Use background context - request context gets canceled after response
+		go s.handlePostPushHook(context.Background(), repoID, repo.LocalPath)
 	}
 
 	log.Debug().
