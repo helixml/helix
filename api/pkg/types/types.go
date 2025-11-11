@@ -998,7 +998,9 @@ type ServerConfigForFrontend struct {
 	DeploymentID                           string               `json:"deployment_id"`
 	License                                *FrontendLicenseInfo `json:"license,omitempty"`
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
-	MoonlightWebMode                       string               `json:"moonlight_web_mode"` // "single" or "multi" - determines streaming architecture
+	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // OAuth providers management
+	StreamingBitrateMbps                   int                  `json:"streaming_bitrate_mbps"`       // Moonlight streaming bitrate
+	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
 }
 
 // a short version of a session that we keep for the dashboard
@@ -1839,6 +1841,11 @@ type ZedAgent struct {
 	// Multi-session support
 	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
 	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
+	// SpecTask support (for task-scoped workspace and repository checkout)
+	SpecTaskID          string   `json:"spec_task_id,omitempty"`          // SpecTask ID for workspace scoping
+	ProjectID           string   `json:"project_id,omitempty"`            // Project ID for exploratory sessions (when no SpecTask)
+	RepositoryIDs       []string `json:"repository_ids,omitempty"`        // Git repository IDs to checkout
+	PrimaryRepositoryID string   `json:"primary_repository_id,omitempty"` // Primary git repository (opened in Zed by default)
 	// Video settings for streaming (Phase 3.5) - defaults to MacBook Pro 13"
 	DisplayWidth       int `json:"display_width,omitempty"`        // Streaming resolution width (default: 2560)
 	DisplayHeight      int `json:"display_height,omitempty"`       // Streaming resolution height (default: 1600)
@@ -2517,64 +2524,7 @@ type TriggerExecution struct {
 	SessionID              string                 `json:"session_id"`
 }
 
-// PersonalDevEnvironment represents a persistent personal development environment
-type PersonalDevEnvironment struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	Created      time.Time `json:"created"`
-	Updated      time.Time `json:"updated"`
-	UserID       string    `json:"user_id" gorm:"index"`
-	AppID        string    `json:"app_id"`                                            // Helix App ID for configuration (MCP servers, tools, etc.)
-	WolfAppID    string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
-	WolfLobbyID  string    `json:"wolf_lobby_id" gorm:"index"`                        // NEW: Wolf lobby ID for auto-start
-	WolfLobbyPIN string    `json:"wolf_lobby_pin"`                                    // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
-
-	// User-facing configuration
-	EnvironmentName string `json:"environment_name"`
-
-	// Runtime state
-	Status       string    `json:"status"` // "starting", "running", "stopped"
-	LastActivity time.Time `json:"last_activity"`
-
-	// Streaming configuration
-	DisplayWidth  int `json:"display_width"`
-	DisplayHeight int `json:"display_height"`
-	DisplayFPS    int `json:"display_fps"`
-
-	// Container information
-	ContainerName string `json:"container_name"`
-	VNCPort       int    `json:"vnc_port"`
-	StreamURL     string `json:"stream_url"`
-	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
-}
-
-// StreamingTokenResponse contains token for accessing streaming session
-type StreamingTokenResponse struct {
-	StreamToken     string    `json:"stream_token"`
-	WolfLobbyID     string    `json:"wolf_lobby_id"`
-	WolfLobbyPIN    string    `json:"wolf_lobby_pin"`
-	MoonlightHostID int       `json:"moonlight_host_id"`
-	MoonlightAppID  int       `json:"moonlight_app_id"`
-	AccessLevel     string    `json:"access_level"`
-	ExpiresAt       time.Time `json:"expires_at"`
-}
-
-// Memory provides agent user memories
-type Memory struct {
-	ID       string    `json:"id"`
-	Created  time.Time `json:"created"`
-	Updated  time.Time `json:"updated"`
-	UserID   string    `json:"user_id"`
-	AppID    string    `json:"app_id"`
-	Contents string    `json:"contents"`
-}
-
-type ListMemoryRequest struct {
-	UserID string
-	AppID  string
-}
-
-// QuestionSet contains a set of questions that can be used to evaluate an agent's performance
-// or analyze documents. Users can create their own, share within organization, etc.
+// QuestionSet represents a set of questions to be asked to a model/agent
 type QuestionSet struct {
 	ID             string     `json:"id"`
 	Created        time.Time  `json:"created"`
@@ -2638,4 +2588,60 @@ type QuestionSetExecution struct {
 	Status        QuestionSetExecutionStatus `json:"status"`
 	Error         string                     `json:"error"`
 	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
+}
+
+// PersonalDevEnvironment represents a persistent personal development environment
+type PersonalDevEnvironment struct {
+	ID           string    `json:"id" gorm:"primaryKey"`
+	Created      time.Time `json:"created"`
+	Updated      time.Time `json:"updated"`
+	UserID       string    `json:"user_id" gorm:"index"`
+	AppID        string    `json:"app_id"`                                            // Helix App ID for configuration (MCP servers, tools, etc.)
+	WolfAppID    string    `json:"wolf_app_id" gorm:"index;uniqueIndex:idx_wolf_app"` // Wolf numeric app ID (deprecated)
+	WolfLobbyID  string    `json:"wolf_lobby_id" gorm:"index"`                        // NEW: Wolf lobby ID for auto-start
+	WolfLobbyPIN string    `json:"wolf_lobby_pin"`                                    // NEW: PIN for lobby access (Phase 3: Multi-tenancy)
+
+	// User-facing configuration
+	EnvironmentName string `json:"environment_name"`
+
+	// Runtime state
+	Status       string    `json:"status"` // "starting", "running", "stopped"
+	LastActivity time.Time `json:"last_activity"`
+
+	// Streaming configuration
+	DisplayWidth  int `json:"display_width"`
+	DisplayHeight int `json:"display_height"`
+	DisplayFPS    int `json:"display_fps"`
+
+	// Container information
+	ContainerName string `json:"container_name"`
+	VNCPort       int    `json:"vnc_port"`
+	StreamURL     string `json:"stream_url"`
+	WolfSessionID string `json:"wolf_session_id"` // Current Wolf session ID (deprecated)
+}
+
+// StreamingTokenResponse contains token for accessing streaming session
+type StreamingTokenResponse struct {
+	StreamToken     string    `json:"stream_token"`
+	WolfLobbyID     string    `json:"wolf_lobby_id"`
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin"`
+	MoonlightHostID int       `json:"moonlight_host_id"`
+	MoonlightAppID  int       `json:"moonlight_app_id"`
+	AccessLevel     string    `json:"access_level"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+// Memory provides agent user memories
+type Memory struct {
+	ID       string    `json:"id"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	UserID   string    `json:"user_id"`
+	AppID    string    `json:"app_id"`
+	Contents string    `json:"contents"`
+}
+
+type ListMemoryRequest struct {
+	UserID string
+	AppID  string
 }
