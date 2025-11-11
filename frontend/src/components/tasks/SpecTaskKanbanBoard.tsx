@@ -976,11 +976,14 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     // Fetch the latest design review for this task using generated client
     try {
       const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id);
+      console.log('Design reviews response:', response);
       const reviews = response.data?.reviews || [];
+      console.log('Reviews array:', reviews);
 
       if (reviews.length > 0) {
         // Get the latest non-superseded review
         const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0];
+        console.log('Opening review:', latestReview.id, 'for task:', task.id);
         setActiveReviewId(latestReview.id);
         setDesignReviewViewerOpen(true);
       } else {

@@ -566,25 +566,27 @@ I'll give you feedback and we can iterate on any changes needed.`
                       // Fetch design reviews for this task
                       try {
                         const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
+                        console.log('Design reviews response:', response)
                         const reviews = response.data?.reviews || []
+                        console.log('Reviews array:', reviews)
 
                         if (reviews.length > 0) {
                           // Get the latest non-superseded review
                           const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+                          console.log('Opening review:', latestReview.id)
                           setActiveReviewId(latestReview.id)
                           setDesignReviewViewerOpen(true)
                         } else {
-                          // No design review exists yet, show old doc viewer
-                          setDocViewerOpen(true)
+                          console.error('No design reviews found for task:', task.id)
+                          setSnackbar({ message: 'No design review found', severity: 'error' })
                         }
                       } catch (error) {
                         console.error('Failed to fetch design reviews:', error)
-                        // Fallback to old doc viewer
-                        setDocViewerOpen(true)
+                        setSnackbar({ message: 'Failed to load design review', severity: 'error' })
                       }
                     }}
                   >
-                    Review Documents
+                    Review Spec
                   </Button>
                 )}
               </Box>

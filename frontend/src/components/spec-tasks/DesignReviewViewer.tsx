@@ -131,6 +131,17 @@ export default function DesignReviewViewer({
   const activeDocComments = allComments.filter(c => c.document_type === activeTab)
   const unresolvedCount = getUnresolvedCount(allComments)
 
+  // Debug logging
+  useEffect(() => {
+    console.log('DesignReviewViewer mounted/updated:', {
+      specTaskId,
+      reviewId,
+      reviewData,
+      review,
+      isLoading: reviewLoading,
+    })
+  }, [specTaskId, reviewId, reviewData, review, reviewLoading])
+
   // Separate comments with quoted_text (inline) vs without (general)
   const inlineComments = activeDocComments.filter(c => c.quoted_text && !c.resolved)
   const generalComments = activeDocComments.filter(c => !c.quoted_text)
