@@ -359,7 +359,6 @@ func NewServer(
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
-		controller,
 		apiServer.gitRepositoryService,
 		&services.GitHTTPServerConfig{
 			ServerBaseURL:     cfg.WebServer.URL,

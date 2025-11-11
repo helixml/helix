@@ -314,20 +314,30 @@ export default function DesignReviewViewer({
 
   const handleSubmitReview = async () => {
     try {
+      // Submit the review
       await submitReviewMutation.mutateAsync({
         decision: submitDecision,
         overall_comment: overallComment || undefined,
       })
 
-      snackbar.success(
-        submitDecision === 'approve'
-          ? 'Design approved! Ready for implementation.'
-          : 'Changes requested. Agent will be notified.'
-      )
-      setShowSubmitDialog(false)
+      // If approved, also call approve-specs to start implementation automatically
+      if (submitDecision === 'approve') {
+        await api.getApiClient().v1SpecTasksApproveSpecsCreate(specTaskId, {
+          approved: true,
+          comments: overallComment || 'Design approved',
+        })
 
-      // Don't close if approved - show implementation button instead
-      if (submitDecision === 'request_changes') {
+        snackbar.success('Design approved! Agent starting implementation...')
+        setShowSubmitDialog(false)
+
+        if (onImplementationStarted) {
+          onImplementationStarted()
+        }
+
+        onClose()
+      } else {
+        snackbar.success('Changes requested. Agent will be notified.')
+        setShowSubmitDialog(false)
         onClose()
       }
     } catch (error: any) {

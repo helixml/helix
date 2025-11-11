@@ -84,6 +84,38 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [docViewerOpen, setDocViewerOpen] = useState(false)
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
+  const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
+
+  // Auto-send review request message when dialog opens for implementation_review
+  useEffect(() => {
+    if (
+      open &&
+      !implementationReviewMessageSent &&
+      displayTask?.status === 'implementation_review' &&
+      displayTask?.spec_session_id
+    ) {
+      const reviewMessage = `I'm here to review your implementation.
+
+If this is a web application, please start the development server and provide the URL where I can test it.
+
+I'll give you feedback and we can iterate on any changes needed.`
+
+      streaming.NewInference({
+        type: SESSION_TYPE_TEXT,
+        message: reviewMessage,
+        sessionId: displayTask.spec_session_id,
+      }).then(() => {
+        setImplementationReviewMessageSent(true)
+      }).catch((err) => {
+        console.error('Failed to send implementation review message:', err)
+      })
+    }
+
+    // Reset when dialog closes
+    if (!open) {
+      setImplementationReviewMessageSent(false)
+    }
+  }, [open, implementationReviewMessageSent, displayTask?.status, displayTask?.spec_session_id])
 
   // Poll for task updates to detect when spec_session_id is populated
   useEffect(() => {

@@ -88,7 +88,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 	}
 
 	if sessionID != "" {
-		agentInstructionService := services.NewAgentInstructionService(s.Controller)
+		agentInstructionService := services.NewAgentInstructionService(s.Store)
 
 		// Send instruction asynchronously (don't block the response)
 		go func() {
