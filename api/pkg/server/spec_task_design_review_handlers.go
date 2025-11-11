@@ -111,6 +111,19 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
+// getDesignReview returns a specific design review by ID with all details
+// @Summary Get design review details
+// @Description Get a specific design review for a spec task with comments and spec task details
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Success 200 {object} types.SpecTaskDesignReviewDetailResponse
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -151,6 +164,21 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
+// submitDesignReview approves or requests changes for a design review
+// @Summary Submit design review decision
+// @Description Approve or request changes for a design review
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Param request body types.SpecTaskDesignReviewSubmitRequest true "Review decision"
+// @Success 200 {object} types.SpecTaskDesignReview
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -232,6 +260,21 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(review)
 }
 
+// createDesignReviewComment creates a new inline or general comment on a design review
+// @Summary Create design review comment
+// @Description Create a new comment on a design review document
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Param request body types.SpecTaskDesignReviewCommentCreateRequest true "Comment data"
+// @Success 200 {object} types.SpecTaskDesignReviewComment
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -299,6 +342,19 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 	json.NewEncoder(w).Encode(comment)
 }
 
+// listDesignReviewComments lists all comments for a design review
+// @Summary List design review comments
+// @Description Get all comments for a specific design review
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Success 200 {object} types.SpecTaskDesignReviewCommentListResponse
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -332,6 +388,20 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(response)
 }
 
+// resolveDesignReviewComment marks a comment as resolved
+// @Summary Resolve design review comment
+// @Description Mark a design review comment as resolved
+// @Tags SpecTasks
+// @Accept json
+// @Produce json
+// @Param spec_task_id path string true "Spec Task ID"
+// @Param review_id path string true "Design Review ID"
+// @Param comment_id path string true "Comment ID"
+// @Success 200 {object} types.SpecTaskDesignReviewComment
+// @Failure 403 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)

@@ -3620,6 +3620,75 @@ export interface TypesSpecTaskDesignReview {
   updated_at?: string;
 }
 
+export interface TypesSpecTaskDesignReviewComment {
+  /** Agent integration (NEW FIELDS) */
+  agent_response?: string;
+  /** When agent responded */
+  agent_response_at?: string;
+  /** The actual comment */
+  comment_text?: string;
+  /** Made optional - simplified to single type */
+  comment_type?: TypesSpecTaskDesignReviewCommentType;
+  /** Comment metadata */
+  commented_by?: string;
+  /** Timestamps */
+  created_at?: string;
+  /** Location in document */
+  document_type?: string;
+  /** Character offset in document */
+  end_offset?: number;
+  id?: string;
+  /** Link to Helix interaction */
+  interaction_id?: string;
+  /** Optional line number */
+  line_number?: number;
+  /** For inline comments - store the context around the comment */
+  quoted_text?: string;
+  /** "manual", "auto_text_removed", "agent_updated" */
+  resolution_reason?: string;
+  /** Status tracking */
+  resolved?: boolean;
+  resolved_at?: string;
+  resolved_by?: string;
+  review_id?: string;
+  /** e.g., "## Architecture/### Database Schema" */
+  section_path?: string;
+  /** Character offset in document */
+  start_offset?: number;
+  updated_at?: string;
+}
+
+export interface TypesSpecTaskDesignReviewCommentCreateRequest {
+  comment_text: string;
+  comment_type?: TypesSpecTaskDesignReviewCommentType;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  end_offset?: number;
+  line_number?: number;
+  quoted_text?: string;
+  review_id: string;
+  section_path?: string;
+  start_offset?: number;
+}
+
+export interface TypesSpecTaskDesignReviewCommentListResponse {
+  comments?: TypesSpecTaskDesignReviewComment[];
+  total?: number;
+}
+
+export enum TypesSpecTaskDesignReviewCommentType {
+  SpecTaskDesignReviewCommentTypeGeneral = "general",
+  SpecTaskDesignReviewCommentTypeQuestion = "question",
+  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
+  SpecTaskDesignReviewCommentTypeCritical = "critical",
+  SpecTaskDesignReviewCommentTypePraise = "praise",
+}
+
+export interface TypesSpecTaskDesignReviewDetailResponse {
+  comments?: TypesSpecTaskDesignReviewComment[];
+  review?: TypesSpecTaskDesignReview;
+  spec_task?: TypesSpecTask;
+}
+
 export interface TypesSpecTaskDesignReviewListResponse {
   reviews?: TypesSpecTaskDesignReview[];
   total?: number;
@@ -3631,6 +3700,13 @@ export enum TypesSpecTaskDesignReviewStatus {
   SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
   SpecTaskDesignReviewStatusApproved = "approved",
   SpecTaskDesignReviewStatusSuperseded = "superseded",
+}
+
+export interface TypesSpecTaskDesignReviewSubmitRequest {
+  /** "approve" or "request_changes" */
+  decision: "approve" | "request_changes";
+  overall_comment?: string;
+  review_id: string;
 }
 
 export interface TypesSpecTaskImplementationSessionsCreateRequest {
@@ -8359,6 +8435,120 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific design review for a spec task with comments and spec task details
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDetail2
+     * @summary Get design review details
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}
+     * @originalName v1SpecTasksDesignReviewsDetail
+     * @duplicate
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all comments for a specific design review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsDetail
+     * @summary List design review comments
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsDetail: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewCommentListResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new comment on a design review document
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsCreate
+     * @summary Create design review comment
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsCreate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewCommentCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mark a design review comment as resolved
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsResolveCreate
+     * @summary Resolve design review comment
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsResolveCreate: (
+      specTaskId: string,
+      reviewId: string,
+      commentId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments/${commentId}/resolve`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approve or request changes for a design review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsSubmitCreate
+     * @summary Submit design review decision
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit
+     * @secure
+     */
+    v1SpecTasksDesignReviewsSubmitCreate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewSubmitRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

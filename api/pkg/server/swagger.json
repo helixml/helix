@@ -7878,6 +7878,321 @@
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific design review for a spec task with comments and spec task details",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get design review details",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewDetailResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all comments for a specific design review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "List design review comments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentListResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new comment on a design review document",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Create design review comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Comment data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mark a design review comment as resolved",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Resolve design review comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approve or request changes for a design review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Submit design review decision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Review decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/stop-agent": {
             "post": {
                 "security": [
@@ -19844,6 +20159,187 @@
                 }
             }
         },
+        "types.SpecTaskDesignReviewComment": {
+            "type": "object",
+            "properties": {
+                "agent_response": {
+                    "description": "Agent integration (NEW FIELDS)",
+                    "type": "string"
+                },
+                "agent_response_at": {
+                    "description": "When agent responded",
+                    "type": "string"
+                },
+                "comment_text": {
+                    "description": "The actual comment",
+                    "type": "string"
+                },
+                "comment_type": {
+                    "description": "Made optional - simplified to single type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentType"
+                        }
+                    ]
+                },
+                "commented_by": {
+                    "description": "Comment metadata",
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "document_type": {
+                    "description": "Location in document",
+                    "type": "string"
+                },
+                "end_offset": {
+                    "description": "Character offset in document",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Link to Helix interaction",
+                    "type": "string"
+                },
+                "line_number": {
+                    "description": "Optional line number",
+                    "type": "integer"
+                },
+                "quoted_text": {
+                    "description": "For inline comments - store the context around the comment",
+                    "type": "string"
+                },
+                "resolution_reason": {
+                    "description": "\"manual\", \"auto_text_removed\", \"agent_updated\"",
+                    "type": "string"
+                },
+                "resolved": {
+                    "description": "Status tracking",
+                    "type": "boolean"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "resolved_by": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                },
+                "section_path": {
+                    "description": "e.g., \"## Architecture/### Database Schema\"",
+                    "type": "string"
+                },
+                "start_offset": {
+                    "description": "Character offset in document",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentCreateRequest": {
+            "type": "object",
+            "required": [
+                "comment_text",
+                "document_type",
+                "review_id"
+            ],
+            "properties": {
+                "comment_text": {
+                    "type": "string"
+                },
+                "comment_type": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReviewCommentType"
+                },
+                "document_type": {
+                    "type": "string",
+                    "enum": [
+                        "requirements",
+                        "technical_design",
+                        "implementation_plan"
+                    ]
+                },
+                "end_offset": {
+                    "type": "integer"
+                },
+                "line_number": {
+                    "type": "integer"
+                },
+                "quoted_text": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                },
+                "section_path": {
+                    "type": "string"
+                },
+                "start_offset": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentListResponse": {
+            "type": "object",
+            "properties": {
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentType": {
+            "type": "string",
+            "enum": [
+                "general",
+                "question",
+                "suggestion",
+                "critical",
+                "praise"
+            ],
+            "x-enum-comments": {
+                "SpecTaskDesignReviewCommentTypeCritical": "Critical issue must be fixed",
+                "SpecTaskDesignReviewCommentTypeGeneral": "General comment",
+                "SpecTaskDesignReviewCommentTypePraise": "Positive feedback",
+                "SpecTaskDesignReviewCommentTypeQuestion": "Question needing clarification",
+                "SpecTaskDesignReviewCommentTypeSuggestion": "Suggested improvement"
+            },
+            "x-enum-varnames": [
+                "SpecTaskDesignReviewCommentTypeGeneral",
+                "SpecTaskDesignReviewCommentTypeQuestion",
+                "SpecTaskDesignReviewCommentTypeSuggestion",
+                "SpecTaskDesignReviewCommentTypeCritical",
+                "SpecTaskDesignReviewCommentTypePraise"
+            ]
+        },
+        "types.SpecTaskDesignReviewDetailResponse": {
+            "type": "object",
+            "properties": {
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                    }
+                },
+                "review": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReview"
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
         "types.SpecTaskDesignReviewListResponse": {
             "type": "object",
             "properties": {
@@ -19881,6 +20377,29 @@
                 "SpecTaskDesignReviewStatusApproved",
                 "SpecTaskDesignReviewStatusSuperseded"
             ]
+        },
+        "types.SpecTaskDesignReviewSubmitRequest": {
+            "type": "object",
+            "required": [
+                "decision",
+                "review_id"
+            ],
+            "properties": {
+                "decision": {
+                    "description": "\"approve\" or \"request_changes\"",
+                    "type": "string",
+                    "enum": [
+                        "approve",
+                        "request_changes"
+                    ]
+                },
+                "overall_comment": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                }
+            }
         },
         "types.SpecTaskImplementationSessionsCreateRequest": {
             "type": "object",
