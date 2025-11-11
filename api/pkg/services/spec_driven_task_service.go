@@ -17,6 +17,13 @@ import (
 	"gorm.io/datatypes"
 )
 
+// Spec-driven development: Specs worktree paths (relative to repository root)
+const (
+	SpecsWorktreeRelPath = "design"                   // Relative path from repo root
+	SpecsBranchName      = "helix-specs"              // Git branch name for spec-driven development
+	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s"    // Format: tasks/DATE_NAME_ID
+)
+
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
 type RequestMappingRegistrar func(requestID, sessionID string)
 
@@ -597,15 +604,15 @@ func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) 
 - Priority: %s
 - SpecTask ID: %s
 
-**CRITICAL: Design Documents Location**
-You have access to a git worktree for design documentation at:
-.git-worktrees/helix-design-docs/
+**CRITICAL: Specification Documents Location (Spec-Driven Development)**
+You have access to a git worktree for specification documents at:
+%s/
 
-This is a forward-only branch specifically for design documents. All your design work MUST be saved there.
+This is a forward-only branch (helix-specs) specifically for spec-driven development. All your specification work MUST be saved there.
 
 **DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
 Your documents go in a task-specific directory:
-.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
+%s/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 (Date first for sorting, branch name for readability)
@@ -619,7 +626,7 @@ Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 **Git Workflow You Must Follow:**
 ` + "```bash" + `
 # Navigate to design docs worktree
-cd .git-worktrees/helix-design-docs
+cd %s
 
 # Create your task directory (if not exists)
 mkdir -p tasks/%s_%s_%s
@@ -637,7 +644,7 @@ git add .
 git commit -m "Generated design documents for SpecTask %s"
 
 # Push to helix-design-docs branch
-git push origin helix-design-docs
+git push origin helix-specs
 ` + "```" + `
 
 **tasks.md Format (spec-driven development approach):**
@@ -674,11 +681,14 @@ They can continue chatting with you to refine the design before approval.
 - design.md: Essential architecture + key decisions (add sections for complex tasks)
 - tasks.md: Discrete, implementable tasks (could be 3 tasks or 20+ depending on scope)
 
-Start by analyzing the user's request complexity, then create SHORT, SIMPLE design documents in the worktree.`,
-		task.ProjectID, task.Type, task.Priority, task.ID,
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command
+Start by analyzing the user's request complexity, then create SHORT, SIMPLE spec documents in the worktree.`,
+		task.ProjectID, task.Type, task.Priority, task.ID,             // Project context
+		SpecsWorktreeRelPath,                                           // Base path (line 609)
+		SpecsWorktreeRelPath,                                           // Base path (line 615)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 615)
+		SpecsWorktreeRelPath,                                           // cd path (line 629)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 632)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 635)
 		task.ID)                                                                       // Commit message
 }
 
@@ -691,13 +701,13 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 
 **CRITICAL: Design Documents Location**
 The approved design documents are in a task-specific directory in the helix-design-docs worktree:
-.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
+%s/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE (spec-driven development format):**
 ` + "```" + `
-.git-worktrees/helix-design-docs/tasks/%s_%s_%s/
+%s/tasks/%s_%s_%s/
 ├── requirements.md      (user stories + EARS acceptance criteria)
 ├── design.md           (architecture + sequence diagrams + considerations)
 ├── tasks.md            (YOUR TASK CHECKLIST - track here!)
@@ -713,7 +723,7 @@ The tasks.md file contains discrete, trackable tasks in this format:
 **Your Workflow:**
 ` + "```bash" + `
 # Navigate to your task directory
-cd .git-worktrees/helix-design-docs/tasks/%s_%s_%s
+cd %s/tasks/%s_%s_%s
 
 # Read your design documents (spec-driven development format)
 cat requirements.md    # User stories + EARS criteria
@@ -725,18 +735,18 @@ cat tasks.md          # Your task checklist
 sed -i 's/- \[ \] Task name/- \[~\] Task name/' tasks.md
 git add tasks.md
 git commit -m "🤖 Started: Task name"
-git push origin helix-design-docs
+git push origin helix-specs
 
 # Implement that specific task in the main codebase (cd back to repo root)
 cd /workspace/repos/{repo}
 # ... do the coding work ...
 
 # When done, mark complete
-cd .git-worktrees/helix-design-docs/tasks/%s_%s_%s
+cd %s/tasks/%s_%s_%s
 sed -i 's/- \[~\] Task name/- \[x\] Task name/' tasks.md
 git add tasks.md
 git commit -m "🤖 Completed: Task name"
-git push origin helix-design-docs
+git push origin helix-specs
 
 # Move to next [ ] task
 # Repeat until all tasks are [x]
@@ -746,7 +756,7 @@ git push origin helix-design-docs
 %s
 
 **Your Mission:**
-1. Read design docs from .git-worktrees/helix-design-docs/tasks/{dir}/
+1. Read design docs from %s/tasks/{dir}/
 2. Read tasks.md to see your task checklist
 3. Work through tasks one by one (discrete, trackable)
 4. Mark each task [~] when starting, [x] when done
@@ -764,13 +774,18 @@ git push origin helix-design-docs
 - Handle all edge cases
 - The user and orchestrator are watching your progress via git commits to tasks.md
 
-Start by reading the design documents from the worktree, then work through the task list systematically.`,
-		task.Name, task.ID,
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 1
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 2
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 1
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 2
-		task.OriginalPrompt)
+Start by reading the spec documents from the worktree, then work through the task list systematically.`,
+		task.Name, task.ID,                                                           // Task context
+		SpecsWorktreeRelPath,                                                         // Base path (line 704)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 704)
+		SpecsWorktreeRelPath,                                                         // Base path (line 710)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 710)
+		SpecsWorktreeRelPath,                                                         // Base path (line 726)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 726)
+		SpecsWorktreeRelPath,                                                         // Base path (line 745)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 745)
+		task.OriginalPrompt,                                                          // Original request
+		SpecsWorktreeRelPath)                                                         // Base path (line 759)
 }
 
 // Helper functions

@@ -6032,6 +6032,27 @@ definitions:
     required:
     - spec_task_id
     type: object
+  types.SpecTaskImplementationStartResponse:
+    properties:
+      agent_instructions:
+        type: string
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+      created_at:
+        type: string
+      local_path:
+        type: string
+      pr_template_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      status:
+        type: string
+    type: object
   types.SpecTaskImplementationStatus:
     enum:
     - pending
@@ -12229,6 +12250,40 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/start-implementation:
+    post:
+      description: Transition an approved spec task to implementation, creating a
+        feature branch
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskImplementationStartResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Start implementation phase
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{taskId}/start-planning:
     post:
       consumes:

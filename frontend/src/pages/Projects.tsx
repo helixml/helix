@@ -259,6 +259,12 @@ const Projects: FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 Create your first project to get started
               </Typography>
+              <CreateProjectButton
+                onCreateEmpty={handleNewProject}
+                onCreateFromSample={handleInstantiateSample}
+                sampleProjects={sampleProjects}
+                isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
+              />
             </Box>
           ) : (
             <Grid container spacing={3}>
