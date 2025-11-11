@@ -107,6 +107,7 @@ export default function DesignReviewViewer({
   const [showCommentForm, setShowCommentForm] = useState(false)
   const [selectedText, setSelectedText] = useState('')
   const [commentText, setCommentText] = useState('')
+  const [commentFormPosition, setCommentFormPosition] = useState({ x: 0, y: 0 })
   const [overallComment, setOverallComment] = useState('')
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [submitDecision, setSubmitDecision] = useState<'approve' | 'request_changes'>('approve')
@@ -173,7 +174,12 @@ export default function DesignReviewViewer({
     const selection = window.getSelection()
     const text = selection?.toString().trim()
     if (text && text.length > 0) {
+      // Get position of selected text for inline comment positioning
+      const range = selection.getRangeAt(0)
+      const rect = range.getBoundingClientRect()
+
       setSelectedText(text)
+      setCommentFormPosition({ x: rect.right + 20, y: rect.top })
       setShowCommentForm(true)
     }
   }
@@ -437,25 +443,44 @@ export default function DesignReviewViewer({
 
   const posStyle = getPositionStyle()
 
+  if (!open) return null
+
   if (reviewLoading || commentsLoading) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-        <DialogContent>
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-            <CircularProgress />
-          </Box>
-        </DialogContent>
-      </Dialog>
+      <Paper
+        sx={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 400,
+          zIndex: 10000,
+          p: 4,
+        }}
+      >
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+          <CircularProgress />
+        </Box>
+      </Paper>
     )
   }
 
   if (!review) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-        <DialogContent>
-          <Alert severity="error">Review not found</Alert>
-        </DialogContent>
-      </Dialog>
+      <Paper
+        sx={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 400,
+          zIndex: 10000,
+          p: 4,
+        }}
+      >
+        <Alert severity="error">Review not found</Alert>
+        <Button onClick={onClose} sx={{ mt: 2 }}>Close</Button>
+      </Paper>
     )
   }
 
@@ -579,20 +604,27 @@ export default function DesignReviewViewer({
               flex={1}
               overflow="auto"
               p={4}
-              onMouseUp={handleTextSelection}
               sx={{
                 bgcolor: '#f5f3f0',
-                '& .markdown-body': {
-                  bgcolor: '#ffffff',
-                  p: 5,
-                  borderRadius: 1,
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-                  maxWidth: '850px',
-                  margin: '0 auto',
-                  fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
-                  fontSize: '16px',
-                  lineHeight: 1.9,
-                  color: '#2c2c2c',
+                position: 'relative',
+              }}
+            >
+              {/* Document content - narrower to leave room for inline comments */}
+              <Box
+                onMouseUp={handleTextSelection}
+                sx={{
+                  maxWidth: '650px',
+                  marginRight: '350px', // Space for inline comments
+                  position: 'relative',
+                  '& .markdown-body': {
+                    bgcolor: '#ffffff',
+                    p: 5,
+                    borderRadius: 1,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+                    fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
+                    fontSize: '16px',
+                    lineHeight: 1.9,
+                    color: '#2c2c2c',
 
                   '& h1': {
                     fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
@@ -693,53 +725,6 @@ export default function DesignReviewViewer({
                 </ReactMarkdown>
               </Paper>
 
-              {/* Comment form (appears after text selection) */}
-              {showCommentForm && (
-                <Paper
-                  sx={{
-                    position: 'sticky',
-                    bottom: 16,
-                    p: 3,
-                    mt: 3,
-                    maxWidth: '900px',
-                    margin: '16px auto',
-                    border: '2px solid #2196f3',
-                  }}
-                >
-                  <Typography variant="subtitle2" gutterBottom>
-                    Add Comment
-                    {selectedText && (
-                      <Chip label={`"${selectedText.substring(0, 50)}..."`} size="small" sx={{ ml: 1 }} />
-                    )}
-                  </Typography>
-
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={3}
-                    placeholder="Enter your comment..."
-                    value={commentText}
-                    onChange={e => setCommentText(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-
-                  <Box display="flex" gap={2}>
-                    <Button variant="contained" onClick={handleCreateComment} disabled={createCommentMutation.isPending}>
-                      Add Comment
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => {
-                        setShowCommentForm(false)
-                        setCommentText('')
-                        setSelectedText('')
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </Box>
-                </Paper>
-              )}
             </Box>
           </Box>
 
