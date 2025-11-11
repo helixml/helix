@@ -53,6 +53,17 @@ type SpecTask struct {
 	SpecRevisionCount int        `json:"spec_revision_count"` // Number of spec revisions requested
 	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
 
+	// Implementation tracking
+	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
+	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+
+	// Git tracking
+	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`    // Last commit hash pushed to feature branch
+	LastPushAt         *time.Time `json:"last_push_at,omitempty"`             // When branch was last pushed
+	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
+	MergedAt           *time.Time `json:"merged_at,omitempty"`                // When merge happened
+	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`        // Merge commit hash
+
 	// Simple tracking
 	EstimatedHours int        `json:"estimated_hours,omitempty"`
 	StartedAt      *time.Time `json:"started_at,omitempty"`
