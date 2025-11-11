@@ -1,5 +1,5 @@
 import React from 'react'
-import { FilePlus, Mail, Hash, TrendingUp, Target, Headphones, FileText, BookOpen, Megaphone, PenTool, MessageCircle, Newspaper, Rocket, Sparkles } from 'lucide-react'
+import { FilePlus, Mail, Hash, TrendingUp, Target, Headphones, FileText, BookOpen, Megaphone, PenTool, MessageCircle, Newspaper, Rocket, Sparkles, Database, CheckCircle2, TrendingUpIcon, Calculator } from 'lucide-react'
 import {
   SiNodedotjs,
   SiReact,
@@ -12,6 +12,12 @@ import {
   SiFlask,
   SiSpringboot,
   SiLinkedin,
+  SiJupyter,
+  SiDotnet,
+  SiPandas,
+  SiNumpy,
+  SiApacheairflow,
+  SiCsharp,
 } from 'react-icons/si'
 
 /**
@@ -57,6 +63,22 @@ export const getSampleProjectIcon = (
     'technical-writing': <PenTool size={size} style={{ color: '#6366f1' }} />, // Writing indigo
     'social-posts': <MessageCircle size={size} style={{ color: '#14b8a6' }} />, // Social teal
     'newsletter': <Newspaper size={size} style={{ color: '#f97316' }} />, // Newsletter orange
+
+    // Data & Analytics Projects
+    'jupyter-financial-analysis': <SiJupyter size={size} style={{ color: '#F37626' }} />, // Jupyter orange
+    'data-platform-api-migration': <SiApacheairflow size={size} style={{ color: '#017CEE' }} />, // Airflow blue
+    'research-analysis-toolkit': <SiPandas size={size} style={{ color: '#150458' }} />, // Pandas purple
+    'data-validation-toolkit': <CheckCircle2 size={size} style={{ color: '#10b981' }} />, // Validation green
+
+    // Enterprise & .NET
+    'portfolio-management-dotnet': <SiDotnet size={size} style={{ color: '#512BD4' }} />, // .NET purple
+
+    // Frontend Frameworks
+    'angular-analytics-dashboard': <SiAngular size={size} style={{ color: '#DD0031' }} />, // Angular red
+    'angular-version-migration': <SiAngular size={size} style={{ color: '#DD0031' }} />, // Angular red
+
+    // Legacy Modernization
+    'cobol-modernization': <Database size={size} style={{ color: '#6b7280' }} />, // Legacy gray
   }
 
   if (sampleId && iconMap[sampleId]) {
