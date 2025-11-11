@@ -1192,9 +1192,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const handleReviewDocs = async (task: SpecTaskWithExtras) => {
     setReviewingTask(task);
 
-    // Fetch the latest design review for this task
+    // Fetch the latest design review for this task using generated client
     try {
-      const response = await api.get(`/api/v1/spec-tasks/${task.id}/design-reviews`);
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id);
       const reviews = response.data?.reviews || [];
 
       if (reviews.length > 0) {

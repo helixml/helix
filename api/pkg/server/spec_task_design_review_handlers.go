@@ -13,6 +13,18 @@ import (
 
 // Design Review Handlers - Simple versions
 
+// listDesignReviews lists design reviews for a spec task
+// @Summary List design reviews
+// @Description List all design reviews for a spec task
+// @Tags spec-tasks
+// @Produce json
+// @Param spec_task_id path string true "SpecTask ID"
+// @Success 200 {object} types.SpecTaskDesignReviewListResponse
+// @Failure 400 {object} types.APIError
+// @Failure 403 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/{spec_task_id}/design-reviews [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -30,7 +42,12 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, types.ActionRead); err != nil {
+		log.Warn().
+			Err(err).
+			Str("user_id", user.ID).
+			Str("project_id", specTask.ProjectID).
+			Msg("User not authorized to read spec task design reviews")
 		http.Error(w, "Not authorized", http.StatusForbidden)
 		return
 	}
