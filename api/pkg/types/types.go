@@ -366,9 +366,10 @@ type SessionMetadata struct {
 	WolfLobbyID             string               `json:"wolf_lobby_id,omitempty"`             // Wolf lobby ID for streaming
 	WolfLobbyPIN            string               `json:"wolf_lobby_pin,omitempty"`            // PIN for Wolf lobby access (Phase 3: Multi-tenancy)
 	// Video settings for external agent sessions (Phase 3.5)
-	AgentVideoWidth       int `json:"agent_video_width,omitempty"`        // Streaming resolution width (default: 2560)
-	AgentVideoHeight      int `json:"agent_video_height,omitempty"`       // Streaming resolution height (default: 1600)
-	AgentVideoRefreshRate int `json:"agent_video_refresh_rate,omitempty"` // Streaming refresh rate (default: 60)
+	AgentVideoWidth        int    `json:"agent_video_width,omitempty"`         // Streaming resolution width (default: 2560)
+	AgentVideoHeight       int    `json:"agent_video_height,omitempty"`        // Streaming resolution height (default: 1600)
+	AgentVideoRefreshRate  int    `json:"agent_video_refresh_rate,omitempty"`  // Streaming refresh rate (default: 60)
+	PausedScreenshotPath   string `json:"paused_screenshot_path,omitempty"`    // Path to screenshot when agent paused
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
