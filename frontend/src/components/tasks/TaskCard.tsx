@@ -169,8 +169,8 @@ export default function TaskCard({
             {task.name}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
-            {/* Design doc icon - only visible when task is in review phase (design docs pushed) */}
-            {task.phase === 'review' && (
+            {/* Design doc icon - only visible when design docs have actually been pushed */}
+            {task.design_docs_pushed_at && (
               <Tooltip title="Review Spec">
                 <IconButton
                   size="small"
@@ -295,8 +295,8 @@ export default function TaskCard({
           </Box>
         )}
 
-        {/* Review phase */}
-        {task.phase === 'review' && onReviewDocs && (
+        {/* Review phase - only show button if design docs have been pushed */}
+        {task.phase === 'review' && task.design_docs_pushed_at && onReviewDocs && (
           <Box sx={{ mt: 1.5 }}>
             <Button
               size="small"
