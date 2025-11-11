@@ -27,6 +27,8 @@ import {
   Chip,
   Pagination,
   InputAdornment,
+  Tabs,
+  Tab,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -37,7 +39,6 @@ import { Kanban, GitBranch, Plus, Link, Brain, ExternalLink } from 'lucide-react
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
-import ContextSidebar, { ContextSidebarSection } from '../components/system/ContextSidebar'
 import CreateProjectButton from '../components/project/CreateProjectButton'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -140,28 +141,6 @@ const Projects: FC = () => {
     const newParams = view === 'repositories' ? { view: 'repositories' } : {}
     navigate('projects', newParams, { replace: true })
   }
-
-  // Sidebar configuration
-  const sidebarSections: ContextSidebarSection[] = [
-    {
-      items: [
-        {
-          id: 'projects',
-          label: 'Projects',
-          icon: <Kanban size={18} />,
-          isActive: currentView === 'projects',
-          onClick: () => handleViewChange('projects')
-        },
-        {
-          id: 'repositories',
-          label: 'Repositories',
-          icon: <GitBranch size={18} />,
-          isActive: currentView === 'repositories',
-          onClick: () => handleViewChange('repositories')
-        }
-      ]
-    }
-  ]
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -419,15 +398,10 @@ const Projects: FC = () => {
         />
       ) : null}
     >
-      <Container maxWidth="xl" sx={{ display: 'flex', gap: 3, py: 3 }}>
-        {/* Left Sidebar */}
-        <ContextSidebar menuType="projects" sections={sidebarSections} />
-
-        {/* Main Content */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {/* Projects View */}
-          {currentView === 'projects' && (
-            <>
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        {/* Projects View */}
+        {currentView === 'projects' && (
+          <>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error instanceof Error ? error.message : 'Failed to load projects'}
@@ -566,11 +540,10 @@ const Projects: FC = () => {
             )}
             </>
           )}
-            </>
-          )}
+        )}
 
-          {/* Repositories View */}
-          {currentView === 'repositories' && (
+        {/* Repositories View */}
+        {currentView === 'repositories' && (
             <>
               {/* GitHub-style header with owner/repositories */}
               <Box sx={{ mb: 3, pb: 2 }}>
@@ -780,7 +753,6 @@ const Projects: FC = () => {
               )}
             </>
           )}
-        </Box>
       </Container>
 
       {/* Project Menu */}
