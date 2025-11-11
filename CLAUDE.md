@@ -58,6 +58,28 @@ useEffect(() => {
 
 **Exception:** Short delays for UI animations (< 100ms) are acceptable if there's no alternative.
 
+## CRITICAL: Extract Components Before Files Get Too Long
+
+**Break up large files BEFORE they become difficult to edit**
+
+```typescript
+// ❌ WRONG: 1800-line monolithic component
+// SpecTaskKanbanBoard.tsx - 1807 lines, impossible to edit cleanly
+
+// ✅ CORRECT: Extract into focused components
+// SpecTaskKanbanBoard.tsx - 200 lines (orchestration only)
+// TaskCard.tsx - 150 lines
+// DroppableColumn.tsx - 180 lines
+// DesignReviewViewer.tsx - 400 lines
+```
+
+**When to extract:**
+- File exceeds 500 lines → consider extraction
+- File exceeds 800 lines → extraction mandatory
+- Component has distinct responsibilities → extract immediately
+
+**Why:** LLMs struggle with large files (context limits, edit precision, bug risk). Extract components proactively while code is still manageable.
+
 ## Documentation Organization
 
 - **`design/`**: LLM-generated docs, architecture decisions, debugging logs. Format: `YYYY-MM-DD-descriptive-name.md`
@@ -70,6 +92,8 @@ Frontend (Vite), API (Air), GPU Runner, Wolf, Zed all support hot reloading. Sav
 
 ## CRITICAL: Always Verify Build Status
 
+**MANDATORY: Check build logs BEFORE declaring success or committing**
+
 After ANY code changes:
 
 ```bash
@@ -77,12 +101,23 @@ After ANY code changes:
 docker compose -f docker-compose.dev.yaml logs --tail 30 api
 # Look for: "building..." → "running..." (success) or "failed to build" (error)
 
-# Check frontend build
-docker compose -f docker-compose.dev.yaml logs --tail 30 frontend
-# Look for: "✓ built in XXms" or TypeScript errors
+# Check frontend build - ALWAYS CHECK TWICE
+docker compose -f docker-compose.dev.yaml logs --tail 50 frontend
+# Look for: "hmr update" (success) or "error"/"Error" (failure)
+
+# After HMR update, verify no errors:
+docker compose -f docker-compose.dev.yaml logs --since "1m" frontend | grep -i "error"
+# Should return nothing. If errors appear, BUILD IS BROKEN.
 ```
 
-**ONLY declare complete after checking logs.** Compilation errors = broken code.
+**CRITICAL REQUIREMENTS:**
+1. **NEVER declare success without checking logs**
+2. **NEVER commit code with build errors**
+3. **Check logs AFTER every file edit**
+4. **Compilation/parse errors = broken code = UNACCEPTABLE**
+5. **"hmr update" ≠ success** - Must also verify NO errors appear
+
+**Why:** Hot reload can mask errors. Silent failures break production.
 
 ## Zed Build Process
 
@@ -230,6 +265,53 @@ const handleSave = async () => {
 - User sees no change (saved "Foo" → refetch → form shows "Foo")
 - Loading guard prevents form rendering until data loads
 - Safety check prevents saving empty state
+
+## Frontend Sidebar Pattern
+
+**Use ContextSidebar for consistent navigation across pages**
+
+```typescript
+// 1. Create sidebar component (e.g., frontend/src/components/project/ProjectsSidebar.tsx)
+import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
+
+const ProjectsSidebar: FC = () => {
+  const router = useRouter()
+
+  const sections: ContextSidebarSection[] = [{
+    items: [
+      {
+        id: 'projects',
+        label: 'Projects',
+        icon: <Kanban size={18} />,
+        isActive: currentView === 'projects',
+        onClick: () => navigate('projects')
+      }
+    ]
+  }]
+
+  return <ContextSidebar menuType="projects" sections={sections} />
+}
+
+// 2. Register in Layout.tsx getSidebarForRoute()
+import ProjectsSidebar from '../components/project/ProjectsSidebar'
+
+function getSidebarForRoute(routeName: string) {
+  switch (routeName) {
+    case 'projects':
+      return <ProjectsSidebar />
+    // ...
+  }
+}
+
+// 3. Enable drawer in router.tsx
+{
+  name: 'projects',
+  path: '/projects',
+  meta: { drawer: true }, // Must be true!
+}
+```
+
+**Never create inline sidebars in page components.** Always use the global drawer + ContextSidebar pattern.
 
 ## Frontend UX
 
