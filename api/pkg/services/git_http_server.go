@@ -652,18 +652,58 @@ func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskI
 		Str("commit", commitHash).
 		Msg("Auto-creating design review for pushed design docs")
 
-	// Read design documents from helix-specs branch
+	// List all files in helix-specs branch to find task directory
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to list files in helix-specs branch")
+		return
+	}
+
+	// Find task directory by searching for task ID in file paths
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var taskDir string
+	for _, file := range files {
+		if strings.Contains(file, specTaskID) {
+			// Extract directory path (e.g., design/tasks/2025-11-11_..._taskid/)
+			parts := strings.Split(file, "/")
+			if len(parts) >= 3 {
+				taskDir = strings.Join(parts[:len(parts)-1], "/")
+				break
+			}
+		}
+	}
+
+	if taskDir == "" {
+		log.Warn().
+			Str("spec_task_id", specTaskID).
+			Msg("No task directory found in helix-specs branch")
+		return
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("task_dir", taskDir).
+		Msg("Found task directory in helix-specs")
+
+	// Read design documents from task directory
 	docs := make(map[string]string)
 	docFilenames := []string{"requirements.md", "design.md", "tasks.md"}
 
 	for _, filename := range docFilenames {
-		cmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", filename))
+		filePath := fmt.Sprintf("%s/%s", taskDir, filename)
+		cmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", filePath))
 		cmd.Dir = repoPath
 		output, err := cmd.Output()
 		if err != nil {
 			log.Debug().
 				Err(err).
 				Str("filename", filename).
+				Str("path", filePath).
 				Msg("Design doc file not found (may not exist yet)")
 			continue
 		}
