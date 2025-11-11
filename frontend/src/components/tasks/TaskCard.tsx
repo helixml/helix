@@ -169,8 +169,8 @@ export default function TaskCard({
             {task.name}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
-            {/* Design doc icon - only visible when design docs exist */}
-            {(task.spec_session_id || task.planning_session_id) && (
+            {/* Design doc icon - only visible when task is in review phase (design docs pushed) */}
+            {task.phase === 'review' && (
               <Tooltip title="Review Spec">
                 <IconButton
                   size="small"
