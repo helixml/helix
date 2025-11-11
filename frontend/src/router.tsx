@@ -89,10 +89,10 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       title: 'Git Repositories',
     },
     render: () => {
-      // Redirect to Projects page with repositories view
+      // Redirect to Projects page with repositories tab
       const { navigate } = useRouter()
       React.useEffect(() => {
-        navigate('projects', { view: 'repositories' }, { replace: true })
+        navigate('projects', { tab: 'repositories' }, { replace: true })
       }, [])
       return null
     },

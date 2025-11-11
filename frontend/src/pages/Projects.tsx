@@ -47,9 +47,9 @@ const Projects: FC = () => {
   const createProjectMutation = useCreateProject()
   const instantiateSampleMutation = useInstantiateSampleProject()
 
-  // Get view from URL query parameter
-  const { view } = router.params
-  const currentView = view || 'projects'
+  // Get tab from URL query parameter
+  const { tab } = router.params
+  const currentView = tab || 'projects'
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedProject, setSelectedProject] = useState<TypesProject | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -99,9 +99,9 @@ const Projects: FC = () => {
   )
   const reposTotalPages = Math.ceil(filteredRepositories.length / reposPerPage)
 
-  // Handle view change
+  // Handle tab change
   const handleViewChange = (view: 'projects' | 'repositories') => {
-    const newParams = view === 'repositories' ? { view: 'repositories' } : {}
+    const newParams = view === 'repositories' ? { tab: 'repositories' } : {}
     navigate('projects', newParams, { replace: true })
   }
 
