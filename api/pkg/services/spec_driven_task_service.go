@@ -639,13 +639,18 @@ cd tasks/%s_%s_%s
 # 2. design.md with architecture, sequence diagrams, implementation considerations
 # 3. tasks.md with discrete, trackable implementation tasks in [ ] format
 
-# Commit your work
+# CRITICAL: Commit and push IMMEDIATELY after creating docs
 git add .
 git commit -m "Generated design documents for SpecTask %s"
 
-# Push to helix-specs branch
+# MUST PUSH NOW - This triggers the backend to move your task to review
 git push origin helix-specs
 ` + "```" + `
+
+**⚠️  CRITICAL: You MUST push design docs immediately after creating them**
+- The backend detects your push and automatically moves the task to the review column
+- Without pushing, the task stays stuck in planning and review cannot begin
+- If you make ANY changes to design docs, commit and push them immediately
 
 **tasks.md Format (spec-driven development approach):**
 ` + "```markdown" + `
@@ -660,8 +665,11 @@ git push origin helix-specs
 - [ ] Update documentation
 ` + "```" + `
 
-After committing, let the user know the design docs are ready for review.
-They can continue chatting with you to refine the design before approval.
+**After Pushing:**
+- Inform the user that design docs are ready for review
+- Continue the conversation to discuss and refine the design
+- Your comments and questions will appear as regular chat messages
+- When the user requests changes, update the docs and push again immediately
 
 **Important Guidelines:**
 - **MATCH COMPLEXITY TO TASK** - Simple tasks = simple docs, complex tasks = add detail
@@ -760,19 +768,26 @@ git push origin helix-specs
 2. Read tasks.md to see your task checklist
 3. Work through tasks one by one (discrete, trackable)
 4. Mark each task [~] when starting, [x] when done
-5. Commit progress updates to helix-specs branch after each task
+5. **CRITICAL: Push progress updates to helix-specs after EACH task**
 6. Implement code in the main repository
 7. Create feature branch and push when all tasks complete
 8. Open pull request with summary
 
 **Guidelines:**
 - ALWAYS mark your progress in tasks.md with [~] and [x]
-- ALWAYS commit progress updates to helix-specs after each task
+- **CRITICAL: After ANY change to design docs, you MUST commit and push to helix-specs immediately**
+- The backend tracks your progress by monitoring pushes to helix-specs
 - Follow the technical design and sequence diagrams exactly
 - Implement all EARS acceptance criteria from requirements.md
 - Write tests for everything
 - Handle all edge cases
-- The user and orchestrator are watching your progress via git commits to tasks.md
+
+**⚠️  PUSH REQUIREMENTS:**
+- After completing each task: commit and push to helix-specs
+- After modifying requirements.md: commit and push to helix-specs
+- After modifying design.md: commit and push to helix-specs
+- After modifying tasks.md: commit and push to helix-specs
+- The orchestrator monitors these pushes to track your progress
 
 Start by reading the spec documents from the worktree, then work through the task list systematically.`,
 		task.Name, task.ID,                                                           // Task context
