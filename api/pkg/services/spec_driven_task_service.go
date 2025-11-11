@@ -423,19 +423,78 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 	}
 
 	if req.Approved {
+		// Get project and repository info
+		project, err := s.store.GetProject(ctx, task.ProjectID)
+		if err != nil {
+			return fmt.Errorf("failed to get project: %w", err)
+		}
+
+		var baseBranch string
+		if project.DefaultRepoID != "" {
+			repo, err := s.store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo != nil {
+				baseBranch = repo.DefaultBranch
+			}
+		}
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+
+		// Generate feature branch name
+		branchName := fmt.Sprintf("feature/%s-%s", task.Name, task.ID[:8])
+		// Sanitize branch name (replace spaces with hyphens, remove special chars)
+		branchName = sanitizeBranchName(branchName)
+
 		// Specs approved - move to implementation
-		task.Status = types.TaskStatusSpecApproved
+		task.Status = types.TaskStatusImplementation
+		task.BranchName = branchName
 		task.SpecApprovedBy = req.ApprovedBy
 		task.SpecApprovedAt = &req.ApprovedAt
+		now := time.Now()
+		task.StartedAt = &now
 
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
 			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
-		// Start multi-session implementation (unless in test mode)
-		if !s.testMode {
-			go s.startMultiSessionImplementation(context.Background(), task)
+		// Send instruction to existing agent session
+		// Use PlanningSessionID if available, otherwise SpecSessionID (legacy)
+		sessionID := task.PlanningSessionID
+		if sessionID == "" {
+			sessionID = task.SpecSessionID
+		}
+
+		if sessionID != "" && !s.testMode {
+			// Create agent instruction service if not exists
+			agentInstructionService := NewAgentInstructionService(s.controller)
+
+			// Send approval instruction asynchronously (don't block the response)
+			go func() {
+				err := agentInstructionService.SendApprovalInstruction(
+					context.Background(),
+					sessionID,
+					branchName,
+					baseBranch,
+				)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Str("session_id", sessionID).
+						Msg("Failed to send approval instruction to agent")
+				}
+			}()
+
+			log.Info().
+				Str("task_id", task.ID).
+				Str("session_id", sessionID).
+				Str("branch_name", branchName).
+				Msg("Specs approved - sent implementation instruction to existing agent")
+		} else {
+			log.Warn().
+				Str("task_id", task.ID).
+				Msg("No planning session ID found - agent will not receive implementation instruction")
 		}
 
 	} else {
@@ -456,6 +515,20 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 	}
 
 	return nil
+}
+
+// sanitizeBranchName makes a branch name git-safe
+func sanitizeBranchName(name string) string {
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+	// Remove special characters except hyphens and underscores
+	result := strings.Builder{}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }
 
 // startMultiSessionImplementation kicks off multi-session implementation using the MultiSessionManager

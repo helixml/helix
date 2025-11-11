@@ -26,6 +26,7 @@ type AuthorizationFunc func(ctx context.Context, user *types.User, orgID, resour
 // Enables Zed agents to clone/push to repositories over the network
 type GitHTTPServer struct {
 	store             store.Store
+	controller        *controller.Controller
 	gitRepoService    *GitRepositoryService
 	serverBaseURL     string
 	gitExecutablePath string
@@ -62,6 +63,7 @@ type GitCloneInfo struct {
 // NewGitHTTPServer creates a new git HTTP server
 func NewGitHTTPServer(
 	store store.Store,
+	controller *controller.Controller,
 	gitRepoService *GitRepositoryService,
 	config *GitHTTPServerConfig,
 	authorizeFn AuthorizationFunc,
@@ -82,6 +84,7 @@ func NewGitHTTPServer(
 
 	return &GitHTTPServer{
 		store:             store,
+		controller:        controller,
 		gitRepoService:    gitRepoService,
 		serverBaseURL:     config.ServerBaseURL,
 		gitExecutablePath: config.GitExecutablePath,
@@ -521,6 +524,7 @@ func (s *GitHTTPServer) handleGitHTTPBackend(w http.ResponseWriter, r *http.Requ
 
 // handlePostPushHook processes commits after a successful push
 // Checks for design doc commits and auto-transitions SpecTasks
+// Also detects feature branch pushes and merges to main
 func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath string) {
 	log.Info().
 		Str("repo_id", repoID).
@@ -531,6 +535,40 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository in post-push hook")
 		return
+	}
+
+	// Get the current branch that was pushed
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = repoPath
+	branchOutput, err := cmd.Output()
+	var pushedBranch string
+	if err == nil {
+		pushedBranch = strings.TrimSpace(string(branchOutput))
+	}
+
+	// Get the latest commit hash
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoPath
+	hashOutput, err := cmd.Output()
+	var latestCommitHash string
+	if err == nil {
+		latestCommitHash = strings.TrimSpace(string(hashOutput))
+	}
+
+	log.Info().
+		Str("repo_id", repoID).
+		Str("branch", pushedBranch).
+		Str("commit", latestCommitHash).
+		Msg("Detected push to repository")
+
+	// Check for feature branch pushes (implementation workflow)
+	if strings.HasPrefix(pushedBranch, "feature/") {
+		s.handleFeatureBranchPush(ctx, repo, pushedBranch, latestCommitHash, repoPath)
+	}
+
+	// Check for pushes to main/master (merge detection)
+	if pushedBranch == repo.DefaultBranch || pushedBranch == "main" || pushedBranch == "master" {
+		s.handleMainBranchPush(ctx, repo, latestCommitHash, repoPath)
 	}
 
 	// Check if this is a design repo (contains design docs in the latest commit)
@@ -702,6 +740,172 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 			Str("spec_task_id", specTaskID).
 			Int("resolved_count", resolvedCount).
 			Msg("Auto-resolved design review comments")
+	}
+}
+
+// handleFeatureBranchPush detects when an agent pushes to a feature branch
+// Transitions task from implementation → implementation_review
+func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types.GitRepository, branchName string, commitHash string, repoPath string) {
+	log.Info().
+		Str("repo_id", repo.ID).
+		Str("branch", branchName).
+		Str("commit", commitHash).
+		Msg("Detected feature branch push")
+
+	// Find spec tasks in implementation status with this branch name
+	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: repo.ProjectID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks")
+		return
+	}
+
+	for _, task := range tasks {
+		if task == nil {
+			continue
+		}
+
+		// Check if this task matches the pushed branch
+		if task.BranchName != branchName {
+			continue
+		}
+
+		// Only process tasks in implementation status
+		if task.Status != types.TaskStatusImplementation {
+			log.Debug().
+				Str("task_id", task.ID).
+				Str("status", task.Status).
+				Str("branch", branchName).
+				Msg("Skipping task - not in implementation status")
+			continue
+		}
+
+		log.Info().
+			Str("task_id", task.ID).
+			Str("task_name", task.Name).
+			Str("branch", branchName).
+			Str("commit", commitHash).
+			Msg("Feature branch push detected - transitioning to implementation review")
+
+		// Update task status
+		now := time.Now()
+		task.Status = types.TaskStatusImplementationReview
+		task.LastPushCommitHash = commitHash
+		task.LastPushAt = &now
+		task.UpdatedAt = now
+
+		if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", task.ID).
+				Msg("Failed to update task status after feature branch push")
+			continue
+		}
+
+		// Send notification to agent that push was detected
+		sessionID := task.PlanningSessionID
+		if sessionID == "" {
+			sessionID = task.SpecSessionID
+		}
+
+		if sessionID != "" {
+			agentInstructionService := NewAgentInstructionService(s.gitRepoService.controller)
+			go func() {
+				err := agentInstructionService.SendImplementationReviewRequest(
+					context.Background(),
+					sessionID,
+					branchName,
+				)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", task.ID).
+						Str("session_id", sessionID).
+						Msg("Failed to send implementation review request")
+				}
+			}()
+		}
+
+		log.Info().
+			Str("task_id", task.ID).
+			Str("status", task.Status).
+			Msg("Task transitioned to implementation review")
+	}
+}
+
+// handleMainBranchPush detects when code is merged to main
+// Transitions task from implementation_review → done
+func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash string, repoPath string) {
+	log.Info().
+		Str("repo_id", repo.ID).
+		Str("commit", commitHash).
+		Msg("Detected push to main branch")
+
+	// Find spec tasks in implementation_review status
+	tasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
+		ProjectID: repo.ProjectID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks")
+		return
+	}
+
+	for _, task := range tasks {
+		if task == nil || task.BranchName == "" {
+			continue
+		}
+
+		// Only process tasks in implementation_review status
+		if task.Status != types.TaskStatusImplementationReview {
+			continue
+		}
+
+		// Check if this task's feature branch was merged
+		// git branch --merged will show all branches merged into current branch
+		cmd := exec.Command("git", "branch", "--merged", "HEAD", "--list", task.BranchName)
+		cmd.Dir = repoPath
+		output, err := cmd.Output()
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("task_id", task.ID).
+				Str("branch", task.BranchName).
+				Msg("Could not check if branch is merged")
+			continue
+		}
+
+		// If the branch appears in the merged list, it's been merged
+		if strings.Contains(string(output), task.BranchName) {
+			log.Info().
+				Str("task_id", task.ID).
+				Str("task_name", task.Name).
+				Str("branch", task.BranchName).
+				Str("commit", commitHash).
+				Msg("Feature branch merged to main - transitioning to done")
+
+			// Update task status
+			now := time.Now()
+			task.Status = types.TaskStatusDone
+			task.MergedToMain = true
+			task.MergedAt = &now
+			task.MergeCommitHash = commitHash
+			task.CompletedAt = &now
+			task.UpdatedAt = now
+
+			if err := s.store.UpdateSpecTask(ctx, task); err != nil {
+				log.Error().
+					Err(err).
+					Str("task_id", task.ID).
+					Msg("Failed to update task status after merge to main")
+				continue
+			}
+
+			log.Info().
+				Str("task_id", task.ID).
+				Str("status", task.Status).
+				Msg("Task transitioned to done")
+		}
 	}
 }
 

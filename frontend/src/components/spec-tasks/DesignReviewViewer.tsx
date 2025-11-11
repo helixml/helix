@@ -113,6 +113,11 @@ export default function DesignReviewViewer({
   const [submitDecision, setSubmitDecision] = useState<'approve' | 'request_changes'>('approve')
   const [startingImplementation, setStartingImplementation] = useState(false)
   const [showCommentLog, setShowCommentLog] = useState(false)
+  const [showGeneralCommentForm, setShowGeneralCommentForm] = useState(false)
+  const [generalCommentText, setGeneralCommentText] = useState('')
+
+  // Refs for positioning
+  const documentRef = useRef<HTMLDivElement>(null)
 
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId)
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId)
@@ -124,6 +129,10 @@ export default function DesignReviewViewer({
   const allComments = commentsData?.comments || []
   const activeDocComments = allComments.filter(c => c.document_type === activeTab)
   const unresolvedCount = getUnresolvedCount(allComments)
+
+  // Separate comments with quoted_text (inline) vs without (general)
+  const inlineComments = activeDocComments.filter(c => c.quoted_text && !c.resolved)
+  const generalComments = activeDocComments.filter(c => !c.quoted_text)
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -170,6 +179,49 @@ export default function DesignReviewViewer({
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [open, showCommentForm, showSubmitDialog])
 
+  // Helper to find the Y position of quoted text in the document
+  const findQuotedTextPosition = (quotedText: string): number | null => {
+    if (!documentRef.current) return null
+
+    const documentContent = documentRef.current.textContent || ''
+    const index = documentContent.indexOf(quotedText)
+
+    if (index === -1) return null
+
+    // Create a range to find the position
+    const range = document.createRange()
+    const walker = document.createTreeWalker(
+      documentRef.current,
+      NodeFilter.SHOW_TEXT,
+      null
+    )
+
+    let currentPos = 0
+    let node
+
+    while ((node = walker.nextNode())) {
+      const nodeText = node.textContent || ''
+      const nodeLength = nodeText.length
+
+      if (currentPos + nodeLength >= index) {
+        // Found the node containing the start of quoted text
+        const offsetInNode = index - currentPos
+        range.setStart(node, offsetInNode)
+        range.setEnd(node, Math.min(offsetInNode + quotedText.length, nodeLength))
+
+        const rect = range.getBoundingClientRect()
+        const containerRect = documentRef.current.getBoundingClientRect()
+
+        // Return Y position relative to document container
+        return rect.top - containerRect.top + documentRef.current.scrollTop
+      }
+
+      currentPos += nodeLength
+    }
+
+    return null
+  }
+
   const handleTextSelection = () => {
     const selection = window.getSelection()
     const text = selection?.toString().trim()
@@ -177,10 +229,16 @@ export default function DesignReviewViewer({
       // Get position of selected text for inline comment positioning
       const range = selection.getRangeAt(0)
       const rect = range.getBoundingClientRect()
+      const containerRect = documentRef.current?.getBoundingClientRect()
 
-      setSelectedText(text)
-      setCommentFormPosition({ x: rect.right + 20, y: rect.top })
-      setShowCommentForm(true)
+      if (containerRect) {
+        const scrollTop = documentRef.current?.scrollTop || 0
+        const yPosition = rect.top - containerRect.top + scrollTop
+
+        setSelectedText(text)
+        setCommentFormPosition({ x: 0, y: yPosition })
+        setShowCommentForm(true)
+      }
     }
   }
 
@@ -202,6 +260,27 @@ export default function DesignReviewViewer({
       setCommentText('')
       setSelectedText('')
       setShowCommentForm(false)
+    } catch (error: any) {
+      snackbar.error(`Failed to add comment: ${error.message}`)
+    }
+  }
+
+  const handleCreateGeneralComment = async () => {
+    if (!generalCommentText.trim()) {
+      snackbar.error('Comment text is required')
+      return
+    }
+
+    try {
+      await createCommentMutation.mutateAsync({
+        document_type: activeTab,
+        quoted_text: undefined,
+        comment_text: generalCommentText,
+      })
+
+      snackbar.success('General comment added successfully')
+      setGeneralCommentText('')
+      setShowGeneralCommentForm(false)
     } catch (error: any) {
       snackbar.error(`Failed to add comment: ${error.message}`)
     }
@@ -601,6 +680,7 @@ export default function DesignReviewViewer({
             </Tabs>
 
             <Box
+              ref={documentRef}
               flex={1}
               overflow="auto"
               p={4}
@@ -724,6 +804,267 @@ export default function DesignReviewViewer({
                   {getDocumentContent()}
                 </ReactMarkdown>
               </Paper>
+
+              {/* General Comments Section */}
+              {generalComments.length > 0 && (
+                <Box mt={4}>
+                  <Typography variant="h6" sx={{ mb: 2, fontFamily: "'Palatino Linotype', Georgia, serif" }}>
+                    General Comments
+                  </Typography>
+                  {generalComments.map(comment => (
+                    <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
+                      <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
+                        <Chip
+                          label="General"
+                          size="small"
+                          sx={{ bgcolor: '#2196f3', color: 'white' }}
+                        />
+                        {!comment.resolved && (
+                          <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+
+                      <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
+
+                      {comment.agent_response && (
+                        <Box
+                          sx={{
+                            mt: 2,
+                            p: 2,
+                            bgcolor: '#e3f2fd',
+                            borderLeft: '3px solid #1976d2',
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
+                            Agent Response:
+                          </Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                            {comment.agent_response}
+                          </Typography>
+                          {comment.agent_response_at && (
+                            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                              {new Date(comment.agent_response_at).toLocaleString()}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+
+                      {comment.resolved && (
+                        <Chip
+                          label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
+                          size="small"
+                          color="success"
+                          icon={<CheckCircleIcon />}
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+
+                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                        {new Date(comment.created_at).toLocaleString()}
+                      </Typography>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Add General Comment Button/Form */}
+              <Box mt={4}>
+                {!showGeneralCommentForm ? (
+                  <Button
+                    variant="outlined"
+                    onClick={() => setShowGeneralCommentForm(true)}
+                    startIcon={<CommentIcon />}
+                  >
+                    Add General Comment
+                  </Button>
+                ) : (
+                  <Paper sx={{ p: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      General Comment (applies to entire document)
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={3}
+                      value={generalCommentText}
+                      onChange={(e) => setGeneralCommentText(e.target.value)}
+                      placeholder="Add your comment..."
+                      sx={{ mb: 1 }}
+                    />
+                    <Box display="flex" gap={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setShowGeneralCommentForm(false)
+                          setGeneralCommentText('')
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={handleCreateGeneralComment}
+                        disabled={!generalCommentText.trim()}
+                      >
+                        Comment
+                      </Button>
+                    </Box>
+                  </Paper>
+                )}
+              </Box>
+
+              {/* Inline Comments Overlay */}
+              {inlineComments.map(comment => {
+                const yPos = comment.quoted_text ? findQuotedTextPosition(comment.quoted_text) : null
+                if (yPos === null) return null
+
+                return (
+                  <Paper
+                    key={comment.id}
+                    sx={{
+                      position: 'absolute',
+                      left: '670px',
+                      top: `${yPos}px`,
+                      width: '300px',
+                      p: 2,
+                      bgcolor: '#fff9e6',
+                      border: '1px solid #ffc107',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      zIndex: 10,
+                    }}
+                  >
+                    <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
+                      <Chip
+                        label="Comment"
+                        size="small"
+                        sx={{ bgcolor: '#2196f3', color: 'white' }}
+                      />
+                      <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+
+                    {comment.quoted_text && (
+                      <Box
+                        sx={{
+                          bgcolor: '#f5f5f5',
+                          p: 1,
+                          borderLeft: '3px solid #2196f3',
+                          mb: 1,
+                          fontStyle: 'italic',
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        "{comment.quoted_text.length > 100 ? comment.quoted_text.substring(0, 100) + '...' : comment.quoted_text}"
+                      </Box>
+                    )}
+
+                    <Typography variant="body2" sx={{ mb: 1, fontSize: '0.875rem' }}>
+                      {comment.comment_text}
+                    </Typography>
+
+                    {comment.agent_response && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 1.5,
+                          bgcolor: '#e3f2fd',
+                          borderLeft: '3px solid #1976d2',
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={0.5}>
+                          Agent:
+                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                          {comment.agent_response}
+                        </Typography>
+                        {comment.agent_response_at && (
+                          <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+                            {new Date(comment.agent_response_at).toLocaleString()}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+
+                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                      {new Date(comment.created_at).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                )
+              })}
+
+              {/* New Comment Form (Inline) */}
+              {showCommentForm && selectedText && (
+                <Paper
+                  sx={{
+                    position: 'absolute',
+                    left: '670px',
+                    top: `${commentFormPosition.y}px`,
+                    width: '300px',
+                    p: 2,
+                    bgcolor: '#ffffff',
+                    border: '2px solid #2196f3',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                    zIndex: 20,
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    Add Comment
+                  </Typography>
+
+                  {selectedText && (
+                    <Box
+                      sx={{
+                        bgcolor: '#f5f5f5',
+                        p: 1,
+                        borderLeft: '3px solid #2196f3',
+                        mb: 1.5,
+                        fontStyle: 'italic',
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      "{selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}"
+                    </Box>
+                  )}
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={3}
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Add your comment..."
+                    autoFocus
+                    sx={{ mb: 1.5 }}
+                  />
+
+                  <Box display="flex" gap={1} justifyContent="flex-end">
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setShowCommentForm(false)
+                        setCommentText('')
+                        setSelectedText('')
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={handleCreateComment}
+                      disabled={!commentText.trim()}
+                    >
+                      Comment
+                    </Button>
+                  </Box>
+                </Paper>
+              )}
 
             </Box>
           </Box>
