@@ -42,7 +42,7 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, types.ActionRead); err != nil {
+	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, types.ActionGet); err != nil {
 		log.Warn().
 			Err(err).
 			Str("user_id", user.ID).
