@@ -37,8 +37,7 @@ import {
   VerticalAlignBottom as ScrollDownIcon
 } from '@mui/icons-material'
 import { TypesDashboardRunner } from '../../api/api'
-import { useApi } from '../../hooks/useApi'
-import { useSlotLogs, LogEntry, LogMetadata, LogResponse } from '../../services/logsService'
+import { useSlotLogs, LogEntry, LogMetadata } from '../../services/logsService'
 
 interface LogViewerModalProps {
   open: boolean
@@ -48,9 +47,6 @@ interface LogViewerModalProps {
 }
 
 const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloating = false }) => {
-  const api = useApi()
-  const apiClient = api.getApiClient()
-
   const [selectedSlot, setSelectedSlot] = useState<string>('')
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(500)
@@ -60,80 +56,63 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
 
   const logContainerRef = useRef<HTMLDivElement>(null)
   const lastTimestampRef = useRef<string | null>(null)
-  const tailIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const availableSlots = runner.slots || []
 
-  // Build query parameters for initial fetch (no 'since' - keeps query key stable)
+  // Memory limit for tail mode to prevent infinite accumulation
+  const MAX_TAIL_LOGS = 10000
+
+  // Build query parameters (stable - no 'since' in query key)
   const query = {
     lines: maxLines > 0 ? maxLines : undefined,
     level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
   }
 
-  // Use React Query for initial fetch only
+  // Use React Query with ref-based 'since' parameter
+  // Normal mode: { lines: maxLines } → Get last N lines, replace on each fetch
+  // Tail mode:   { lines: maxLines, since: timestamp } → Get up to maxLines new lines since timestamp, append
   const { data, isLoading, error, refetch } = useSlotLogs(
     selectedSlot,
     query,
     {
-      enabled: !!selectedSlot && !tailMode, // Disabled in tail mode
-      refetchInterval: false, // No auto-refetch, tail mode uses manual polling
+      enabled: !!selectedSlot,
+      refetchInterval: tailMode ? 2000 : false, // Poll every 2s in tail mode
+      sinceRef: tailMode ? lastTimestampRef : undefined, // Only use 'since' in tail mode
     }
   )
 
   const metadata = data?.metadata || null
 
-  // Handle initial logs from React Query
+  // Handle log accumulation
   useEffect(() => {
-    if (!data?.logs || tailMode) return
+    if (!data?.logs) return
 
-    setAccumulatedLogs(data.logs)
-    if (data.logs.length > 0) {
-      lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
+    if (tailMode) {
+      // In tail mode: append new logs with memory limit
+      const newLogs = data.logs
+      if (newLogs.length > 0) {
+        setAccumulatedLogs(prev => {
+          // Deduplicate by timestamp to avoid duplicates
+          const existingTimestamps = new Set(prev.map(log => log.timestamp))
+          const uniqueNewLogs = newLogs.filter(log => !existingTimestamps.has(log.timestamp))
+          const combined = [...prev, ...uniqueNewLogs]
+
+          // Cap at MAX_TAIL_LOGS to prevent memory issues
+          if (combined.length > MAX_TAIL_LOGS) {
+            return combined.slice(-MAX_TAIL_LOGS) // Keep last N logs
+          }
+          return combined
+        })
+        lastTimestampRef.current = newLogs[newLogs.length - 1].timestamp
+      }
+    } else {
+      // Normal mode: replace logs
+      setAccumulatedLogs(data.logs)
+      if (data.logs.length > 0) {
+        lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
+      }
     }
   }, [data, tailMode])
-
-  // Tail mode: manual polling with API client
-  useEffect(() => {
-    if (!tailMode || !selectedSlot) return
-
-    const fetchTailLogs = async () => {
-      try {
-        const tailQuery = {
-          lines: maxLines > 0 ? maxLines : undefined,
-          level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
-          since: lastTimestampRef.current || undefined,
-        }
-
-        const response = await apiClient.v1LogsDetail(selectedSlot, tailQuery)
-        const newData = response.data as LogResponse
-
-        if (newData.logs && newData.logs.length > 0) {
-          setAccumulatedLogs(prev => {
-            // Deduplicate by timestamp
-            const existingTimestamps = new Set(prev.map(log => log.timestamp))
-            const uniqueNewLogs = newData.logs.filter(log => !existingTimestamps.has(log.timestamp))
-            return [...prev, ...uniqueNewLogs]
-          })
-          lastTimestampRef.current = newData.logs[newData.logs.length - 1].timestamp
-        }
-      } catch (err) {
-        console.error('Failed to fetch tail logs:', err)
-      }
-    }
-
-    // Initial fetch when entering tail mode
-    fetchTailLogs()
-
-    // Poll every 2 seconds
-    tailIntervalRef.current = setInterval(fetchTailLogs, 2000)
-
-    return () => {
-      if (tailIntervalRef.current) {
-        clearInterval(tailIntervalRef.current)
-        tailIntervalRef.current = null
-      }
-    }
-  }, [tailMode, selectedSlot, apiClient, maxLines, logLevel])
 
   // Auto-select first slot when modal opens
   useEffect(() => {
@@ -148,9 +127,17 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
       setSelectedSlot('')
       setTailMode(false)
       setAccumulatedLogs([])
+      setMaxLines(500) // Reset to default
       lastTimestampRef.current = null
     }
   }, [open])
+
+  // Reset max lines when switching slots
+  useEffect(() => {
+    setMaxLines(500)
+    setAccumulatedLogs([])
+    lastTimestampRef.current = null
+  }, [selectedSlot])
 
   const startTailMode = () => {
     setTailMode(true)
@@ -166,6 +153,11 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
       lastTimestampRef.current = null
       refetch()
     }
+  }
+
+  const handleLoadMore = () => {
+    // Increase max lines by 500 to fetch more history
+    setMaxLines(prev => prev + 500)
   }
 
   const scrollToBottom = () => {
@@ -306,6 +298,14 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Status indicator */}
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              {tailMode
+                ? `Live tail (${accumulatedLogs.length.toLocaleString()}/${MAX_TAIL_LOGS.toLocaleString()} lines)`
+                : `Showing last ${maxLines.toLocaleString()} lines`
+              }
+            </Typography>
+
             <Button
               variant="outlined"
               onClick={handleRefresh}
@@ -313,6 +313,14 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
               startIcon={isLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
             >
               Refresh
+            </Button>
+
+            <Button
+              variant="outlined"
+              onClick={handleLoadMore}
+              disabled={isLoading || tailMode}
+            >
+              Load More
             </Button>
 
             <Button
@@ -641,6 +649,14 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Status indicator */}
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              {tailMode
+                ? `Live tail (${accumulatedLogs.length.toLocaleString()}/${MAX_TAIL_LOGS.toLocaleString()} lines)`
+                : `Showing last ${maxLines.toLocaleString()} lines`
+              }
+            </Typography>
+
             <Button
               variant="outlined"
               onClick={handleRefresh}
@@ -648,6 +664,14 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
               startIcon={isLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
             >
               Refresh
+            </Button>
+
+            <Button
+              variant="outlined"
+              onClick={handleLoadMore}
+              disabled={isLoading || tailMode}
+            >
+              Load More
             </Button>
 
             <Button
