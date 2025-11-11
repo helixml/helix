@@ -137,9 +137,19 @@ func (s *HelixAPIServer) getDesignReview(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "read"); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
@@ -198,9 +208,19 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "update"); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	review, err := s.Store.GetSpecTaskDesignReview(ctx, reviewID)
@@ -294,9 +314,19 @@ func (s *HelixAPIServer) createDesignReviewComment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "update"); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	comment := &types.SpecTaskDesignReviewComment{
@@ -368,9 +398,19 @@ func (s *HelixAPIServer) listDesignReviewComments(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "read"); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "read"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	comments, err := s.Store.ListSpecTaskDesignReviewComments(ctx, reviewID)
@@ -415,9 +455,19 @@ func (s *HelixAPIServer) resolveDesignReviewComment(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, "update"); err != nil {
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Allow if user is project owner, otherwise check access grants
+	if user.ID != project.UserID {
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, "update"); err != nil {
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	comment, err := s.Store.GetSpecTaskDesignReviewComment(ctx, commentID)
