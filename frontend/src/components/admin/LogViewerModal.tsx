@@ -48,6 +48,9 @@ interface LogViewerModalProps {
 }
 
 const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloating = false }) => {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
   const [selectedSlot, setSelectedSlot] = useState<string>('')
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(500)
@@ -57,52 +60,80 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloa
 
   const logContainerRef = useRef<HTMLDivElement>(null)
   const lastTimestampRef = useRef<string | null>(null)
+  const tailIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const availableSlots = runner.slots || []
 
-  // Build query parameters for React Query
+  // Build query parameters for initial fetch (no 'since' - keeps query key stable)
   const query = {
     lines: maxLines > 0 ? maxLines : undefined,
     level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
-    since: tailMode ? lastTimestampRef.current || undefined : undefined,
   }
 
-  // Use React Query for fetching logs with automatic refetch in tail mode
+  // Use React Query for initial fetch only
   const { data, isLoading, error, refetch } = useSlotLogs(
     selectedSlot,
     query,
     {
-      enabled: !!selectedSlot,
-      refetchInterval: tailMode ? 2000 : false, // Poll every 2s in tail mode
+      enabled: !!selectedSlot && !tailMode, // Disabled in tail mode
+      refetchInterval: false, // No auto-refetch, tail mode uses manual polling
     }
   )
 
   const metadata = data?.metadata || null
 
-  // Handle log accumulation in tail mode
+  // Handle initial logs from React Query
   useEffect(() => {
-    if (!data?.logs) return
+    if (!data?.logs || tailMode) return
 
-    if (tailMode) {
-      // In tail mode: append new logs
-      const newLogs = data.logs
-      if (newLogs.length > 0) {
-        setAccumulatedLogs(prev => {
-          // Deduplicate by timestamp to avoid duplicates
-          const existingTimestamps = new Set(prev.map(log => log.timestamp))
-          const uniqueNewLogs = newLogs.filter(log => !existingTimestamps.has(log.timestamp))
-          return [...prev, ...uniqueNewLogs]
-        })
-        lastTimestampRef.current = newLogs[newLogs.length - 1].timestamp
-      }
-    } else {
-      // Normal mode: replace logs
-      setAccumulatedLogs(data.logs)
-      if (data.logs.length > 0) {
-        lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
-      }
+    setAccumulatedLogs(data.logs)
+    if (data.logs.length > 0) {
+      lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
     }
   }, [data, tailMode])
+
+  // Tail mode: manual polling with API client
+  useEffect(() => {
+    if (!tailMode || !selectedSlot) return
+
+    const fetchTailLogs = async () => {
+      try {
+        const tailQuery = {
+          lines: maxLines > 0 ? maxLines : undefined,
+          level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
+          since: lastTimestampRef.current || undefined,
+        }
+
+        const response = await apiClient.v1LogsDetail(selectedSlot, tailQuery)
+        const newData = response.data as LogResponse
+
+        if (newData.logs && newData.logs.length > 0) {
+          setAccumulatedLogs(prev => {
+            // Deduplicate by timestamp
+            const existingTimestamps = new Set(prev.map(log => log.timestamp))
+            const uniqueNewLogs = newData.logs.filter(log => !existingTimestamps.has(log.timestamp))
+            return [...prev, ...uniqueNewLogs]
+          })
+          lastTimestampRef.current = newData.logs[newData.logs.length - 1].timestamp
+        }
+      } catch (err) {
+        console.error('Failed to fetch tail logs:', err)
+      }
+    }
+
+    // Initial fetch when entering tail mode
+    fetchTailLogs()
+
+    // Poll every 2 seconds
+    tailIntervalRef.current = setInterval(fetchTailLogs, 2000)
+
+    return () => {
+      if (tailIntervalRef.current) {
+        clearInterval(tailIntervalRef.current)
+        tailIntervalRef.current = null
+      }
+    }
+  }, [tailMode, selectedSlot, apiClient, maxLines, logLevel])
 
   // Auto-select first slot when modal opens
   useEffect(() => {

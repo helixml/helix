@@ -549,19 +549,19 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
 
               {/* Debug Information */}
               <Divider sx={{ my: 2 }} />
-              <Box sx={{ mt: 2, p: 2, backgroundColor: 'grey.100', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" display="block" gutterBottom sx={{ fontWeight: 600 }}>
+              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.900', borderRadius: 1 }}>
+                <Typography variant="caption" color="grey.400" display="block" gutterBottom sx={{ fontWeight: 600 }}>
                   Debug Information
                 </Typography>
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
                 {displayTask.spec_session_id && (
                   <>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                       Session ID: {displayTask.spec_session_id}
                     </Typography>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
+                    <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                       Moonlight Client ID: {clientUniqueId || 'calculating...'}
                     </Typography>
                   </>
