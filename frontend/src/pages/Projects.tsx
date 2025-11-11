@@ -18,8 +18,6 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Tabs,
-  Tab,
   Stack,
   FormControl,
   InputLabel,
@@ -29,6 +27,10 @@ import {
   Chip,
   Pagination,
   InputAdornment,
+  List,
+  ListItemButton,
+  ListItemText,
+  Paper,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -69,9 +71,8 @@ const Projects: FC = () => {
   const createProjectMutation = useCreateProject()
   const instantiateSampleMutation = useInstantiateSampleProject()
 
-  // Get tab from URL query parameter, default to 0
-  const urlTab = router.route?.params?.tab
-  const [currentTab, setCurrentTab] = useState(urlTab === 'repositories' ? 1 : 0)
+  // Get view from URL query parameter
+  const currentView = router.route?.params?.view || 'projects'
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedProject, setSelectedProject] = useState<TypesProject | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -137,25 +138,9 @@ const Projects: FC = () => {
   )
   const reposTotalPages = Math.ceil(filteredRepositories.length / reposPerPage)
 
-  // Sync tab from URL parameter on mount and URL changes
-  useEffect(() => {
-    const urlTab = router.route?.params?.tab
-    const newTab = urlTab === 'repositories' ? 1 : 0
-    if (currentTab !== newTab) {
-      setCurrentTab(newTab)
-    }
-  }, [router.route?.params?.tab])
-
-  // Update URL when tab changes (but not on mount)
-  const handleTabChange = (newTab: number) => {
-    setCurrentTab(newTab)
-    const tabParam = newTab === 1 ? 'repositories' : undefined
-    const newParams = { ...router.route?.params }
-    if (tabParam) {
-      newParams.tab = tabParam
-    } else {
-      delete newParams.tab
-    }
+  // Handle view change
+  const handleViewChange = (view: 'projects' | 'repositories') => {
+    const newParams = view === 'repositories' ? { view: 'repositories' } : {}
     navigate('projects', newParams, { replace: true })
   }
 
@@ -404,7 +389,7 @@ const Projects: FC = () => {
     <Page
       breadcrumbTitle="Projects"
       orgBreadcrumbs={true}
-      topbarContent={(
+      topbarContent={currentView === 'projects' ? (
         <CreateProjectButton
           onCreateEmpty={handleNewProject}
           onCreateFromSample={handleInstantiateSample}
@@ -413,20 +398,59 @@ const Projects: FC = () => {
           variant="contained"
           color="secondary"
         />
-      )}
+      ) : null}
     >
-      <Container maxWidth="lg">
-        {/* Tabs */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mt: 2 }}>
-          <Tabs value={currentTab} onChange={(_, newValue) => handleTabChange(newValue)}>
-            <Tab label="Projects" />
-            <Tab label="Repositories" />
-          </Tabs>
-        </Box>
+      <Container maxWidth="xl" sx={{ display: 'flex', gap: 3, py: 3 }}>
+        {/* Left Sidebar */}
+        <Paper
+          elevation={0}
+          sx={{
+            width: 240,
+            flexShrink: 0,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            overflow: 'hidden',
+          }}
+        >
+          <List component="nav" disablePadding>
+            <ListItemButton
+              selected={currentView === 'projects'}
+              onClick={() => handleViewChange('projects')}
+              sx={{
+                py: 1.5,
+                '&.Mui-selected': {
+                  backgroundColor: 'action.selected',
+                  borderLeft: '3px solid',
+                  borderLeftColor: 'primary.main',
+                },
+              }}
+            >
+              <Kanban size={18} style={{ marginRight: 12 }} />
+              <ListItemText primary="Projects" primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 500 }} />
+            </ListItemButton>
+            <ListItemButton
+              selected={currentView === 'repositories'}
+              onClick={() => handleViewChange('repositories')}
+              sx={{
+                py: 1.5,
+                '&.Mui-selected': {
+                  backgroundColor: 'action.selected',
+                  borderLeft: '3px solid',
+                  borderLeftColor: 'primary.main',
+                },
+              }}
+            >
+              <GitBranch size={18} style={{ marginRight: 12 }} />
+              <ListItemText primary="Repositories" primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 500 }} />
+            </ListItemButton>
+          </List>
+        </Paper>
 
-        <Box sx={{ mt: 4 }}>
-          {/* Tab 0: Projects */}
-          {currentTab === 0 && (
+        {/* Main Content */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* Projects View */}
+          {currentView === 'projects' && (
             <>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -566,19 +590,17 @@ const Projects: FC = () => {
             )}
             </>
           )}
-            </>
-          )}
 
-          {/* Tab 1: Repositories */}
-          {currentTab === 1 && (
+          {/* Repositories View */}
+          {currentView === 'repositories' && (
             <>
               {/* GitHub-style header with owner/repositories */}
               <Box sx={{ mb: 3, pb: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Box>
                     <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <span style={{ color: '#0969da', cursor: 'pointer' }}>{ownerSlug}</span>
-                      <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
+                      <span style={{ color: '#3b82f6', cursor: 'pointer' }}>{ownerSlug}</span>
+                      <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
                       <span style={{ fontWeight: 600 }}>repositories</span>
                     </Typography>
                   </Box>
@@ -603,14 +625,10 @@ const Projects: FC = () => {
                     </Button>
                     <Button
                       variant="contained"
+                      color="secondary"
                       size="small"
                       startIcon={<Plus size={16} />}
                       onClick={() => setCreateRepoDialogOpen(true)}
-                      sx={{
-                        bgcolor: '#1a7f37',
-                        '&:hover': { bgcolor: '#1a7f37dd' },
-                        textTransform: 'none'
-                      }}
                     >
                       New
                     </Button>
@@ -705,7 +723,7 @@ const Projects: FC = () => {
                               sx={{
                                 fontSize: '1.25rem',
                                 fontWeight: 600,
-                                color: '#0969da',
+                                color: '#3b82f6',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 0.5,
@@ -715,7 +733,7 @@ const Projects: FC = () => {
                               }}
                             >
                               {ownerSlug}
-                              <span style={{ color: '#656d76', fontWeight: 400 }}>/</span>
+                              <span style={{ color: 'text.secondary', fontWeight: 400 }}>/</span>
                               {repo.name || repo.id}
                             </Typography>
 
@@ -762,38 +780,6 @@ const Projects: FC = () => {
                           </Box>
                         </Box>
 
-                        {/* Action buttons */}
-                        <Box onClick={(e) => e.stopPropagation()} sx={{ display: 'flex', gap: 1 }}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            startIcon={<Plus size={14} />}
-                            onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repo.id })}
-                            sx={{ textTransform: 'none' }}
-                          >
-                            New Spec Task
-                          </Button>
-                          {repo.metadata?.is_external && repo.metadata?.external_url ? (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<ExternalLink size={14} />}
-                              onClick={() => window.open(repo.metadata.external_url, '_blank')}
-                              sx={{ textTransform: 'none' }}
-                            >
-                              View
-                            </Button>
-                          ) : (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleViewRepository(repo)}
-                              sx={{ textTransform: 'none' }}
-                            >
-                              Clone
-                            </Button>
-                          )}
-                        </Box>
                       </Box>
                     </Box>
                   ))}
@@ -817,8 +803,9 @@ const Projects: FC = () => {
             </>
           )}
         </Box>
+      </Container>
 
-        {/* Project Menu */}
+      {/* Project Menu */}
         <Menu
           anchorEl={anchorEl}
           open={Boolean(anchorEl)}
