@@ -92,32 +92,39 @@ Frontend (Vite), API (Air), GPU Runner, Wolf, Zed all support hot reloading. Sav
 
 ## CRITICAL: Always Verify Build Status
 
-**MANDATORY: Check build logs BEFORE declaring success or committing**
+**MANDATORY: Ask user to verify page loads BEFORE declaring success**
 
-After ANY code changes:
+After ANY frontend code changes, you MUST:
 
 ```bash
-# Check API build
-docker compose -f docker-compose.dev.yaml logs --tail 30 api
-# Look for: "building..." → "running..." (success) or "failed to build" (error)
-
-# Check frontend build - ALWAYS CHECK TWICE
+# 1. Check for HMR update
 docker compose -f docker-compose.dev.yaml logs --tail 50 frontend
 # Look for: "hmr update" (success) or "error"/"Error" (failure)
 
-# After HMR update, verify no errors:
+# 2. Verify no errors after HMR
 docker compose -f docker-compose.dev.yaml logs --since "1m" frontend | grep -i "error"
 # Should return nothing. If errors appear, BUILD IS BROKEN.
+
+# 3. ASK USER TO VERIFY
+# Tell user: "Please load the page in your browser to verify it renders correctly"
+# DO NOT declare success until user confirms
+```
+
+**For API changes:**
+```bash
+docker compose -f docker-compose.dev.yaml logs --tail 30 api
+# Look for: "building..." → "running..." (success) or "failed to build" (error)
 ```
 
 **CRITICAL REQUIREMENTS:**
-1. **NEVER declare success without checking logs**
-2. **NEVER commit code with build errors**
-3. **Check logs AFTER every file edit**
-4. **Compilation/parse errors = broken code = UNACCEPTABLE**
-5. **"hmr update" ≠ success** - Must also verify NO errors appear
+1. **NEVER declare success without user verification**
+2. **NEVER commit frontend code without user confirming page loads**
+3. **NEVER commit code with build errors**
+4. **Check logs AFTER every file edit**
+5. **Compilation/parse errors = broken code = UNACCEPTABLE**
+6. **"hmr update" ≠ success** - Must verify: (a) no errors in logs AND (b) user confirms page loads
 
-**Why:** Hot reload can mask errors. Silent failures break production.
+**Why:** Build logs don't catch all runtime errors. JSX syntax errors, missing imports, and broken conditionals only appear when page actually loads in browser.
 
 ## Zed Build Process
 
