@@ -321,7 +321,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     console.log('Sample types data updated:', sampleTypes);
   }, [sampleTypes]);
 
-  // Keyboard shortcut for creating new task (N key)
+  // Keyboard shortcut for creating new task (Enter key)
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
       // Only trigger if not in an input field
@@ -330,7 +330,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         return
       }
 
-      if (e.key === 'n' || e.key === 'N') {
+      if (e.key === 'Enter') {
         if (onCreateTask) {
           onCreateTask()
         }
@@ -1169,7 +1169,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             Tasks
           </Typography>
           {onCreateTask && (
-            <Tooltip title="Keyboard shortcut: N">
+            <Tooltip title="Press Enter">
               <Button
                 variant="contained"
                 color="secondary"
