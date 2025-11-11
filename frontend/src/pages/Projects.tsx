@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import {
   Container,
   Box,
@@ -20,12 +20,20 @@ import {
   TextField,
   Tabs,
   Tab,
+  Stack,
+  FormControl,
+  InputLabel,
+  Select,
+  FormControlLabel,
+  Switch,
+  Chip,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
-import { Kanban, GitBranch } from 'lucide-react'
+import { Kanban, GitBranch, Plus, Link, Brain, ExternalLink } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
 import CreateProjectButton from '../components/project/CreateProjectButton'
@@ -40,19 +48,26 @@ import {
   useInstantiateSampleProject,
   TypesProject,
 } from '../services'
-import { useGitRepositories, useCreateGitRepository, useDeleteGitRepository } from '../services/gitRepositoryService'
+import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
+import { useSampleTypes } from '../hooks/useSampleTypes'
+import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
-  const { navigate } = useRouter()
+  const router = useRouter()
+  const { navigate } = router
   const snackbar = useSnackbar()
+  const queryClient = useQueryClient()
+  const api = useApi()
 
   const { data: projects = [], isLoading, error } = useListProjects()
   const { data: sampleProjects = [] } = useListSampleProjects()
   const createProjectMutation = useCreateProject()
   const instantiateSampleMutation = useInstantiateSampleProject()
 
-  const [currentTab, setCurrentTab] = useState(0)
+  // Get tab from URL query parameter, default to 0
+  const urlTab = router.route?.params?.tab || '0'
+  const [currentTab, setCurrentTab] = useState(urlTab === 'repositories' ? 1 : 0)
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedProject, setSelectedProject] = useState<TypesProject | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -62,15 +77,52 @@ const Projects: FC = () => {
   // Repository management
   const currentOrg = account.organizationTools.organization
   const ownerId = currentOrg?.id || account.user?.id || ''
+  const ownerSlug = currentOrg?.name || account.userMeta?.slug || 'user'
   const { data: repositories = [], isLoading: reposLoading } = useGitRepositories(ownerId)
-  const createRepoMutation = useCreateGitRepository()
-  const deleteRepoMutation = useDeleteGitRepository()
+  const { data: sampleTypes, loading: sampleTypesLoading, createSampleRepository } = useSampleTypes()
 
+  // Repository dialog states
   const [createRepoDialogOpen, setCreateRepoDialogOpen] = useState(false)
-  const [newRepoName, setNewRepoName] = useState('')
-  const [newRepoDescription, setNewRepoDescription] = useState('')
-  const [selectedRepo, setSelectedRepo] = useState<any>(null)
-  const [repoMenuAnchor, setRepoMenuAnchor] = useState<null | HTMLElement>(null)
+  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
+  const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
+  const [selectedSampleType, setSelectedSampleType] = useState('')
+  const [demoRepoName, setDemoRepoName] = useState('')
+  const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
+  const [repoName, setRepoName] = useState('')
+  const [repoDescription, setRepoDescription] = useState('')
+  const [koditIndexing, setKoditIndexing] = useState(true)
+
+  // External repository states
+  const [externalRepoName, setExternalRepoName] = useState('')
+  const [externalRepoUrl, setExternalRepoUrl] = useState('')
+  const [externalRepoType, setExternalRepoType] = useState<'github' | 'gitlab' | 'ado' | 'other'>('github')
+  const [externalKoditIndexing, setExternalKoditIndexing] = useState(true)
+
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string>('')
+
+  // Update URL when tab changes
+  useEffect(() => {
+    const tabParam = currentTab === 1 ? 'repositories' : undefined
+    const newParams = { ...router.route?.params }
+    if (tabParam) {
+      newParams.tab = tabParam
+    } else {
+      delete newParams.tab
+    }
+    // Use router5's navigate with params to update URL
+    navigate('projects', newParams, { replace: true })
+  }, [currentTab])
+
+  // Sync tab from URL parameter
+  useEffect(() => {
+    const urlTab = router.route?.params?.tab
+    if (urlTab === 'repositories' && currentTab !== 1) {
+      setCurrentTab(1)
+    } else if (!urlTab && currentTab !== 0) {
+      setCurrentTab(0)
+    }
+  }, [router.route?.params?.tab])
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -153,49 +205,135 @@ const Projects: FC = () => {
     }
   }
 
-  const handleCreateRepository = async () => {
-    if (!newRepoName.trim()) {
-      snackbar.error('Repository name is required')
-      return
-    }
+  // Auto-fill name when sample type is selected
+  const handleSampleTypeChange = (sampleTypeId: string) => {
+    setSelectedSampleType(sampleTypeId)
 
+    // Auto-generate default name from sample type
+    if (sampleTypeId) {
+      const selectedType = sampleTypes.find((t: ServerSampleType) => t.id === sampleTypeId)
+      if (selectedType?.name) {
+        // Generate a name like "nodejs-todo-repo" from "Node.js Todo App"
+        const defaultName = selectedType.name
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+        setDemoRepoName(defaultName)
+      }
+    }
+  }
+
+  const handleCreateDemoRepo = async () => {
+    if (!selectedSampleType || !ownerId || !demoRepoName.trim()) return
+
+    setCreating(true)
     try {
-      await createRepoMutation.mutateAsync({
-        name: newRepoName,
-        description: newRepoDescription,
+      await createSampleRepository({
         owner_id: ownerId,
+        sample_type: selectedSampleType,
+        name: demoRepoName,
+        kodit_indexing: demoKoditIndexing,
       })
-      snackbar.success('Repository created successfully')
-      setCreateRepoDialogOpen(false)
-      setNewRepoName('')
-      setNewRepoDescription('')
-    } catch (err) {
-      snackbar.error('Failed to create repository')
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      setDemoRepoDialogOpen(false)
+      setSelectedSampleType('')
+      setDemoRepoName('')
+      setDemoKoditIndexing(true)
+    } catch (error) {
+      console.error('Failed to create demo repository:', error)
+      snackbar.error('Failed to create demo repository')
+    } finally {
+      setCreating(false)
     }
   }
 
-  const handleDeleteRepository = async (repoId: string) => {
+  const handleCreateCustomRepo = async () => {
+    if (!repoName.trim() || !ownerId) return
+
+    setCreating(true)
+    setCreateError('')
     try {
-      await deleteRepoMutation.mutateAsync(repoId)
-      snackbar.success('Repository deleted successfully')
-      setRepoMenuAnchor(null)
-      setSelectedRepo(null)
-    } catch (err) {
-      snackbar.error('Failed to delete repository')
+      const apiClient = api.getApiClient()
+      await apiClient.v1GitRepositoriesCreate({
+        name: repoName,
+        description: repoDescription,
+        owner_id: ownerId,
+        repo_type: 'code' as any, // Helix-hosted code repository
+        default_branch: 'main',
+        metadata: {
+          kodit_indexing: koditIndexing,
+        },
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      setCreateRepoDialogOpen(false)
+      setRepoName('')
+      setRepoDescription('')
+      setKoditIndexing(true)
+      setCreateError('')
+      snackbar.success('Repository created successfully')
+    } catch (error) {
+      console.error('Failed to create repository:', error)
+      setCreateError(error instanceof Error ? error.message : 'Failed to create repository')
+      snackbar.error('Failed to create repository')
+    } finally {
+      setCreating(false)
     }
   }
 
-  const handleRepoMenuOpen = (event: React.MouseEvent<HTMLElement>, repo: any) => {
-    setRepoMenuAnchor(event.currentTarget)
-    setSelectedRepo(repo)
+  const handleLinkExternalRepo = async () => {
+    if (!externalRepoUrl.trim() || !ownerId) return
+
+    setCreating(true)
+    try {
+      const apiClient = api.getApiClient()
+
+      // Extract repo name from URL if not provided
+      let repoName = externalRepoName.trim()
+      if (!repoName) {
+        // Try to extract from URL (e.g., github.com/org/repo.git -> repo)
+        const match = externalRepoUrl.match(/\/([^\/]+?)(\.git)?$/)
+        repoName = match ? match[1] : 'external-repo'
+      }
+
+      await apiClient.v1GitRepositoriesCreate({
+        name: repoName,
+        description: `External ${externalRepoType} repository`,
+        owner_id: ownerId,
+        repo_type: 'project' as any,
+        default_branch: 'main',
+        metadata: {
+          is_external: true,
+          external_url: externalRepoUrl,
+          external_type: externalRepoType,
+          kodit_indexing: externalKoditIndexing,
+        },
+      })
+
+      // Invalidate and refetch git repositories query
+      await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
+
+      setLinkRepoDialogOpen(false)
+      setExternalRepoName('')
+      setExternalRepoUrl('')
+      setExternalRepoType('github')
+      setExternalKoditIndexing(true)
+      snackbar.success('External repository linked successfully')
+    } catch (error) {
+      console.error('Failed to link external repository:', error)
+      snackbar.error('Failed to link external repository')
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const handleRepoMenuClose = () => {
-    setRepoMenuAnchor(null)
-    setSelectedRepo(null)
-  }
-
-  const handleViewRepository = (repo: any) => {
+  const handleViewRepository = (repo: ServicesGitRepository) => {
     account.orgNavigate('git-repo-detail', { repoId: repo.id })
   }
 
@@ -264,6 +402,8 @@ const Projects: FC = () => {
                 onCreateFromSample={handleInstantiateSample}
                 sampleProjects={sampleProjects}
                 isCreating={createProjectMutation.isPending || instantiateSampleMutation.isPending}
+                variant="contained"
+                color="primary"
               />
             </Box>
           ) : (
