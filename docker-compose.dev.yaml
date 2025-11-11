@@ -197,6 +197,7 @@ services:
             - API_KEYS=${KODIT_API_KEYS:-dev-key}
         volumes:
             - helix-socket:/socket
+            - ${KODIT_DATA:-helix-kodit-data}:/data
 
     # Kodit PostgreSQL database with pgvector
     vectorchord-kodit:
@@ -612,6 +613,7 @@ volumes:
     helix-postgres-db:
     helix-pgvector-db:
     helix-vectorchord-kodit:
+    helix-kodit-data:
     helix-filestore:
     helix-typesense-db:
     helix-socket:

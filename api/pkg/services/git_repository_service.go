@@ -30,6 +30,7 @@ type GitRepositoryService struct {
 	gitUserEmail    string // Default git user email
 	enableGitServer bool   // Whether to enable git server functionality
 	testMode        bool   // Test mode for unit tests
+	koditService    *KoditService // Optional Kodit service for code intelligence
 }
 
 // GitRepository represents a git repository hosted on the server
@@ -178,6 +179,11 @@ func (s *GitRepositoryService) SetTestMode(enabled bool) {
 	s.testMode = enabled
 }
 
+// SetKoditService sets the Kodit service for code intelligence
+func (s *GitRepositoryService) SetKoditService(koditService *KoditService) {
+	s.koditService = koditService
+}
+
 // Initialize creates the git repository base directory and sets up git server
 func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 	// Create git repositories base directory
@@ -293,6 +299,53 @@ func (s *GitRepositoryService) CreateRepository(
 		Str("repo_path", repoPath).
 		Str("clone_url", gitRepo.CloneURL).
 		Msg("Created git repository")
+
+	// Register with Kodit if kodit_indexing is enabled
+	if s.koditService != nil && request.Metadata != nil {
+		if koditIndexing, ok := request.Metadata["kodit_indexing"].(bool); ok && koditIndexing {
+			// Get the clone URL for Kodit (generate if internal repo)
+			koditCloneURL := gitRepo.CloneURL
+			if koditCloneURL == "" {
+				koditCloneURL = s.generateCloneURL(repoID)
+			}
+
+			// Register repository with Kodit (non-blocking - failures are logged but don't fail repo creation)
+			go func() {
+				koditResp, err := s.koditService.RegisterRepository(context.Background(), koditCloneURL)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("repo_id", repoID).
+						Str("clone_url", koditCloneURL).
+						Msg("Failed to register repository with Kodit")
+					return
+				}
+
+				if koditResp != nil {
+					// Store Kodit repository ID in metadata for future reference
+					if gitRepo.Metadata == nil {
+						gitRepo.Metadata = make(map[string]interface{})
+					}
+					gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.ID
+
+					// Update repository metadata with Kodit ID
+					if err := s.storeRepositoryMetadata(context.Background(), gitRepo); err != nil {
+						log.Warn().
+							Err(err).
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.ID).
+							Msg("Failed to update repository with Kodit ID")
+					} else {
+						log.Info().
+							Str("repo_id", repoID).
+							Str("kodit_repo_id", koditResp.Data.ID).
+							Str("clone_url", koditCloneURL).
+							Msg("Registered repository with Kodit for code intelligence")
+					}
+				}
+			}()
+		}
+	}
 
 	return gitRepo, nil
 }

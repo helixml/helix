@@ -1084,6 +1084,24 @@ export interface ServicesHandoffResult {
   zed_instance_id?: string;
 }
 
+export interface ServicesKoditEnrichmentAttributes {
+  content?: string;
+  created_at?: string;
+  subtype?: string;
+  type?: string;
+  updated_at?: string;
+}
+
+export interface ServicesKoditEnrichmentData {
+  attributes?: ServicesKoditEnrichmentAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServicesKoditEnrichmentListResponse {
+  data?: ServicesKoditEnrichmentData[];
+}
+
 export interface ServicesSampleProjectCode {
   description?: string;
   /** filepath -> content */
@@ -3972,11 +3990,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -5768,6 +5786,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get code intelligence enrichments for a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesEnrichmentsDetail
+     * @summary Get repository enrichments
+     * @request GET:/api/v1/git/repositories/{id}/enrichments
+     * @secure
+     */
+    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/enrichments`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the contents of a file at a specific path in a repository
      *
      * @tags git-repositories
@@ -5788,6 +5824,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}/file`,
         method: "GET",
         query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get indexing status for a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKoditStatusDetail
+     * @summary Get repository indexing status
+     * @request GET:/api/v1/git/repositories/{id}/kodit-status
+     * @secure
+     */
+    v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/kodit-status`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,

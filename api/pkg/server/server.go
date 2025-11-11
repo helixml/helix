@@ -121,6 +121,7 @@ type HelixAPIServer struct {
 	specDrivenTaskService       *services.SpecDrivenTaskService
 	sampleProjectCodeService    *services.SampleProjectCodeService
 	gitRepositoryService        *services.GitRepositoryService
+	koditService                *services.KoditService
 	gitHTTPServer               *services.GitHTTPServer
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
@@ -341,6 +342,18 @@ func NewServer(
 	// Initialize git repository base directory
 	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+	}
+
+	// Initialize Kodit Service for code intelligence
+	if cfg.Kodit.Enabled {
+		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
+		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
+		log.Info().
+			Str("kodit_base_url", cfg.Kodit.BaseURL).
+			Msg("Initialized Kodit code intelligence service")
+	} else {
+		apiServer.koditService = services.NewKoditService("", "") // Disabled instance
+		log.Info().Msg("Kodit code intelligence service disabled")
 	}
 
 	// Initialize Git HTTP Server for clone/push operations
@@ -961,6 +974,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/{id}/branches", apiServer.listGitRepositoryBranches).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/tree", apiServer.browseGitRepositoryTree).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}/file", apiServer.getGitRepositoryFile).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/enrichments", apiServer.getRepositoryEnrichments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/kodit-status", apiServer.getRepositoryIndexingStatus).Methods(http.MethodGet)
 
 	// Git repository access grant routes
 	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
