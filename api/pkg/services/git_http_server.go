@@ -610,11 +610,13 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			Bool("yolo_mode", task.YoloMode).
 			Msg("Processing SpecTask for design doc push")
 
+		now := time.Now()
+		task.DesignDocsPushedAt = &now // Track when design docs were actually pushed
+
 		if task.YoloMode {
 			// YOLO mode: Auto-approve specs and start implementation
 			task.Status = types.TaskStatusSpecApproved
 			task.SpecApprovedBy = "system"
-			now := time.Now()
 			task.SpecApprovedAt = &now
 			log.Info().
 				Str("task_id", task.ID).
@@ -630,7 +632,7 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
 		}
 
-		task.UpdatedAt = time.Now()
+		task.UpdatedAt = now
 		err = s.store.UpdateSpecTask(ctx, task)
 		if err != nil {
 			log.Error().

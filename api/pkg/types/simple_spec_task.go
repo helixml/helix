@@ -60,6 +60,7 @@ type SpecTask struct {
 	// Git tracking
 	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`    // Last commit hash pushed to feature branch
 	LastPushAt         *time.Time `json:"last_push_at,omitempty"`             // When branch was last pushed
+	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`    // When design docs were pushed to helix-specs branch
 	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
 	MergedAt           *time.Time `json:"merged_at,omitempty"`                // When merge happened
 	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`        // Merge commit hash
