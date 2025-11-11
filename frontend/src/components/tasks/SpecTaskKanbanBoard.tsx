@@ -63,7 +63,6 @@ import { useTheme } from '@mui/material/styles';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
-import DesignDocViewer from './DesignDocViewer';
 import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
 import TaskCard from './TaskCard';
 import specTaskService, {
@@ -305,8 +304,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
 
-  // Design doc viewer state
-  const [docViewerOpen, setDocViewerOpen] = useState(false);
+  // Design review viewer state
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
   const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
@@ -966,190 +964,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         setActiveReviewId(latestReview.id);
         setDesignReviewViewerOpen(true);
       } else {
-        // No design review exists yet, show old doc viewer
-        setDocViewerOpen(true);
+        // This shouldn't happen since we auto-create reviews on push
+        console.error('No design review found for task:', task.id);
+        setError('No design review found. Please try starting planning again.');
       }
     } catch (error) {
       console.error('Failed to fetch design reviews:', error);
-      // Fallback to old doc viewer
-      setDocViewerOpen(true);
-    }
-  };
-
-  // Handle approving specs
-  const handleApproveSpecs = async (comment?: string) => {
-    if (!reviewingTask) return;
-
-    try {
-      // Call approve specs API
-      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
-        approved: true,
-        comments: comment || 'Specs approved',
-      });
-
-      // Refresh tasks
-      const response = await api.getApiClient().v1SpecTasksList({
-        project_id: projectId || 'default',
-      });
-      const tasksData = response.data || response;
-      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-
-      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-        let phase: SpecTaskPhase = 'backlog';
-        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-        if (t.status === 'spec_generation') {
-          phase = 'planning';
-          planningStatus = 'active';
-        } else if (t.status === 'spec_review') {
-          phase = 'review';
-          planningStatus = 'pending_review';
-        } else if (t.status === 'spec_approved') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'implementing') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'completed') {
-          phase = 'completed';
-          planningStatus = 'completed';
-        }
-
-        return {
-          ...t,
-          hasSpecs: t.status !== 'backlog',
-          phase,
-          planningStatus,
-          activeSessionsCount: 0,
-          completedSessionsCount: 0,
-          onReviewDocs: handleReviewDocs,
-        };
-      });
-
-      setTasks(enhancedTasks);
-      setDocViewerOpen(false);
-      setReviewingTask(null);
-    } catch (err) {
-      console.error('Failed to approve specs:', err);
-      setError('Failed to approve specs');
-    }
-  };
-
-  // Handle rejecting specs (request changes)
-  const handleRejectSpecs = async (comment: string) => {
-    if (!reviewingTask) return;
-
-    try {
-      // Call approve specs API with approved = false
-      await api.getApiClient().v1SpecTasksApproveSpecsCreate(reviewingTask.id!, {
-        approved: false,
-        comments: comment,
-      });
-
-      // Refresh tasks
-      const response = await api.getApiClient().v1SpecTasksList({
-        project_id: projectId || 'default',
-      });
-      const tasksData = response.data || response;
-      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-
-      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-        let phase: SpecTaskPhase = 'backlog';
-        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-        if (t.status === 'spec_generation') {
-          phase = 'planning';
-          planningStatus = 'active';
-        } else if (t.status === 'spec_review') {
-          phase = 'review';
-          planningStatus = 'pending_review';
-        } else if (t.status === 'spec_approved') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'implementing') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'completed') {
-          phase = 'completed';
-          planningStatus = 'completed';
-        }
-
-        return {
-          ...t,
-          hasSpecs: t.status !== 'backlog',
-          phase,
-          planningStatus,
-          activeSessionsCount: 0,
-          completedSessionsCount: 0,
-          onReviewDocs: handleReviewDocs,
-        };
-      });
-
-      setTasks(enhancedTasks);
-      setDocViewerOpen(false);
-      setReviewingTask(null);
-    } catch (err) {
-      console.error('Failed to request changes:', err);
-      setError('Failed to request changes');
-    }
-  };
-
-  // Handle rejecting completely (archive)
-  const handleRejectCompletely = async (comment: string) => {
-    if (!reviewingTask) return;
-
-    try {
-      // Archive the task
-      await api.getApiClient().v1SpecTasksArchivePartialUpdate(reviewingTask.id!, {
-        archived: true,
-      });
-
-      // Refresh tasks
-      const response = await api.getApiClient().v1SpecTasksList({
-        project_id: projectId || 'default',
-        archived_only: showArchived,
-      });
-      const tasksData = response.data || response;
-      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-
-      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
-        let phase: SpecTaskPhase = 'backlog';
-        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-
-        if (t.status === 'spec_generation') {
-          phase = 'planning';
-          planningStatus = 'active';
-        } else if (t.status === 'spec_review') {
-          phase = 'review';
-          planningStatus = 'pending_review';
-        } else if (t.status === 'spec_approved') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'implementing') {
-          phase = 'implementation';
-          planningStatus = 'completed';
-        } else if (t.status === 'completed') {
-          phase = 'completed';
-          planningStatus = 'completed';
-        }
-
-        return {
-          ...t,
-          hasSpecs: t.status !== 'backlog',
-          phase,
-          planningStatus,
-          activeSessionsCount: 0,
-          completedSessionsCount: 0,
-          onReviewDocs: handleReviewDocs,
-        };
-      });
-
-      setTasks(enhancedTasks);
-      setDocViewerOpen(false);
-      setReviewingTask(null);
-    } catch (err) {
-      console.error('Failed to reject completely:', err);
-      setError('Failed to reject completely');
+      setError('Failed to load design review');
     }
   };
 
@@ -1404,22 +1225,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         ))}
       </Box>
 
-      {/* Design Document Viewer */}
-      <DesignDocViewer
-        open={docViewerOpen}
-        onClose={() => {
-          setDocViewerOpen(false);
-          setReviewingTask(null);
-        }}
-        taskId={reviewingTask?.id || ''}
-        taskName={reviewingTask?.name || ''}
-        sessionId={reviewingTask?.spec_session_id}
-        onApprove={handleApproveSpecs}
-        onReject={handleRejectSpecs}
-        onRejectCompletely={handleRejectCompletely}
-      />
-
-      {/* Design Review Viewer - New beautiful review UI */}
+      {/* Design Review Viewer - Floating window for spec review */}
       {designReviewViewerOpen && reviewingTask && activeReviewId && (
         <DesignReviewViewer
           open={designReviewViewerOpen}
@@ -1428,7 +1234,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             setReviewingTask(null);
             setActiveReviewId(null);
             // Refresh tasks to update status
-            setRefreshTrigger(prev => prev + 1);
+            if (onRefresh) onRefresh();
           }}
           specTaskId={reviewingTask.id!}
           reviewId={activeReviewId}
