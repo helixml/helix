@@ -397,6 +397,35 @@ type Store interface {
 	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
 	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
 
+	// spec-driven task design reviews
+	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
+	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
+	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
+	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)
+
+	// design review comments
+	CreateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	GetSpecTaskDesignReviewComment(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error)
+	UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	DeleteSpecTaskDesignReviewComment(ctx context.Context, id string) error
+	ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+
+	// design review comment replies
+	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
+	GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error)
+	ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error)
+
+	// git push events
+	CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	GetSpecTaskGitPushEvent(ctx context.Context, id string) (*types.SpecTaskGitPushEvent, error)
+	GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error)
+	UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]types.SpecTaskGitPushEvent, error)
+	ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error)
+
 	// git repositories
 	CreateGitRepository(ctx context.Context, repo *GitRepository) error
 	GetGitRepository(ctx context.Context, id string) (*GitRepository, error)

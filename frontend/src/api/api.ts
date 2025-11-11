@@ -3501,6 +3501,18 @@ export interface TypesSpecTaskImplementationSessionsCreateRequest {
   workspace_config?: Record<string, any>;
 }
 
+export interface TypesSpecTaskImplementationStartResponse {
+  agent_instructions?: string;
+  base_branch?: string;
+  branch_name?: string;
+  created_at?: string;
+  local_path?: string;
+  pr_template_url?: string;
+  repository_id?: string;
+  repository_name?: string;
+  status?: string;
+}
+
 export enum TypesSpecTaskImplementationStatus {
   SpecTaskImplementationStatusPending = "pending",
   SpecTaskImplementationStatusAssigned = "assigned",
@@ -8310,6 +8322,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerTaskSpecsResponse, TypesAPIError>({
         path: `/api/v1/spec-tasks/${taskId}/specs`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Transition an approved spec task to implementation, creating a feature branch
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksStartImplementationCreate
+     * @summary Start implementation phase
+     * @request POST:/api/v1/spec-tasks/{taskId}/start-implementation
+     * @secure
+     */
+    v1SpecTasksStartImplementationCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskImplementationStartResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/start-implementation`,
+        method: "POST",
+        secure: true,
         format: "json",
         ...params,
       }),

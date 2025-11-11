@@ -908,6 +908,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
 
 	// Multi-session spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
@@ -931,6 +932,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
 	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
 	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
+
+	// Design review routes
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}", apiServer.getDesignReview).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit", apiServer.submitDesignReview).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
 
 	// Zed integration routes
 	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)

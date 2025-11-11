@@ -20,6 +20,21 @@ if err != nil {
 
 **Why:** Fallbacks hide problems, confuse debugging, waste time. This is customer-facing software.
 
+## CRITICAL: Use Structs, Not Maps
+
+**NEVER use `map[string]interface{}` for API responses**
+
+```go
+// ❌ WRONG
+response := map[string]interface{}{"status": status}
+
+// ✅ CORRECT
+type Response struct { Status string `json:"status"` }
+response := &Response{Status: status}
+```
+
+**Why:** Type safety, OpenAPI generation, compile-time checks. Place types in `api/pkg/types/`.
+
 ## CRITICAL: No Timeouts in Frontend Code
 
 **NEVER use setTimeout/delay for asynchronous operations - use event-driven patterns**

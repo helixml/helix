@@ -61,6 +61,7 @@ import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer';
 import DesignDocViewer from './DesignDocViewer';
+import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -298,7 +299,7 @@ const TaskCard: React.FC<{
           </Box>
         )}
 
-        {/* Show "Review Documents" button for review phase tasks */}
+        {/* Show "Review Design" button for review phase tasks */}
         {task.phase === 'review' && task.onReviewDocs && (
           <Box sx={{ mt: 1 }}>
             <Button
@@ -311,8 +312,12 @@ const TaskCard: React.FC<{
                 task.onReviewDocs(task);
               }}
               fullWidth
+              sx={{
+                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
+                boxShadow: '0 3px 5px 2px rgba(33, 203, 243, .3)',
+              }}
             >
-              Review Documents
+              Review Design
             </Button>
           </Box>
         )}
@@ -438,6 +443,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Design doc viewer state
   const [docViewerOpen, setDocViewerOpen] = useState(false);
   const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
+  const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
 
   // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
@@ -1080,9 +1087,28 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Handle reviewing documents
-  const handleReviewDocs = (task: SpecTaskWithExtras) => {
+  const handleReviewDocs = async (task: SpecTaskWithExtras) => {
     setReviewingTask(task);
-    setDocViewerOpen(true);
+
+    // Fetch the latest design review for this task
+    try {
+      const response = await api.get(`/api/v1/spec-tasks/${task.id}/design-reviews`);
+      const reviews = response.data?.reviews || [];
+
+      if (reviews.length > 0) {
+        // Get the latest non-superseded review
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0];
+        setActiveReviewId(latestReview.id);
+        setDesignReviewViewerOpen(true);
+      } else {
+        // No design review exists yet, show old doc viewer
+        setDocViewerOpen(true);
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error);
+      // Fallback to old doc viewer
+      setDocViewerOpen(true);
+    }
   };
 
   // Handle approving specs
@@ -1512,6 +1538,22 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         onReject={handleRejectSpecs}
         onRejectCompletely={handleRejectCompletely}
       />
+
+      {/* Design Review Viewer - New beautiful review UI */}
+      {designReviewViewerOpen && reviewingTask && activeReviewId && (
+        <DesignReviewViewer
+          open={designReviewViewerOpen}
+          onClose={() => {
+            setDesignReviewViewerOpen(false);
+            setReviewingTask(null);
+            setActiveReviewId(null);
+            // Refresh tasks to update status
+            setRefreshTrigger(prev => prev + 1);
+          }}
+          specTaskId={reviewingTask.id!}
+          reviewId={activeReviewId}
+        />
+      )}
 
       {/* Planning Dialog */}
       <Dialog open={planningDialogOpen} onClose={() => setPlanningDialogOpen(false)} maxWidth="md" fullWidth>

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -600,14 +601,44 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to commit: %w", err)
 		}
 
+		// Rename master to main if needed (same fix for temp clone)
+		headRef, err := repo.Head()
+		if err == nil {
+			currentBranch := headRef.Name().Short()
+			if currentBranch == "master" && defaultBranch == "main" {
+				// Checkout main branch
+				mainRef := plumbing.NewBranchReferenceName("main")
+				if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, headRef.Hash())); err != nil {
+					log.Warn().Err(err).Msg("Failed to create main branch in temp clone")
+				} else {
+					// Checkout main
+					worktree, _ := repo.Worktree()
+					if worktree != nil {
+						worktree.Checkout(&git.CheckoutOptions{
+							Branch: mainRef,
+							Create: false,
+						})
+					}
+					// Delete master
+					repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master"))
+					log.Info().Msg("Renamed temp clone branch from master to main")
+				}
+			}
+		}
+
 		// Push to bare repo
-		err = repo.Push(&git.PushOptions{})
+		err = repo.Push(&git.PushOptions{
+			RefSpecs: []config.RefSpec{
+				config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", defaultBranch, defaultBranch)),
+			},
+		})
 		if err != nil {
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
 		log.Info().
 			Str("repo_path", repoPath).
+			Str("default_branch", defaultBranch).
 			Msg("Created bare git repository with initial files")
 
 		return nil
@@ -621,8 +652,15 @@ func (s *GitRepositoryService) initializeGitRepository(
 
 	// If bare repo with no initial files, we're done
 	if isBare {
+		// Set HEAD to main instead of master
+		headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(defaultBranch))
+		if err := repo.Storer.SetReference(headRef); err != nil {
+			log.Warn().Err(err).Msg("Failed to set HEAD to main branch")
+		}
+
 		log.Info().
 			Str("repo_path", repoPath).
+			Str("default_branch", defaultBranch).
 			Msg("Created empty bare git repository (accepts pushes from agents)")
 		return nil
 	}
@@ -677,6 +715,32 @@ func (s *GitRepositoryService) initializeGitRepository(
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create initial commit: %w", err)
+	}
+
+	// Rename master to main if needed (go-git defaults to master)
+	// Get current branch name
+	headRef, err := repo.Head()
+	if err == nil {
+		currentBranch := headRef.Name().Short()
+		if currentBranch == "master" && defaultBranch == "main" {
+			// Create main branch pointing to same commit
+			mainRef := plumbing.NewBranchReferenceName("main")
+			if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, headRef.Hash())); err != nil {
+				log.Warn().Err(err).Msg("Failed to create main branch")
+			} else {
+				// Set HEAD to main
+				newHead := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
+				if err := repo.Storer.SetReference(newHead); err != nil {
+					log.Warn().Err(err).Msg("Failed to set HEAD to main")
+				} else {
+					// Delete master branch
+					if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
+						log.Warn().Err(err).Msg("Failed to remove master branch")
+					}
+					log.Info().Msg("Renamed default branch from master to main")
+				}
+			}
+		}
 	}
 
 	return nil
@@ -1934,4 +1998,61 @@ func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID strin
 	}
 
 	return content, nil
+}
+
+// CreateBranch creates a new branch in the repository
+func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error {
+	repo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("failed to get repository: %w", err)
+	}
+
+	// Open the repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get base branch reference
+	var baseRef *plumbing.Reference
+	if baseBranch == "" {
+		baseBranch = repo.DefaultBranch
+	}
+
+	baseRef, err = gitRepo.Reference(plumbing.NewBranchReferenceName(baseBranch), true)
+	if err != nil {
+		// Try HEAD if base branch not found
+		baseRef, err = gitRepo.Head()
+		if err != nil {
+			return fmt.Errorf("failed to get base branch reference: %w", err)
+		}
+	}
+
+	// Create new branch reference
+	newBranchRef := plumbing.NewBranchReferenceName(branchName)
+
+	// Check if branch already exists
+	_, err = gitRepo.Reference(newBranchRef, true)
+	if err == nil {
+		// Branch already exists
+		log.Warn().
+			Str("branch", branchName).
+			Str("repo", repoID).
+			Msg("[GitRepo] Branch already exists")
+		return nil // Not an error - branch exists
+	}
+
+	// Create the new branch
+	err = gitRepo.Storer.SetReference(plumbing.NewHashReference(newBranchRef, baseRef.Hash()))
+	if err != nil {
+		return fmt.Errorf("failed to create branch: %w", err)
+	}
+
+	log.Info().
+		Str("branch", branchName).
+		Str("base_branch", baseBranch).
+		Str("repo", repoID).
+		Msg("[GitRepo] Created branch")
+
+	return nil
 }
