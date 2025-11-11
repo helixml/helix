@@ -23,6 +23,8 @@ import Description from '@mui/icons-material/Description'
 import Send from '@mui/icons-material/Send'
 import { TypesSpecTask } from '../../services'
 import ExternalAgentDesktopViewer from '../external-agent/ExternalAgentDesktopViewer'
+import DesignDocViewer from './DesignDocViewer'
+import DesignReviewViewer from '../spec-tasks/DesignReviewViewer'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { useStreaming } from '../../contexts/streaming'
@@ -58,6 +60,11 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
   const [refreshedTask, setRefreshedTask] = useState<TypesSpecTask | null>(task)
   const nodeRef = useRef(null)
+
+  // Design review state
+  const [docViewerOpen, setDocViewerOpen] = useState(false)
+  const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false)
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
 
   // Poll for task updates to detect when spec_session_id is populated
   useEffect(() => {
@@ -457,9 +464,28 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
                     variant="contained"
                     color="info"
                     startIcon={<Description />}
-                    onClick={() => {
-                      // TODO: Implement review docs - need to integrate with DesignDocViewer
-                      snackbar.info('Review Documents not yet implemented')
+                    onClick={async () => {
+                      if (!task) return
+
+                      // Fetch design reviews for this task
+                      try {
+                        const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id!)
+                        const reviews = response.data?.reviews || []
+
+                        if (reviews.length > 0) {
+                          // Get the latest non-superseded review
+                          const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0]
+                          setActiveReviewId(latestReview.id)
+                          setDesignReviewViewerOpen(true)
+                        } else {
+                          // No design review exists yet, show old doc viewer
+                          setDocViewerOpen(true)
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch design reviews:', error)
+                        // Fallback to old doc viewer
+                        setDocViewerOpen(true)
+                      }
                     }}
                   >
                     Review Documents
@@ -600,6 +626,57 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
           <ListItemText primary="Bottom Right" secondary="Lower right quarter" />
         </MenuItem>
       </Menu>
+
+      {/* Design Document Viewer */}
+      <DesignDocViewer
+        open={docViewerOpen}
+        onClose={() => {
+          setDocViewerOpen(false)
+        }}
+        taskId={task?.id || ''}
+        taskName={task?.name || ''}
+        sessionId={task?.spec_session_id}
+        onApprove={async () => {
+          if (!task) return
+          await api.getApiClient().v1SpecTasksApproveSpecsCreate(task.id!, {
+            approved: true,
+            comments: 'Specs approved',
+          })
+          snackbar.success('Specs approved')
+          setDocViewerOpen(false)
+        }}
+        onReject={async (comment: string) => {
+          if (!task) return
+          await api.getApiClient().v1SpecTasksApproveSpecsCreate(task.id!, {
+            approved: false,
+            comments: comment,
+          })
+          snackbar.info('Requested changes to specs')
+          setDocViewerOpen(false)
+        }}
+        onRejectCompletely={async (comment: string) => {
+          if (!task) return
+          await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, {
+            archived: true,
+          })
+          snackbar.info('Task archived')
+          setDocViewerOpen(false)
+          onClose()
+        }}
+      />
+
+      {/* Design Review Viewer - New beautiful review UI */}
+      {designReviewViewerOpen && task && activeReviewId && (
+        <DesignReviewViewer
+          open={designReviewViewerOpen}
+          onClose={() => {
+            setDesignReviewViewerOpen(false)
+            setActiveReviewId(null)
+          }}
+          specTaskId={task.id!}
+          reviewId={activeReviewId}
+        />
+      )}
     </>
   )
 }
