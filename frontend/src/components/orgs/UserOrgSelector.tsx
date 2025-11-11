@@ -25,6 +25,7 @@ import {
   Kanban,
   Activity,
   GitBranch,
+  FileQuestionMark,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -363,18 +364,39 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Home",
       },
       {
-        icon: <Kanban size={NAV_BUTTON_SIZE} />,
-        tooltip: "View projects",
-        isActive: isActive('projects') || isActive('project-specs') || isActive('project-settings'),
-        onClick: () => orgNavigateTo('projects'),
-        label: "Projects",
-      },
-      {
         icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive('apps'),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
+      },
+      {
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View spec tasks kanban board",
+        isActive: isActive('spec-tasks'),
+        onClick: () => orgNavigateTo('spec-tasks'),
+        label: "Specs",
+      },
+      {
+        icon: <Activity size={NAV_BUTTON_SIZE} />,
+        tooltip: "View agent fleet dashboard",
+        isActive: isActive('fleet'),
+        onClick: () => orgNavigateTo('fleet'),
+        label: "Fleet",
+      },
+      {
+        icon: <GitBranch size={NAV_BUTTON_SIZE} />,
+        tooltip: "View git repositories",
+        isActive: isActive('git-repos'),
+        onClick: () => orgNavigateTo('git-repos'),
+        label: "Repos",
+      },
+      {
+        icon: <FileQuestionMark size={NAV_BUTTON_SIZE} />,
+        tooltip: "View Q&A",
+        isActive: isActive('qa'),
+        onClick: () => orgNavigateTo('qa'),
+        label: "Q&A",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,

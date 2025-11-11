@@ -1572,23 +1572,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             </Box>
           )}
 
-          {/* Test RDP Mode Toggle - only show for app-connected sessions */}
-          {!isExternalAgent && appID && (
-            <Box sx={{ px: 2, pb: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={() => setTestRDPMode(!testRDPMode)}
-                sx={{ mr: 1 }}
-              >
-                {testRDPMode ? 'Disable' : 'Enable'} Test RDP Mode
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Test mode for RDP viewer development
-              </Typography>
-            </Box>
-          )}
-
           {/* Embedded RDP Viewer */}
           {isExternalAgent && showRDPViewer && (
             <Box sx={{ px: 2, pb: 2 }}>

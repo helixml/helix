@@ -27,6 +27,9 @@ import Projects from './pages/Projects'
 import ProjectSettings from './pages/ProjectSettings'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import Fleet from './pages/Fleet'
+import QuestionSets from './pages/QuestionSets'
+import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -106,6 +109,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <GitRepoDetail />
+    ),
+  }, {
+    name: namePrefix + 'qa',
+    path: routePrefix + '/qa',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Q&A',
+    },
+    render: () => (
+      <QuestionSets />
     ),
   },
   {
@@ -210,6 +224,16 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Session />
+    ),
+  },  {
+    name: namePrefix + 'qa-results',
+    path: routePrefix + '/qa-results/:question_set_id/:execution_id',
+    meta: {
+      drawer: true,
+      topbar: false,
+    },
+    render: () => (
+      <QuestionSetResults />
     ),
   }]
 }

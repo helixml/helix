@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,11 @@ type VLLMRuntime struct {
 	ready              bool                           // True when vLLM is ready to handle requests
 	processTracker     *ProcessTracker                // Process tracker for monitoring
 	slotID             *uuid.UUID                     // Associated slot ID
+	originalCtx        context.Context                // Context passed to most recent Start() call
+	started            bool                           // Track if runtime is currently started
+
+	// Crash callback - called when the vLLM process exits unexpectedly
+	onCrash func(stderr string)
 }
 
 type VLLMRuntimeParams struct {
@@ -59,6 +65,7 @@ type VLLMRuntimeParams struct {
 	GPUIndices         []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
 	TensorParallelSize *int                           // Optional: Number of GPUs for tensor parallelism (default 1)
 	LogBuffer          *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
+	OnCrash            func(stderr string)            // Optional: Callback when vLLM process crashes
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -149,6 +156,7 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		gpuIndices:         gpuIndices,
 		tensorParallelSize: tensorParallelSize,
 		logBuffer:          params.LogBuffer,
+		onCrash:            params.OnCrash,
 	}, nil
 }
 
@@ -158,6 +166,11 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		Int64("context_length", v.contextLength).
 		Strs("args", v.args).
 		Msg("Starting vLLM runtime with args")
+
+	// Prevent multiple Start() calls without Stop()
+	if v.started {
+		return fmt.Errorf("runtime is already started, call Stop() first")
+	}
 
 	// Make sure the port is not already in use
 	if isPortInUse(v.port) {
@@ -175,9 +188,17 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		return fmt.Errorf("cache dir is not writable: %s", v.cacheDir)
 	}
 
-	// Prepare vLLM cmd context (a cancel context)
+	// Store context from most recent Start() call for runtime lifecycle operations
+	// This ensures that long-running operations (like model downloads) are not
+	// cancelled when the client request context times out
+	v.originalCtx = ctx
+	originalCtx := v.originalCtx
+
+	// Prepare vLLM cmd context (a cancel context derived from original)
+	// This child context is used for the command process itself and can be
+	// cancelled independently without affecting the original context
 	log.Debug().Msg("Preparing vLLM context")
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(originalCtx)
 	v.cancel = cancel
 	var err error
 	defer func() {
@@ -187,8 +208,8 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start vLLM cmd
-	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer)
+	// Start vLLM cmd - uses child context so it can be cancelled independently
+	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer, v.onCrash)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -215,6 +236,9 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	// Mark as ready only after HTTP readiness check passes
 	v.ready = true
 
+	// Mark runtime as started
+	v.started = true
+
 	log.Info().
 		Str("model", v.model).
 		Strs("args", v.args).
@@ -239,6 +263,12 @@ func (v *VLLMRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUI
 
 func (v *VLLMRuntime) Stop() error {
 	defer v.cancel() // Cancel the context no matter what
+
+	// Clear original context so future Start() calls can use a new context
+	v.originalCtx = nil
+
+	// Mark runtime as stopped
+	v.started = false
 
 	// Mark as not ready when stopping
 	v.ready = false
@@ -310,8 +340,52 @@ func (v *VLLMRuntime) PullModel(_ context.Context, modelName string, progressFun
 	})
 }
 
-func (v *VLLMRuntime) ListModels(_ context.Context) ([]string, error) {
-	return []string{}, nil // TODO: implement
+func (v *VLLMRuntime) ListModels(ctx context.Context) ([]string, error) {
+	// Query vLLM's OpenAI-compatible /v1/models endpoint
+	url := fmt.Sprintf("%s/v1/models", v.URL())
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error querying models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error response from vLLM: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse the JSON response
+	// vLLM returns: {"object": "list", "data": [{"id": "model-name", ...}, ...]}
+	var response struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response: %w", err)
+	}
+
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		return nil, fmt.Errorf("error parsing response: %w", err)
+	}
+
+	// Extract model IDs
+	models := make([]string, 0, len(response.Data))
+	for _, model := range response.Data {
+		if model.ID != "" {
+			models = append(models, model.ID)
+		}
+	}
+
+	return models, nil
 }
 
 func (v *VLLMRuntime) Warm(ctx context.Context, model string) error {
@@ -432,17 +506,36 @@ func (v *VLLMRuntime) Status(ctx context.Context) string {
 	url := fmt.Sprintf("%s/v1/models", v.URL())
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "error"
+		return fmt.Sprintf("error: %s", err.Error())
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "error"
+		return fmt.Sprintf("error: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "error"
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Sprintf("error: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Try to read the response body to get model info
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "running (unable to read model info)"
+	}
+
+	// Basic status with model name if available
+	if v.model != "" {
+		return fmt.Sprintf("running: %s", v.model)
+	}
+
+	// Try to extract model name from response (it's JSON with "data" array)
+	// This is best-effort - if it fails, just return "running"
+	bodyStr := string(bodyBytes)
+	if len(bodyStr) > 0 {
+		return fmt.Sprintf("running (%d bytes model info)", len(bodyBytes))
 	}
 
 	return "running"
@@ -570,7 +663,7 @@ func formatGPUIndices(gpuIndices []int) string {
 	return strings.Join(indices, ",")
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, string, error) {
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer, crashCallback func(stderr string)) (*exec.Cmd, string, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
@@ -768,6 +861,19 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 				// Update log buffer status if available
 				if logBuffer != nil {
 					logBuffer.SetStatus("errored")
+				}
+
+				// Call the crash callback if configured
+				if crashCallback != nil {
+					log.Warn().
+						Str("stderr_preview", func() string {
+							if len(errMsg) > 500 {
+								return "..." + errMsg[len(errMsg)-500:]
+							}
+							return errMsg
+						}()).
+						Msg("vLLM process crashed, triggering cleanup callback")
+					crashCallback(errMsg)
 				}
 
 				// Don't restart if context is canceled

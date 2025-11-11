@@ -359,6 +359,13 @@ postgresql:
   # Set to false to use external PostgreSQL
   enabled: true
 
+  # PostgreSQL image configuration
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: latest
+    pullPolicy: Always
+
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
     # Password for the "postgres" admin user
