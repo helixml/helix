@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
@@ -466,8 +467,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 		}
 
 		if sessionID != "" && !s.testMode {
-			// Create agent instruction service if not exists
-			agentInstructionService := NewAgentInstructionService(s.controller)
+			// Create agent instruction service
+			agentInstructionService := NewAgentInstructionService(s.store)
 
 			// Send approval instruction asynchronously (don't block the response)
 			go func() {

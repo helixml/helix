@@ -26,7 +26,6 @@ type AuthorizationFunc func(ctx context.Context, user *types.User, orgID, resour
 // Enables Zed agents to clone/push to repositories over the network
 type GitHTTPServer struct {
 	store             store.Store
-	controller        *controller.Controller
 	gitRepoService    *GitRepositoryService
 	serverBaseURL     string
 	gitExecutablePath string
@@ -63,7 +62,6 @@ type GitCloneInfo struct {
 // NewGitHTTPServer creates a new git HTTP server
 func NewGitHTTPServer(
 	store store.Store,
-	controller *controller.Controller,
 	gitRepoService *GitRepositoryService,
 	config *GitHTTPServerConfig,
 	authorizeFn AuthorizationFunc,
@@ -84,7 +82,6 @@ func NewGitHTTPServer(
 
 	return &GitHTTPServer{
 		store:             store,
-		controller:        controller,
 		gitRepoService:    gitRepoService,
 		serverBaseURL:     config.ServerBaseURL,
 		gitExecutablePath: config.GitExecutablePath,
@@ -745,7 +742,7 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 
 // handleFeatureBranchPush detects when an agent pushes to a feature branch
 // Transitions task from implementation → implementation_review
-func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types.GitRepository, branchName string, commitHash string, repoPath string) {
+func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *GitRepository, branchName string, commitHash string, repoPath string) {
 	log.Info().
 		Str("repo_id", repo.ID).
 		Str("branch", branchName).
@@ -809,8 +806,8 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			sessionID = task.SpecSessionID
 		}
 
-		if sessionID != "" && s.controller != nil {
-			agentInstructionService := NewAgentInstructionService(s.controller)
+		if sessionID != "" {
+			agentInstructionService := NewAgentInstructionService(s.store)
 			go func() {
 				err := agentInstructionService.SendImplementationReviewRequest(
 					context.Background(),
@@ -836,7 +833,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 
 // handleMainBranchPush detects when code is merged to main
 // Transitions task from implementation_review → done
-func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash string, repoPath string) {
+func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *GitRepository, commitHash string, repoPath string) {
 	log.Info().
 		Str("repo_id", repo.ID).
 		Str("commit", commitHash).

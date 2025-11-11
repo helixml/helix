@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -13,13 +13,13 @@ import (
 
 // AgentInstructionService sends automated instructions to agent sessions
 type AgentInstructionService struct {
-	controller *controller.Controller
+	store store.Store
 }
 
 // NewAgentInstructionService creates a new agent instruction service
-func NewAgentInstructionService(controller *controller.Controller) *AgentInstructionService {
+func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 	return &AgentInstructionService{
-		controller: controller,
+		store: store,
 	}
 }
 
@@ -115,38 +115,31 @@ Let me know once the merge is complete!
 
 // sendMessage sends a system message to an agent session
 func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, message string) error {
-	// Get the session
-	session, err := s.controller.GetSession(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to get session: %w", err)
-	}
-
 	// Create a system interaction
 	now := time.Now()
 	interaction := &types.Interaction{
-		ID:        system.GenerateUUID(),
-		Created:   now,
-		Updated:   now,
-		Scheduled: now,
-		Completed: now,
-		Creator:   types.CreatorTypeSystem,
-		Mode:      types.SessionModeInference,
-		Message:   message,
-		State:     types.InteractionStateComplete,
-		Finished:  true,
+		ID:            system.GenerateInteractionID(),
+		GenerationID:  0,
+		Created:       now,
+		Updated:       now,
+		Scheduled:     now,
+		Completed:     now,
+		SessionID:     sessionID,
+		UserID:        "system",
+		Mode:          types.SessionModeInference,
+		PromptMessage: message,
+		State:         types.InteractionStateComplete,
 	}
 
-	// Add the interaction to the session
-	session.Interactions = append(session.Interactions, interaction)
-
-	// Update the session
-	err = s.controller.UpdateSession(ctx, *session)
+	// Store the interaction
+	_, err := s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
-		return fmt.Errorf("failed to update session with instruction: %w", err)
+		return fmt.Errorf("failed to create instruction interaction: %w", err)
 	}
 
 	log.Info().
 		Str("session_id", sessionID).
+		Str("interaction_id", interaction.ID).
 		Msg("Successfully sent instruction to agent")
 
 	return nil
