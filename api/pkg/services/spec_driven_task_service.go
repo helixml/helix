@@ -211,7 +211,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Create Zed external agent session for spec generation
-	// Planning agent needs git access to commit design docs to helix-design-docs branch
+	// Planning agent needs git access to commit design docs to helix-specs branch
 	// Build planning instructions as the message (not system prompt - agent has its own system prompt)
 	planningPrompt := s.buildSpecGenerationPrompt(task)
 
@@ -643,7 +643,7 @@ cd tasks/%s_%s_%s
 git add .
 git commit -m "Generated design documents for SpecTask %s"
 
-# Push to helix-design-docs branch
+# Push to helix-specs branch
 git push origin helix-specs
 ` + "```" + `
 
@@ -668,7 +668,7 @@ They can continue chatting with you to refine the design before approval.
 - **BE CONCISE** - Keep everything brief, but include necessary detail
 - **NO FLUFF** - Only actionable information, skip lengthy explanations
 - Be specific and actionable - avoid vague descriptions
-- ALWAYS commit your work to the helix-design-docs git worktree
+- ALWAYS commit your work to the helix-specs git worktree
 - Use the [ ] checklist format in tasks.md for task tracking
 
 **Scaling Complexity:**
@@ -700,7 +700,7 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 **SpecTask ID: %s**
 
 **CRITICAL: Design Documents Location**
-The approved design documents are in a task-specific directory in the helix-design-docs worktree:
+The approved design documents are in a task-specific directory in the helix-specs worktree:
 %s/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
@@ -760,14 +760,14 @@ git push origin helix-specs
 2. Read tasks.md to see your task checklist
 3. Work through tasks one by one (discrete, trackable)
 4. Mark each task [~] when starting, [x] when done
-5. Commit progress updates to helix-design-docs branch after each task
+5. Commit progress updates to helix-specs branch after each task
 6. Implement code in the main repository
 7. Create feature branch and push when all tasks complete
 8. Open pull request with summary
 
 **Guidelines:**
 - ALWAYS mark your progress in tasks.md with [~] and [x]
-- ALWAYS commit progress updates to helix-design-docs after each task
+- ALWAYS commit progress updates to helix-specs after each task
 - Follow the technical design and sequence diagrams exactly
 - Implement all EARS acceptance criteria from requirements.md
 - Write tests for everything

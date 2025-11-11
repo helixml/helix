@@ -42,7 +42,7 @@ func TestBuildPlanningPrompt_MultiRepo(t *testing.T) {
 	assert.Contains(t, prompt, "Add authentication feature") // Original prompt
 	assert.Contains(t, prompt, "git clone http://api:8080/git/repo_backend backend") // Backend clone
 	assert.Contains(t, prompt, "git clone http://api:8080/git/repo_frontend frontend") // Frontend clone
-	assert.Contains(t, prompt, "helix-design-docs") // Worktree setup
+	assert.Contains(t, prompt, "helix-specs") // Worktree setup
 	assert.Contains(t, prompt, "requirements.md") // Design doc files
 	assert.Contains(t, prompt, "tasks.md") // Task list
 	assert.Contains(t, prompt, "task-metadata.json") // Metadata extraction
@@ -73,7 +73,7 @@ func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
 
 	// Should still generate valid prompt
 	assert.Contains(t, prompt, "Add dark mode toggle")
-	assert.Contains(t, prompt, "helix-design-docs")
+	assert.Contains(t, prompt, "helix-specs")
 	assert.Contains(t, prompt, "requirements.md")
 }
 
@@ -112,7 +112,7 @@ func TestBuildImplementationPrompt_IncludesSpecs(t *testing.T) {
 	assert.Contains(t, prompt, "User story: As a user, I want to login") // Requirements
 	assert.Contains(t, prompt, "Architecture: Use JWT tokens") // Design
 	assert.Contains(t, prompt, "Create user model") // Implementation plan
-	assert.Contains(t, prompt, "helix-design-docs") // Worktree reference
+	assert.Contains(t, prompt, "helix-specs") // Worktree reference
 	assert.Contains(t, prompt, "feature/spec_impl_prompt") // Feature branch
 	assert.Contains(t, prompt, "SAME Zed instance from the planning phase") // Multi-session context
 	assert.Contains(t, prompt, "[ ] -> [~]") // Task markers

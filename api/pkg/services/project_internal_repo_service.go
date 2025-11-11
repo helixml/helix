@@ -145,7 +145,7 @@ It is mounted read-only at ` + "`/home/retro/work/.helix-project/`" + ` in agent
 ## Notes
 
 - Tasks are stored in the database, not in files
-- Design documents are stored in the code repository's ` + "`helix-design-docs`" + ` branch
+- Design documents are stored in the code repository's ` + "`helix-specs`" + ` branch
 - This repo is read-only in agent workspaces to prevent accidental modifications
 - Project settings are managed through the Helix web UI
 `
@@ -513,15 +513,15 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 
-	// Create helix-design-docs as an ORPHAN branch (empty, no code files)
+	// Create helix-specs as an ORPHAN branch (empty, no code files)
 	// This branch is exclusively for design documents, separate from the code
-	designDocsBranchRef := plumbing.NewBranchReferenceName("helix-design-docs")
+	designDocsBranchRef := plumbing.NewBranchReferenceName("helix-specs")
 
 	// Create an empty tree (no files)
 	emptyTree := object.Tree{}
 	emptyTreeObj := repo.Storer.NewEncodedObject()
 	if err := emptyTree.Encode(emptyTreeObj); err != nil {
-		log.Warn().Err(err).Msg("Failed to create empty tree for helix-design-docs (continuing)")
+		log.Warn().Err(err).Msg("Failed to create empty tree for helix-specs (continuing)")
 	} else {
 		emptyTreeHash, err := repo.Storer.SetEncodedObject(emptyTreeObj)
 		if err != nil {
@@ -539,7 +539,7 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 					Email: "system@helix.ml",
 					When:  time.Now(),
 				},
-				Message:  "Initialize helix-design-docs branch\n\nOrphan branch for SpecTask design documents only.",
+				Message:  "Initialize helix-specs branch\n\nOrphan branch for SpecTask design documents only.",
 				TreeHash: emptyTreeHash,
 			}
 
@@ -554,16 +554,16 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 					// Set branch to point to the orphan commit
 					err = repo.Storer.SetReference(plumbing.NewHashReference(designDocsBranchRef, commitHash))
 					if err != nil {
-						log.Warn().Err(err).Msg("Failed to create helix-design-docs branch reference (continuing)")
+						log.Warn().Err(err).Msg("Failed to create helix-specs branch reference (continuing)")
 					} else {
-						// Push helix-design-docs branch to bare repo
+						// Push helix-specs branch to bare repo
 						err = repo.Push(&git.PushOptions{
-							RefSpecs: []config.RefSpec{"refs/heads/helix-design-docs:refs/heads/helix-design-docs"},
+							RefSpecs: []config.RefSpec{"refs/heads/helix-specs:refs/heads/helix-specs"},
 						})
 						if err != nil && err != git.NoErrAlreadyUpToDate {
-							log.Warn().Err(err).Msg("Failed to push helix-design-docs branch (continuing)")
+							log.Warn().Err(err).Msg("Failed to push helix-specs branch (continuing)")
 						} else {
-							log.Info().Msg("Created orphan helix-design-docs branch (empty, no code files)")
+							log.Info().Msg("Created orphan helix-specs branch (empty, no code files)")
 						}
 					}
 				}
@@ -577,7 +577,7 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		Str("repo_id", repoID).
 		Str("repo_path", repoPath).
 		Int("files_created", len(allFiles)).
-		Msg("Successfully created code repository from hardcoded sample with helix-design-docs branch")
+		Msg("Successfully created code repository from hardcoded sample with helix-specs branch")
 
 	return repoID, repoPath, nil
 }

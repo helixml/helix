@@ -242,7 +242,7 @@ const ExternalAgentControl: FC<ExternalAgentControlProps> = ({ specTaskId }) => 
                 <li>All git repositories and commits</li>
                 <li>All Zed threads and conversations</li>
                 <li>All extensions and settings</li>
-                <li>Design documents in helix-design-docs branch</li>
+                <li>Design documents in helix-specs branch</li>
               </ul>
               Click <strong>Start Agent</strong> to resume with exact same state.
             </Alert>

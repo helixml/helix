@@ -261,7 +261,7 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "test-project")
 	assert.Contains(t, prompt, "feature")
 	assert.Contains(t, prompt, "high")
-	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "helix-specs") // New worktree-based format
 	assert.Contains(t, prompt, "requirements.md")   // New format files
 	assert.Contains(t, prompt, "design.md")
 	assert.Contains(t, prompt, "tasks.md")
@@ -286,7 +286,7 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "senior software engineer")
 	assert.Contains(t, prompt, "User Authentication System")
 	assert.Contains(t, prompt, "Create a user authentication system")
-	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "helix-specs") // New worktree-based format
 	assert.Contains(t, prompt, "requirements.md")   // Design docs are in files now
 	assert.Contains(t, prompt, "design.md")
 	assert.Contains(t, prompt, "tasks.md")

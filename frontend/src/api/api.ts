@@ -7938,7 +7938,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get the design documents from helix-design-docs worktree
+     * @description Get the design documents from helix-specs worktree
      *
      * @tags SpecTasks
      * @name V1SpecTasksDesignDocsDetail
