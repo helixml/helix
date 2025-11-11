@@ -122,6 +122,7 @@ const GitRepoDetail: FC = () => {
   const { data: fileData, isLoading: fileLoading } = useGetRepositoryFile(
     repoId || '',
     selectedFile || '',
+    currentBranch,
     !!selectedFile
   )
 

@@ -613,6 +613,7 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 // @Produce json
 // @Param id path string true "Repository ID"
 // @Param path query string true "File path"
+// @Param branch query string false "Branch name (defaults to HEAD if not specified)"
 // @Success 200 {object} services.GitRepositoryFileResponse
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
@@ -632,9 +633,11 @@ func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *
 		return
 	}
 
-	content, err := apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path)
+	branch := r.URL.Query().Get("branch") // Optional branch parameter
+
+	content, err := apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path, branch)
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Msg("Failed to get file contents")
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Str("branch", branch).Msg("Failed to get file contents")
 		http.Error(w, fmt.Sprintf("Failed to get file contents: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}

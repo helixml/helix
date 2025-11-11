@@ -2732,6 +2732,12 @@ const docTemplate = `{
                         "name": "path",
                         "in": "query",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name (defaults to HEAD if not specified)",
+                        "name": "branch",
+                        "in": "query"
                     }
                 ],
                 "responses": {
