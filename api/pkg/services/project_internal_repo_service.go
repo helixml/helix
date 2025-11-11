@@ -418,10 +418,10 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to get sample code: %w", err)
 	}
 
-	// Create code repo in /filestore/repos/ (not in project dir)
+	// Create code repo in /filestore/git-repositories/ (standard location)
 	// Include sample ID to ensure uniqueness when multiple repos are created for one project
 	repoID = fmt.Sprintf("%s-%s", project.ID, sampleID)
-	repoPath = filepath.Join(s.basePath, "..", "repos", repoID)
+	repoPath = filepath.Join(s.basePath, "..", "git-repositories", repoID)
 
 	log.Info().
 		Str("project_id", project.ID).
