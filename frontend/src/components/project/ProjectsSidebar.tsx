@@ -6,12 +6,10 @@ import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
 
 const ProjectsSidebar: FC = () => {
   const router = useRouter()
-  const { navigate } = router
   const currentView = router.route?.params?.view || 'projects'
 
   const handleNavigationClick = (view: string) => {
-    const newParams = view === 'repositories' ? { view: 'repositories' } : {}
-    navigate('projects', newParams, { replace: true })
+    router.setParams({ view })
   }
 
   const sections: ContextSidebarSection[] = [
