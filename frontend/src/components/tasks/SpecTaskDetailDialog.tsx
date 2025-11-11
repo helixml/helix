@@ -306,7 +306,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
             backgroundColor: 'rgba(33, 150, 243, 0.3)',
             border: '2px solid rgba(33, 150, 243, 0.8)',
             pointerEvents: 'none',
-            transition: 'all 0.15s ease',
+            transition: 'all 0.1s ease',
           }}
         />
       )}
@@ -324,7 +324,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
           boxShadow: 24,
           border: '1px solid',
           borderColor: 'divider',
-          transition: position !== 'center' ? 'all 0.3s ease' : 'none',
+          transition: position !== 'center' ? 'all 0.15s ease' : 'none',
         }}
       >
         {/* Title Bar */}

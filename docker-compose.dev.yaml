@@ -165,6 +165,50 @@ services:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
+
+    # Kodit code indexing service
+    kodit:
+        image: registry.helixml.tech/helix/kodit:latest
+        # ports:
+        #   - 8632:8632
+        command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
+        restart: always
+        depends_on:
+            - vectorchord-kodit
+            - api
+        environment:
+            - DATA_DIR=/data
+            - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+            - DEFAULT_SEARCH_PROVIDER=vectorchord
+            # External enrichment provider (TogetherAI direct via OpenAI-compatible endpoint)
+            - ENRICHMENT_ENDPOINT_TYPE=openai
+            - ENRICHMENT_ENDPOINT_BASE_URL=https://api.together.xyz/v1
+            - ENRICHMENT_ENDPOINT_MODEL=Qwen/Qwen3-Next-80B-A3B-Instruct
+            - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
+            - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+            - ENRICHMENT_ENDPOINT_TIMEOUT=120
+            # Sync configuration
+            - SYNC_PERIODIC_ENABLED=true
+            - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
+            - SYNC_PERIODIC_RETRY_ATTEMPTS=3
+            - LOG_LEVEL=INFO
+            - LOG_FORMAT=json
+            - API_KEYS=${KODIT_API_KEYS:-dev-key}
+        volumes:
+            - helix-socket:/socket
+
+    # Kodit PostgreSQL database with pgvector
+    vectorchord-kodit:
+        image: tensorchord/vchord-suite:pg17-20250601
+        restart: always
+        environment:
+            - POSTGRES_DB=kodit
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=postgres
+        volumes:
+            - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+        # ports:
+        #   - 5434:5432
     keycloak:
         image: quay.io/keycloak/keycloak:23.0
         restart: always
@@ -280,6 +324,9 @@ services:
         - WOLF_USE_ZERO_COPY=TRUE
         # Internal moonlight-web pairing PIN (secure random, shared via env)
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+        # GOP size (keyframe interval): frames between I-frames
+        # Configured in .env file - see comments there for recommended values
+        - GOP_SIZE=${GOP_SIZE:-15}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         # Mount init script into container init directory
@@ -563,6 +610,7 @@ volumes:
     helix-keycloak-db:
     helix-postgres-db:
     helix-pgvector-db:
+    helix-vectorchord-kodit:
     helix-filestore:
     helix-typesense-db:
     helix-socket:

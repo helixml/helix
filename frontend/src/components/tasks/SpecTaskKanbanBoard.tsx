@@ -51,6 +51,7 @@ import {
   Refresh as RefreshIcon,
   Restore as RestoreIcon,
   VisibilityOff as VisibilityOffIcon,
+  Circle as CircleIcon,
 } from '@mui/icons-material';
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from '@mui/material/styles';
@@ -86,20 +87,20 @@ const LiveAgentScreenshot: React.FC<{
   return (
     <Box
       sx={{
-        mt: 1,
-        mb: 1,
+        mt: 1.5,
+        mb: 0.5,
         position: 'relative',
-        borderRadius: 1,
+        borderRadius: 1.5,
         overflow: 'hidden',
         border: '1px solid',
-        borderColor: 'divider',
+        borderColor: 'rgba(0, 0, 0, 0.08)',
         minHeight: 80,
       }}
     >
-      <Box sx={{ position: 'relative', height: 150 }}>
+      <Box sx={{ position: 'relative', height: 180 }}>
         <ExternalAgentDesktopViewer
           sessionId={sessionId}
-          height={150}
+          height={180}
           mode="screenshot"
         />
       </Box>
@@ -109,10 +110,10 @@ const LiveAgentScreenshot: React.FC<{
           bottom: 0,
           left: 0,
           right: 0,
-          background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+          background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)',
           color: 'white',
           p: 0.5,
-          px: 1,
+          px: 1.5,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -120,9 +121,9 @@ const LiveAgentScreenshot: React.FC<{
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <ViewIcon fontSize="small" />
-          <Typography variant="caption" sx={{ fontWeight: 500 }}>
-            Planning Agent
+          <CircleIcon sx={{ fontSize: 8, color: '#4ade80' }} />
+          <Typography variant="caption" sx={{ fontWeight: 500, fontSize: '0.7rem' }}>
+            Agent Running
           </Typography>
         </Box>
       </Box>
@@ -199,21 +200,41 @@ const TaskCard: React.FC<{
     }
   };
 
+  // Get phase-based accent color for cards
+  const getPhaseAccent = (phase: string) => {
+    switch (phase) {
+      case 'planning': return '#f59e0b';
+      case 'review': return '#3b82f6';
+      case 'implementation': return '#10b981';
+      case 'completed': return '#6b7280';
+      default: return '#e5e7eb';
+    }
+  };
+
+  const accentColor = getPhaseAccent(task.phase);
+
   return (
     <Card
       onClick={() => onTaskClick && onTaskClick(task)}
       sx={{
-        mb: 1,
+        mb: 1.5,
         backgroundColor: 'background.paper',
         cursor: 'pointer',
+        border: '1px solid',
+        borderColor: 'rgba(0, 0, 0, 0.08)',
+        borderLeft: `3px solid ${accentColor}`,
+        boxShadow: 'none',
+        transition: 'all 0.15s ease-in-out',
         '&:hover': {
-          boxShadow: 2,
+          borderColor: 'rgba(0, 0, 0, 0.12)',
+          backgroundColor: 'rgba(0, 0, 0, 0.01)',
         },
       }}
     >
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        {/* Task name */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', flex: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, flex: 1, lineHeight: 1.4, color: 'text.primary' }}>
             {task.name}
           </Typography>
           <Tooltip title={task.archived ? "Restore" : "Archive"}>
@@ -225,33 +246,55 @@ const TaskCard: React.FC<{
                   onArchiveTask(task, !task.archived);
                 }
               }}
-              sx={{ ml: 1 }}
+              sx={{
+                ml: 1,
+                width: 24,
+                height: 24,
+                color: 'text.secondary',
+                '&:hover': {
+                  color: 'text.primary',
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
             >
-              {task.archived ? <RestoreIcon fontSize="small" /> : <CloseIcon fontSize="small" />}
+              {task.archived ? <RestoreIcon sx={{ fontSize: 16 }} /> : <CloseIcon sx={{ fontSize: 16 }} />}
             </IconButton>
           </Tooltip>
         </Box>
 
-        {/* Session chips - repositories managed at project level */}
-        {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 1 }}>
-            {(task.activeSessionsCount ?? 0) > 0 && (
-              <Chip
-                size="small"
-                label={`${task.activeSessionsCount ?? 0} Active`}
-                color="warning"
-              />
-            )}
-
-            {(task.completedSessionsCount ?? 0) > 0 && (
-              <Chip
-                size="small"
-                label={`${task.completedSessionsCount ?? 0} Done`}
-                color="success"
-              />
-            )}
+        {/* Status row - minimal dots and text */}
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 1.5 }}>
+          {/* Phase status dot */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <CircleIcon
+              sx={{
+                fontSize: 8,
+                color: task.phase === 'planning' ? '#f59e0b' :
+                       task.phase === 'review' ? '#3b82f6' :
+                       task.phase === 'implementation' ? '#10b981' :
+                       task.phase === 'completed' ? '#6b7280' : '#9ca3af'
+              }}
+            />
+            <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary', fontWeight: 500 }}>
+              {task.phase === 'backlog' ? 'Backlog' :
+               task.phase === 'planning' ? 'Planning' :
+               task.phase === 'review' ? 'Review' :
+               task.phase === 'implementation' ? 'In Progress' : 'Done'}
+            </Typography>
           </Box>
-        )}
+
+          {/* Active sessions count */}
+          {((task.activeSessionsCount ?? 0) > 0 || (task.completedSessionsCount ?? 0) > 0) && (
+            <>
+              <Typography variant="caption" sx={{ color: 'text.disabled' }}>•</Typography>
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary', fontWeight: 500 }}>
+                {(task.activeSessionsCount ?? 0) > 0 && `${task.activeSessionsCount} active`}
+                {(task.activeSessionsCount ?? 0) > 0 && (task.completedSessionsCount ?? 0) > 0 && ', '}
+                {(task.completedSessionsCount ?? 0) > 0 && `${task.completedSessionsCount} done`}
+              </Typography>
+            </>
+          )}
+        </Box>
 
         {/* Live screenshot widget for active planning sessions */}
         {task.spec_session_id && (
@@ -263,19 +306,19 @@ const TaskCard: React.FC<{
 
         {/* Show "Start Planning" button only for backlog tasks */}
         {task.phase === 'backlog' && (
-          <Box sx={{ mt: 1 }}>
+          <Box sx={{ mt: 1.5 }}>
             {/* Show error if present */}
             {task.metadata?.error && (
               <Box sx={{
                 mb: 1,
-                p: 1,
-                backgroundColor: 'error.light',
+                px: 1.5,
+                py: 1,
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
                 borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'error.main'
+                border: '1px solid rgba(239, 68, 68, 0.2)'
               }}>
-                <Typography variant="caption" color="error.dark" sx={{ fontWeight: 600 }}>
-                  ⚠️ {task.metadata.error as string}
+                <Typography variant="caption" sx={{ fontWeight: 500, color: '#ef4444', fontSize: '0.7rem' }}>
+                  ⚠ {task.metadata.error as string}
                 </Typography>
               </Box>
             )}
@@ -291,8 +334,8 @@ const TaskCard: React.FC<{
               {task.metadata?.error ? 'Retry Planning' : isPlanningFull ? 'Planning Full' : 'Start Planning'}
             </Button>
             {isPlanningFull && (
-              <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}>
-                Planning column full ({planningColumn?.limit} max)
+              <Typography variant="caption" sx={{ mt: 0.75, display: 'block', textAlign: 'center', color: '#ef4444', fontSize: '0.7rem' }}>
+                Planning column at capacity ({planningColumn?.limit})
               </Typography>
             )}
           </Box>
@@ -300,7 +343,7 @@ const TaskCard: React.FC<{
 
         {/* Show "Review Design" button for review phase tasks */}
         {task.phase === 'review' && task.onReviewDocs && (
-          <Box sx={{ mt: 1 }}>
+          <Box sx={{ mt: 1.5 }}>
             <Button
               size="small"
               variant="contained"
@@ -311,10 +354,6 @@ const TaskCard: React.FC<{
                 task.onReviewDocs(task);
               }}
               fullWidth
-              sx={{
-                background: 'linear-gradient(45deg, #2196f3 30%, #21cbf3 90%)',
-                boxShadow: '0 3px 5px 2px rgba(33, 203, 243, .3)',
-              }}
             >
               Review Design
             </Button>
@@ -356,59 +395,123 @@ const DroppableColumn: React.FC<{
     );
   };
 
+    // Column color mapping
+    const getColumnAccent = (id: string) => {
+      switch (id) {
+        case 'backlog': return { color: '#6b7280', bg: 'transparent' };
+        case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
+        case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
+        case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
+        case 'completed': return { color: '#6b7280', bg: 'transparent' };
+        default: return { color: '#6b7280', bg: 'transparent' };
+      }
+    };
+
+    const accent = getColumnAccent(column.id);
+
     return (
-      <Box key={column.id} sx={{ width: 280, flexShrink: 0, height: '100%' }}>
-        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <CardHeader
-            title={
+      <Box key={column.id} sx={{ width: 300, flexShrink: 0, height: '100%' }}>
+        <Box sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid',
+          borderColor: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: 2,
+          backgroundColor: 'background.paper',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04), inset 0 1px 0 0 rgba(255, 255, 255, 0.5)',
+        }}>
+          {/* Column header - Linear style */}
+          <Box sx={{
+            px: 2.5,
+            py: 2,
+            borderBottom: '1px solid',
+            borderColor: 'rgba(0, 0, 0, 0.06)',
+            flexShrink: 0,
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="h6" sx={{ color: column.color }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary', fontSize: '0.8125rem' }}>
                   {column.title}
                 </Typography>
-                <Chip
-                  size="small"
-                  label={column.tasks.length}
-                  sx={{
-                    backgroundColor: column.backgroundColor,
-                    color: column.color,
-                    minWidth: '24px'
-                  }}
-                />
+                <Box sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '20px',
+                  height: '20px',
+                  px: 0.75,
+                  borderRadius: '10px',
+                  backgroundColor: accent.bg || 'rgba(0, 0, 0, 0.04)',
+                  border: '1px solid',
+                  borderColor: accent.bg ? `${accent.color}20` : 'rgba(0, 0, 0, 0.06)',
+                }}>
+                  <Typography variant="caption" sx={{
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: accent.color || 'text.secondary',
+                    lineHeight: 1,
+                  }}>
+                    {column.tasks.length}
+                  </Typography>
+                </Box>
                 {column.limit && column.tasks.length >= column.limit && (
-                  <Chip size="small" label="FULL" color="error" />
+                  <Box sx={{
+                    px: 0.75,
+                    py: 0.25,
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                  }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 600, color: '#ef4444' }}>
+                      FULL
+                    </Typography>
+                  </Box>
                 )}
               </Box>
-            }
-            sx={{
-              pb: 1,
-              flexShrink: 0,
-              '& .MuiCardHeader-title': { fontSize: '1rem' }
-            }}
-          />
-          <CardContent
+            </Box>
+          </Box>
+
+          {/* Column content */}
+          <Box
             ref={setNodeRef}
             sx={{
               flex: 1,
               minHeight: 0,
               overflowY: 'auto',
               overflowX: 'hidden',
-              backgroundColor: 'transparent',
-              p: 1,
-              '&:last-child': { pb: 1 }
+              px: 2,
+              pt: 2,
+              pb: 1,
+              '&::-webkit-scrollbar': {
+                width: '6px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'rgba(0, 0, 0, 0.1)',
+                borderRadius: '3px',
+                '&:hover': {
+                  background: 'rgba(0, 0, 0, 0.15)',
+                },
+              },
             }}
           >
             {column.tasks.map((task, index) => renderTaskCard(task, index))}
             {column.tasks.length === 0 && (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ textAlign: 'center', py: 2 }}
-              >
-                No tasks
-              </Typography>
+              <Box sx={{
+                textAlign: 'center',
+                py: 6,
+                color: 'text.disabled',
+              }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                  No tasks
+                </Typography>
+              </Box>
             )}
-          </CardContent>
-        </Card>
+          </Box>
+        </Box>
       </Box>
     );
 };
@@ -466,49 +569,49 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     completed: undefined,
   };
 
-  // Kanban columns configuration
+  // Kanban columns configuration - Linear color scheme
   const columns: KanbanColumn[] = useMemo(() => [
     {
       id: 'backlog',
       title: 'Backlog',
-      color: theme.palette.mode === 'dark' ? theme.palette.grey[400] : theme.palette.text.secondary,
-      backgroundColor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[200],
+      color: '#6b7280',
+      backgroundColor: 'transparent',
       description: 'Tasks without specifications',
       tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
     },
     {
       id: 'planning',
       title: 'Planning',
-      color: theme.palette.warning.main,
-      backgroundColor: theme.palette.warning.light + '20',
-      description: 'Specs being generated by Zed agents',
+      color: '#f59e0b',
+      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+      description: 'Specs being generated',
       limit: WIP_LIMITS.planning,
       tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
     },
     {
       id: 'review',
-      title: 'Spec Review',
-      color: theme.palette.info.main,
-      backgroundColor: theme.palette.info.light + '20',
-      description: 'Specs ready for human review',
+      title: 'Review',
+      color: '#3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+      description: 'Ready for review',
       limit: WIP_LIMITS.review,
       tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
     },
     {
       id: 'implementation',
-      title: 'Implementation',
-      color: theme.palette.success.main,
-      backgroundColor: theme.palette.success.light + '20',
-      description: 'Multi-session implementation in progress',
+      title: 'In Progress',
+      color: '#10b981',
+      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+      description: 'Implementation active',
       limit: WIP_LIMITS.implementation,
       tasks: tasks.filter(t => (t as any).phase === 'implementation' && (t.activeSessionsCount || 0) > 0),
     },
     {
       id: 'completed',
-      title: 'Completed',
-      color: theme.palette.success.dark,
-      backgroundColor: theme.palette.success.dark + '20',
-      description: 'Completed tasks',
+      title: 'Done',
+      color: '#6b7280',
+      backgroundColor: 'transparent',
+      description: 'Completed',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'completed'),
     },
   ], [tasks, theme, wipLimits]);
@@ -1420,9 +1523,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   if (loading) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: 400, gap: 2 }}>
-        <CircularProgress />
-        <Typography variant="body2" color="text.secondary">
-          Loading spec tasks...
+        <CircularProgress size={32} sx={{ color: 'text.secondary' }} />
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8125rem' }}>
+          Loading tasks...
         </Typography>
       </Box>
     );
@@ -1455,11 +1558,11 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Header */}
-      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      {/* Header - Linear style */}
+      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'rgba(0, 0, 0, 0.06)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="h5" sx={{ fontWeight: 600 }}>
-            SpecTask Board
+          <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
+            Tasks
           </Typography>
           {onCreateTask && (
             <Button
@@ -1467,29 +1570,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
               color="secondary"
               startIcon={<AddIcon />}
               onClick={onCreateTask}
-              sx={{
-                '& .MuiButton-endIcon': {
-                  ml: 1,
-                  opacity: 0.7,
-                  fontSize: '0.75rem',
-                },
-              }}
-              endIcon={
-                <Box component="span" sx={{
-                  fontSize: '0.75rem',
-                  opacity: 0.7,
-                  fontFamily: 'monospace',
-                  ml: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                  px: 0.75,
-                  py: 0.25,
-                  borderRadius: '4px',
-                }}>
-                  ↵
-                </Box>
-              }
             >
-              New SpecTask
+              New Task
             </Button>
           )}
         </Box>
@@ -1500,15 +1582,50 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
             onClick={() => setShowArchived(!showArchived)}
           >
-            {showArchived ? 'Show Active' : 'Show Archived'}
+            {showArchived ? 'Active' : 'Archived'}
           </Button>
         </Box>
       </Box>
 
-      {error && <Alert severity="error" sx={{ flexShrink: 0, mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && (
+        <Alert
+          severity="error"
+          sx={{
+            flexShrink: 0,
+            mb: 2,
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+          }}
+          onClose={() => setError(null)}
+        >
+          {error}
+        </Alert>
+      )}
 
-      {/* Kanban Board - drag and drop disabled to prevent infinite loops */}
-      <Box sx={{ flex: 1, display: 'flex', gap: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 0 }}>
+      {/* Kanban Board */}
+      <Box sx={{
+        flex: 1,
+        display: 'flex',
+        gap: 2,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        minHeight: 0,
+        pb: 2,
+        '&::-webkit-scrollbar': {
+          height: '8px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: 'rgba(0, 0, 0, 0.02)',
+          borderRadius: '4px',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: '4px',
+          '&:hover': {
+            background: 'rgba(0, 0, 0, 0.15)',
+          },
+        },
+      }}>
         {columns.map((column) => (
           <DroppableColumn
             key={column.id}
@@ -1622,13 +1739,13 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
       {/* Archive Confirmation Dialog */}
       <Dialog open={archiveConfirmOpen} onClose={() => setArchiveConfirmOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Archive Task?</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 600, fontSize: '1.125rem' }}>Archive Task?</DialogTitle>
         <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <Typography variant="body2">
+          <Alert severity="warning" sx={{ mb: 2, border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
               Archiving this task will:
             </Typography>
-            <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+            <ul style={{ marginTop: 0, marginBottom: 0, paddingLeft: 20 }}>
               <li><Typography variant="body2">Stop any running external agents</Typography></li>
               <li><Typography variant="body2">Lose any unsaved data in the desktop</Typography></li>
               <li><Typography variant="body2">Hide the task from the board</Typography></li>
@@ -1638,11 +1755,18 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             The conversation history will be preserved and you can restore the task later.
           </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setArchiveConfirmOpen(false);
-            setTaskToArchive(null);
-          }}>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button
+            onClick={() => {
+              setArchiveConfirmOpen(false);
+              setTaskToArchive(null);
+            }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 500,
+              color: 'text.secondary',
+            }}
+          >
             Cancel
           </Button>
           <Button

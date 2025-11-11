@@ -363,18 +363,18 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         label: "Home",
       },
       {
-        icon: <Bot size={NAV_BUTTON_SIZE} />,
-        tooltip: "View agents",
-        isActive: isActive('apps'),
-        onClick: () => orgNavigateTo('apps'),
-        label: "Agents",
-      },
-      {
         icon: <Kanban size={NAV_BUTTON_SIZE} />,
         tooltip: "View projects",
         isActive: isActive('projects') || isActive('project-specs') || isActive('project-settings'),
         onClick: () => orgNavigateTo('projects'),
         label: "Projects",
+      },
+      {
+        icon: <Bot size={NAV_BUTTON_SIZE} />,
+        tooltip: "View agents",
+        isActive: isActive('apps'),
+        onClick: () => orgNavigateTo('apps'),
+        label: "Agents",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,

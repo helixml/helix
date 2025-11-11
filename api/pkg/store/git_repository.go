@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"gorm.io/gorm"
@@ -42,6 +43,30 @@ type GitRepository struct {
 // TableName overrides the table name
 func (GitRepository) TableName() string {
 	return "git_repositories"
+}
+
+// BeforeSave GORM hook - converts Metadata map to MetadataJSON before saving
+func (r *GitRepository) BeforeSave(tx *gorm.DB) error {
+	if r.Metadata != nil {
+		jsonData, err := json.Marshal(r.Metadata)
+		if err != nil {
+			return err
+		}
+		r.MetadataJSON = string(jsonData)
+	}
+	return nil
+}
+
+// AfterFind GORM hook - converts MetadataJSON back to Metadata map after loading
+func (r *GitRepository) AfterFind(tx *gorm.DB) error {
+	if r.MetadataJSON != "" {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal([]byte(r.MetadataJSON), &metadata); err != nil {
+			return err
+		}
+		r.Metadata = metadata
+	}
+	return nil
 }
 
 // CreateGitRepository creates a new git repository record
