@@ -355,12 +355,19 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
 	gitRepo, err := s.getRepositoryMetadata(ctx, repoID)
 	if err != nil {
-		// Not in store - fallback to default path under gitRepoBase
+		// Not in store - check filesystem locations
+		// Try new location first
 		repoPath := filepath.Join(s.gitRepoBase, repoID)
 
-		// Check if repository exists at default path
+		// Check if repository exists at new default path
 		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("repository not found: %s", repoID)
+			// Fallback to old /filestore/repos location (legacy spec task repos)
+			oldRepoPath := filepath.Join(filepath.Dir(s.gitRepoBase), "repos", repoID)
+			if _, err := os.Stat(oldRepoPath); os.IsNotExist(err) {
+				return nil, fmt.Errorf("repository not found: %s", repoID)
+			}
+			repoPath = oldRepoPath
+			log.Debug().Str("repo_id", repoID).Str("path", repoPath).Msg("Found repository in legacy repos directory")
 		}
 
 		// Create from filesystem
