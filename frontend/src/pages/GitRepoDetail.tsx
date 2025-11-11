@@ -67,6 +67,12 @@ import {
   useCreateRepositoryAccessGrant,
   useDeleteRepositoryAccessGrant,
 } from '../services/repositoryAccessGrantService'
+import {
+  useKoditEnrichments,
+  groupEnrichmentsByType,
+  getEnrichmentTypeName,
+  getEnrichmentTypeIcon,
+} from '../services/koditService'
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -90,6 +96,11 @@ const GitRepoDetail: FC = () => {
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
+
+  // Kodit code intelligence enrichments
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
+  const enrichments = enrichmentsData?.data || []
+  const groupedEnrichments = groupEnrichmentsByType(enrichments)
 
   // UI State
   const [currentTab, setCurrentTab] = useState(0)
@@ -397,9 +408,36 @@ const GitRepoDetail: FC = () => {
         <Box sx={{ mt: 3 }}>
           {/* Code Tab */}
           {currentTab === 0 && (
-            <Box sx={{ display: 'flex', gap: 3 }}>
-              {/* Main content - File browser */}
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* Code Intelligence - Architecture enrichments from Kodit */}
+              {enrichments.length > 0 && groupedEnrichments['architecture'] && (
+                <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, fontWeight: 600 }}>
+                    {getEnrichmentTypeIcon('architecture')} {getEnrichmentTypeName('architecture')} Insights
+                  </Typography>
+                  <Stack spacing={2}>
+                    {groupedEnrichments['architecture'].map((enrichment: any, index: number) => (
+                      <Box key={enrichment.id || index}>
+                        {enrichment.attributes?.subtype && (
+                          <Chip
+                            label={enrichment.attributes.subtype}
+                            size="small"
+                            sx={{ mb: 1, bgcolor: 'rgba(0, 213, 255, 0.15)', color: '#00d5ff', fontWeight: 600 }}
+                          />
+                        )}
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+                          {enrichment.attributes?.content}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+
+              {/* File browser and file viewer */}
+              <Box sx={{ display: 'flex', gap: 3 }}>
+                {/* Main content - File browser */}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Paper variant="outlined" sx={{ borderRadius: 2 }}>
                   {/* Branch selector bar */}
                   <Box sx={{
@@ -665,6 +703,7 @@ const GitRepoDetail: FC = () => {
                   </Stack>
                 </Paper>
               </Box>
+            </Box>
             </Box>
           )}
 
