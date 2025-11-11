@@ -1361,6 +1361,7 @@ export default function DesignReviewViewer({
               </Box>
             </Box>
           )}
+        </Box>
       </Paper>
 
       {/* Tiling Menu */}
