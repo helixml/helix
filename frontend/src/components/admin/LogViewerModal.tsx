@@ -37,101 +37,72 @@ import {
   VerticalAlignBottom as ScrollDownIcon
 } from '@mui/icons-material'
 import { TypesDashboardRunner } from '../../api/api'
-
-interface LogEntry {
-  timestamp: string
-  level: string
-  message: string
-  source: string
-}
-
-interface LogMetadata {
-  slot_id: string
-  model_id: string
-  created_at: string
-  status: string
-  last_error?: string
-}
-
-interface LogResponse {
-  slot_id: string
-  metadata: LogMetadata
-  logs: LogEntry[]
-  count: number
-}
+import { useApi } from '../../hooks/useApi'
+import { useSlotLogs, LogEntry, LogMetadata, LogResponse } from '../../services/logsService'
 
 interface LogViewerModalProps {
   open: boolean
   onClose: () => void
   runner: TypesDashboardRunner
-  runnerUrl?: string
   isFloating?: boolean
 }
 
-const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runnerUrl = 'http://localhost:8080', isFloating = false }) => {
+const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, isFloating = false }) => {
   const [selectedSlot, setSelectedSlot] = useState<string>('')
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [metadata, setMetadata] = useState<LogMetadata | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [logLevel, setLogLevel] = useState<string>('all')
   const [maxLines, setMaxLines] = useState<number>(500)
   const [tailMode, setTailMode] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
-  
+  const [accumulatedLogs, setAccumulatedLogs] = useState<LogEntry[]>([])
+
   const logContainerRef = useRef<HTMLDivElement>(null)
-  const tailIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastTimestampRef = useRef<string | null>(null)
 
   const availableSlots = runner.slots || []
 
-  const fetchLogs = useCallback(async (slotId: string, since?: string) => {
-    if (!slotId) return
-    
-    setLoading(!since) // Only show loading for initial fetch, not for tail updates
-    if (!since) setError(null)
-    
-    try {
-      const params = new URLSearchParams()
-      if (maxLines > 0) params.set('lines', maxLines.toString())
-      if (logLevel !== 'all') params.set('level', logLevel.toUpperCase())
-      if (since) params.set('since', since)
-      
-      const url = `${runnerUrl}/api/v1/logs/${slotId}?${params.toString()}`
-      const response = await fetch(url)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-      
-      const data: LogResponse = await response.json()
-      
-      if (since) {
-        // Tail mode: append new logs
-        const newLogs = data.logs || []
-        if (newLogs.length > 0) {
-          setLogs(prevLogs => [...prevLogs, ...newLogs])
-          lastTimestampRef.current = newLogs[newLogs.length - 1].timestamp
-        }
-      } else {
-        // Initial fetch: replace all logs
-        setLogs(data.logs || [])
-        setMetadata(data.metadata)
-        if (data.logs && data.logs.length > 0) {
-          lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
-        }
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to fetch logs'
-      setError(errorMsg)
-      if (!since) {
-        setLogs([])
-        setMetadata(null)
-      }
-    } finally {
-      setLoading(false)
+  // Build query parameters for React Query
+  const query = {
+    lines: maxLines > 0 ? maxLines : undefined,
+    level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
+    since: tailMode ? lastTimestampRef.current || undefined : undefined,
+  }
+
+  // Use React Query for fetching logs with automatic refetch in tail mode
+  const { data, isLoading, error, refetch } = useSlotLogs(
+    selectedSlot,
+    query,
+    {
+      enabled: !!selectedSlot,
+      refetchInterval: tailMode ? 2000 : false, // Poll every 2s in tail mode
     }
-  }, [runnerUrl, maxLines, logLevel])
+  )
+
+  const metadata = data?.metadata || null
+
+  // Handle log accumulation in tail mode
+  useEffect(() => {
+    if (!data?.logs) return
+
+    if (tailMode) {
+      // In tail mode: append new logs
+      const newLogs = data.logs
+      if (newLogs.length > 0) {
+        setAccumulatedLogs(prev => {
+          // Deduplicate by timestamp to avoid duplicates
+          const existingTimestamps = new Set(prev.map(log => log.timestamp))
+          const uniqueNewLogs = newLogs.filter(log => !existingTimestamps.has(log.timestamp))
+          return [...prev, ...uniqueNewLogs]
+        })
+        lastTimestampRef.current = newLogs[newLogs.length - 1].timestamp
+      }
+    } else {
+      // Normal mode: replace logs
+      setAccumulatedLogs(data.logs)
+      if (data.logs.length > 0) {
+        lastTimestampRef.current = data.logs[data.logs.length - 1].timestamp
+      }
+    }
+  }, [data, tailMode])
 
   // Auto-select first slot when modal opens
   useEffect(() => {
@@ -140,53 +111,29 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
     }
   }, [open, availableSlots, selectedSlot])
 
-  // Auto-fetch logs when a slot is selected
-  useEffect(() => {
-    if (selectedSlot && !tailMode) {
-      fetchLogs(selectedSlot)
-    }
-  }, [selectedSlot, tailMode, fetchLogs]) // Re-fetch when slot or fetchLogs changes
-
-  // Clear logs and reset state when modal closes
+  // Clear state when modal closes
   useEffect(() => {
     if (!open) {
-      setLogs([])
-      setMetadata(null)
-      setError(null)
       setSelectedSlot('')
       setTailMode(false)
-      setLoading(false)
-      if (tailIntervalRef.current) {
-        clearInterval(tailIntervalRef.current)
-        tailIntervalRef.current = null
-      }
+      setAccumulatedLogs([])
+      lastTimestampRef.current = null
     }
   }, [open])
 
   const startTailMode = () => {
     setTailMode(true)
-    // Fetch initial logs
-    fetchLogs(selectedSlot)
-    
-    // Start polling for new logs
-    tailIntervalRef.current = setInterval(() => {
-      if (lastTimestampRef.current) {
-        fetchLogs(selectedSlot, lastTimestampRef.current)
-      }
-    }, 2000) // Poll every 2 seconds
   }
 
   const stopTailMode = () => {
     setTailMode(false)
-    if (tailIntervalRef.current) {
-      clearInterval(tailIntervalRef.current)
-      tailIntervalRef.current = null
-    }
   }
 
   const handleRefresh = () => {
     if (selectedSlot) {
-      fetchLogs(selectedSlot)
+      setAccumulatedLogs([])
+      lastTimestampRef.current = null
+      refetch()
     }
   }
 
@@ -197,12 +144,12 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
   }
 
   const exportLogs = () => {
-    if (logs.length === 0) return
-    
-    const content = logs.map(log => 
+    if (accumulatedLogs.length === 0) return
+
+    const content = accumulatedLogs.map(log =>
       `${log.timestamp} [${log.level}] ${log.message}`
     ).join('\n')
-    
+
     const blob = new Blob([content], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -249,19 +196,8 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
     if (autoScroll && tailMode) {
       setTimeout(scrollToBottom, 100)
     }
-  }, [logs, autoScroll, tailMode])
+  }, [accumulatedLogs, autoScroll, tailMode])
 
-  // Cleanup on unmount or modal close
-  useEffect(() => {
-    if (!open) {
-      stopTailMode()
-      setSelectedSlot('')
-      setLogs([])
-      setMetadata(null)
-      setError(null)
-      lastTimestampRef.current = null
-    }
-  }, [open])
 
   // If floating, render content only (title bar is handled by FloatingModal wrapper)
   if (isFloating) {
@@ -342,8 +278,8 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
             <Button
               variant="outlined"
               onClick={handleRefresh}
-              disabled={loading || tailMode}
-              startIcon={loading ? <CircularProgress size={16} /> : <RefreshIcon />}
+              disabled={isLoading || tailMode}
+              startIcon={isLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
             >
               Refresh
             </Button>
@@ -358,7 +294,7 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
               {tailMode ? 'Stop Tail' : 'Start Tail'}
             </Button>
 
-            {logs.length > 0 && (
+            {accumulatedLogs.length > 0 && (
               <Button
                 variant="outlined"
                 onClick={exportLogs}
@@ -458,8 +394,8 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
 
         {/* Error Display */}
         {error && (
-          <Alert severity="error" sx={{ m: 2 }} onClose={() => setError(null)}>
-            {error}
+          <Alert severity="error" sx={{ m: 2 }}>
+            {error instanceof Error ? error.message : String(error)}
           </Alert>
         )}
 
@@ -484,19 +420,19 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
               },
             }}
           >
-            {logs.length === 0 && !loading ? (
+            {accumulatedLogs.length === 0 && !isLoading ? (
               <Box sx={{ p: 3, textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)' }}>
                 {selectedSlot ? 'No logs available for this slot' : 'Select a slot to view logs'}
               </Box>
             ) : (
               <List dense sx={{ py: 0 }}>
-                {logs.map((log, index) => (
+                {accumulatedLogs.map((log, index) => (
                   <ListItem 
                     key={`${log.timestamp}-${index}`} 
                     sx={{ 
                       py: 0.25, 
                       px: 1,
-                      borderBottom: index < logs.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                      borderBottom: index < accumulatedLogs.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
                       '&:hover': {
                         backgroundColor: 'rgba(255, 255, 255, 0.02)'
                       }
@@ -555,7 +491,7 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
         {/* Footer */}
         <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
-            {logs.length > 0 && `${logs.length} log entries`}
+            {accumulatedLogs.length > 0 && `${accumulatedLogs.length} log entries`}
             {tailMode && ' • Live tail active'}
           </Typography>
           <Button onClick={onClose} variant="outlined">
@@ -677,8 +613,8 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
             <Button
               variant="outlined"
               onClick={handleRefresh}
-              disabled={loading || tailMode}
-              startIcon={loading ? <CircularProgress size={16} /> : <RefreshIcon />}
+              disabled={isLoading || tailMode}
+              startIcon={isLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
             >
               Refresh
             </Button>
@@ -693,7 +629,7 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
               {tailMode ? 'Stop Tail' : 'Start Tail'}
             </Button>
 
-            {logs.length > 0 && (
+            {accumulatedLogs.length > 0 && (
               <Button
                 variant="outlined"
                 onClick={exportLogs}
@@ -793,8 +729,8 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
 
         {/* Error Display */}
         {error && (
-          <Alert severity="error" sx={{ m: 2 }} onClose={() => setError(null)}>
-            {error}
+          <Alert severity="error" sx={{ m: 2 }}>
+            {error instanceof Error ? error.message : String(error)}
           </Alert>
         )}
 
@@ -819,19 +755,19 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
               },
             }}
           >
-            {logs.length === 0 && !loading ? (
+            {accumulatedLogs.length === 0 && !isLoading ? (
               <Box sx={{ p: 3, textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)' }}>
                 {selectedSlot ? 'No logs available for this slot' : 'Select a slot to view logs'}
               </Box>
             ) : (
               <List dense sx={{ py: 0 }}>
-                {logs.map((log, index) => (
+                {accumulatedLogs.map((log, index) => (
                   <ListItem 
                     key={`${log.timestamp}-${index}`} 
                     sx={{ 
                       py: 0.25, 
                       px: 1,
-                      borderBottom: index < logs.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                      borderBottom: index < accumulatedLogs.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
                       '&:hover': {
                         backgroundColor: 'rgba(255, 255, 255, 0.02)'
                       }
@@ -890,7 +826,7 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
 
       <DialogActions sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', p: 2 }}>
         <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)', mr: 'auto' }}>
-          {logs.length > 0 && `${logs.length} log entries`}
+          {accumulatedLogs.length > 0 && `${accumulatedLogs.length} log entries`}
           {tailMode && ' • Live tail active'}
         </Typography>
         <Button onClick={onClose} variant="outlined">
