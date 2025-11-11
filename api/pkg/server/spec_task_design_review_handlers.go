@@ -42,14 +42,37 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.authorizeUserToResource(ctx, user, "", specTask.ProjectID, types.ResourceProject, types.ActionGet); err != nil {
-		log.Warn().
-			Err(err).
-			Str("user_id", user.ID).
-			Str("project_id", specTask.ProjectID).
-			Msg("User not authorized to read spec task design reviews")
-		http.Error(w, "Not authorized", http.StatusForbidden)
+	// Get project to check ownership
+	project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get project: %s", err.Error()), http.StatusInternalServerError)
 		return
+	}
+
+	// For personal projects (no organization), check if user is the project owner
+	if project.OrganizationID == "" {
+		if user.ID != project.UserID {
+			log.Warn().
+				Str("user_id", user.ID).
+				Str("project_owner", project.UserID).
+				Str("project_id", project.ID).
+				Msg("User is not the owner of this personal project")
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
+		// User is the owner - authorized
+	} else {
+		// Organization project - use RBAC
+		if err := s.authorizeUserToResource(ctx, user, project.OrganizationID, specTask.ProjectID, types.ResourceProject, types.ActionGet); err != nil {
+			log.Warn().
+				Err(err).
+				Str("user_id", user.ID).
+				Str("project_id", specTask.ProjectID).
+				Str("org_id", project.OrganizationID).
+				Msg("User not authorized to read spec task design reviews")
+			http.Error(w, "Not authorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	reviews, err := s.Store.ListSpecTaskDesignReviews(ctx, specTaskID)
