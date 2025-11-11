@@ -27,10 +27,6 @@ import {
   Chip,
   Pagination,
   InputAdornment,
-  List,
-  ListItemButton,
-  ListItemText,
-  Paper,
 } from '@mui/material'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -41,6 +37,7 @@ import { Kanban, GitBranch, Plus, Link, Brain, ExternalLink } from 'lucide-react
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
+import ContextSidebar, { ContextSidebarSection } from '../components/system/ContextSidebar'
 import CreateProjectButton from '../components/project/CreateProjectButton'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
@@ -143,6 +140,28 @@ const Projects: FC = () => {
     const newParams = view === 'repositories' ? { view: 'repositories' } : {}
     navigate('projects', newParams, { replace: true })
   }
+
+  // Sidebar configuration
+  const sidebarSections: ContextSidebarSection[] = [
+    {
+      items: [
+        {
+          id: 'projects',
+          label: 'Projects',
+          icon: <Kanban size={18} />,
+          isActive: currentView === 'projects',
+          onClick: () => handleViewChange('projects')
+        },
+        {
+          id: 'repositories',
+          label: 'Repositories',
+          icon: <GitBranch size={18} />,
+          isActive: currentView === 'repositories',
+          onClick: () => handleViewChange('repositories')
+        }
+      ]
+    }
+  ]
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -402,50 +421,7 @@ const Projects: FC = () => {
     >
       <Container maxWidth="xl" sx={{ display: 'flex', gap: 3, py: 3 }}>
         {/* Left Sidebar */}
-        <Paper
-          elevation={0}
-          sx={{
-            width: 240,
-            flexShrink: 0,
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-            overflow: 'hidden',
-          }}
-        >
-          <List component="nav" disablePadding>
-            <ListItemButton
-              selected={currentView === 'projects'}
-              onClick={() => handleViewChange('projects')}
-              sx={{
-                py: 1.5,
-                '&.Mui-selected': {
-                  backgroundColor: 'action.selected',
-                  borderLeft: '3px solid',
-                  borderLeftColor: 'primary.main',
-                },
-              }}
-            >
-              <Kanban size={18} style={{ marginRight: 12 }} />
-              <ListItemText primary="Projects" primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 500 }} />
-            </ListItemButton>
-            <ListItemButton
-              selected={currentView === 'repositories'}
-              onClick={() => handleViewChange('repositories')}
-              sx={{
-                py: 1.5,
-                '&.Mui-selected': {
-                  backgroundColor: 'action.selected',
-                  borderLeft: '3px solid',
-                  borderLeftColor: 'primary.main',
-                },
-              }}
-            >
-              <GitBranch size={18} style={{ marginRight: 12 }} />
-              <ListItemText primary="Repositories" primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 500 }} />
-            </ListItemButton>
-          </List>
-        </Paper>
+        <ContextSidebar menuType="projects" sections={sidebarSections} />
 
         {/* Main Content */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1111,4 +1087,5 @@ const Projects: FC = () => {
 }
 
 export default Projects
+
 
