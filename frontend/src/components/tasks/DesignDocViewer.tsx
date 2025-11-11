@@ -22,6 +22,8 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { useQuery } from '@tanstack/react-query';
 import useApi from '../../hooks/useApi';
+import { useStreaming } from '../../contexts/streaming';
+import { SESSION_TYPE_TEXT } from '../../types';
 
 interface DesignDocViewerProps {
   open: boolean;
@@ -45,6 +47,7 @@ const DesignDocViewer: React.FC<DesignDocViewerProps> = ({
   onRejectCompletely,
 }) => {
   const api = useApi();
+  const streaming = useStreaming();
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [sendingComment, setSendingComment] = useState(false);
@@ -101,14 +104,11 @@ const DesignDocViewer: React.FC<DesignDocViewerProps> = ({
 
     setSendingComment(true);
     try {
-      // Send message to the planning session
-      await api.post(`/api/v1/sessions/${sessionId}/chat`, {
-        messages: [
-          {
-            role: 'user',
-            content: comment,
-          },
-        ],
+      // Send message to the planning session using streaming context
+      await streaming.NewInference({
+        type: SESSION_TYPE_TEXT,
+        message: comment.trim(),
+        sessionId: sessionId,
       });
 
       // Clear comment after sending
