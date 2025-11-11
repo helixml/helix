@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
-import { specTaskQueryKey } from './specTaskService'
 
 export function useApproveImplementation(specTaskId: string) {
   const api = useApi()
@@ -17,7 +16,7 @@ export function useApproveImplementation(specTaskId: string) {
     onSuccess: () => {
       snackbar.success('Implementation approved! Agent will merge to main...')
       // Invalidate queries to refetch task
-      queryClient.invalidateQueries({ queryKey: specTaskQueryKey(specTaskId) })
+      queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
       queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
     },
     onError: (error: any) => {
@@ -39,7 +38,8 @@ export function useStopAgent(specTaskId: string) {
     },
     onSuccess: () => {
       snackbar.success('Agent stop requested')
-      queryClient.invalidateQueries({ queryKey: specTaskQueryKey(specTaskId) })
+      queryClient.invalidateQueries({ queryKey: ['spec-tasks', specTaskId] })
+      queryClient.invalidateQueries({ queryKey: ['spec-tasks'] })
     },
     onError: (error: any) => {
       snackbar.error(error?.response?.data?.message || 'Failed to stop agent')
