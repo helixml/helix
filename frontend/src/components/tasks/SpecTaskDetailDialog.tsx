@@ -86,6 +86,32 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null)
   const [implementationReviewMessageSent, setImplementationReviewMessageSent] = useState(false)
 
+  // Poll for task updates to detect when spec_session_id is populated
+  useEffect(() => {
+    if (!task?.id) return
+
+    const pollTask = async () => {
+      try {
+        const response = await api.getApiClient().v1SpecTasksDetail(task.id!)
+        if (response.data) {
+          setRefreshedTask(response.data)
+        }
+      } catch (err) {
+        console.error('Failed to poll task:', err)
+      }
+    }
+
+    // Initial fetch
+    pollTask()
+
+    // Poll every 2 seconds
+    const interval = setInterval(pollTask, 2000)
+    return () => clearInterval(interval)
+  }, [task?.id])
+
+  // Use refreshed task data for rendering
+  const displayTask = refreshedTask || task
+
   // Auto-send review request message when dialog opens for implementation_review
   useEffect(() => {
     if (
@@ -115,33 +141,7 @@ I'll give you feedback and we can iterate on any changes needed.`
     if (!open) {
       setImplementationReviewMessageSent(false)
     }
-  }, [open, implementationReviewMessageSent, displayTask?.status, displayTask?.spec_session_id])
-
-  // Poll for task updates to detect when spec_session_id is populated
-  useEffect(() => {
-    if (!task?.id) return
-
-    const pollTask = async () => {
-      try {
-        const response = await api.getApiClient().v1SpecTasksDetail(task.id!)
-        if (response.data) {
-          setRefreshedTask(response.data)
-        }
-      } catch (err) {
-        console.error('Failed to poll task:', err)
-      }
-    }
-
-    // Initial fetch
-    pollTask()
-
-    // Poll every 2 seconds
-    const interval = setInterval(pollTask, 2000)
-    return () => clearInterval(interval)
-  }, [task?.id])
-
-  // Use refreshed task data for rendering
-  const displayTask = refreshedTask || task
+  }, [open, implementationReviewMessageSent, displayTask?.status, displayTask?.spec_session_id, streaming])
 
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
