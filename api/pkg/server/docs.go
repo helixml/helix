@@ -18047,6 +18047,10 @@ const docTemplate = `{
                 "sentry_dsn_frontend": {
                     "type": "string"
                 },
+                "streaming_bitrate_mbps": {
+                    "description": "Requested video streaming bitrate in Mbps (default: 40)",
+                    "type": "integer"
+                },
                 "stripe_enabled": {
                     "description": "Stripe top-ups enabled",
                     "type": "boolean"
@@ -20111,18 +20115,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

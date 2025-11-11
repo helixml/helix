@@ -89,6 +89,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
   const [retryAttemptDisplay, setRetryAttemptDisplay] = useState(0);
   const [showStats, setShowStats] = useState(false);
+  const [requestedBitrate, setRequestedBitrate] = useState<number>(40); // Mbps
 
   // Clipboard sync state
   const lastRemoteClipboardHash = useRef<string>(''); // Track changes to avoid unnecessary writes
@@ -176,11 +177,26 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
       };
       console.log('[MoonlightStreamViewer] API instance created (WebSocket will use HttpOnly cookie auth)');
 
+      // Get streaming bitrate from backend config (falls back to 40 Mbps)
+      let streamingBitrateMbps = 40; // Default: 40 Mbps
+      try {
+        const configResponse = await apiClient.v1ConfigList();
+        if (configResponse.data.streaming_bitrate_mbps) {
+          streamingBitrateMbps = configResponse.data.streaming_bitrate_mbps;
+          console.log(`[MoonlightStreamViewer] Using configured bitrate: ${streamingBitrateMbps} Mbps`);
+        }
+      } catch (err) {
+        console.warn('[MoonlightStreamViewer] Failed to fetch streaming bitrate config, using default:', err);
+      }
+
+      // Store for stats display
+      setRequestedBitrate(streamingBitrateMbps);
+
       // Get default stream settings and customize
       const settings = defaultStreamSettings();
       settings.videoSize = 'custom';
       settings.videoSizeCustom = { width: 3840, height: 2160 };  // 4K resolution
-      settings.bitrate = 40000;  // 40 Mbps (reduced from 80 - P-frames more efficient than all I-frames)
+      settings.bitrate = streamingBitrateMbps * 1000;  // Convert to kbps - Configured bitrate (P-frames more efficient than all I-frames)
       settings.packetSize = 1024;
       settings.fps = 60;
       settings.videoSampleQueueSize = 100;  // Increased for 4K60@80Mbps (was 5, then 50)
@@ -1228,7 +1244,7 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
                 <div><strong>Codec:</strong> {stats.video.codec}</div>
                 <div><strong>Resolution:</strong> {stats.video.width}x{stats.video.height}</div>
                 <div><strong>FPS:</strong> {stats.video.fps}</div>
-                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: 80</span></div>
+                <div><strong>Bitrate:</strong> {stats.video.bitrate} Mbps <span style={{ color: '#888' }}>req: {requestedBitrate}</span></div>
                 <div><strong>Decoded:</strong> {stats.video.framesDecoded} frames</div>
                 <div>
                   <strong>Dropped:</strong> {stats.video.framesDropped} frames

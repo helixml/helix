@@ -5410,6 +5410,9 @@ definitions:
         type: string
       sentry_dsn_frontend:
         type: string
+      streaming_bitrate_mbps:
+        description: 'Requested video streaming bitrate in Mbps (default: 40)'
+        type: integer
       stripe_enabled:
         description: Stripe top-ups enabled
         type: boolean
@@ -6858,18 +6861,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

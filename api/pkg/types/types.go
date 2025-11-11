@@ -999,6 +999,7 @@ type ServerConfigForFrontend struct {
 	OrganizationsCreateEnabledForNonAdmins bool                 `json:"organizations_create_enabled_for_non_admins"`
 	ProvidersManagementEnabled             bool                 `json:"providers_management_enabled"` // Controls if users can add their own AI provider API keys
 	MoonlightWebMode                       string               `json:"moonlight_web_mode"`           // "single" or "multi" - determines streaming architecture
+	StreamingBitrateMbps                   int                  `json:"streaming_bitrate_mbps"`       // Requested video streaming bitrate in Mbps (default: 40)
 }
 
 // a short version of a session that we keep for the dashboard
