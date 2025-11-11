@@ -3454,10 +3454,23 @@ export interface TypesSpecTask {
   helix_app_id?: string;
   id?: string;
   implementation_agent?: string;
+  implementation_approved_at?: string;
+  /** Implementation tracking */
+  implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
   implementation_session_id?: string;
   labels?: string[];
+  /** When branch was last pushed */
+  last_push_at?: string;
+  /** Git tracking */
+  last_push_commit_hash?: string;
+  /** Merge commit hash */
+  merge_commit_hash?: string;
+  /** When merge happened */
+  merged_at?: string;
+  /** Whether branch was merged to main */
+  merged_to_main?: boolean;
   metadata?: Record<string, any>;
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
@@ -8062,6 +8075,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Approve the implementation and instruct agent to merge to main branch
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksApproveImplementationCreate
+     * @summary Approve implementation and merge to main
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/approve-implementation
+     * @secure
+     */
+    v1SpecTasksApproveImplementationCreate: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List all design reviews for a spec task
      *
      * @tags spec-tasks
@@ -8076,6 +8106,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop the running agent session for a spec task
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksStopAgentCreate
+     * @summary Stop agent session
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/stop-agent
+     * @secure
+     */
+    v1SpecTasksStopAgentCreate: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 

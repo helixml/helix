@@ -809,8 +809,8 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types
 			sessionID = task.SpecSessionID
 		}
 
-		if sessionID != "" {
-			agentInstructionService := NewAgentInstructionService(s.gitRepoService.controller)
+		if sessionID != "" && s.controller != nil {
+			agentInstructionService := NewAgentInstructionService(s.controller)
 			go func() {
 				err := agentInstructionService.SendImplementationReviewRequest(
 					context.Background(),
