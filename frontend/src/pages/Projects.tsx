@@ -540,7 +540,6 @@ const Projects: FC = () => {
             )}
             </>
           )}
-        )}
 
         {/* Repositories View */}
         {currentView === 'repositories' && (
