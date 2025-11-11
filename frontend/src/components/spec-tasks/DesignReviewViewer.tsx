@@ -47,7 +47,6 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { useResize } from '../../hooks/useResize'
-import CommentLogSidebar from './CommentLogSidebar'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -853,8 +852,8 @@ export default function DesignReviewViewer({
                       top: `${yPos}px`,
                       width: '300px',
                       p: 2,
-                      bgcolor: 'warning.light',
-                      border: 1,
+                      bgcolor: 'background.paper',
+                      border: 2,
                       borderColor: 'warning.main',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                       zIndex: 10,
@@ -996,15 +995,16 @@ export default function DesignReviewViewer({
             </Box>
           </Box>
 
-          {/* Comment Log Sidebar */}
-          <Box
-            width="400px"
-            borderLeft={1}
-            borderColor="divider"
-            display="flex"
-            flexDirection="column"
-            bgcolor="background.paper"
-          >
+          {/* Comment Log Sidebar - only show when toggled */}
+          {showCommentLog && (
+            <Box
+              width="400px"
+              borderLeft={1}
+              borderColor="divider"
+              display="flex"
+              flexDirection="column"
+              bgcolor="background.paper"
+            >
             <Box p={2} borderBottom={1} borderColor="divider">
               <Typography variant="h6">
                 Comment Log ({activeDocComments.length})
@@ -1162,17 +1162,14 @@ export default function DesignReviewViewer({
                 </Button>
               </Box>
             ) : (
-              <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
+              <Box p={2} borderTop={1} borderColor="divider">
                 <Alert severity="info">
                   This review has been superseded by a newer version
                 </Alert>
               </Box>
             )}
-          </Box>
-          </Box>
-
-          {/* Comment Log Panel */}
-          {showCommentLog && <CommentLogSidebar comments={allComments} />}
+            </Box>
+          )}
         </Box>
       </Paper>
 
