@@ -206,33 +206,33 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 
 // readDesignDocsFromGit reads design documents from the helix-specs branch
 func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID string) ([]DesignDocument, error) {
-	// First, find the task directory in helix-specs branch
-	// Format: tasks/{date}_{name}_{task_id}/
-	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs", "tasks/")
+	// First, list all files in helix-specs branch to find task directory
+	// Format: design/tasks/{date}_{name}_{task_id}/
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// helix-specs branch or tasks/ directory might not exist yet
-		log.Debug().Err(err).Str("repo_path", repoPath).Msg("No helix-specs branch or tasks/ directory found")
+		// helix-specs branch might not exist yet
+		log.Debug().Err(err).Str("repo_path", repoPath).Msg("No helix-specs branch found")
 		return []DesignDocument{}, nil
 	}
 
-	// Find task directory by matching task ID in directory name
+	// Find task directory by matching task ID in any file path
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
 	var taskDir string
 	for _, file := range files {
 		if strings.Contains(file, taskID) {
-			// Extract directory path (e.g., tasks/2025-11-11_..._taskid/)
+			// Extract directory path (e.g., design/tasks/2025-11-11_..._taskid/)
 			parts := strings.Split(file, "/")
-			if len(parts) >= 2 {
-				taskDir = parts[0] + "/" + parts[1]
+			if len(parts) >= 3 {
+				taskDir = strings.Join(parts[:len(parts)-1], "/")
 				break
 			}
 		}
 	}
 
 	if taskDir == "" {
-		log.Debug().Str("task_id", taskID).Msg("No design docs directory found for task")
+		log.Debug().Str("task_id", taskID).Msg("No design docs directory found for task in helix-specs")
 		return []DesignDocument{}, nil
 	}
 
@@ -264,6 +264,7 @@ func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID s
 		})
 	}
 
+	log.Info().Int("doc_count", len(docs)).Str("task_id", taskID).Msg("Read design documents from helix-specs")
 	return docs, nil
 }
 
