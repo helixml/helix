@@ -1279,6 +1279,7 @@ export default function DesignReviewViewer({
               </Box>
             )}
           </Box>
+          </Box>
 
           {/* Comment Log Panel (Google Docs style) */}
           {showCommentLog && (
