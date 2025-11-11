@@ -83,9 +83,12 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		SELECT
 			id, project_id, name, description, type, priority, status,
 			original_prompt, requirements_spec, technical_design, implementation_plan,
-			helix_app_id, spec_agent, implementation_agent, spec_session_id, implementation_session_id,
+			helix_app_id, planning_session_id, spec_agent, implementation_agent, spec_session_id, implementation_session_id,
 			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
+			yolo_mode, implementation_approved_by, implementation_approved_at,
+			last_push_commit_hash, last_push_at, design_docs_pushed_at, merged_to_main, merged_at, merge_commit_hash,
 			estimated_hours, started_at, completed_at,
+			external_agent_id, zed_instance_id, project_path, workspace_config,
 			created_by, created_at, updated_at, archived, labels, metadata
 		FROM spec_tasks`
 
