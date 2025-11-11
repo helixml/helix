@@ -180,10 +180,8 @@ services:
             - DATA_DIR=/data
             - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
             - DEFAULT_SEARCH_PROVIDER=vectorchord
-            # External enrichment provider (TogetherAI direct via OpenAI-compatible endpoint)
-            - ENRICHMENT_ENDPOINT_TYPE=openai
-            - ENRICHMENT_ENDPOINT_BASE_URL=https://api.together.xyz/v1
-            - ENRICHMENT_ENDPOINT_MODEL=Qwen/Qwen3-Next-80B-A3B-Instruct
+            # External enrichment provider (TogetherAI)
+            - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
             - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
             - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
             - ENRICHMENT_ENDPOINT_TIMEOUT=120
