@@ -9,96 +9,12 @@ import {
   Tooltip,
 } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
-import {
-  Kanban,
-  FilePlus,
-  CheckSquare,
-  Layers,
-  Code,
-  Zap,
-  Server,
-  Palette,
-  Triangle,
-  Coffee,
-  Briefcase,
-  Mail,
-  Share2,
-  DollarSign,
-  Target,
-  Users,
-  FileEdit,
-  BookOpen,
-  Megaphone,
-  PenTool,
-  MessageSquare,
-  Newspaper,
-  Package,
-} from 'lucide-react'
+import { FilePlus } from 'lucide-react'
 
 import { TypesSampleProject } from '../../api/api'
+import { getSampleProjectIcon } from '../../utils/sampleProjectIcons'
 
-// Map sample project IDs to Lucide icons
-const getSampleProjectIcon = (sampleId?: string, category?: string) => {
-  const iconSize = 18
-
-  // Map by specific ID first
-  const iconMap: Record<string, JSX.Element> = {
-    // Empty/Generic
-    'empty': <FilePlus size={iconSize} />,
-    'blank': <FilePlus size={iconSize} />,
-
-    // Development Projects
-    'nodejs-todo': <CheckSquare size={iconSize} />,
-    'react-app': <Layers size={iconSize} />,
-    'python-api': <Code size={iconSize} />,
-    'nextjs-app': <Triangle size={iconSize} />,
-    'express-api': <Zap size={iconSize} />,
-    'vue-app': <Palette size={iconSize} />,
-    'angular-app': <Triangle size={iconSize} />,
-    'django-app': <Server size={iconSize} />,
-    'flask-api': <Server size={iconSize} />,
-    'spring-boot': <Coffee size={iconSize} />,
-
-    // Business Tasks
-    'linkedin-outreach': <Briefcase size={iconSize} />,
-    'email-campaign': <Mail size={iconSize} />,
-    'social-media': <Share2 size={iconSize} />,
-    'sales-automation': <DollarSign size={iconSize} />,
-    'lead-generation': <Target size={iconSize} />,
-    'customer-service': <Users size={iconSize} />,
-
-    // Content Creation
-    'blog-posts': <FileEdit size={iconSize} />,
-    'helix-blog-posts': <FileEdit size={iconSize} />,
-    'documentation': <BookOpen size={iconSize} />,
-    'marketing-content': <Megaphone size={iconSize} />,
-    'technical-writing': <PenTool size={iconSize} />,
-    'social-posts': <MessageSquare size={iconSize} />,
-    'newsletter': <Newspaper size={iconSize} />,
-  }
-
-  if (sampleId && iconMap[sampleId]) {
-    return iconMap[sampleId]
-  }
-
-  // Fallback to category-based icons
-  if (category) {
-    switch (category.toLowerCase()) {
-      case 'development':
-        return <Code size={iconSize} />
-      case 'business':
-        return <Briefcase size={iconSize} />
-      case 'content':
-        return <FileEdit size={iconSize} />
-      default:
-        return <Package size={iconSize} />
-    }
-  }
-
-  // Default fallback
-  return <Kanban size={iconSize} />
-}
-
+// Component for creating new projects with sample templates
 interface CreateProjectButtonProps {
   onCreateEmpty: () => void
   onCreateFromSample: (sampleId: string, sampleName: string) => void
