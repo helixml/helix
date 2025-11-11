@@ -549,6 +549,36 @@ func (mr *MockStoreMockRecorder) CreateProviderEndpoint(ctx, providerEndpoint an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProviderEndpoint", reflect.TypeOf((*MockStore)(nil).CreateProviderEndpoint), ctx, providerEndpoint)
 }
 
+// CreateQuestionSet mocks base method.
+func (m *MockStore) CreateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateQuestionSet", ctx, questionSet)
+	ret0, _ := ret[0].(*types.QuestionSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateQuestionSet indicates an expected call of CreateQuestionSet.
+func (mr *MockStoreMockRecorder) CreateQuestionSet(ctx, questionSet any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateQuestionSet", reflect.TypeOf((*MockStore)(nil).CreateQuestionSet), ctx, questionSet)
+}
+
+// CreateQuestionSetExecution mocks base method.
+func (m *MockStore) CreateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateQuestionSetExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateQuestionSetExecution indicates an expected call of CreateQuestionSetExecution.
+func (mr *MockStoreMockRecorder) CreateQuestionSetExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).CreateQuestionSetExecution), ctx, execution)
+}
+
 // CreateRole mocks base method.
 func (m *MockStore) CreateRole(ctx context.Context, role *types.Role) (*types.Role, error) {
 	m.ctrl.T.Helper()
@@ -1235,6 +1265,20 @@ func (m *MockStore) DeleteProviderEndpoint(ctx context.Context, id string) error
 func (mr *MockStoreMockRecorder) DeleteProviderEndpoint(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProviderEndpoint", reflect.TypeOf((*MockStore)(nil).DeleteProviderEndpoint), ctx, id)
+}
+
+// DeleteQuestionSet mocks base method.
+func (m *MockStore) DeleteQuestionSet(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteQuestionSet", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteQuestionSet indicates an expected call of DeleteQuestionSet.
+func (mr *MockStoreMockRecorder) DeleteQuestionSet(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteQuestionSet", reflect.TypeOf((*MockStore)(nil).DeleteQuestionSet), ctx, id)
 }
 
 // DeleteRole mocks base method.
@@ -2266,6 +2310,36 @@ func (mr *MockStoreMockRecorder) GetProviderEndpoint(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetProviderEndpoint", reflect.TypeOf((*MockStore)(nil).GetProviderEndpoint), ctx, q)
 }
 
+// GetQuestionSet mocks base method.
+func (m *MockStore) GetQuestionSet(ctx context.Context, id string) (*types.QuestionSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetQuestionSet", ctx, id)
+	ret0, _ := ret[0].(*types.QuestionSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetQuestionSet indicates an expected call of GetQuestionSet.
+func (mr *MockStoreMockRecorder) GetQuestionSet(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQuestionSet", reflect.TypeOf((*MockStore)(nil).GetQuestionSet), ctx, id)
+}
+
+// GetQuestionSetExecution mocks base method.
+func (m *MockStore) GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetQuestionSetExecution", ctx, id)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetQuestionSetExecution indicates an expected call of GetQuestionSetExecution.
+func (mr *MockStoreMockRecorder) GetQuestionSetExecution(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).GetQuestionSetExecution), ctx, id)
+}
+
 // GetRecentCompletions mocks base method.
 func (m *MockStore) GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error) {
 	m.ctrl.T.Helper()
@@ -3244,6 +3318,36 @@ func (mr *MockStoreMockRecorder) ListProviderEndpoints(ctx, q any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProviderEndpoints", reflect.TypeOf((*MockStore)(nil).ListProviderEndpoints), ctx, q)
 }
 
+// ListQuestionSetExecutions mocks base method.
+func (m *MockStore) ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListQuestionSetExecutions", ctx, q)
+	ret0, _ := ret[0].([]*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListQuestionSetExecutions indicates an expected call of ListQuestionSetExecutions.
+func (mr *MockStoreMockRecorder) ListQuestionSetExecutions(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListQuestionSetExecutions", reflect.TypeOf((*MockStore)(nil).ListQuestionSetExecutions), ctx, q)
+}
+
+// ListQuestionSets mocks base method.
+func (m *MockStore) ListQuestionSets(ctx context.Context, req *types.ListQuestionSetsRequest) ([]*types.QuestionSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListQuestionSets", ctx, req)
+	ret0, _ := ret[0].([]*types.QuestionSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListQuestionSets indicates an expected call of ListQuestionSets.
+func (mr *MockStoreMockRecorder) ListQuestionSets(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListQuestionSets", reflect.TypeOf((*MockStore)(nil).ListQuestionSets), ctx, req)
+}
+
 // ListRoles mocks base method.
 func (m *MockStore) ListRoles(ctx context.Context, organizationID string) ([]*types.Role, error) {
 	m.ctrl.T.Helper()
@@ -4128,6 +4232,36 @@ func (m *MockStore) UpdateProviderEndpoint(ctx context.Context, providerEndpoint
 func (mr *MockStoreMockRecorder) UpdateProviderEndpoint(ctx, providerEndpoint any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProviderEndpoint", reflect.TypeOf((*MockStore)(nil).UpdateProviderEndpoint), ctx, providerEndpoint)
+}
+
+// UpdateQuestionSet mocks base method.
+func (m *MockStore) UpdateQuestionSet(ctx context.Context, questionSet *types.QuestionSet) (*types.QuestionSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateQuestionSet", ctx, questionSet)
+	ret0, _ := ret[0].(*types.QuestionSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateQuestionSet indicates an expected call of UpdateQuestionSet.
+func (mr *MockStoreMockRecorder) UpdateQuestionSet(ctx, questionSet any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateQuestionSet", reflect.TypeOf((*MockStore)(nil).UpdateQuestionSet), ctx, questionSet)
+}
+
+// UpdateQuestionSetExecution mocks base method.
+func (m *MockStore) UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateQuestionSetExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.QuestionSetExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateQuestionSetExecution indicates an expected call of UpdateQuestionSetExecution.
+func (mr *MockStoreMockRecorder) UpdateQuestionSetExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateQuestionSetExecution", reflect.TypeOf((*MockStore)(nil).UpdateQuestionSetExecution), ctx, execution)
 }
 
 // UpdateRole mocks base method.

@@ -228,6 +228,11 @@ affinity: {}
 
 postgresql:
   enabled: true
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "16.3.0-debian-12-r14"
+    pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
     username: helix
