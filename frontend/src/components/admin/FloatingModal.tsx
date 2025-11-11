@@ -391,11 +391,10 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {!isMinimized && (
           <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {modalConfig.type === 'logs' && modalConfig.runner && (
-              <LogViewerModal 
+              <LogViewerModal
                 open={true}
                 onClose={onClose || floatingModal.hideFloatingModal}
                 runner={modalConfig.runner}
-                runnerUrl={modalConfig.runnerUrl}
                 isFloating={true}
               />
             )}

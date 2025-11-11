@@ -4,7 +4,6 @@ import { TypesDashboardRunner } from '../api/api'
 interface FloatingModalConfig {
   type: 'logs' | 'rdp' | 'exploratory_session'
   runner?: TypesDashboardRunner
-  runnerUrl?: string
   sessionId?: string
   wolfLobbyId?: string
 }
