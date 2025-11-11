@@ -277,7 +277,7 @@ const GitRepoDetail: FC = () => {
           </Alert>
           <Button
             startIcon={<ArrowLeft size={16} />}
-            onClick={() => navigate('projects', { view: 'repositories' })}
+            onClick={() => navigate('projects', { tab: 'repositories' })}
           >
             Back to Repositories
           </Button>
@@ -301,7 +301,7 @@ const GitRepoDetail: FC = () => {
         {
           title: 'Repositories',
           routeName: 'projects',
-          params: { view: 'repositories' }
+          params: { tab: 'repositories' }
         }
       ]}
       orgBreadcrumbs={true}
@@ -317,7 +317,7 @@ const GitRepoDetail: FC = () => {
                 <GitBranch size={24} style={{ color: 'currentColor', opacity: 0.6 }} />
                 <Box
                   component="span"
-                  onClick={() => navigate('projects', { view: 'repositories' })}
+                  onClick={() => navigate('projects', { tab: 'repositories' })}
                   sx={{ color: '#3b82f6', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
                 >
                   {ownerSlug}
