@@ -603,9 +603,18 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 
 // checkForDesignDocs checks if the helix-specs branch contains design documentation files
 func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
-	// Check for design doc files in helix-specs branch (or helix-design-docs for backward compat)
+	// Check for design doc files in helix-specs branch (not HEAD)
 	// Design docs are committed to a separate branch, not the main code branch
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
+	cmd.Dir = repoPath
 
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If helix-specs branch doesn't exist, no design docs
+		return false, nil
+	}
+
+	files := strings.Split(string(output), "\n")
 	designDocPatterns := []string{
 		"tasks/",          // SpecTask design docs are in tasks/ subdirectories
 		"design/",
@@ -614,28 +623,14 @@ func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
 		"tasks.md",
 	}
 
-	// Try helix-specs first (new name), then helix-design-docs (legacy)
-	for _, branch := range []string{"helix-specs", "helix-design-docs"} {
-		cmd := exec.Command("git", "ls-tree", "--name-only", "-r", branch)
-		cmd.Dir = repoPath
-
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			// Branch doesn't exist, try next one
-			continue
-		}
-
-		files := strings.Split(string(output), "\n")
-		for _, file := range files {
-			for _, pattern := range designDocPatterns {
-				if strings.Contains(file, pattern) {
-					log.Debug().
-						Str("file", file).
-						Str("pattern", pattern).
-						Str("branch", branch).
-						Msg("Design doc pattern matched")
-					return true, nil
-				}
+	for _, file := range files {
+		for _, pattern := range designDocPatterns {
+			if strings.Contains(file, pattern) {
+				log.Debug().
+					Str("file", file).
+					Str("pattern", pattern).
+					Msg("Design doc pattern matched")
+				return true, nil
 			}
 		}
 	}
