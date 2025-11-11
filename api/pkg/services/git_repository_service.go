@@ -750,6 +750,17 @@ func (s *GitRepositoryService) initializeGitRepository(
 			return fmt.Errorf("failed to push to bare repo: %w", err)
 		}
 
+		// Open the bare repo and delete master branch if it exists
+		bareRepo, err := git.PlainOpen(repoPath)
+		if err == nil {
+			masterRef := plumbing.NewBranchReferenceName("master")
+			if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
+				log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")
+			} else if err == nil {
+				log.Info().Msg("Removed master branch from bare repository")
+			}
+		}
+
 		log.Info().
 			Str("repo_path", repoPath).
 			Str("default_branch", defaultBranch).
@@ -770,6 +781,12 @@ func (s *GitRepositoryService) initializeGitRepository(
 		headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName(defaultBranch))
 		if err := repo.Storer.SetReference(headRef); err != nil {
 			log.Warn().Err(err).Msg("Failed to set HEAD to main branch")
+		}
+
+		// Delete master branch if it exists
+		masterRef := plumbing.NewBranchReferenceName("master")
+		if err := repo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
+			log.Warn().Err(err).Msg("Failed to remove master branch")
 		}
 
 		log.Info().
