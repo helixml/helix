@@ -601,25 +601,26 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 	}
 }
 
-// checkForDesignDocs checks if the latest commit contains design documentation files
+// checkForDesignDocs checks if the helix-specs branch contains design documentation files
 func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
-	// Check for standard design doc files in the latest commit
-	// Using git show to list files in HEAD commit
-	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "HEAD")
+	// Check for design doc files in helix-specs branch (not HEAD)
+	// Design docs are committed to a separate branch, not the main code branch
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
 	cmd.Dir = repoPath
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("failed to list files in commit: %w", err)
+		// If helix-specs branch doesn't exist, no design docs
+		return false, nil
 	}
 
 	files := strings.Split(string(output), "\n")
 	designDocPatterns := []string{
+		"tasks/",          // SpecTask design docs are in tasks/ subdirectories
 		"design/",
-		"REQUIREMENTS.md",
-		"TECHNICAL_DESIGN.md",
-		"IMPLEMENTATION_PLAN.md",
-		"docs/specs/",
+		"requirements.md",
+		"design.md",
+		"tasks.md",
 	}
 
 	for _, file := range files {
