@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -81,6 +83,23 @@ func (s *HelixAPIServer) listDesignReviews(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Self-healing: If task is in spec_review but has no reviews, auto-create one from git
+	if len(reviews) == 0 && specTask.Status == types.TaskStatusSpecReview {
+		log.Info().
+			Str("spec_task_id", specTaskID).
+			Msg("No design reviews found for task in spec_review status - auto-creating from git")
+
+		// Get project to find repository
+		project, err := s.Store.GetProject(ctx, specTask.ProjectID)
+		if err == nil && project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo != nil {
+				// Create review from git asynchronously (don't block response)
+				go s.backfillDesignReviewFromGit(context.Background(), specTaskID, repo.LocalPath)
+			}
+		}
 	}
 
 	response := &types.SpecTaskDesignReviewListResponse{
@@ -469,4 +488,105 @@ func (s *HelixAPIServer) linkAgentResponseToComment(
 		Msg("Linked agent response to design review comment")
 
 	return nil
+}
+
+// backfillDesignReviewFromGit creates a design review from the current state of helix-specs branch
+// Used for self-healing when a task is in spec_review but has no review record
+func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTaskID, repoPath string) {
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Msg("Backfilling design review from git")
+
+	// Get current commit hash from helix-specs branch
+	cmd := exec.Command("git", "rev-parse", "helix-specs")
+	cmd.Dir = repoPath
+	hashOutput, err := cmd.Output()
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to get commit hash from helix-specs branch")
+		return
+	}
+	commitHash := strings.TrimSpace(string(hashOutput))
+
+	// List all files in helix-specs branch to find task directory
+	cmd = exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to list files in helix-specs branch")
+		return
+	}
+
+	// Find task directory by searching for task ID in file paths
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var taskDir string
+	for _, file := range files {
+		if strings.Contains(file, specTaskID) {
+			// Extract directory path
+			parts := strings.Split(file, "/")
+			if len(parts) >= 3 {
+				taskDir = strings.Join(parts[:len(parts)-1], "/")
+				break
+			}
+		}
+	}
+
+	if taskDir == "" {
+		log.Warn().
+			Str("spec_task_id", specTaskID).
+			Msg("No task directory found in helix-specs branch for backfill")
+		return
+	}
+
+	// Read design documents from task directory
+	docs := make(map[string]string)
+	docFilenames := []string{"requirements.md", "design.md", "tasks.md"}
+
+	for _, filename := range docFilenames {
+		filePath := fmt.Sprintf("%s/%s", taskDir, filename)
+		cmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", filePath))
+		cmd.Dir = repoPath
+		output, err := cmd.Output()
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("filename", filename).
+				Msg("Design doc file not found during backfill")
+			continue
+		}
+		docs[filename] = string(output)
+	}
+
+	// Create design review record
+	review := &types.SpecTaskDesignReview{
+		ID:                 system.GenerateUUID(),
+		SpecTaskID:         specTaskID,
+		Status:             types.SpecTaskDesignReviewStatusPending,
+		RequirementsSpec:   docs["requirements.md"],
+		TechnicalDesign:    docs["design.md"],
+		ImplementationPlan: docs["tasks.md"],
+		GitBranch:          "helix-specs",
+		GitCommitHash:      commitHash,
+		GitPushedAt:        time.Now(),
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+	}
+
+	if err := s.Store.CreateSpecTaskDesignReview(ctx, review); err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to backfill design review")
+		return
+	}
+
+	log.Info().
+		Str("review_id", review.ID).
+		Str("spec_task_id", specTaskID).
+		Msg("✅ Design review backfilled successfully from git")
 }
