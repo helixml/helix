@@ -114,8 +114,6 @@ export default function DesignReviewViewer({
   const [submitDecision, setSubmitDecision] = useState<'approve' | 'request_changes'>('approve')
   const [startingImplementation, setStartingImplementation] = useState(false)
   const [showCommentLog, setShowCommentLog] = useState(false)
-  const [showGeneralCommentForm, setShowGeneralCommentForm] = useState(false)
-  const [generalCommentText, setGeneralCommentText] = useState('')
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null)
@@ -289,27 +287,6 @@ export default function DesignReviewViewer({
       setCommentText('')
       setSelectedText('')
       setShowCommentForm(false)
-    } catch (error: any) {
-      snackbar.error(`Failed to add comment: ${error.message}`)
-    }
-  }
-
-  const handleCreateGeneralComment = async () => {
-    if (!generalCommentText.trim()) {
-      snackbar.error('Comment text is required')
-      return
-    }
-
-    try {
-      await createCommentMutation.mutateAsync({
-        document_type: activeTab,
-        quoted_text: undefined,
-        comment_text: generalCommentText,
-      })
-
-      snackbar.success('General comment added successfully')
-      setGeneralCommentText('')
-      setShowGeneralCommentForm(false)
     } catch (error: any) {
       snackbar.error(`Failed to add comment: ${error.message}`)
     }
@@ -628,7 +605,7 @@ export default function DesignReviewViewer({
           display: open ? 'flex' : 'none',
           flexDirection: 'column',
           zIndex: 10000,
-          bgcolor: '#fafafa',
+          bgcolor: 'background.paper',
           boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
           overflow: 'hidden',
         }}
@@ -647,8 +624,9 @@ export default function DesignReviewViewer({
             justifyContent: 'space-between',
             px: 2,
             py: 1.5,
-            borderBottom: '1px solid rgba(0,0,0,0.12)',
-            bgcolor: 'white',
+            borderBottom: 1,
+            borderColor: 'divider',
+            bgcolor: 'background.default',
             cursor: 'move',
             userSelect: 'none',
           }}
@@ -690,7 +668,7 @@ export default function DesignReviewViewer({
         </Box>
 
         {/* Git information */}
-        <Box display="flex" alignItems="center" gap={2} px={2} py={1} bgcolor="white" borderBottom="1px solid rgba(0,0,0,0.12)">
+        <Box display="flex" alignItems="center" gap={2} px={2} py={1} bgcolor="background.default" borderBottom={1} borderColor="divider">
           <Tooltip title={`Commit: ${review.git_commit_hash}`}>
             <Chip
               icon={<GitHubIcon />}
@@ -711,7 +689,7 @@ export default function DesignReviewViewer({
             <Tabs
               value={activeTab}
               onChange={(_, value) => setActiveTab(value)}
-              sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'white' }}
+              sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}
             >
               <Tab label={DOCUMENT_LABELS.requirements} value="requirements" />
               <Tab label={DOCUMENT_LABELS.technical_design} value="technical_design" />
@@ -724,7 +702,7 @@ export default function DesignReviewViewer({
               overflow="auto"
               p={4}
               sx={{
-                bgcolor: '#f5f3f0',
+                bgcolor: 'background.default',
                 position: 'relative',
               }}
             >
@@ -736,31 +714,32 @@ export default function DesignReviewViewer({
                   marginRight: '350px', // Space for inline comments
                   position: 'relative',
                   '& .markdown-body': {
-                    bgcolor: '#ffffff',
+                    bgcolor: 'background.paper',
                     p: 5,
                     borderRadius: 1,
                     boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
                     fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif",
                     fontSize: '16px',
                     lineHeight: 1.9,
-                    color: '#2c2c2c',
+                    color: 'text.primary',
 
                   '& h1': {
                     fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
                     fontSize: '2.5rem',
                     fontWeight: 400,
-                    color: '#1a1a1a',
+                    color: 'text.primary',
                     marginTop: '1.5rem',
                     marginBottom: '1rem',
                     lineHeight: 1.3,
-                    borderBottom: '2px solid #e0e0e0',
+                    borderBottom: 2,
+                    borderColor: 'divider',
                     paddingBottom: '0.5rem',
                   },
                   '& h2': {
                     fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
                     fontSize: '2rem',
                     fontWeight: 400,
-                    color: '#2c2c2c',
+                    color: 'text.primary',
                     marginTop: '2rem',
                     marginBottom: '0.75rem',
                     lineHeight: 1.35,
@@ -769,7 +748,7 @@ export default function DesignReviewViewer({
                     fontFamily: "'Palatino Linotype', 'Book Antiqua', Palatino, serif",
                     fontSize: '1.5rem',
                     fontWeight: 500,
-                    color: '#3c3c3c',
+                    color: 'text.primary',
                     marginTop: '1.5rem',
                     marginBottom: '0.5rem',
                   },
@@ -786,19 +765,21 @@ export default function DesignReviewViewer({
                     marginBottom: '0.5rem',
                   },
                   '& blockquote': {
-                    borderLeft: '4px solid #d0d0d0',
+                    borderLeft: '4px solid',
+                    borderColor: 'divider',
                     paddingLeft: '1.5rem',
                     marginLeft: 0,
                     fontStyle: 'italic',
-                    color: '#5c5c5c',
+                    color: 'text.secondary',
                   },
                   '& code': {
                     fontFamily: 'Monaco, Consolas, monospace',
                     fontSize: '0.9em',
-                    bgcolor: '#f5f5f5',
+                    bgcolor: 'action.hover',
                     padding: '2px 6px',
                     borderRadius: '3px',
-                    border: '1px solid #e0e0e0',
+                    border: 1,
+                    borderColor: 'divider',
                   },
                   '& pre': {
                     marginBottom: '1.2rem',
@@ -844,117 +825,6 @@ export default function DesignReviewViewer({
                 </ReactMarkdown>
               </Paper>
 
-              {/* General Comments Section */}
-              {generalComments.length > 0 && (
-                <Box mt={4}>
-                  <Typography variant="h6" sx={{ mb: 2, fontFamily: "'Palatino Linotype', Georgia, serif" }}>
-                    General Comments
-                  </Typography>
-                  {generalComments.map(comment => (
-                    <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
-                      <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                        <Chip
-                          label="General"
-                          size="small"
-                          sx={{ bgcolor: '#2196f3', color: 'white' }}
-                        />
-                        {!comment.resolved && (
-                          <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                      </Box>
-
-                      <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
-
-                      {comment.agent_response && (
-                        <Box
-                          sx={{
-                            mt: 2,
-                            p: 2,
-                            bgcolor: '#e3f2fd',
-                            borderLeft: '3px solid #1976d2',
-                            borderRadius: 1,
-                          }}
-                        >
-                          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
-                            Agent Response:
-                          </Typography>
-                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                            {comment.agent_response}
-                          </Typography>
-                          {comment.agent_response_at && (
-                            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                              {new Date(comment.agent_response_at).toLocaleString()}
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-
-                      {comment.resolved && (
-                        <Chip
-                          label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
-                          size="small"
-                          color="success"
-                          icon={<CheckCircleIcon />}
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-
-                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                        {new Date(comment.created_at).toLocaleString()}
-                      </Typography>
-                    </Paper>
-                  ))}
-                </Box>
-              )}
-
-              {/* Add General Comment Button/Form */}
-              <Box mt={4}>
-                {!showGeneralCommentForm ? (
-                  <Button
-                    variant="outlined"
-                    onClick={() => setShowGeneralCommentForm(true)}
-                    startIcon={<CommentIcon />}
-                  >
-                    Add General Comment
-                  </Button>
-                ) : (
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                      General Comment (applies to entire document)
-                    </Typography>
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={3}
-                      value={generalCommentText}
-                      onChange={(e) => setGeneralCommentText(e.target.value)}
-                      placeholder="Add your comment..."
-                      sx={{ mb: 1 }}
-                    />
-                    <Box display="flex" gap={1} justifyContent="flex-end">
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setShowGeneralCommentForm(false)
-                          setGeneralCommentText('')
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        onClick={handleCreateGeneralComment}
-                        disabled={!generalCommentText.trim()}
-                      >
-                        Comment
-                      </Button>
-                    </Box>
-                  </Paper>
-                )}
-              </Box>
 
               {/* Inline Comments Overlay */}
               {(() => {
@@ -983,8 +853,9 @@ export default function DesignReviewViewer({
                       top: `${yPos}px`,
                       width: '300px',
                       p: 2,
-                      bgcolor: '#fff9e6',
-                      border: '1px solid #ffc107',
+                      bgcolor: 'warning.light',
+                      border: 1,
+                      borderColor: 'warning.main',
                       boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                       zIndex: 10,
                     }}
@@ -993,7 +864,7 @@ export default function DesignReviewViewer({
                       <Chip
                         label="Comment"
                         size="small"
-                        sx={{ bgcolor: '#2196f3', color: 'white' }}
+                        color="primary"
                       />
                       <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
                         <CloseIcon fontSize="small" />
@@ -1003,9 +874,10 @@ export default function DesignReviewViewer({
                     {comment.quoted_text && (
                       <Box
                         sx={{
-                          bgcolor: '#f5f5f5',
+                          bgcolor: 'action.hover',
                           p: 1,
-                          borderLeft: '3px solid #2196f3',
+                          borderLeft: '3px solid',
+                          borderColor: 'primary.main',
                           mb: 1,
                           fontStyle: 'italic',
                           fontSize: '0.75rem',
@@ -1024,8 +896,9 @@ export default function DesignReviewViewer({
                         sx={{
                           mt: 2,
                           p: 1.5,
-                          bgcolor: '#e3f2fd',
-                          borderLeft: '3px solid #1976d2',
+                          bgcolor: 'info.light',
+                          borderLeft: '3px solid',
+                          borderColor: 'info.main',
                           borderRadius: 1,
                         }}
                       >
@@ -1059,8 +932,9 @@ export default function DesignReviewViewer({
                     top: `${commentFormPosition.y}px`,
                     width: '300px',
                     p: 2,
-                    bgcolor: '#ffffff',
-                    border: '2px solid #2196f3',
+                    bgcolor: 'background.paper',
+                    border: '2px solid',
+                    borderColor: 'primary.main',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                     zIndex: 20,
                   }}
@@ -1072,9 +946,10 @@ export default function DesignReviewViewer({
                   {selectedText && (
                     <Box
                       sx={{
-                        bgcolor: '#f5f5f5',
+                        bgcolor: 'action.hover',
                         p: 1,
-                        borderLeft: '3px solid #2196f3',
+                        borderLeft: '3px solid',
+                        borderColor: 'primary.main',
                         mb: 1.5,
                         fontStyle: 'italic',
                         fontSize: '0.75rem',
@@ -1124,12 +999,13 @@ export default function DesignReviewViewer({
           {/* Comment Log Sidebar */}
           <Box
             width="400px"
-            borderLeft="1px solid rgba(0,0,0,0.12)"
+            borderLeft={1}
+            borderColor="divider"
             display="flex"
             flexDirection="column"
-            bgcolor="white"
+            bgcolor="background.paper"
           >
-            <Box p={2} borderBottom="1px solid rgba(0,0,0,0.12)">
+            <Box p={2} borderBottom={1} borderColor="divider">
               <Typography variant="h6">
                 Comment Log ({activeDocComments.length})
               </Typography>
@@ -1152,7 +1028,7 @@ export default function DesignReviewViewer({
                       <Chip
                         label={comment.quoted_text ? "Inline" : "General"}
                         size="small"
-                        sx={{ bgcolor: comment.quoted_text ? '#2196f3' : '#9e9e9e', color: 'white' }}
+                        color={comment.quoted_text ? "primary" : "default"}
                       />
                       {!comment.resolved && (
                         <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
@@ -1164,9 +1040,10 @@ export default function DesignReviewViewer({
                     {comment.quoted_text && (
                       <Box
                         sx={{
-                          bgcolor: '#f5f5f5',
+                          bgcolor: 'action.hover',
                           p: 1,
-                          borderLeft: '3px solid #2196f3',
+                          borderLeft: '3px solid',
+                          borderColor: 'primary.main',
                           mb: 1,
                           fontStyle: 'italic',
                           fontSize: '0.875rem',
@@ -1184,8 +1061,9 @@ export default function DesignReviewViewer({
                         sx={{
                           mt: 2,
                           p: 2,
-                          bgcolor: '#e3f2fd',
-                          borderLeft: '3px solid #1976d2',
+                          bgcolor: 'info.light',
+                          borderLeft: '3px solid',
+                          borderColor: 'info.main',
                           borderRadius: 1,
                         }}
                       >
@@ -1223,7 +1101,7 @@ export default function DesignReviewViewer({
 
             {/* Review submit controls */}
             {review.status === 'approved' ? (
-              <Box p={3} borderTop="1px solid rgba(0,0,0,0.12)" bgcolor="success.light" sx={{ bgcolor: '#e8f5e9' }}>
+              <Box p={3} borderTop={1} borderColor="divider" bgcolor="success.light">
                 <Alert severity="success" sx={{ mb: 2 }}>
                   Design approved! Ready to start implementation.
                 </Alert>
@@ -1250,7 +1128,7 @@ export default function DesignReviewViewer({
                 </Typography>
               </Box>
             ) : review.status !== 'superseded' ? (
-              <Box p={2} borderTop="1px solid rgba(0,0,0,0.12)">
+              <Box p={2} borderTop={1} borderColor="divider">
                 {unresolvedCount > 0 && (
                   <Alert severity="warning" sx={{ mb: 2 }}>
                     {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
