@@ -453,10 +453,20 @@ function start() {
 function stop() {
   echo "🛑 Stopping docker containers and tmux session..."
 
-  # Clean up Wolf config to ensure fresh start next time
+  # Clean up Wolf config and certificates to ensure fresh start next time
   if [ -f "wolf/config.toml" ]; then
     echo "🗑️  Removing Wolf config.toml (will be regenerated from template on next start)"
     rm -f wolf/config.toml
+  fi
+  if [ -f "wolf/cert.pem" ] || [ -f "wolf/key.pem" ]; then
+    echo "🗑️  Removing Wolf SSL certificates (will be regenerated on next start)"
+    rm -f wolf/cert.pem wolf/key.pem
+  fi
+
+  # Clean up Moonlight Web pairing data to ensure fresh pairing with Wolf's new certs
+  if [ -f "moonlight-web-config/data.json" ]; then
+    echo "🗑️  Removing Moonlight Web pairing data (will re-pair with Wolf on next start)"
+    rm -f moonlight-web-config/data.json
   fi
 
   # Build exclude pattern for services that should not be stopped

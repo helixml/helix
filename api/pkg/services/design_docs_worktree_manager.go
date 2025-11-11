@@ -15,7 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// DesignDocsWorktreeManager manages git worktrees for helix-design-docs branch
+// DesignDocsWorktreeManager manages git worktrees for helix-specs branch
 // This branch is forward-only and survives git operations on main code
 type DesignDocsWorktreeManager struct {
 	gitUserName  string
@@ -48,11 +48,11 @@ func NewDesignDocsWorktreeManager(gitUserName, gitUserEmail string) *DesignDocsW
 	}
 }
 
-// SetupWorktree creates the helix-design-docs branch and worktree if not exists
+// SetupWorktree creates the helix-specs branch and worktree if not exists
 func (m *DesignDocsWorktreeManager) SetupWorktree(ctx context.Context, repoPath string) (string, error) {
 	log.Info().
 		Str("repo_path", repoPath).
-		Msg("Setting up helix-design-docs worktree")
+		Msg("Setting up helix-specs worktree")
 
 	// Open git repository
 	repo, err := git.PlainOpen(repoPath)
@@ -60,8 +60,8 @@ func (m *DesignDocsWorktreeManager) SetupWorktree(ctx context.Context, repoPath 
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	// Check if helix-design-docs branch exists
-	branchName := "helix-design-docs"
+	// Check if helix-specs branch exists
+	branchName := "helix-specs"
 	branchRefName := plumbing.NewBranchReferenceName(branchName)
 
 	_, err = repo.Reference(branchRefName, true)
@@ -69,14 +69,14 @@ func (m *DesignDocsWorktreeManager) SetupWorktree(ctx context.Context, repoPath 
 		// Branch doesn't exist, create it
 		err = m.createDesignDocsBranch(repo, branchRefName)
 		if err != nil {
-			return "", fmt.Errorf("failed to create helix-design-docs branch: %w", err)
+			return "", fmt.Errorf("failed to create helix-specs branch: %w", err)
 		}
 	} else if err != nil {
 		return "", fmt.Errorf("failed to check for branch: %w", err)
 	}
 
 	// Setup worktree
-	worktreePath := filepath.Join(repoPath, ".git-worktrees", "helix-design-docs")
+	worktreePath := filepath.Join(repoPath, ".git-worktrees", "helix-specs")
 
 	// Check if worktree already exists
 	if _, err := os.Stat(worktreePath); err == nil {
@@ -107,12 +107,12 @@ func (m *DesignDocsWorktreeManager) SetupWorktree(ctx context.Context, repoPath 
 
 	log.Info().
 		Str("worktree_path", worktreePath).
-		Msg("Successfully setup helix-design-docs worktree")
+		Msg("Successfully setup helix-specs worktree")
 
 	return worktreePath, nil
 }
 
-// createDesignDocsBranch creates the helix-design-docs branch
+// createDesignDocsBranch creates the helix-specs branch
 func (m *DesignDocsWorktreeManager) createDesignDocsBranch(repo *git.Repository, branchRef plumbing.ReferenceName) error {
 	// Get HEAD reference
 	headRef, err := repo.Head()
@@ -130,7 +130,7 @@ func (m *DesignDocsWorktreeManager) createDesignDocsBranch(repo *git.Repository,
 	log.Info().
 		Str("branch", branchRef.Short()).
 		Str("commit", headRef.Hash().String()[:8]).
-		Msg("Created helix-design-docs branch")
+		Msg("Created helix-specs branch")
 
 	return nil
 }
@@ -169,7 +169,7 @@ func (m *DesignDocsWorktreeManager) setupWorktreeDirectory(repo *git.Repository,
 
 	// Note: For simplicity, we'll initialize as a separate git repo for the design docs
 	// This avoids complexity with go-git's limited worktree support
-	// The design docs will have their own git history on helix-design-docs branch
+	// The design docs will have their own git history on helix-specs branch
 	_, err = git.PlainInit(worktreePath, false)
 	if err != nil {
 		return fmt.Errorf("failed to init design docs repo: %w", err)
@@ -218,7 +218,7 @@ All documents here are managed by Helix agents and the orchestrator.
 ## Directory Structure
 
 ` + "```" + `
-helix-design-docs/
+helix-specs/
 ├── README.md                    (this file)
 ├── tasks/                       (organized by date + branch name)
 │   ├── 2025-10-08_add-user-auth_spec_abc123/
@@ -256,7 +256,7 @@ In tasks.md (following spec-driven development):
 
 ## Git Workflow
 
-All changes committed to helix-design-docs branch.
+All changes committed to helix-specs branch.
 This branch is **forward-only** and never rolled back.
 
 ---
@@ -377,7 +377,7 @@ Critical choices and rationale
 	log.Info().
 		Str("task_id", taskID).
 		Str("task_dir", taskDir).
-		Msg("Initialized organized task directory in helix-design-docs")
+		Msg("Initialized organized task directory in helix-specs")
 
 	return taskDir, nil
 }
@@ -559,7 +559,7 @@ func (m *DesignDocsWorktreeManager) updateTaskStatus(worktreePath string, lineNu
 	return nil
 }
 
-// commitChanges commits a file change to the helix-design-docs branch
+// commitChanges commits a file change to the helix-specs branch
 func (m *DesignDocsWorktreeManager) commitChanges(worktreePath, filePath, message string) error {
 	// Open git repository at worktree path
 	repo, err := git.PlainOpen(worktreePath)

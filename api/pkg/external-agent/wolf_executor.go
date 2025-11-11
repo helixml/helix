@@ -2068,18 +2068,18 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 	return nil
 }
 
-// setupDesignDocsWorktree creates the helix-design-docs branch if it doesn't exist
+// setupDesignDocsWorktree creates the helix-specs branch if it doesn't exist
 // Note: The actual worktree is created inside the Wolf container during startup
 // to ensure paths are correct for the container environment
 func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error {
 	log.Info().
 		Str("repo_path", repoPath).
-		Msg("Ensuring helix-design-docs branch exists")
+		Msg("Ensuring helix-specs branch exists")
 
 	ctx := context.Background()
 
-	// Check if helix-design-docs branch exists remotely
-	checkBranchCmd := "git ls-remote --heads origin helix-design-docs"
+	// Check if helix-specs branch exists remotely
+	checkBranchCmd := "git ls-remote --heads origin helix-specs"
 	output, err := execCommand(ctx, repoPath, "bash", "-c", checkBranchCmd)
 	branchExists := err == nil && output != ""
 
@@ -2087,7 +2087,7 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 		// Create orphan branch for design docs (forward-only, no shared history)
 		log.Info().
 			Str("repo_name", repoName).
-			Msg("Creating new helix-design-docs orphan branch")
+			Msg("Creating new helix-specs orphan branch")
 
 		// Configure git user for commit operations (required for command-line git)
 		configGitCmd := `
@@ -2123,7 +2123,7 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 		var createBranchCmd string
 		if hasRemote {
 			createBranchCmd = fmt.Sprintf(`
-				git checkout --orphan helix-design-docs && \
+				git checkout --orphan helix-specs && \
 				git rm -rf . && \
 				echo "# Helix Design Documents" > README.md && \
 				echo "" >> README.md && \
@@ -2131,14 +2131,14 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 				echo "Documents are organized by task in tasks/ directory." >> README.md && \
 				mkdir -p tasks && \
 				git add README.md && \
-				git commit -m "Initialize helix-design-docs branch" && \
-				git push -u origin helix-design-docs && \
+				git commit -m "Initialize helix-specs branch" && \
+				git push -u origin helix-specs && \
 				git checkout %s
 			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
 		} else {
 			// No remote - create branch locally only (for Helix-hosted repos)
 			createBranchCmd = fmt.Sprintf(`
-				git checkout --orphan helix-design-docs && \
+				git checkout --orphan helix-specs && \
 				git rm -rf . && \
 				echo "# Helix Design Documents" > README.md && \
 				echo "" >> README.md && \
@@ -2146,7 +2146,7 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 				echo "Documents are organized by task in tasks/ directory." >> README.md && \
 				mkdir -p tasks && \
 				git add README.md && \
-				git commit -m "Initialize helix-design-docs branch" && \
+				git commit -m "Initialize helix-specs branch" && \
 				git checkout %s
 			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
 			log.Info().Msg("Repository has no remote - creating design docs branch locally only")
@@ -2154,20 +2154,20 @@ func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error 
 
 		_, err = execCommand(ctx, repoPath, "bash", "-c", createBranchCmd)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to create helix-design-docs branch")
-			return fmt.Errorf("failed to create helix-design-docs branch: %w", err)
+			log.Error().Err(err).Msg("Failed to create helix-specs branch")
+			return fmt.Errorf("failed to create helix-specs branch: %w", err)
 		}
 
 		log.Info().
 			Bool("has_remote", hasRemote).
 			Str("restored_branch", currentBranch).
-			Msg("Successfully created helix-design-docs branch and restored original branch")
+			Msg("Successfully created helix-specs branch and restored original branch")
 	}
 
 	// Worktree will be created inside Wolf container during startup
 	log.Info().
 		Str("repo_name", repoName).
-		Msg("helix-design-docs branch ready (worktree will be created in container)")
+		Msg("helix-specs branch ready (worktree will be created in container)")
 
 	return nil
 }
