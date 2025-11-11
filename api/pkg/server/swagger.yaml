@@ -6224,6 +6224,134 @@ definitions:
       updated_at:
         type: string
     type: object
+  types.SpecTaskDesignReviewComment:
+    properties:
+      agent_response:
+        description: Agent integration (NEW FIELDS)
+        type: string
+      agent_response_at:
+        description: When agent responded
+        type: string
+      comment_text:
+        description: The actual comment
+        type: string
+      comment_type:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskDesignReviewCommentType'
+        description: Made optional - simplified to single type
+      commented_by:
+        description: Comment metadata
+        type: string
+      created_at:
+        description: Timestamps
+        type: string
+      document_type:
+        description: Location in document
+        type: string
+      end_offset:
+        description: Character offset in document
+        type: integer
+      id:
+        type: string
+      interaction_id:
+        description: Link to Helix interaction
+        type: string
+      line_number:
+        description: Optional line number
+        type: integer
+      quoted_text:
+        description: For inline comments - store the context around the comment
+        type: string
+      resolution_reason:
+        description: '"manual", "auto_text_removed", "agent_updated"'
+        type: string
+      resolved:
+        description: Status tracking
+        type: boolean
+      resolved_at:
+        type: string
+      resolved_by:
+        type: string
+      review_id:
+        type: string
+      section_path:
+        description: e.g., "## Architecture/### Database Schema"
+        type: string
+      start_offset:
+        description: Character offset in document
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskDesignReviewCommentCreateRequest:
+    properties:
+      comment_text:
+        type: string
+      comment_type:
+        $ref: '#/definitions/types.SpecTaskDesignReviewCommentType'
+      document_type:
+        enum:
+        - requirements
+        - technical_design
+        - implementation_plan
+        type: string
+      end_offset:
+        type: integer
+      line_number:
+        type: integer
+      quoted_text:
+        type: string
+      review_id:
+        type: string
+      section_path:
+        type: string
+      start_offset:
+        type: integer
+    required:
+    - comment_text
+    - document_type
+    - review_id
+    type: object
+  types.SpecTaskDesignReviewCommentListResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.SpecTaskDesignReviewCommentType:
+    enum:
+    - general
+    - question
+    - suggestion
+    - critical
+    - praise
+    type: string
+    x-enum-comments:
+      SpecTaskDesignReviewCommentTypeCritical: Critical issue must be fixed
+      SpecTaskDesignReviewCommentTypeGeneral: General comment
+      SpecTaskDesignReviewCommentTypePraise: Positive feedback
+      SpecTaskDesignReviewCommentTypeQuestion: Question needing clarification
+      SpecTaskDesignReviewCommentTypeSuggestion: Suggested improvement
+    x-enum-varnames:
+    - SpecTaskDesignReviewCommentTypeGeneral
+    - SpecTaskDesignReviewCommentTypeQuestion
+    - SpecTaskDesignReviewCommentTypeSuggestion
+    - SpecTaskDesignReviewCommentTypeCritical
+    - SpecTaskDesignReviewCommentTypePraise
+  types.SpecTaskDesignReviewDetailResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        type: array
+      review:
+        $ref: '#/definitions/types.SpecTaskDesignReview'
+      spec_task:
+        $ref: '#/definitions/types.SpecTask'
+    type: object
   types.SpecTaskDesignReviewListResponse:
     properties:
       reviews:
@@ -6253,6 +6381,22 @@ definitions:
     - SpecTaskDesignReviewStatusChangesRequested
     - SpecTaskDesignReviewStatusApproved
     - SpecTaskDesignReviewStatusSuperseded
+  types.SpecTaskDesignReviewSubmitRequest:
+    properties:
+      decision:
+        description: '"approve" or "request_changes"'
+        enum:
+        - approve
+        - request_changes
+        type: string
+      overall_comment:
+        type: string
+      review_id:
+        type: string
+    required:
+    - decision
+    - review_id
+    type: object
   types.SpecTaskImplementationSessionsCreateRequest:
     properties:
       auto_create_sessions:
@@ -12259,6 +12403,211 @@ paths:
       summary: List design reviews
       tags:
       - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a specific design review for a spec task with comments and
+        spec task details
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewDetailResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get design review details
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments:
+    get:
+      consumes:
+      - application/json
+      description: Get all comments for a specific design review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewCommentListResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List design review comments
+      tags:
+      - SpecTasks
+    post:
+      consumes:
+      - application/json
+      description: Create a new comment on a design review document
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Comment data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewCommentCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create design review comment
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve:
+    post:
+      consumes:
+      - application/json
+      description: Mark a design review comment as resolved
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Comment ID
+        in: path
+        name: comment_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Resolve design review comment
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit:
+    post:
+      consumes:
+      - application/json
+      description: Approve or request changes for a design review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Review decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewSubmitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Submit design review decision
+      tags:
+      - SpecTasks
   /api/v1/spec-tasks/{spec_task_id}/stop-agent:
     post:
       description: Stop the running agent session for a spec task

@@ -94,9 +94,7 @@ export function useDesignReview(specTaskId: string, reviewId: string) {
   return useQuery({
     queryKey: designReviewKeys.detail(specTaskId, reviewId),
     queryFn: async () => {
-      const response = await apiClient.get<DesignReviewDetailResponse>(
-        `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`
-      )
+      const response = await apiClient.v1SpecTasksDesignReviewsDetail2(specTaskId, reviewId)
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
@@ -110,9 +108,7 @@ export function useDesignReviewComments(specTaskId: string, reviewId: string) {
   return useQuery({
     queryKey: designReviewKeys.comments(specTaskId, reviewId),
     queryFn: async () => {
-      const response = await apiClient.get<{ comments: DesignReviewComment[]; total: number }>(
-        `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`
-      )
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentsDetail(specTaskId, reviewId)
       return response.data
     },
     enabled: !!specTaskId && !!reviewId,
@@ -128,10 +124,7 @@ export function useSubmitReview(specTaskId: string, reviewId: string) {
 
   return useMutation({
     mutationFn: async (data: { decision: 'approve' | 'request_changes'; overall_comment?: string }) => {
-      const response = await apiClient.post(
-        `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
-        data
-      )
+      const response = await apiClient.v1SpecTasksDesignReviewsSubmitCreate(specTaskId, reviewId, data)
       return response.data
     },
     onSuccess: () => {
@@ -159,10 +152,7 @@ export function useCreateComment(specTaskId: string, reviewId: string) {
       comment_text: string
       comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise'
     }) => {
-      const response = await apiClient.post(
-        `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
-        data
-      )
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentsCreate(specTaskId, reviewId, data)
       return response.data
     },
     onSuccess: () => {
@@ -179,9 +169,7 @@ export function useResolveComment(specTaskId: string, reviewId: string) {
 
   return useMutation({
     mutationFn: async (commentId: string) => {
-      const response = await apiClient.post(
-        `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments/${commentId}/resolve`
-      )
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentsResolveCreate(specTaskId, commentId)
       return response.data
     },
     onSuccess: () => {
