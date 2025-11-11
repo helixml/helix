@@ -171,7 +171,7 @@ export default function TaskCard({
           <Box sx={{ display: 'flex', gap: 0.5 }}>
             {/* Design doc icon - only visible when design docs exist */}
             {(task.spec_session_id || task.planning_session_id) && (
-              <Tooltip title="View Design Document">
+              <Tooltip title="Review Spec">
                 <IconButton
                   size="small"
                   onClick={(e) => {
@@ -309,7 +309,7 @@ export default function TaskCard({
               }}
               fullWidth
             >
-              Review Design
+              Review Spec
             </Button>
           </Box>
         )}

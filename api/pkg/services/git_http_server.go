@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -624,6 +625,9 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 			log.Info().
 				Str("task_id", task.ID).
 				Msg("Moving task to spec review")
+
+			// Auto-create a design review record so the floating window viewer can open
+			go s.createDesignReviewForPush(context.Background(), task.ID, pushedBranch, latestCommitHash, repoPath)
 		}
 
 		task.UpdatedAt = time.Now()
@@ -638,6 +642,61 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		// Check for design review comments that need auto-resolution
 		go s.checkCommentResolution(context.Background(), task.ID, repoPath)
 	}
+}
+
+// createDesignReviewForPush auto-creates a design review record when design docs are pushed
+func (s *GitHTTPServer) createDesignReviewForPush(ctx context.Context, specTaskID, branch, commitHash, repoPath string) {
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Str("branch", branch).
+		Str("commit", commitHash).
+		Msg("Auto-creating design review for pushed design docs")
+
+	// Read design documents from helix-specs branch
+	docs := make(map[string]string)
+	docFilenames := []string{"requirements.md", "design.md", "tasks.md"}
+
+	for _, filename := range docFilenames {
+		cmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", filename))
+		cmd.Dir = repoPath
+		output, err := cmd.Output()
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("filename", filename).
+				Msg("Design doc file not found (may not exist yet)")
+			continue
+		}
+		docs[filename] = string(output)
+	}
+
+	// Create design review record
+	review := &types.SpecTaskDesignReview{
+		ID:                 system.GenerateUUID(),
+		SpecTaskID:         specTaskID,
+		Status:             types.SpecTaskDesignReviewStatusPending,
+		RequirementsSpec:   docs["requirements.md"],
+		TechnicalDesign:    docs["design.md"],
+		ImplementationPlan: docs["tasks.md"],
+		GitBranch:          branch,
+		GitCommitHash:      commitHash,
+		GitPushedAt:        time.Now(),
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
+	}
+
+	if err := s.store.CreateSpecTaskDesignReview(ctx, review); err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to auto-create design review")
+		return
+	}
+
+	log.Info().
+		Str("review_id", review.ID).
+		Str("spec_task_id", specTaskID).
+		Msg("✅ Design review auto-created successfully")
 }
 
 // checkCommentResolution checks if any unresolved design review comments need auto-resolution
