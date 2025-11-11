@@ -222,6 +222,23 @@ export default function DesignReviewViewer({
     return null
   }
 
+  // Helper to calculate stacked positions for comments
+  const getStackedCommentPosition = (baseY: number, index: number, positions: number[]): number => {
+    // Stack comments vertically if they're within 50px of each other
+    const stackThreshold = 50
+    let adjustedY = baseY
+
+    for (let i = 0; i < index; i++) {
+      const otherY = positions[i]
+      if (Math.abs(adjustedY - otherY) < stackThreshold) {
+        // Stack this comment below the previous one
+        adjustedY = otherY + 200 // Approximate height of a comment box
+      }
+    }
+
+    return adjustedY
+  }
+
   const handleTextSelection = () => {
     const selection = window.getSelection()
     const text = selection?.toString().trim()
@@ -918,11 +935,24 @@ export default function DesignReviewViewer({
               </Box>
 
               {/* Inline Comments Overlay */}
-              {inlineComments.map(comment => {
-                const yPos = comment.quoted_text ? findQuotedTextPosition(comment.quoted_text) : null
-                if (yPos === null) return null
+              {(() => {
+                // Calculate positions for all comments first to enable stacking
+                const commentPositions: Array<{ comment: DesignReviewComment; y: number }> = []
 
-                return (
+                inlineComments.forEach(comment => {
+                  if (!comment.quoted_text) return
+                  const baseY = findQuotedTextPosition(comment.quoted_text)
+                  if (baseY !== null) {
+                    const stackedY = getStackedCommentPosition(
+                      baseY,
+                      commentPositions.length,
+                      commentPositions.map(p => p.y)
+                    )
+                    commentPositions.push({ comment, y: stackedY })
+                  }
+                })
+
+                return commentPositions.map(({ comment, y: yPos }) => (
                   <Paper
                     key={comment.id}
                     sx={{
@@ -995,8 +1025,8 @@ export default function DesignReviewViewer({
                       {new Date(comment.created_at).toLocaleString()}
                     </Typography>
                   </Paper>
-                )
-              })}
+                ))
+              })()}
 
               {/* New Comment Form (Inline) */}
               {showCommentForm && selectedText && (
@@ -1069,7 +1099,7 @@ export default function DesignReviewViewer({
             </Box>
           </Box>
 
-          {/* Comment Sidebar */}
+          {/* Comment Log Sidebar */}
           <Box
             width="400px"
             borderLeft="1px solid rgba(0,0,0,0.12)"
@@ -1079,7 +1109,7 @@ export default function DesignReviewViewer({
           >
             <Box p={2} borderBottom="1px solid rgba(0,0,0,0.12)">
               <Typography variant="h6">
-                Comments ({activeDocComments.length})
+                Comment Log ({activeDocComments.length})
               </Typography>
               <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
                 <Typography variant="caption" color="text.secondary" display="block">
@@ -1098,9 +1128,9 @@ export default function DesignReviewViewer({
                   <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
                     <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
                       <Chip
-                        label="Comment"
+                        label={comment.quoted_text ? "Inline" : "General"}
                         size="small"
-                        sx={{ bgcolor: '#2196f3', color: 'white' }}
+                        sx={{ bgcolor: comment.quoted_text ? '#2196f3' : '#9e9e9e', color: 'white' }}
                       />
                       {!comment.resolved && (
                         <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
@@ -1120,7 +1150,7 @@ export default function DesignReviewViewer({
                           fontSize: '0.875rem',
                         }}
                       >
-                        "{comment.quoted_text}"
+                        "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
                       </Box>
                     )}
 

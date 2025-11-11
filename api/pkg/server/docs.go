@@ -7363,6 +7363,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/approve-implementation": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approve the implementation and instruct agent to merge to main branch",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Approve implementation and merge to main",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{spec_task_id}/design-reviews": {
             "get": {
                 "security": [
@@ -7410,6 +7441,37 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop the running agent session for a spec task",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Stop agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
                         }
                     }
                 }
@@ -18956,6 +19018,13 @@ const docTemplate = `{
                 "implementation_agent": {
                     "type": "string"
                 },
+                "implementation_approved_at": {
+                    "type": "string"
+                },
+                "implementation_approved_by": {
+                    "description": "Implementation tracking",
+                    "type": "string"
+                },
                 "implementation_plan": {
                     "description": "Discrete tasks breakdown (markdown)",
                     "type": "string"
@@ -18968,6 +19037,26 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "last_push_at": {
+                    "description": "When branch was last pushed",
+                    "type": "string"
+                },
+                "last_push_commit_hash": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "merge_commit_hash": {
+                    "description": "Merge commit hash",
+                    "type": "string"
+                },
+                "merged_at": {
+                    "description": "When merge happened",
+                    "type": "string"
+                },
+                "merged_to_main": {
+                    "description": "Whether branch was merged to main",
+                    "type": "boolean"
                 },
                 "metadata": {
                     "type": "object",

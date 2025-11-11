@@ -5946,6 +5946,11 @@ definitions:
         type: string
       implementation_agent:
         type: string
+      implementation_approved_at:
+        type: string
+      implementation_approved_by:
+        description: Implementation tracking
+        type: string
       implementation_plan:
         description: Discrete tasks breakdown (markdown)
         type: string
@@ -5955,6 +5960,21 @@ definitions:
         items:
           type: string
         type: array
+      last_push_at:
+        description: When branch was last pushed
+        type: string
+      last_push_commit_hash:
+        description: Git tracking
+        type: string
+      merge_commit_hash:
+        description: Merge commit hash
+        type: string
+      merged_at:
+        description: When merge happened
+        type: string
+      merged_to_main:
+        description: Whether branch was merged to main
+        type: boolean
       metadata:
         additionalProperties: true
         type: object
@@ -11790,6 +11810,26 @@ paths:
       summary: Stop SpecTask external agent
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
+    post:
+      description: Approve the implementation and instruct agent to merge to main
+        branch
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{spec_task_id}/design-reviews:
     get:
       description: List all design reviews for a spec task
@@ -11821,6 +11861,25 @@ paths:
       security:
       - BearerAuth: []
       summary: List design reviews
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/stop-agent:
+    post:
+      description: Stop the running agent session for a spec task
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Stop agent session
       tags:
       - spec-tasks
   /api/v1/spec-tasks/{taskId}:

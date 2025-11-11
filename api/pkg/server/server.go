@@ -359,6 +359,7 @@ func NewServer(
 	// Initialize Git HTTP Server for clone/push operations
 	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
+		controller,
 		apiServer.gitRepositoryService,
 		&services.GitHTTPServerConfig{
 			ServerBaseURL:     cfg.WebServer.URL,
@@ -922,6 +923,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
+
+	// Workflow automation routes
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
 	// Multi-session spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
