@@ -606,16 +606,18 @@ func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) 
 
 **CRITICAL: Specification Documents Location (Spec-Driven Development)**
 You have access to a git worktree for specification documents at:
-%s/
+~/work/helix-specs/
 
 This is a forward-only branch (helix-specs) specifically for spec-driven development. All your specification work MUST be saved there.
 
 **DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
 Your documents go in a task-specific directory:
-%s/tasks/%s_%s_%s/
+~/work/helix-specs/design/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 (Date first for sorting, branch name for readability)
+
+The design/ directory might not exist yet - create it if needed.
 
 **Required Files in This Directory (spec-driven development format):**
 1. requirements.md - User stories + EARS acceptance criteria
@@ -625,14 +627,15 @@ Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **Git Workflow You Must Follow:**
 ` + "```bash" + `
-# Navigate to design docs worktree
-cd %s
+# Navigate to helix-specs worktree
+cd ~/work/helix-specs
 
-# Create your task directory (if not exists)
-mkdir -p tasks/%s_%s_%s
+# Create the design/tasks directory structure (if it doesn't exist)
+# Your documents go in: design/tasks/{date}_{name}_{taskid}/
+mkdir -p design/tasks/%s_%s_%s
 
 # Work in your task directory
-cd tasks/%s_%s_%s
+cd design/tasks/%s_%s_%s
 
 # Create the three required documents (spec-driven development format):
 # 1. requirements.md with user stories and EARS acceptance criteria
@@ -709,17 +712,20 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 
 **CRITICAL: Design Documents Location**
 The approved design documents are in a task-specific directory in the helix-specs worktree:
-%s/tasks/%s_%s_%s/
+~/work/helix-specs/design/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE (spec-driven development format):**
 ` + "```" + `
-%s/tasks/%s_%s_%s/
-├── requirements.md      (user stories + EARS acceptance criteria)
-├── design.md           (architecture + sequence diagrams + considerations)
-├── tasks.md            (YOUR TASK CHECKLIST - track here!)
-└── sessions/           (session notes)
+~/work/helix-specs/
+└── design/
+    └── tasks/
+        └── %s_%s_%s/
+            ├── requirements.md      (user stories + EARS acceptance criteria)
+            ├── design.md           (architecture + sequence diagrams + considerations)
+            ├── tasks.md            (YOUR TASK CHECKLIST - track here!)
+            └── sessions/           (session notes)
 ` + "```" + `
 
 **CRITICAL: Task Progress Tracking**
@@ -764,7 +770,7 @@ git push origin helix-specs
 %s
 
 **Your Mission:**
-1. Read design docs from %s/tasks/{dir}/
+1. Read design docs from ~/work/helix-specs/design/tasks/{date}_{name}_{taskid}/
 2. Read tasks.md to see your task checklist
 3. Work through tasks one by one (discrete, trackable)
 4. Mark each task [~] when starting, [x] when done
