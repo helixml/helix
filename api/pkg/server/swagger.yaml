@@ -8906,6 +8906,10 @@ paths:
         name: path
         required: true
         type: string
+      - description: Branch name (defaults to HEAD if not specified)
+        in: query
+        name: branch
+        type: string
       produces:
       - application/json
       responses:

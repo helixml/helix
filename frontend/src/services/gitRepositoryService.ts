@@ -26,7 +26,7 @@ const QUERY_KEYS = {
   userRepositories: (userId: string) => ['git-repositories', 'user', userId] as const,
   specTaskRepositories: (specTaskId: string) => ['git-repositories', 'spec-task', specTaskId] as const,
   repositoryTree: (id: string, path: string, branch?: string) => ['git-repositories', id, 'tree', path, branch || ''] as const,
-  repositoryFile: (id: string, path: string) => ['git-repositories', id, 'file', path] as const,
+  repositoryFile: (id: string, path: string, branch?: string) => ['git-repositories', id, 'file', path, branch || ''] as const,
 };
 
 // Custom hooks for git repository operations
@@ -138,13 +138,17 @@ export function useBrowseRepositoryTree(repositoryId: string, path: string = '.'
   });
 }
 
-export function useGetRepositoryFile(repositoryId: string, path: string, enabled: boolean = false) {
+export function useGetRepositoryFile(repositoryId: string, path: string, branch: string = '', enabled: boolean = false) {
   const api = useApi();
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path),
+    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, branch),
     queryFn: async () => {
-      const response = await api.getApiClient().getGitRepositoryFile(repositoryId, { path });
+      const params: any = { path };
+      if (branch) {
+        params.branch = branch;
+      }
+      const response = await api.getApiClient().getGitRepositoryFile(repositoryId, params);
       return response.data;
     },
     enabled: enabled && !!repositoryId && !!path,

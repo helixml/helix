@@ -2080,8 +2080,8 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-// GetFileContents reads the contents of a file
-func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string) (string, error) {
+// GetFileContents reads the contents of a file from a specific branch
+func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string, branch string) (string, error) {
 	// Get repository to find local path
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -2098,10 +2098,18 @@ func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID strin
 		return "", fmt.Errorf("failed to open git repository: %w", err)
 	}
 
-	// Get HEAD reference to read from default branch
-	ref, err := gitRepo.Head()
-	if err != nil {
-		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	// Get branch reference - use HEAD if no branch specified
+	var ref *plumbing.Reference
+	if branch == "" {
+		ref, err = gitRepo.Head()
+		if err != nil {
+			return "", fmt.Errorf("failed to get HEAD: %w", err)
+		}
+	} else {
+		ref, err = gitRepo.Reference(plumbing.NewBranchReferenceName(branch), true)
+		if err != nil {
+			return "", fmt.Errorf("failed to get branch reference: %w", err)
+		}
 	}
 
 	// Get the commit

@@ -5817,6 +5817,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query: {
         /** File path */
         path: string;
+        /** Branch name (defaults to HEAD if not specified) */
+        branch?: string;
       },
       params: RequestParams = {},
     ) =>
