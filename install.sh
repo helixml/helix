@@ -1837,6 +1837,8 @@ EOF
                 # Check if the keyring file already exists
                 if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
                     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                    # Fix file permissions so _apt user can read the keyring
+                    sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
                 fi
 
                 # Check if the source list file already exists
