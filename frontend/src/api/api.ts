@@ -3513,6 +3513,42 @@ export enum TypesSpecTaskActivityType {
   SpecTaskActivityPhaseTransition = "phase_transition",
 }
 
+export interface TypesSpecTaskDesignReview {
+  approved_at?: string;
+  /** Timestamps */
+  created_at?: string;
+  git_branch?: string;
+  /** Git information */
+  git_commit_hash?: string;
+  git_pushed_at?: string;
+  id?: string;
+  implementation_plan?: string;
+  /** Review decision */
+  overall_comment?: string;
+  rejected_at?: string;
+  /** Design document snapshots at time of review */
+  requirements_spec?: string;
+  /** Review metadata */
+  reviewer_id?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskDesignReviewStatus;
+  technical_design?: string;
+  updated_at?: string;
+}
+
+export interface TypesSpecTaskDesignReviewListResponse {
+  reviews?: TypesSpecTaskDesignReview[];
+  total?: number;
+}
+
+export enum TypesSpecTaskDesignReviewStatus {
+  SpecTaskDesignReviewStatusPending = "pending",
+  SpecTaskDesignReviewStatusInReview = "in_review",
+  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
+  SpecTaskDesignReviewStatusApproved = "approved",
+  SpecTaskDesignReviewStatusSuperseded = "superseded",
+}
+
 export interface TypesSpecTaskImplementationSessionsCreateRequest {
   /** @default true */
   auto_create_sessions?: boolean;
@@ -8022,6 +8058,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${id}/external-agent/stop`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all design reviews for a spec task
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksDesignReviewsDetail
+     * @summary List design reviews
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewListResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 

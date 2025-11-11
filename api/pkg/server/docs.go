@@ -7363,6 +7363,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all design reviews for a spec task",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "List design reviews",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}": {
             "get": {
                 "description": "Get detailed information about a specific spec-driven task",
@@ -19044,6 +19096,99 @@ const docTemplate = `{
                 "SpecTaskActivityZedConnected",
                 "SpecTaskActivityZedDisconnected",
                 "SpecTaskActivityPhaseTransition"
+            ]
+        },
+        "types.SpecTaskDesignReview": {
+            "type": "object",
+            "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "git_branch": {
+                    "type": "string"
+                },
+                "git_commit_hash": {
+                    "description": "Git information",
+                    "type": "string"
+                },
+                "git_pushed_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_plan": {
+                    "type": "string"
+                },
+                "overall_comment": {
+                    "description": "Review decision",
+                    "type": "string"
+                },
+                "rejected_at": {
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "description": "Design document snapshots at time of review",
+                    "type": "string"
+                },
+                "reviewer_id": {
+                    "description": "Review metadata",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReviewStatus"
+                },
+                "technical_design": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewListResponse": {
+            "type": "object",
+            "properties": {
+                "reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReview"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "in_review",
+                "changes_requested",
+                "approved",
+                "superseded"
+            ],
+            "x-enum-comments": {
+                "SpecTaskDesignReviewStatusApproved": "Approved, ready for implementation",
+                "SpecTaskDesignReviewStatusChangesRequested": "Reviewer requested changes",
+                "SpecTaskDesignReviewStatusInReview": "Reviewer is actively reviewing",
+                "SpecTaskDesignReviewStatusPending": "Waiting for reviewer",
+                "SpecTaskDesignReviewStatusSuperseded": "Newer review exists (agent pushed updates)"
+            },
+            "x-enum-varnames": [
+                "SpecTaskDesignReviewStatusPending",
+                "SpecTaskDesignReviewStatusInReview",
+                "SpecTaskDesignReviewStatusChangesRequested",
+                "SpecTaskDesignReviewStatusApproved",
+                "SpecTaskDesignReviewStatusSuperseded"
             ]
         },
         "types.SpecTaskImplementationSessionsCreateRequest": {
