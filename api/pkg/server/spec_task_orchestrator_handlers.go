@@ -188,11 +188,11 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 		return nil, system.NewHTTPError500("failed to get repository")
 	}
 
-	// Read design docs from Git repository
-	// Check for files in design/ directory matching date format
-	designDocs, err := apiServer.readDesignDocsFromGit(repo.LocalPath)
+	// Read design docs from Git repository helix-specs branch
+	// Docs are in task-specific subdirectory: tasks/{date}_{name}_{task_id}/
+	designDocs, err := apiServer.readDesignDocsFromGit(repo.LocalPath, task.ID)
 	if err != nil {
-		log.Error().Err(err).Str("repo_path", repo.LocalPath).Msg("Failed to read design docs from git")
+		log.Error().Err(err).Str("repo_path", repo.LocalPath).Str("task_id", task.ID).Msg("Failed to read design docs from git")
 		return nil, system.NewHTTPError500("failed to read design docs")
 	}
 
@@ -204,27 +204,49 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 	return response, nil
 }
 
-// readDesignDocsFromGit reads design documents from the Git repository
-func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string) ([]DesignDocument, error) {
-	// List files in the design/ directory
-	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "HEAD", "design/")
+// readDesignDocsFromGit reads design documents from the helix-specs branch
+func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID string) ([]DesignDocument, error) {
+	// First, find the task directory in helix-specs branch
+	// Format: tasks/{date}_{name}_{task_id}/
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs", "tasks/")
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// design/ directory might not exist yet
+		// helix-specs branch or tasks/ directory might not exist yet
+		log.Debug().Err(err).Str("repo_path", repoPath).Msg("No helix-specs branch or tasks/ directory found")
 		return []DesignDocument{}, nil
 	}
 
+	// Find task directory by matching task ID in directory name
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var docs []DesignDocument
-
+	var taskDir string
 	for _, file := range files {
-		if file == "" || !strings.HasSuffix(file, ".md") {
+		if strings.Contains(file, taskID) {
+			// Extract directory path (e.g., tasks/2025-11-11_..._taskid/)
+			parts := strings.Split(file, "/")
+			if len(parts) >= 2 {
+				taskDir = parts[0] + "/" + parts[1]
+				break
+			}
+		}
+	}
+
+	if taskDir == "" {
+		log.Debug().Str("task_id", taskID).Msg("No design docs directory found for task")
+		return []DesignDocument{}, nil
+	}
+
+	log.Info().Str("task_dir", taskDir).Str("task_id", taskID).Msg("Found design docs directory")
+
+	// Read all .md files from the task directory
+	var docs []DesignDocument
+	for _, file := range files {
+		if !strings.HasPrefix(file, taskDir+"/") || !strings.HasSuffix(file, ".md") {
 			continue
 		}
 
-		// Read file content from Git
-		contentCmd := exec.Command("git", "show", fmt.Sprintf("HEAD:%s", file))
+		// Read file content from helix-specs branch
+		contentCmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", file))
 		contentCmd.Dir = repoPath
 		content, err := contentCmd.CombinedOutput()
 		if err != nil {
@@ -232,8 +254,8 @@ func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string) ([]Desig
 			continue
 		}
 
-		// Extract filename
-		filename := strings.TrimPrefix(file, "design/")
+		// Extract just the filename (e.g., requirements.md)
+		filename := strings.TrimPrefix(file, taskDir+"/")
 
 		docs = append(docs, DesignDocument{
 			Filename: filename,
