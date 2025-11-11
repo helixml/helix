@@ -6890,18 +6890,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -11575,7 +11575,7 @@ paths:
       - spec-driven-tasks
   /api/v1/spec-tasks/{id}/design-docs:
     get:
-      description: Get the design documents from helix-design-docs worktree
+      description: Get the design documents from helix-specs worktree
       parameters:
       - description: SpecTask ID
         in: path

@@ -152,7 +152,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 }
 
 // @Summary Get design docs for SpecTask
-// @Description Get the design documents from helix-design-docs worktree
+// @Description Get the design documents from helix-specs worktree
 // @Tags SpecTasks
 // @Produce json
 // @Param id path string true "SpecTask ID"

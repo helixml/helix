@@ -124,7 +124,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
     echo ""
 fi
 
-# Setup helix-design-docs worktree for primary repository
+# Setup helix-specs worktree for primary repository
 # This must happen INSIDE the Wolf container so git paths are correct for this environment
 # The primary repository is cloned above in the repository cloning section
 if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
@@ -134,22 +134,22 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 
     # Check if primary repository exists
     if [ -d "$PRIMARY_REPO_PATH/.git" ]; then
-        # Ensure helix-design-docs branch exists before creating worktree
+        # Ensure helix-specs branch exists before creating worktree
         # The Go code creates this as an orphan branch when forking samples
-        echo "  🔍 Checking for helix-design-docs branch..."
+        echo "  🔍 Checking for helix-specs branch..."
 
         BRANCH_EXISTS=false
-        if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/helix-design-docs >/dev/null 2>&1; then
-            echo "  ✅ helix-design-docs branch exists on remote"
+        if git -C "$PRIMARY_REPO_PATH" show-ref --verify refs/remotes/origin/helix-specs >/dev/null 2>&1; then
+            echo "  ✅ helix-specs branch exists on remote"
             BRANCH_EXISTS=true
-        elif git -C "$PRIMARY_REPO_PATH" rev-parse --verify helix-design-docs >/dev/null 2>&1; then
-            echo "  ✅ helix-design-docs branch exists locally"
+        elif git -C "$PRIMARY_REPO_PATH" rev-parse --verify helix-specs >/dev/null 2>&1; then
+            echo "  ✅ helix-specs branch exists locally"
             BRANCH_EXISTS=true
         fi
 
         # Create branch if it doesn't exist (for external repos not created by Helix)
         if [ "$BRANCH_EXISTS" = false ]; then
-            echo "  📝 Creating helix-design-docs orphan branch (empty)..."
+            echo "  📝 Creating helix-specs orphan branch (empty)..."
 
             # Detect the default branch (could be main or master)
             REPO_DEFAULT_BRANCH=$(git -C "$PRIMARY_REPO_PATH" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -168,15 +168,15 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             # 2. Commit empty state
             # 3. Push to remote
             # 4. Switch back to default branch
-            if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-design-docs 2>&1 && \
+            if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-specs 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-design-docs branch" 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" push origin helix-design-docs 2>&1 && \
+               git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
+               git -C "$PRIMARY_REPO_PATH" push origin helix-specs 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1; then
-                echo "  ✅ helix-design-docs orphan branch created (empty, no code files)"
+                echo "  ✅ helix-specs orphan branch created (empty, no code files)"
                 BRANCH_EXISTS=true
             else
-                echo "  ⚠️  Failed to create helix-design-docs orphan branch"
+                echo "  ⚠️  Failed to create helix-specs orphan branch"
             fi
         fi
 
@@ -185,20 +185,20 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             echo "  ⚠️  Skipping worktree setup (branch doesn't exist)"
         else
             # Create worktree at top-level workspace for consistent path
-            # Location: ~/work/helix-design-docs (consistent regardless of repo name)
-            WORKTREE_PATH="$WORK_DIR/helix-design-docs"
+            # Location: ~/work/helix-specs (consistent regardless of repo name)
+            WORKTREE_PATH="$WORK_DIR/helix-specs"
 
             # Ensure path is absolute
             if [[ ! "$WORKTREE_PATH" = /* ]]; then
-                WORKTREE_PATH="$(cd "$WORK_DIR" && pwd)/helix-design-docs"
+                WORKTREE_PATH="$(cd "$WORK_DIR" && pwd)/helix-specs"
             fi
 
             if [ ! -d "$WORKTREE_PATH" ]; then
                 echo "  📁 Creating design docs worktree at $WORKTREE_PATH..."
-                echo "  Running: git -C $PRIMARY_REPO_PATH worktree add $WORKTREE_PATH helix-design-docs"
+                echo "  Running: git -C $PRIMARY_REPO_PATH worktree add $WORKTREE_PATH helix-specs"
 
-                if git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-design-docs 2>&1; then
-                    echo "  ✅ Design docs worktree ready at ~/work/helix-design-docs"
+                if git -C "$PRIMARY_REPO_PATH" worktree add "$WORKTREE_PATH" helix-specs 2>&1; then
+                    echo "  ✅ Design docs worktree ready at ~/work/helix-specs"
 
                     # Verify it's checked out at the right branch
                     CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current)
@@ -207,7 +207,7 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
                     echo "  ⚠️  Failed to create worktree"
                 fi
             else
-                echo "  ✅ Design docs worktree already exists at ~/work/helix-design-docs"
+                echo "  ✅ Design docs worktree already exists at ~/work/helix-specs"
                 CURRENT_BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current 2>/dev/null || echo "unknown")
                 echo "  📍 Current branch: $CURRENT_BRANCH"
             fi
@@ -493,7 +493,7 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
 fi
 
 # Add design docs worktree second (if exists)
-DESIGN_DOCS_DIR="$WORK_DIR/helix-design-docs"
+DESIGN_DOCS_DIR="$WORK_DIR/helix-specs"
 if [ -d "$DESIGN_DOCS_DIR" ]; then
     ZED_FOLDERS+=("$DESIGN_DOCS_DIR")
 fi
