@@ -39,7 +39,7 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
   const [maxLines, setMaxLines] = useState<number>(100)
   const [autoRefresh, setAutoRefresh] = useState(false)
 
-  // Build query parameters
+  // Build stable query parameters (no 'since')
   const query = {
     lines: maxLines > 0 ? maxLines : undefined,
     level: logLevel !== 'all' ? logLevel.toUpperCase() : undefined,
@@ -52,6 +52,7 @@ const ModelInstanceLogs: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => 
     {
       enabled: !!selectedSlot,
       refetchInterval: autoRefresh ? 5000 : false, // Refetch every 5s when auto-refresh is on
+      // No sinceRef needed - this component replaces logs on each fetch (non-tail mode)
     }
   )
 
