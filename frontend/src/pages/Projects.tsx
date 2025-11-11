@@ -1106,7 +1106,6 @@ const Projects: FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
-      </Container>
     </Page>
   )
 }
