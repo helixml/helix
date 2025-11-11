@@ -321,6 +321,26 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     console.log('Sample types data updated:', sampleTypes);
   }, [sampleTypes]);
 
+  // Keyboard shortcut for creating new task (N key)
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Only trigger if not in an input field
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      if (e.key === 'n' || e.key === 'N') {
+        if (onCreateTask) {
+          onCreateTask()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [onCreateTask])
+
   // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
     backlog: undefined,
@@ -1149,14 +1169,16 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             Tasks
           </Typography>
           {onCreateTask && (
-            <Button
-              variant="contained"
-              color="secondary"
-              startIcon={<AddIcon />}
-              onClick={onCreateTask}
-            >
-              New Task
-            </Button>
+            <Tooltip title="Keyboard shortcut: N">
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<AddIcon />}
+                onClick={onCreateTask}
+              >
+                New Task
+              </Button>
+            </Tooltip>
           )}
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
