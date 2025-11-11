@@ -32,6 +32,7 @@ type ServerConfig struct {
 	Apps               Apps
 	Triggers           Triggers
 	Search             Search
+	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
 	TURN               TURN
@@ -68,6 +69,12 @@ type Inference struct {
 
 type Search struct {
 	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
+}
+
+type Kodit struct {
+	BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
+	APIKey  string `envconfig:"KODIT_API_KEY" default:"dev-key"`
+	Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
 }
 
 // Providers is used to configure the various AI providers that we use

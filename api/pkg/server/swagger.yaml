@@ -1794,6 +1794,35 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  services.KoditEnrichmentAttributes:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      subtype:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  services.KoditEnrichmentData:
+    properties:
+      attributes:
+        $ref: '#/definitions/services.KoditEnrichmentAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  services.KoditEnrichmentListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/services.KoditEnrichmentData'
+        type: array
+    type: object
   services.SampleProjectCode:
     properties:
       description:
@@ -6861,18 +6890,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -8833,6 +8862,35 @@ paths:
       summary: Get clone command
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/enrichments:
+    get:
+      description: Get code intelligence enrichments for a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository enrichments
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/file:
     get:
       description: Get the contents of a file at a specific path in a repository
@@ -8866,6 +8924,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Get file contents
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/kodit-status:
+    get:
+      description: Get indexing status for a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository indexing status
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/tree:
