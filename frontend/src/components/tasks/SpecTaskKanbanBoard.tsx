@@ -245,8 +245,8 @@ const TaskCard: React.FC<{
             {task.name}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
-            {/* Design doc icon - visible when task has specs (not in backlog) */}
-            {task.phase !== 'backlog' && (
+            {/* Design doc icon - only visible when design docs exist (spec_session_id or planning_session_id present) */}
+            {(task.spec_session_id || task.planning_session_id) && (
               <Tooltip title="View Design Document">
                 <IconButton
                   size="small"
