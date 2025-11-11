@@ -243,6 +243,14 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		moonlightWebMode = "single" // Default to single mode (session-persistence)
 	}
 
+	// Get streaming bitrate from environment (in Mbps)
+	streamingBitrateMbps := 40 // Default: 40 Mbps
+	if bitrateMbpsStr := os.Getenv("STREAMING_BITRATE_MBPS"); bitrateMbpsStr != "" {
+		if bitrate, err := strconv.Atoi(bitrateMbpsStr); err == nil && bitrate > 0 {
+			streamingBitrateMbps = bitrate
+		}
+	}
+
 	config := types.ServerConfigForFrontend{
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
@@ -262,6 +270,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 		OrganizationsCreateEnabledForNonAdmins: apiServer.Cfg.Organizations.CreateEnabledForNonAdmins,
 		ProvidersManagementEnabled:             apiServer.Cfg.ProvidersManagementEnabled,
 		MoonlightWebMode:                       moonlightWebMode,
+		StreamingBitrateMbps:                   streamingBitrateMbps,
 	}
 
 	return config, nil

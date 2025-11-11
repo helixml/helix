@@ -3127,6 +3127,8 @@ export interface TypesServerConfigForFrontend {
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
+  /** Requested video streaming bitrate in Mbps (default: 40) */
+  streaming_bitrate_mbps?: number;
   /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
@@ -3970,11 +3972,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
