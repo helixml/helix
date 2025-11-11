@@ -32,8 +32,9 @@ import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
-import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
+import { useGitRepositories } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
+import { getSampleProjectIcon } from '../utils/sampleProjectIcons'
 import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
@@ -444,7 +445,10 @@ const GitRepos: FC = () => {
                   </MenuItem>
                   {sampleTypes.map((type: ServerSampleType) => (
                     <MenuItem key={type.id} value={type.id}>
-                      {getSampleTypeIcon(type.id || '')} {type.name}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {getSampleProjectIcon(type.id, type.category, 18)}
+                        <span>{type.name}</span>
+                      </Box>
                     </MenuItem>
                   ))}
                 </Select>

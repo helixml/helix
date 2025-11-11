@@ -71,7 +71,6 @@ import specTaskService, {
 import gitRepositoryService, {
   SampleType,
   useCreateSampleRepository,
-  getSampleTypeIcon,
   getSampleTypeCategory,
   isBusinessTask,
   getBusinessTaskDescription,
