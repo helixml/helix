@@ -537,13 +537,22 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
 	}
 
-	// Delete master branch from bare repo if it exists
+	// Update bare repo: set HEAD to main and delete master branch
 	bareRepo, err := git.PlainOpen(repoPath)
 	if err == nil {
+		// Set HEAD to point to main (not master)
+		mainHeadRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("main"))
+		if err := bareRepo.Storer.SetReference(mainHeadRef); err != nil {
+			log.Warn().Err(err).Msg("Failed to set HEAD to main in bare repo")
+		}
+
+		// Delete master branch
 		masterRef := plumbing.NewBranchReferenceName("master")
 		if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
 			log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")
 		}
+
+		log.Info().Msg("Set bare repo HEAD to main and removed master branch")
 	}
 
 	// Create helix-specs as an ORPHAN branch (empty, no code files)
