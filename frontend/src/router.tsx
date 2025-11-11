@@ -88,9 +88,14 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
       orgRouteAware: true,
       title: 'Git Repositories',
     },
-    render: () => (
-      <GitRepos />
-    ),
+    render: () => {
+      // Redirect to Projects page with repositories view
+      const { navigate } = useRouter()
+      React.useEffect(() => {
+        navigate('projects', { view: 'repositories' }, { replace: true })
+      }, [])
+      return null
+    },
   }, {
     name: namePrefix + 'git-repo-detail',
     path: routePrefix + '/git-repos/:repoId',
@@ -137,7 +142,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'projects',
     path: routePrefix + '/projects',
     meta: {
-      drawer: false,
+      drawer: true,
       orgRouteAware: true,
       title: 'Projects',
     },
