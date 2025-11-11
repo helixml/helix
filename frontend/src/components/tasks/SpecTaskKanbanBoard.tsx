@@ -52,6 +52,9 @@ import {
   Restore as RestoreIcon,
   VisibilityOff as VisibilityOffIcon,
   Circle as CircleIcon,
+  MenuBook as DesignDocsIcon,
+  Stop as StopIcon,
+  RocketLaunch as LaunchIcon,
 } from '@mui/icons-material';
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from '@mui/material/styles';
@@ -77,6 +80,7 @@ import gitRepositoryService, {
   getBusinessTaskDescription,
 } from '../../services/gitRepositoryService';
 import { useSampleTypes } from '../../hooks/useSampleTypes';
+import { useApproveImplementation, useStopAgent } from '../../services/specTaskWorkflowService';
 
 // Minimal wrapper for desktop viewer with custom overlay for Kanban cards
 // Uses screenshot mode (not live stream) to avoid performance issues with many cards
@@ -183,9 +187,12 @@ const TaskCard: React.FC<{
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
-}> = ({ task, index, columns, onStartPlanning, onArchiveTask, onTaskClick, projectId }) => {
+}> = ({ task, index, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId }) => {
   const account = useAccount();
+  const approveImplementationMutation = useApproveImplementation(task.id!);
+  const stopAgentMutation = useStopAgent(task.id!);
 
   // Check if planning column is full
   const planningColumn = columns.find(col => col.id === 'planning');
@@ -237,29 +244,55 @@ const TaskCard: React.FC<{
           <Typography variant="body2" sx={{ fontWeight: 500, flex: 1, lineHeight: 1.4, color: 'text.primary' }}>
             {task.name}
           </Typography>
-          <Tooltip title={task.archived ? "Restore" : "Archive"}>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onArchiveTask) {
-                  onArchiveTask(task, !task.archived);
-                }
-              }}
-              sx={{
-                ml: 1,
-                width: 24,
-                height: 24,
-                color: 'text.secondary',
-                '&:hover': {
-                  color: 'text.primary',
-                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                },
-              }}
-            >
-              {task.archived ? <RestoreIcon sx={{ fontSize: 16 }} /> : <CloseIcon sx={{ fontSize: 16 }} />}
-            </IconButton>
-          </Tooltip>
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            {/* Design doc icon - visible when task has specs (not in backlog) */}
+            {task.phase !== 'backlog' && (
+              <Tooltip title="View Design Document">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onReviewDocs) {
+                      onReviewDocs(task);
+                    }
+                  }}
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    color: 'primary.main',
+                    '&:hover': {
+                      color: 'primary.dark',
+                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                    },
+                  }}
+                >
+                  <DesignDocsIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title={task.archived ? "Restore" : "Archive"}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onArchiveTask) {
+                    onArchiveTask(task, !task.archived);
+                  }
+                }}
+                sx={{
+                  width: 24,
+                  height: 24,
+                  color: 'text.secondary',
+                  '&:hover': {
+                    color: 'text.primary',
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                  },
+                }}
+              >
+                {task.archived ? <RestoreIcon sx={{ fontSize: 16 }} /> : <CloseIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
 
         {/* Status row - minimal dots and text */}
@@ -342,7 +375,7 @@ const TaskCard: React.FC<{
         )}
 
         {/* Show "Review Design" button for review phase tasks */}
-        {task.phase === 'review' && task.onReviewDocs && (
+        {task.phase === 'review' && onReviewDocs && (
           <Box sx={{ mt: 1.5 }}>
             <Button
               size="small"
@@ -351,12 +384,116 @@ const TaskCard: React.FC<{
               startIcon={<SpecIcon />}
               onClick={(e) => {
                 e.stopPropagation();
-                task.onReviewDocs(task);
+                onReviewDocs(task);
               }}
               fullWidth
             >
               Review Design
             </Button>
+          </Box>
+        )}
+
+        {/* Implementation phase buttons */}
+        {task.status === 'implementation' && (
+          <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ViewIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onTaskClick) onTaskClick(task);
+              }}
+              fullWidth
+            >
+              View Agent Session
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<StopIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                stopAgentMutation.mutate();
+              }}
+              disabled={stopAgentMutation.isPending}
+              fullWidth
+            >
+              Stop Agent
+            </Button>
+          </Box>
+        )}
+
+        {/* Implementation review phase buttons */}
+        {task.status === 'implementation_review' && (
+          <Box sx={{ mt: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<ViewIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onTaskClick) onTaskClick(task);
+              }}
+              fullWidth
+            >
+              Review Implementation
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              color="success"
+              startIcon={<ApproveIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                approveImplementationMutation.mutate();
+              }}
+              disabled={approveImplementationMutation.isPending}
+              fullWidth
+            >
+              Approve Implementation
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<StopIcon />}
+              onClick={(e) => {
+                e.stopPropagation();
+                stopAgentMutation.mutate();
+              }}
+              disabled={stopAgentMutation.isPending}
+              fullWidth
+            >
+              Stop Agent
+            </Button>
+          </Box>
+        )}
+
+        {/* Completed tasks - offer exploratory session */}
+        {task.status === 'done' && task.merged_to_main && (
+          <Box sx={{ mt: 1.5 }}>
+            <Alert severity="success" sx={{ py: 0.5 }}>
+              <Typography variant="caption" sx={{ fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                Merged to main! Test the feature:
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                color="success"
+                startIcon={<LaunchIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // TODO: Start exploratory session on main branch
+                  console.log('Start exploratory session for', task.id);
+                }}
+                fullWidth
+              >
+                Start Exploratory Session
+              </Button>
+            </Alert>
           </Box>
         )}
       </CardContent>
@@ -370,9 +507,10 @@ const DroppableColumn: React.FC<{
   onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
   onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
   projectId?: string;
   theme: any;
-}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, projectId, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, theme }): JSX.Element => {
   const router = useRouter();
   const account = useAccount();
 
@@ -390,6 +528,7 @@ const DroppableColumn: React.FC<{
         onStartPlanning={onStartPlanning}
         onArchiveTask={onArchiveTask}
         onTaskClick={onTaskClick}
+        onReviewDocs={onReviewDocs}
         projectId={projectId}
       />
     );
@@ -1634,6 +1773,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             onStartPlanning={handleStartPlanning}
             onArchiveTask={handleArchiveTask}
             onTaskClick={onTaskClick}
+            onReviewDocs={handleReviewDocs}
             projectId={projectId}
             theme={theme}
           />
