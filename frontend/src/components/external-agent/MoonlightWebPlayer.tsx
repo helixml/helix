@@ -184,14 +184,9 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
             textAlign: 'center',
           }}
         >
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Alert severity="error" sx={{ maxWidth: 400 }}>
-              {error}
-            </Alert>
-            <Alert severity="info" sx={{ maxWidth: 400, fontSize: '0.85rem' }}>
-              💡 Only one browser tab allowed per session. Check for other tabs/fullscreen windows.
-            </Alert>
-          </Box>
+          <Alert severity="error" sx={{ maxWidth: 400 }}>
+            {error}
+          </Alert>
         </Box>
       )}
 

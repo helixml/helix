@@ -1138,29 +1138,24 @@ const MoonlightStreamViewer: React.FC<MoonlightStreamViewerProps> = ({
           )}
 
           {error && retryCountdown === null && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Alert
-                severity="error"
-                sx={{ maxWidth: 400 }}
-                action={
-                  <Button
-                    color="inherit"
-                    size="small"
-                    onClick={() => {
-                      setError(null);
-                      connect();
-                    }}
-                  >
-                    Reconnect
-                  </Button>
-                }
-              >
-                {error}
-              </Alert>
-              <Alert severity="info" sx={{ maxWidth: 400, fontSize: '0.85rem' }}>
-                💡 Only one browser tab allowed per session. Check for other tabs/fullscreen windows.
-              </Alert>
-            </Box>
+            <Alert
+              severity="error"
+              sx={{ maxWidth: 400 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    setError(null);
+                    connect();
+                  }}
+                >
+                  Reconnect
+                </Button>
+              }
+            >
+              {error}
+            </Alert>
           )}
         </Box>
       )}
