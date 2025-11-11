@@ -921,6 +921,16 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 			}
 
+			// Link agent response to design review comment if this interaction came from a comment
+			go func() {
+				if err := apiServer.linkAgentResponseToComment(context.Background(), targetInteraction); err != nil {
+					log.Debug().
+						Err(err).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("No design review comment linked to this interaction (this is normal for non-comment interactions)")
+				}
+			}()
+
 			log.Info().
 				Str("session_id", sessionID).
 				Str("context_id", contextID).

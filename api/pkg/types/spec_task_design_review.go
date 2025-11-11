@@ -61,12 +61,18 @@ type SpecTaskDesignReviewComment struct {
 
 	// The actual comment
 	CommentText string                         `json:"comment_text" gorm:"type:text;not null"`
-	CommentType SpecTaskDesignReviewCommentType `json:"comment_type" gorm:"size:50;default:general"`
+	CommentType SpecTaskDesignReviewCommentType `json:"comment_type,omitempty" gorm:"size:50"` // Made optional - simplified to single type
+
+	// Agent integration (NEW FIELDS)
+	AgentResponse   string     `json:"agent_response,omitempty" gorm:"type:text"`       // Agent's response to comment
+	AgentResponseAt *time.Time `json:"agent_response_at,omitempty"`                     // When agent responded
+	InteractionID   string     `json:"interaction_id,omitempty" gorm:"size:255;index"` // Link to Helix interaction
 
 	// Status tracking
-	Resolved   bool       `json:"resolved" gorm:"default:false"`
-	ResolvedBy string     `json:"resolved_by,omitempty" gorm:"size:255"`
-	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	Resolved         bool       `json:"resolved" gorm:"default:false"`
+	ResolvedBy       string     `json:"resolved_by,omitempty" gorm:"size:255"`
+	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+	ResolutionReason string     `json:"resolution_reason,omitempty" gorm:"size:100"` // "manual", "auto_text_removed", "agent_updated"
 
 	// Timestamps
 	CreatedAt time.Time `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP;index"`

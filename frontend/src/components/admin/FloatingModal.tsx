@@ -28,6 +28,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const [isMinimized, setIsMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
+  const [isSnapped, setIsSnapped] = useState(false)
   const [tileMenuAnchor, setTileMenuAnchor] = useState<null | HTMLElement>(null)
   const [snapPreview, setSnapPreview] = useState<string | null>(null)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
@@ -99,11 +100,13 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
     if (isMaximized) {
       // Restore to previous size and position
       setIsMaximized(false)
+      setIsSnapped(false)
       setSize({ width: 1000, height: 700 })
       setPosition(getInitialPosition())
     } else {
       // Maximize to full screen (no margins)
       setIsMaximized(true)
+      setIsSnapped(false)
       setSize({ width: window.innerWidth, height: window.innerHeight })
       setPosition({ x: 0, y: 0 })
     }
@@ -112,6 +115,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
   const handleTile = (tilePosition: string) => {
     setTileMenuAnchor(null)
     setIsMaximized(false)
+    setIsSnapped(true)
 
     const w = window.innerWidth
     const h = window.innerHeight
@@ -150,14 +154,15 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // Check if we should start dragging (threshold: 5px movement)
+      // Check if we should start dragging (higher threshold when snapped to prevent accidental unsnapping)
       if (dragStart && !isDragging && !isMaximized && !isResizing) {
         const dx = Math.abs(e.clientX - dragStart.x)
         const dy = Math.abs(e.clientY - dragStart.y)
-        const dragThreshold = 5
+        const dragThreshold = isSnapped ? 15 : 5
 
         if (dx > dragThreshold || dy > dragThreshold) {
           setIsDragging(true)
+          setIsSnapped(false) // Unsnap when starting to drag
         }
         return // Don't move window until threshold is crossed
       }
@@ -274,7 +279,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
           sx={{
             position: 'fixed',
             ...getSnapPreviewStyle(),
-            zIndex: 10000,
+            zIndex: 100000,
             backgroundColor: 'rgba(33, 150, 243, 0.3)',
             border: '2px solid rgba(33, 150, 243, 0.8)',
             pointerEvents: 'none',
@@ -307,11 +312,19 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {!isMinimized && !isMaximized && getResizeHandles().map((handle) => (
           <Box
             key={handle.direction}
-            onMouseDown={handle.onMouseDown}
+            onMouseDown={(e) => {
+              setIsSnapped(false) // Unsnap when resizing
+              handle.onMouseDown(e)
+            }}
             sx={{
               ...handle.style,
+              // Make corner handles larger and more visible
+              ...(handle.direction.length === 2 && {
+                width: 16,
+                height: 16,
+              }),
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                backgroundColor: 'rgba(33, 150, 243, 0.3)',
               },
             }}
           />
@@ -319,70 +332,73 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
-          sx={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
             borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            p: 1.5,
+            p: 0.75,
             cursor: isMaximized ? 'default' : 'move',
             userSelect: 'none',
             backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            minHeight: 48,
+            minHeight: 32,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <DragIcon sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 20 }} />
-            <Typography variant="h6" sx={{ color: '#ffffff', fontSize: '1rem' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <DragIcon sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 16 }} />
+            <Typography variant="subtitle2" sx={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
               {modalConfig.type === 'logs' && 'Model Instance Logs'}
               {modalConfig.type === 'rdp' && 'Remote Desktop'}
               {modalConfig.type === 'exploratory_session' && 'Exploratory Session'}
             </Typography>
             {modalConfig.type === 'logs' && modalConfig.runner && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
                 Runner: {modalConfig.runner.id?.substring(0, 8)} • {modalConfig.runner.slots?.length || 0} slots
               </Typography>
             )}
             {modalConfig.type === 'rdp' && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
                 Session: {modalConfig.sessionId?.slice(-8)}
               </Typography>
             )}
             {modalConfig.type === 'exploratory_session' && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)' }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
                 Session: {modalConfig.sessionId?.slice(-8)}
               </Typography>
             )}
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
             <IconButton
               size="small"
               onClick={handleMinimize}
-              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+              sx={{ color: 'rgba(255, 255, 255, 0.7)', padding: '4px' }}
             >
-              <MinimizeIcon fontSize="small" />
+              <MinimizeIcon sx={{ fontSize: 16 }} />
             </IconButton>
             <IconButton
               size="small"
-              onClick={(e) => setTileMenuAnchor(e.currentTarget)}
-              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setTileMenuAnchor(e.currentTarget)
+              }}
+              sx={{ color: 'rgba(255, 255, 255, 0.7)', padding: '4px' }}
               title="Tile Window"
             >
-              <TileIcon fontSize="small" />
+              <TileIcon sx={{ fontSize: 16 }} />
             </IconButton>
             <IconButton
               size="small"
               onClick={handleMaximize}
-              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+              sx={{ color: 'rgba(255, 255, 255, 0.7)', padding: '4px' }}
             >
-              <MaximizeIcon fontSize="small" />
+              <MaximizeIcon sx={{ fontSize: 16 }} />
             </IconButton>
             <IconButton
               size="small"
               onClick={onClose || floatingModal.hideFloatingModal}
-              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+              sx={{ color: 'rgba(255, 255, 255, 0.7)', padding: '4px' }}
             >
-              <CloseIcon fontSize="small" />
+              <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Box>
         </Box>
@@ -426,6 +442,7 @@ const FloatingModal: FC<FloatingModalProps> = ({ onClose }) => {
         anchorEl={tileMenuAnchor}
         open={Boolean(tileMenuAnchor)}
         onClose={() => setTileMenuAnchor(null)}
+        sx={{ zIndex: 100001 }}
       >
         <MenuItem onClick={() => handleTile('full')}>
           <ListItemText primary="Full Screen" secondary="Fill entire window" />

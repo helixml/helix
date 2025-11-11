@@ -29,6 +29,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { useStreaming } from '../../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../../types'
+import { useResize } from '../../hooks/useResize'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -50,16 +51,34 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const streaming = useStreaming()
 
   const [position, setPosition] = useState<WindowPosition>('center')
+  const [isSnapped, setIsSnapped] = useState(false)
   const [currentTab, setCurrentTab] = useState(0)
   const [tileMenuAnchor, setTileMenuAnchor] = useState<null | HTMLElement>(null)
   const [snapPreview, setSnapPreview] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [windowPos, setWindowPos] = useState({ x: 100, y: 100 })
   const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
   const [refreshedTask, setRefreshedTask] = useState<TypesSpecTask | null>(task)
   const nodeRef = useRef(null)
+
+  // Resize hook for window resizing
+  const { size, setSize, isResizing, getResizeHandles } = useResize({
+    initialSize: { width: Math.min(1200, window.innerWidth * 0.6), height: window.innerHeight * 0.8 },
+    minSize: { width: 600, height: 400 },
+    maxSize: { width: window.innerWidth, height: window.innerHeight },
+    onResize: (newSize, direction) => {
+      // Adjust position when resizing from top or left edges
+      if (direction.includes('w') || direction.includes('n')) {
+        setWindowPos(prev => ({
+          x: direction.includes('w') ? prev.x + (size.width - newSize.width) : prev.x,
+          y: direction.includes('n') ? prev.y + (size.height - newSize.height) : prev.y
+        }))
+      }
+    }
+  })
 
   // Design review state
   const [docViewerOpen, setDocViewerOpen] = useState(false)
@@ -136,6 +155,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const handleTile = (tilePosition: string) => {
     setTileMenuAnchor(null)
     setPosition(tilePosition as WindowPosition)
+    setIsSnapped(true)
   }
 
   const getPositionStyle = () => {
@@ -159,7 +179,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
         return { top: h / 2, left: w / 2, width: w / 2, height: h / 2 }
       case 'center':
       default:
-        return { top: windowPos.y, left: windowPos.x, width: '60vw', height: '80vh' }
+        return { top: windowPos.y, left: windowPos.x, width: size.width, height: size.height }
     }
   }
 
@@ -224,26 +244,42 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   }
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If in a tiled position, switch to center mode first
-    if (position !== 'center') {
-      setPosition('center')
-      // Set window position to current mouse position (centered grab)
-      const centerOffsetX = 300 // Half of default window width (60vw ~ 600px)
-      const centerOffsetY = 40  // Offset from top to grab title bar area
-      setWindowPos({ x: e.clientX - centerOffsetX, y: e.clientY - centerOffsetY })
-      setDragStart({ x: centerOffsetX, y: centerOffsetY })
-    } else {
-      setDragStart({ x: e.clientX - windowPos.x, y: e.clientY - windowPos.y })
-    }
-    setIsDragging(true)
+    if (isResizing) return // Don't allow dragging when resizing
+    // Record mouse down position but don't start dragging yet (wait for movement threshold)
+    setDragStart({ x: e.clientX, y: e.clientY })
+    setDragOffset({
+      x: e.clientX - windowPos.x,
+      y: e.clientY - windowPos.y
+    })
   }
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging && position === 'center') {
-        const newX = e.clientX - dragStart.x
-        const newY = e.clientY - dragStart.y
-        setWindowPos({ x: newX, y: newY })
+      // Check if we should start dragging (higher threshold when snapped to prevent accidental unsnapping)
+      if (dragStart && !isDragging && !isResizing) {
+        const dx = Math.abs(e.clientX - dragStart.x)
+        const dy = Math.abs(e.clientY - dragStart.y)
+        const dragThreshold = isSnapped ? 15 : 5
+
+        if (dx > dragThreshold || dy > dragThreshold) {
+          setIsDragging(true)
+          setIsSnapped(false) // Unsnap when starting to drag
+          if (position !== 'center') {
+            setPosition('center')
+          }
+        }
+        return // Don't move window until threshold is crossed
+      }
+
+      if (isDragging && position === 'center' && !isResizing) {
+        const newX = e.clientX - dragOffset.x
+        const newY = e.clientY - dragOffset.y
+
+        // Keep within bounds
+        const boundedX = Math.max(0, Math.min(newX, window.innerWidth - size.width))
+        const boundedY = Math.max(0, Math.min(newY, window.innerHeight - size.height))
+
+        setWindowPos({ x: boundedX, y: boundedY })
 
         // Detect snap zones
         const snapThreshold = 50
@@ -284,9 +320,10 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
         setSnapPreview(null)
       }
       setIsDragging(false)
+      setDragStart(null)
     }
 
-    if (isDragging) {
+    if (isDragging || dragStart) {
       document.addEventListener('mousemove', handleMouseMove)
       document.addEventListener('mouseup', handleMouseUp)
     }
@@ -295,7 +332,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, dragStart, snapPreview])
+  }, [isDragging, dragStart, dragOffset, isResizing, position, isSnapped, size, snapPreview])
 
   const posStyle = getPositionStyle()
 
@@ -309,7 +346,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
           sx={{
             position: 'fixed',
             ...getSnapPreviewStyle(),
-            zIndex: 9998,
+            zIndex: 100000,
             backgroundColor: 'rgba(33, 150, 243, 0.3)',
             border: '2px solid rgba(33, 150, 243, 0.8)',
             pointerEvents: 'none',
@@ -334,6 +371,27 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
           transition: position !== 'center' ? 'all 0.15s ease' : 'none',
         }}
       >
+        {/* Resize Handles */}
+        {position === 'center' && getResizeHandles().map((handle) => (
+          <Box
+            key={handle.direction}
+            onMouseDown={(e) => {
+              setIsSnapped(false) // Unsnap when resizing
+              handle.onMouseDown(e)
+            }}
+            sx={{
+              ...handle.style,
+              // Make corner handles larger and more visible
+              ...(handle.direction.length === 2 && {
+                width: 16,
+                height: 16,
+              }),
+              '&:hover': {
+                backgroundColor: 'rgba(33, 150, 243, 0.3)',
+              },
+            }}
+          />
+        ))}
         {/* Title Bar */}
         <Box
           onMouseDown={handleMouseDown}
@@ -341,52 +399,58 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            p: 2,
-            pb: 1,
-            cursor: position === 'center' ? 'move' : 'default',
+            p: 0.75,
+            cursor: position === 'center' && !isSnapped ? 'move' : 'default',
             borderBottom: '1px solid',
             borderColor: 'divider',
             backgroundColor: 'background.default',
+            minHeight: 32,
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 20 }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <DragIndicatorIcon sx={{ color: 'text.secondary', fontSize: 16 }} />
             <Box>
-              <Typography variant="h6" sx={{ fontSize: '1rem' }}>
+              <Typography variant="subtitle2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
                 {displayTask.name}
               </Typography>
-              <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+              <Box sx={{ display: 'flex', gap: 0.5, mt: 0.25 }}>
                 <Chip
                   label={formatStatus(displayTask.status)}
                   color={getStatusColor(displayTask.status)}
                   size="small"
+                  sx={{ height: 20, fontSize: '0.7rem' }}
                 />
                 <Chip
                   label={displayTask.priority || 'Medium'}
                   color={getPriorityColor(displayTask.priority)}
                   size="small"
+                  sx={{ height: 20, fontSize: '0.7rem' }}
                 />
                 {displayTask.type && (
-                  <Chip label={displayTask.type} size="small" variant="outlined" />
+                  <Chip label={displayTask.type} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.7rem' }} />
                 )}
               </Box>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
+          <Box sx={{ display: 'flex', gap: 0.25 }}>
             <IconButton
               size="small"
-              onClick={(e) => setTileMenuAnchor(e.currentTarget)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setTileMenuAnchor(e.currentTarget)
+              }}
               title="Tile Window"
+              sx={{ padding: '4px' }}
             >
-              <GridViewOutlined fontSize="small" />
+              <GridViewOutlined sx={{ fontSize: 16 }} />
             </IconButton>
             {onEdit && (
-              <IconButton size="small" onClick={() => onEdit(displayTask)}>
-                <EditIcon fontSize="small" />
+              <IconButton size="small" onClick={() => onEdit(displayTask)} sx={{ padding: '4px' }}>
+                <EditIcon sx={{ fontSize: 16 }} />
               </IconButton>
             )}
-            <IconButton size="small" onClick={onClose}>
-              <CloseIcon fontSize="small" />
+            <IconButton size="small" onClick={onClose} sx={{ padding: '4px' }}>
+              <CloseIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Box>
         </Box>
@@ -603,6 +667,7 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
         anchorEl={tileMenuAnchor}
         open={Boolean(tileMenuAnchor)}
         onClose={() => setTileMenuAnchor(null)}
+        sx={{ zIndex: 100001 }}
       >
         <MenuItem onClick={() => handleTile('full')}>
           <ListItemText primary="Full Screen" secondary="Fill entire window" />

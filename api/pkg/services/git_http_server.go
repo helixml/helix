@@ -599,6 +599,109 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 				Str("task_id", task.ID).
 				Msg("Failed to update spec task status after design doc push")
 		}
+
+		// Check for design review comments that need auto-resolution
+		go s.checkCommentResolution(context.Background(), task.ID, repoPath)
+	}
+}
+
+// checkCommentResolution checks if any unresolved design review comments need auto-resolution
+// because the quoted text was removed/updated in the design documents
+func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, repoPath string) {
+	comments, err := s.store.GetUnresolvedCommentsForTask(ctx, specTaskID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("spec_task_id", specTaskID).
+			Msg("Failed to get unresolved comments for auto-resolution check")
+		return
+	}
+
+	if len(comments) == 0 {
+		return
+	}
+
+	log.Info().
+		Str("spec_task_id", specTaskID).
+		Int("comment_count", len(comments)).
+		Msg("Checking design review comments for auto-resolution")
+
+	// Read current content of each document from helix-specs branch
+	docContents := make(map[string]string)
+	documentTypes := []string{"requirements", "technical_design", "implementation_plan"}
+
+	for _, docType := range documentTypes {
+		// Map document types to actual filenames
+		filename := ""
+		switch docType {
+		case "requirements":
+			filename = "requirements.md"
+		case "technical_design":
+			filename = "design.md"
+		case "implementation_plan":
+			filename = "tasks.md"
+		}
+
+		// Read file from helix-specs branch
+		cmd := exec.Command("git", "show", "helix-specs:"+filename)
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Str("filename", filename).
+				Msg("Could not read design document from helix-specs (may not exist yet)")
+			docContents[docType] = ""
+		} else {
+			docContents[docType] = string(output)
+		}
+	}
+
+	// Check each comment to see if quoted text still exists
+	resolvedCount := 0
+	for _, comment := range comments {
+		if comment.QuotedText == "" {
+			continue // Skip comments without quoted text
+		}
+
+		// Get document content for this comment's document type
+		docContent, exists := docContents[comment.DocumentType]
+		if !exists {
+			continue
+		}
+
+		// Check if quoted text still exists in document
+		if !strings.Contains(docContent, comment.QuotedText) {
+			// Quoted text was removed - auto-resolve the comment
+			comment.Resolved = true
+			comment.ResolvedBy = "system"
+			comment.ResolutionReason = "auto_text_removed"
+			now := time.Now()
+			comment.ResolvedAt = &now
+
+			if err := s.store.UpdateSpecTaskDesignReviewComment(ctx, &comment); err != nil {
+				log.Error().
+					Err(err).
+					Str("comment_id", comment.ID).
+					Msg("Failed to auto-resolve comment")
+				continue
+			}
+
+			resolvedCount++
+			log.Info().
+				Str("comment_id", comment.ID).
+				Str("document_type", comment.DocumentType).
+				Str("quoted_text", comment.QuotedText[:min(50, len(comment.QuotedText))]).
+				Msg("Auto-resolved design review comment (quoted text no longer exists)")
+		}
+	}
+
+	if resolvedCount > 0 {
+		log.Info().
+			Str("spec_task_id", specTaskID).
+			Int("resolved_count", resolvedCount).
+			Msg("Auto-resolved design review comments")
 	}
 }
 

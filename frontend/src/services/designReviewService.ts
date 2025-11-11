@@ -41,10 +41,16 @@ export interface DesignReviewComment {
   start_offset?: number
   end_offset?: number
   comment_text: string
-  comment_type: 'general' | 'question' | 'suggestion' | 'critical' | 'praise'
+  comment_type?: 'general' | 'question' | 'suggestion' | 'critical' | 'praise' // Made optional
+  // Agent integration fields
+  agent_response?: string
+  agent_response_at?: string
+  interaction_id?: string
+  // Resolution fields
   resolved: boolean
   resolved_by?: string
   resolved_at?: string
+  resolution_reason?: 'manual' | 'auto_text_removed' | 'agent_updated'
   created_at: string
   updated_at: string
   replies?: DesignReviewCommentReply[]
