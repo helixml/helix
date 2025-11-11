@@ -78,87 +78,41 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
 	var tasks []*types.SpecTask
 
-	// Build the base query
-	query := `
-		SELECT
-			id, project_id, name, description, type, priority, status,
-			original_prompt, requirements_spec, technical_design, implementation_plan,
-			helix_app_id, planning_session_id, spec_agent, implementation_agent, spec_session_id, implementation_session_id,
-			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
-			yolo_mode, implementation_approved_by, implementation_approved_at,
-			last_push_commit_hash, last_push_at, design_docs_pushed_at, merged_to_main, merged_at, merge_commit_hash,
-			estimated_hours, started_at, completed_at,
-			external_agent_id, zed_instance_id, project_path, workspace_config,
-			created_by, created_at, updated_at, archived, labels, metadata
-		FROM spec_tasks`
+	db := s.gdb.WithContext(ctx)
 
-	// Build WHERE conditions
-	var conditions []string
-	var args []interface{}
-	argIndex := 1
-
+	// Apply filters using GORM query builder
 	if filters != nil {
 		if filters.ProjectID != "" {
-			conditions = append(conditions, fmt.Sprintf("project_id = $%d", argIndex))
-			args = append(args, filters.ProjectID)
-			argIndex++
+			db = db.Where("project_id = ?", filters.ProjectID)
 		}
 		if filters.Status != "" {
-			conditions = append(conditions, fmt.Sprintf("status = $%d", argIndex))
-			args = append(args, filters.Status)
-			argIndex++
+			db = db.Where("status = ?", filters.Status)
 		}
 		if filters.UserID != "" {
-			conditions = append(conditions, fmt.Sprintf("created_by = $%d", argIndex))
-			args = append(args, filters.UserID)
-			argIndex++
+			db = db.Where("created_by = ?", filters.UserID)
 		}
 		if filters.Type != "" {
-			conditions = append(conditions, fmt.Sprintf("type = $%d", argIndex))
-			args = append(args, filters.Type)
-			argIndex++
+			db = db.Where("type = ?", filters.Type)
 		}
 		if filters.Priority != "" {
-			conditions = append(conditions, fmt.Sprintf("priority = $%d", argIndex))
-			args = append(args, filters.Priority)
-			argIndex++
+			db = db.Where("priority = ?", filters.Priority)
 		}
 		// Archive filtering logic
 		if filters.ArchivedOnly {
-			// Show only archived tasks
-			conditions = append(conditions, "archived = true")
+			db = db.Where("archived = ?", true)
 		} else if !filters.IncludeArchived {
-			// Default: exclude archived tasks
-			conditions = append(conditions, "(archived = false OR archived IS NULL)")
+			db = db.Where("archived = ? OR archived IS NULL", false)
 		}
-		// If IncludeArchived is true and ArchivedOnly is false, show both (no filter added)
-	}
 
-	// Add WHERE clause if we have conditions
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			query += " AND " + conditions[i]
-		}
-	}
-
-	// Add ORDER BY
-	query += " ORDER BY created_at DESC"
-
-	// Add LIMIT and OFFSET if specified
-	if filters != nil {
 		if filters.Limit > 0 {
-			query += fmt.Sprintf(" LIMIT $%d", argIndex)
-			args = append(args, filters.Limit)
-			argIndex++
+			db = db.Limit(filters.Limit)
 		}
 		if filters.Offset > 0 {
-			query += fmt.Sprintf(" OFFSET $%d", argIndex)
-			args = append(args, filters.Offset)
+			db = db.Offset(filters.Offset)
 		}
 	}
 
-	err := s.gdb.WithContext(ctx).Raw(query, args...).Scan(&tasks).Error
+	err := db.Order("created_at DESC").Find(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}
