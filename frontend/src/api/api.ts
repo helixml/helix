@@ -2221,8 +2221,6 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
-  /** The question set this session belongs to, if any */
-  question_set_id?: string;
   rag_results?: TypesSessionRAGResult[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
@@ -3263,6 +3261,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  /** The question set execution this session belongs to, if any */
   question_set_execution_id?: string;
   /** The question set this session belongs to, if any */
   question_set_id?: string;
@@ -3516,6 +3515,8 @@ export interface TypesSpecTask {
   /** Metadata */
   created_by?: string;
   description?: string;
+  /** When design docs were pushed to helix-specs branch */
+  design_docs_pushed_at?: string;
   /** Simple tracking */
   estimated_hours?: number;
   /** External agent tracking (single agent per SpecTask, spans multiple sessions) */
@@ -4109,11 +4110,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {

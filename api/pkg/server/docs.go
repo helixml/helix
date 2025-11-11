@@ -16427,10 +16427,6 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "question_set_id": {
-                    "description": "The question set this session belongs to, if any",
-                    "type": "string"
-                },
                 "rag_results": {
                     "type": "array",
                     "items": {
@@ -18996,6 +18992,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "question_set_execution_id": {
+                    "description": "The question set execution this session belongs to, if any",
                     "type": "string"
                 },
                 "question_set_id": {
@@ -19603,6 +19600,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "design_docs_pushed_at": {
+                    "description": "When design docs were pushed to helix-specs branch",
                     "type": "string"
                 },
                 "estimated_hours": {
@@ -21098,18 +21099,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

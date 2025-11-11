@@ -3812,9 +3812,6 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.MessageContent'
         description: User prompt (multi-part)
-      question_set_id:
-        description: The question set this session belongs to, if any
-        type: string
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -5621,6 +5618,7 @@ definitions:
           stabilityai/stable-diffusion-xl-base-1.0
         type: string
       question_set_execution_id:
+        description: The question set execution this session belongs to, if any
         type: string
       question_set_id:
         description: The question set this session belongs to, if any
@@ -6047,6 +6045,9 @@ definitions:
         description: Metadata
         type: string
       description:
+        type: string
+      design_docs_pushed_at:
+        description: When design docs were pushed to helix-specs branch
         type: string
       estimated_hours:
         description: Simple tracking
@@ -7093,18 +7094,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
