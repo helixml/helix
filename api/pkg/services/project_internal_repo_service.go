@@ -496,7 +496,7 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 
 	// Commit
 	commitMsg := fmt.Sprintf("Initial commit: %s\n\nSample: %s", project.Name, sampleCode.Name)
-	_, err = worktree.Commit(commitMsg, &git.CommitOptions{
+	commitHash, err := worktree.Commit(commitMsg, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  "Helix System",
 			Email: "system@helix.ml",
@@ -507,10 +507,43 @@ func (s *ProjectInternalRepoService) InitializeCodeRepoFromSample(ctx context.Co
 		return "", "", fmt.Errorf("failed to commit initial structure: %w", err)
 	}
 
+	// Rename master to main before pushing
+	headRef, err := repo.Head()
+	if err == nil && headRef.Name().Short() == "master" {
+		// Create main branch pointing to same commit
+		mainRef := plumbing.NewBranchReferenceName("main")
+		if err := repo.Storer.SetReference(plumbing.NewHashReference(mainRef, commitHash)); err != nil {
+			log.Warn().Err(err).Msg("Failed to create main branch")
+		} else {
+			// Set HEAD to main
+			newHead := plumbing.NewSymbolicReference(plumbing.HEAD, mainRef)
+			if err := repo.Storer.SetReference(newHead); err != nil {
+				log.Warn().Err(err).Msg("Failed to set HEAD to main")
+			} else {
+				// Delete master branch
+				if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName("master")); err != nil {
+					log.Warn().Err(err).Msg("Failed to remove master branch")
+				}
+				log.Info().Msg("Renamed default branch from master to main")
+			}
+		}
+	}
+
 	// Push main branch to bare repo
-	err = repo.Push(&git.PushOptions{})
+	err = repo.Push(&git.PushOptions{
+		RefSpecs: []config.RefSpec{"refs/heads/main:refs/heads/main"},
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to push to bare repo: %w", err)
+	}
+
+	// Delete master branch from bare repo if it exists
+	bareRepo, err := git.PlainOpen(repoPath)
+	if err == nil {
+		masterRef := plumbing.NewBranchReferenceName("master")
+		if err := bareRepo.Storer.RemoveReference(masterRef); err != nil && err != plumbing.ErrReferenceNotFound {
+			log.Warn().Err(err).Msg("Failed to remove master branch from bare repo")
+		}
 	}
 
 	// Create helix-specs as an ORPHAN branch (empty, no code files)
