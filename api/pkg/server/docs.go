@@ -1557,6 +1557,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/register": {
+            "post": {
+                "description": "Register a new user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Register",
+                "parameters": [
+                    {
+                        "description": "Request body with email and password.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/user": {
             "get": {
                 "description": "Get the current user's information",
@@ -13621,6 +13646,19 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AuthProvider": {
+            "type": "string",
+            "enum": [
+                "keycloak",
+                "regular",
+                "oidc"
+            ],
+            "x-enum-varnames": [
+                "AuthProviderKeycloak",
+                "AuthProviderRegular",
+                "AuthProviderOIDC"
+            ]
+        },
         "types.AuthenticatedResponse": {
             "type": "object",
             "properties": {
@@ -15263,6 +15301,12 @@ const docTemplate = `{
         "types.LoginRequest": {
             "type": "object",
             "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
                 "redirect_uri": {
                     "type": "string"
                 }
@@ -16453,6 +16497,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.RegisterRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "password_confirm": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Resource": {
             "type": "string",
             "enum": [
@@ -16957,6 +17015,14 @@ const docTemplate = `{
                 "apps_enabled": {
                     "type": "boolean"
                 },
+                "auth_provider": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AuthProvider"
+                        }
+                    ]
+                },
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
@@ -16971,7 +17037,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "filestore_prefix": {
-                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                     "type": "string"
                 },
                 "google_analytics_frontend": {
@@ -19109,6 +19174,9 @@ const docTemplate = `{
                     "description": "if the token is associated with an app",
                     "type": "string"
                 },
+                "auth_provider": {
+                    "$ref": "#/definitions/types.AuthProvider"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -19126,6 +19194,17 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "must_change_password": {
+                    "description": "if the user must change their password",
+                    "type": "boolean"
+                },
+                "password_hash": {
+                    "description": "bcrypt hash of the password",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "sb": {
                     "type": "boolean"
