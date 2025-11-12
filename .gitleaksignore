@@ -16,6 +16,8 @@ design/MOONLIGHT_STREAMING_FINAL.md:generic-api-key:426
 design/VERIFIED_IMPLEMENTATION_STATUS.md:curl-auth-header:429
 design/VERIFIED_IMPLEMENTATION_STATUS.md:curl-auth-header:436
 design/archive-debugging-logs/2025-10-22-websocket-testing-methodology.md:generic-api-key:57
+design/2025-11-11-multi-session-decryption-regression.md:generic-api-key:49
+design/2025-11-11-multi-session-decryption-regression.md:generic-api-key:50
 
 # Integration test - test API key (not a real secret)
 integration-test/zed-websocket/enhanced_source_of_truth_test.go:generic-api-key:22

@@ -1005,102 +1005,102 @@ export default function DesignReviewViewer({
               flexDirection="column"
               bgcolor="background.paper"
             >
-            <Box p={2} borderBottom={1} borderColor="divider">
-              <Typography variant="h6">
-                Comment Log ({activeDocComments.length})
-              </Typography>
-              <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
-                <Typography variant="caption" color="text.secondary" display="block">
-                  <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
+              <Box p={2} borderBottom={1} borderColor="divider">
+                <Typography variant="h6">
+                  Comment Log ({activeDocComments.length})
                 </Typography>
+                <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
 
-            <Box flex={1} overflow="auto" p={2}>
-              {activeDocComments.length === 0 ? (
-                <Typography variant="body2" color="text.secondary" align="center" mt={4}>
-                  No comments yet. Select text in the document to add a comment.
-                </Typography>
-              ) : (
-                activeDocComments.map(comment => (
-                  <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
-                    <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                      <Chip
-                        label={comment.quoted_text ? "Inline" : "General"}
-                        size="small"
-                        color={comment.quoted_text ? "primary" : "default"}
-                      />
-                      {!comment.resolved && (
-                        <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
-                          <CloseIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </Box>
-
-                    {comment.quoted_text && (
-                      <Box
-                        sx={{
-                          bgcolor: 'action.hover',
-                          p: 1,
-                          borderLeft: '3px solid',
-                          borderColor: 'primary.main',
-                          mb: 1,
-                          fontStyle: 'italic',
-                          fontSize: '0.875rem',
-                        }}
-                      >
-                        "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
-                      </Box>
-                    )}
-
-                    <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
-
-                    {/* Agent Response */}
-                    {comment.agent_response && (
-                      <Box
-                        sx={{
-                          mt: 2,
-                          p: 2,
-                          bgcolor: 'info.light',
-                          borderLeft: '3px solid',
-                          borderColor: 'info.main',
-                          borderRadius: 1,
-                        }}
-                      >
-                        <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
-                          Agent Response:
-                        </Typography>
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                          {comment.agent_response}
-                        </Typography>
-                        {comment.agent_response_at && (
-                          <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                            {new Date(comment.agent_response_at).toLocaleString()}
-                          </Typography>
+              <Box flex={1} overflow="auto" p={2}>
+                {activeDocComments.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" align="center" mt={4}>
+                    No comments yet. Select text in the document to add a comment.
+                  </Typography>
+                ) : (
+                  activeDocComments.map(comment => (
+                    <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
+                      <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
+                        <Chip
+                          label={comment.quoted_text ? "Inline" : "General"}
+                          size="small"
+                          color={comment.quoted_text ? "primary" : "default"}
+                        />
+                        {!comment.resolved && (
+                          <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
                         )}
                       </Box>
-                    )}
 
-                    {comment.resolved && (
-                      <Chip
-                        label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
-                        size="small"
-                        color="success"
-                        icon={<CheckCircleIcon />}
-                        sx={{ mt: 1 }}
-                      />
-                    )}
+                      {comment.quoted_text && (
+                        <Box
+                          sx={{
+                            bgcolor: 'action.hover',
+                            p: 1,
+                            borderLeft: '3px solid',
+                            borderColor: 'primary.main',
+                            mb: 1,
+                            fontStyle: 'italic',
+                            fontSize: '0.875rem',
+                          }}
+                        >
+                          "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
+                        </Box>
+                      )}
 
-                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                      {new Date(comment.created_at).toLocaleString()}
-                    </Typography>
-                  </Paper>
-                ))
-              )}
-            </Box>
+                      <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
 
-            {/* Review submit controls */}
-            {review.status === 'approved' ? (
+                      {/* Agent Response */}
+                      {comment.agent_response && (
+                        <Box
+                          sx={{
+                            mt: 2,
+                            p: 2,
+                            bgcolor: 'info.light',
+                            borderLeft: '3px solid',
+                            borderColor: 'info.main',
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
+                            Agent Response:
+                          </Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                            {comment.agent_response}
+                          </Typography>
+                          {comment.agent_response_at && (
+                            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                              {new Date(comment.agent_response_at).toLocaleString()}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+
+                      {comment.resolved && (
+                        <Chip
+                          label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
+                          size="small"
+                          color="success"
+                          icon={<CheckCircleIcon />}
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+
+                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                        {new Date(comment.created_at).toLocaleString()}
+                      </Typography>
+                    </Paper>
+                  ))
+                )}
+              </Box>
+
+              {/* Review submit controls */}
+              {review.status === 'approved' ? (
               <Box p={3} borderTop={1} borderColor="divider" bgcolor="success.light">
                 <Alert severity="success" sx={{ mb: 2 }}>
                   Design approved! Ready to start implementation.
@@ -1168,7 +1168,7 @@ export default function DesignReviewViewer({
                 </Alert>
               </Box>
             )}
-          </Box>
+            </Box>
           )}
         </Box>
       </Paper>
