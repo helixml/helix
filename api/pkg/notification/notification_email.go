@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mail"
@@ -26,8 +27,12 @@ var taskCompleteTemplate string
 //go:embed templates/task_failed.html
 var taskFailedTemplate string
 
+//go:embed templates/password_reset_request.html
+var passwordResetRequestTemplate string
+
 var cronTriggerCompleteTmpl = template.Must(template.New("taskComplete").Parse(taskCompleteTemplate))
 var cronTriggerFailedTmpl = template.Must(template.New("taskFailed").Parse(taskFailedTemplate))
+var passwordResetRequestTmpl = template.Must(template.New("passwordResetRequest").Parse(passwordResetRequestTemplate))
 
 type Email struct {
 	cfg     *config.Notifications
@@ -149,7 +154,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 	}
 
 	switch n.Event {
-	case EventCronTriggerComplete:
+	case types.EventCronTriggerComplete:
 		var buf bytes.Buffer
 
 		err = cronTriggerCompleteTmpl.Execute(&buf, &templateData{
@@ -162,7 +167,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		}
 
 		return n.Session.Name, buf.String(), nil
-	case EventCronTriggerFailed:
+	case types.EventCronTriggerFailed:
 		var buf bytes.Buffer
 
 		err = cronTriggerFailedTmpl.Execute(&buf, &templateData{
@@ -176,6 +181,8 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		}
 
 		return n.Session.Name, buf.String(), nil
+	case types.EventPasswordResetRequest:
+		return "Password Reset Request", n.Message, nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}

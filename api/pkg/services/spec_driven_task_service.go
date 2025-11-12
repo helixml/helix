@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
-	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -190,8 +189,8 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
-		Provider:       "anthropic",          // Use Claude for spec generation
-		ModelName:      "external_agent",     // Model name for external agents
+		Provider:       "anthropic",      // Use Claude for spec generation
+		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
 		ParentApp:      "",
 		OrganizationID: "",
@@ -280,9 +279,9 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 			Owner: task.CreatedBy,
 		}
 
-		notificationPayload := &notification.Notification{
+		notificationPayload := &types.Notification{
 			Session: session,
-			Event:   notification.EventCronTriggerComplete,
+			Event:   types.EventCronTriggerComplete,
 		}
 
 		if err := s.controller.Options.Notifier.Notify(ctx, notificationPayload); err != nil {
@@ -495,7 +494,7 @@ Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 4. sessions/ - Directory for session notes (optional)
 
 **Git Workflow You Must Follow:**
-` + "```bash" + `
+`+"```bash"+`
 # Navigate to design docs worktree
 cd .git-worktrees/helix-design-docs
 
@@ -516,10 +515,10 @@ git commit -m "Generated design documents for SpecTask %s"
 
 # Push to helix-design-docs branch
 git push origin helix-design-docs
-` + "```" + `
+`+"```"+`
 
 **tasks.md Format (spec-driven development approach):**
-` + "```markdown" + `
+`+"```markdown"+`
 # Implementation Tasks
 
 ## Discrete, Trackable Tasks
@@ -529,7 +528,7 @@ git push origin helix-design-docs
 - [ ] Implement authentication
 - [ ] Add unit tests
 - [ ] Update documentation
-` + "```" + `
+`+"```"+`
 
 After committing, let the user know the design docs are ready for review.
 They can continue chatting with you to refine the design before approval.
@@ -543,10 +542,10 @@ They can continue chatting with you to refine the design before approval.
 
 Start by analyzing the user's request, then create comprehensive design documents in the worktree.`,
 		task.ProjectID, task.Type, task.Priority, task.ID,
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command
-		task.ID)                                                                       // Commit message
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Directory name
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // mkdir command
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command
+		task.ID) // Commit message
 }
 
 // buildImplementationPrompt creates the prompt for implementation Zed agent
@@ -563,13 +562,13 @@ The approved design documents are in a task-specific directory in the helix-desi
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE (spec-driven development format):**
-` + "```" + `
+`+"```"+`
 .git-worktrees/helix-design-docs/tasks/%s_%s_%s/
 ├── requirements.md      (user stories + EARS acceptance criteria)
 ├── design.md           (architecture + sequence diagrams + considerations)
 ├── tasks.md            (YOUR TASK CHECKLIST - track here!)
 └── sessions/           (session notes)
-` + "```" + `
+`+"```"+`
 
 **CRITICAL: Task Progress Tracking**
 The tasks.md file contains discrete, trackable tasks in this format:
@@ -578,7 +577,7 @@ The tasks.md file contains discrete, trackable tasks in this format:
 - [x] Task description (completed - YOU mark this)
 
 **Your Workflow:**
-` + "```bash" + `
+`+"```bash"+`
 # Navigate to your task directory
 cd .git-worktrees/helix-design-docs/tasks/%s_%s_%s
 
@@ -607,7 +606,7 @@ git push origin helix-design-docs
 
 # Move to next [ ] task
 # Repeat until all tasks are [x]
-` + "```" + `
+`+"```"+`
 
 **Original User Request:**
 %s
@@ -633,10 +632,10 @@ git push origin helix-design-docs
 
 Start by reading the design documents from the worktree, then work through the task list systematically.`,
 		task.Name, task.ID,
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 1
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory structure 2
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 1
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command 2
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Directory structure 1
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Directory structure 2
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command 1
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command 2
 		task.OriginalPrompt)
 }
 
