@@ -1243,6 +1243,9 @@ if [ -n "\$POSTGRES_DATABASES" ]; then
 fi
 EOF
     chmod +x $INSTALL_DIR/scripts/postgres/postgres-db.sh
+    # Fix permissions for Docker container to read initialization scripts
+    chmod 755 $INSTALL_DIR/scripts/postgres
+    chmod 644 $INSTALL_DIR/scripts/postgres/postgres-db.sh
 
     # Create searxng settings.yml and limiter.toml files
     mkdir -p "$INSTALL_DIR/searxng"
