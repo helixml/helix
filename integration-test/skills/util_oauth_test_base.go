@@ -265,7 +265,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	}
 
 	// Create Keycloak authenticator
-	keycloakConfig := cfg.Keycloak
+	keycloakConfig := cfg.Auth.Keycloak
 	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
 		keycloakConfig.KeycloakURL = keycloakURL
 		keycloakConfig.KeycloakFrontEndURL = keycloakURL
@@ -274,14 +274,14 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		keycloakConfig.KeycloakFrontEndURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg, suite.store)
 	if err != nil {
 		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
 	}
 	suite.keycloak = keycloakAuthenticator
 
 	// Update config with Keycloak settings
-	cfg.Keycloak = keycloakConfig
+	cfg.Auth.Keycloak = keycloakConfig
 
 	// Create trigger manager
 	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, notifierMock, controller)
@@ -366,7 +366,7 @@ func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
 	}
 
 	// Create user in Keycloak first
-	createdUser, err := suite.keycloak.CreateKeycloakUser(suite.ctx, user)
+	createdUser, err := suite.keycloak.CreateUser(suite.ctx, user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user in Keycloak: %w", err)
 	}
