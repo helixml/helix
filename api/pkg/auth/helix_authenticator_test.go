@@ -133,8 +133,8 @@ func (suite *HelixAuthenticatorTestSuite) TestUpdatePassword() {
 	userID := uuid.New().String()
 	newPassword := "newpassword123"
 	existingUser := &types.User{
-		ID:          userID,
-		Email:       "test@example.com",
+		ID:           userID,
+		Email:        "test@example.com",
 		PasswordHash: []byte("old-hash"),
 	}
 
@@ -193,7 +193,7 @@ func (suite *HelixAuthenticatorTestSuite) TestValidatePassword() {
 	suite.Require().NoError(err)
 
 	user := &types.User{
-		ID:          uuid.New().String(),
+		ID:           uuid.New().String(),
 		PasswordHash: hash,
 	}
 
@@ -208,7 +208,7 @@ func (suite *HelixAuthenticatorTestSuite) TestValidatePassword_Invalid() {
 	suite.Require().NoError(err)
 
 	user := &types.User{
-		ID:          uuid.New().String(),
+		ID:           uuid.New().String(),
 		PasswordHash: hash,
 	}
 
@@ -257,6 +257,32 @@ func (suite *HelixAuthenticatorTestSuite) TestValidateUserToken() {
 	suite.Equal(user.Email, validatedUser.Email)
 	suite.Equal(token, validatedUser.Token)
 	suite.Equal(user.Admin, validatedUser.Admin)
+}
+
+func (suite *HelixAuthenticatorTestSuite) TestValidateUserToken_Admin() {
+	user := &types.User{
+		ID:    uuid.New().String(),
+		Email: "test@example.com",
+		Admin: false,
+	}
+
+	suite.cfg.WebServer.AdminIDs = []string{user.ID}
+
+	token, err := suite.auth.GenerateUserToken(suite.ctx, user)
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(token)
+
+	suite.store.EXPECT().
+		GetUser(gomock.Any(), &store.GetUserQuery{ID: user.ID}).
+		Return(user, nil)
+
+	validatedUser, err := suite.auth.ValidateUserToken(suite.ctx, token)
+	suite.NoError(err)
+	suite.NotNil(validatedUser)
+	suite.Equal(user.ID, validatedUser.ID)
+	suite.Equal(user.Email, validatedUser.Email)
+	suite.Equal(token, validatedUser.Token)
+	suite.True(validatedUser.Admin)
 }
 
 func (suite *HelixAuthenticatorTestSuite) TestValidateUserToken_EmptyToken() {
@@ -391,8 +417,8 @@ func (suite *HelixAuthenticatorTestSuite) TestPasswordResetComplete() {
 	userID := uuid.New().String()
 	newPassword := "newpassword123"
 	user := &types.User{
-		ID:          userID,
-		Email:       "test@example.com",
+		ID:           userID,
+		Email:        "test@example.com",
 		PasswordHash: []byte("old-hash"),
 	}
 
