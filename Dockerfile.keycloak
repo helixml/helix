@@ -1,4 +1,4 @@
-FROM quay.io/keycloak/keycloak:23.0
+FROM quay.io/keycloak/keycloak:26.4
 
 # Copy our custom theme into the Keycloak themes directory
 COPY themes/helix /opt/keycloak/themes/helix
