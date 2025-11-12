@@ -1168,7 +1168,7 @@ export default function DesignReviewViewer({
                 </Alert>
               </Box>
             )}
-            </Box>
+          </Box>
           )}
         </Box>
       </Paper>
