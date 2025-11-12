@@ -29,6 +29,8 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
+		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -85,6 +87,8 @@ func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
+		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -139,6 +143,8 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
+		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -147,6 +153,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 
 	existingTask := &types.SpecTask{
 		ID:                 taskID,
+		ProjectID:          "test-project-id",
 		Status:             types.TaskStatusSpecReview,
 		RequirementsSpec:   "Generated requirements",
 		TechnicalDesign:    "Generated design",
@@ -160,11 +167,23 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 		ApprovedAt: time.Now(),
 	}
 
+	mockProject := &types.Project{
+		ID:            "test-project-id",
+		DefaultRepoID: "test-repo-id",
+	}
+
+	mockRepo := &store.GitRepository{
+		ID:            "test-repo-id",
+		DefaultBranch: "main",
+	}
+
 	// Mock expectations
 	mockStore.EXPECT().GetSpecTask(ctx, taskID).Return(existingTask, nil)
+	mockStore.EXPECT().GetProject(ctx, "test-project-id").Return(mockProject, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "test-repo-id").Return(mockRepo, nil)
 	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(ctx context.Context, task *types.SpecTask) error {
-			assert.Equal(t, types.TaskStatusSpecApproved, task.Status)
+			assert.Equal(t, types.TaskStatusImplementation, task.Status)
 			assert.Equal(t, "test-user", task.SpecApprovedBy)
 			return nil
 		},
@@ -195,6 +214,8 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 		"test-helix-agent",
 		[]string{"test-zed-agent"},
 		mockPubsub,
+		nil, // externalAgentExecutor not needed for tests
+		nil, // registerRequestMapping not needed for tests
 	)
 	service.SetTestMode(true)
 
@@ -236,7 +257,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{
@@ -253,14 +274,14 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "test-project")
 	assert.Contains(t, prompt, "feature")
 	assert.Contains(t, prompt, "high")
-	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "helix-specs") // New worktree-based format
 	assert.Contains(t, prompt, "requirements.md")   // New format files
 	assert.Contains(t, prompt, "design.md")
 	assert.Contains(t, prompt, "tasks.md")
 }
 
 func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"}, nil, nil, nil)
 	service.SetTestMode(true)
 
 	task := &types.SpecTask{
@@ -278,7 +299,7 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "senior software engineer")
 	assert.Contains(t, prompt, "User Authentication System")
 	assert.Contains(t, prompt, "Create a user authentication system")
-	assert.Contains(t, prompt, "helix-design-docs") // New worktree-based format
+	assert.Contains(t, prompt, "helix-specs") // New worktree-based format
 	assert.Contains(t, prompt, "requirements.md")   // Design docs are in files now
 	assert.Contains(t, prompt, "design.md")
 	assert.Contains(t, prompt, "tasks.md")
@@ -286,12 +307,12 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 
 func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
 	// Test with agents available
-	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil)
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"}, nil, nil, nil)
 	agent := service.selectZedAgent()
 	assert.Equal(t, "agent1", agent)
 
 	// Test with no agents
-	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil)
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{}, nil, nil, nil)
 	serviceNoAgents.SetTestMode(true)
 	agent = serviceNoAgents.selectZedAgent()
 	assert.Equal(t, "", agent)

@@ -1,21 +1,64 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
+
+// addUserAPITokenToAgent adds the user's API token to agent environment for git operations
+// This ensures RBAC is enforced - agent can only access repos the user can access
+func (s *HelixAPIServer) addUserAPITokenToAgent(ctx context.Context, agent *types.ZedAgent, userID string) error {
+	userAPIKeys, err := s.Store.ListAPIKeys(ctx, &store.ListAPIKeysQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list user API keys: %w", err)
+	}
+
+	if len(userAPIKeys) == 0 {
+		log.Warn().Str("user_id", userID).Msg("User has no API keys - git operations will not work")
+		return fmt.Errorf("user has no API keys - create one in Account Settings to use git features")
+	}
+
+	// Add USER_API_TOKEN to agent environment
+	agent.Env = append(agent.Env, fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key))
+
+	log.Debug().
+		Str("user_id", userID).
+		Msg("Added user API token to agent for git operations")
+
+	return nil
+}
+
+// RegisterRequestToSessionMapping registers a request_id to session_id mapping for external agent sessions
+// This is used to route initial messages to Zed when it connects via WebSocket
+func (apiServer *HelixAPIServer) RegisterRequestToSessionMapping(requestID, sessionID string) {
+	if apiServer.requestToSessionMapping == nil {
+		apiServer.requestToSessionMapping = make(map[string]string)
+	}
+	apiServer.requestToSessionMapping[requestID] = sessionID
+	log.Info().
+		Str("request_id", requestID).
+		Str("session_id", sessionID).
+		Msg("✅ Registered request_id -> session_id mapping")
+}
 
 // createExternalAgent handles POST /api/v1/external-agents
 func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, req *http.Request) {
@@ -37,10 +80,8 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 		agent.SessionID = system.GenerateRequestID()
 	}
 
-	// Set default values if not provided
-	if agent.WorkDir == "" {
-		agent.WorkDir = fmt.Sprintf("/tmp/zed-workspaces/%s", agent.SessionID)
-	}
+	// WorkDir will be set by wolf_executor to use filestore path
+	// Don't override it here - let executor handle workspace management
 
 	// Validate required fields
 	if agent.Input == "" {
@@ -164,6 +205,12 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 
 	// Set the Helix session ID on the agent so Wolf knows which session this serves
 	agent.HelixSessionID = createdSession.ID
+
+	// Add user's API token for git operations
+	if err := apiServer.addUserAPITokenToAgent(req.Context(), &agent, user.ID); err != nil {
+		log.Warn().Err(err).Str("user_id", user.ID).Msg("Failed to add user API token (continuing without git)")
+		// Don't fail - external agents can work without git
+	}
 
 	// Start the external agent
 	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)
@@ -384,19 +431,19 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		Msg("Found external agent session (RDP replaced with Wolf)")
 
 	// Return Wolf-based connection details with WebSocket info
-	connectionInfo := map[string]interface{}{
-		"session_id":          session.SessionID,
-		"screenshot_url":      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
-		"stream_url":          "moonlight://localhost:47989",
-		"status":              session.Status,
-		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
-		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
+	connectionInfo := types.ExternalAgentConnectionInfo{
+		SessionID:          session.SessionID,
+		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", session.SessionID),
+		StreamURL:          "moonlight://localhost:47989",
+		Status:             session.Status,
+		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
+		WebsocketConnected: apiServer.isExternalAgentConnected(session.SessionID),
 	}
 
 	log.Info().
 		Str("session_id", session.SessionID).
 		Str("status", session.Status).
-		Bool("websocket_connected", connectionInfo["websocket_connected"].(bool)).
+		Bool("websocket_connected", connectionInfo.WebsocketConnected).
 		Msg("Returning Wolf connection info")
 
 	res.Header().Set("Content-Type", "application/json")
@@ -419,7 +466,7 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 		return
 	}
 
-	var updateData map[string]interface{}
+	var updateData types.ExternalAgentUpdateRequest
 	err := json.NewDecoder(req.Body).Decode(&updateData)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
@@ -481,16 +528,16 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 		return
 	}
 
-	stats := map[string]interface{}{
-		"session_id":    session.SessionID,
-		"pid":           0,
-		"start_time":    session.StartTime,
-		"last_access":   session.LastAccess,
-		"uptime":        session.LastAccess.Sub(session.StartTime).Seconds(),
-		"workspace_dir": session.ProjectPath,
-		"display_num":   1,
-		"rdp_port":      8080,
-		"status":        "running",
+	stats := types.ExternalAgentStats{
+		SessionID:    session.SessionID,
+		PID:          0,
+		StartTime:    session.StartTime,
+		LastAccess:   session.LastAccess,
+		Uptime:       session.LastAccess.Sub(session.StartTime).Seconds(),
+		WorkspaceDir: session.ProjectPath,
+		DisplayNum:   1,
+		RDPPort:      8080,
+		Status:       "running",
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -534,16 +581,16 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 
 	// For now, return a placeholder response
 	// In a full implementation, you would read actual logs from the Zed process
-	logs := map[string]interface{}{
-		"session_id": sessionID,
-		"lines":      lines,
-		"logs": []string{
+	logs := types.ExternalAgentLogs{
+		SessionID: sessionID,
+		Lines:     lines,
+		Logs: []string{
 			"[INFO] Zed editor started",
 			"[INFO] X server initialized",
 			"[INFO] XRDP server listening on port 3389",
 			"[DEBUG] Session active and responding",
 		},
-		"timestamp": time.Now(),
+		Timestamp: time.Now(),
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -646,6 +693,23 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		return
 	}
 
+	// Check if agent is paused and has saved screenshot
+	if session.Metadata.PausedScreenshotPath != "" {
+		// Agent is paused - serve saved screenshot from filestore
+		screenshotFile, err := os.Open(session.Metadata.PausedScreenshotPath)
+		if err == nil {
+			defer screenshotFile.Close()
+			res.Header().Set("Content-Type", "image/png")
+			res.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			res.Header().Set("X-Paused-Screenshot", "true") // Indicate this is a paused screenshot
+			res.WriteHeader(http.StatusOK)
+			io.Copy(res, screenshotFile)
+			return
+		}
+		// If file not found, fall through to try live screenshot
+		log.Warn().Err(err).Str("screenshot_path", session.Metadata.PausedScreenshotPath).Msg("Paused screenshot file not found, trying live screenshot")
+	}
+
 	// Get container name using Docker API - external agent containers have HELIX_SESSION_ID env var
 	if apiServer.externalAgentExecutor == nil {
 		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
@@ -715,19 +779,17 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		Msg("Successfully retrieved screenshot from external agent container")
 }
 
-// @Summary Get keepalive session status
-// @Description Get keepalive session health status for an external agent
+// @Summary Get session clipboard content
+// @Description Fetch current clipboard content from remote desktop
 // @Tags ExternalAgents
-// @Accept json
 // @Produce json
 // @Param sessionID path string true "Session ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} types.ClipboardData
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security ApiKeyAuth
-// @Router /api/v1/external-agents/{sessionID}/keepalive [get]
-func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.ResponseWriter, req *http.Request) {
+// @Router /api/v1/external-agents/{sessionID}/clipboard [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
@@ -737,43 +799,179 @@ func (apiServer *HelixAPIServer) getExternalAgentKeepaliveStatus(res http.Respon
 	vars := mux.Vars(req)
 	sessionID := vars["sessionID"]
 
-	if sessionID == "" {
-		http.Error(res, "session ID is required", http.StatusBadRequest)
-		return
-	}
-
-	if apiServer.externalAgentExecutor == nil {
-		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Get session from executor
-	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Session not found for keepalive status")
-		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	// Calculate connection uptime
-	var uptimeSeconds int64
-	if session.KeepaliveStartTime != nil {
-		uptimeSeconds = int64(time.Since(*session.KeepaliveStartTime).Seconds())
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
 	}
 
-	// Build response
-	response := map[string]interface{}{
-		"session_id":              session.SessionID,
-		"lobby_id":                session.WolfLobbyID,
-		"keepalive_status":        session.KeepaliveStatus,
-		"keepalive_start_time":    session.KeepaliveStartTime,
-		"keepalive_last_check":    session.KeepaliveLastCheck,
-		"connection_uptime_seconds": uptimeSeconds,
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
 	}
 
+	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Make HTTP request to clipboard endpoint inside the container
+	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+
+	clipboardReq, err := http.NewRequestWithContext(req.Context(), "GET", clipboardURL, nil)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+		return
+	}
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	clipboardResp, err := httpClient.Do(clipboardReq)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get clipboard from container")
+		http.Error(res, "Failed to retrieve clipboard", http.StatusInternalServerError)
+		return
+	}
+	defer clipboardResp.Body.Close()
+
+	// Check clipboard server response status
+	if clipboardResp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status", clipboardResp.StatusCode).
+			Str("container_name", containerName).
+			Msg("Clipboard server returned error")
+		http.Error(res, "Failed to retrieve clipboard from container", clipboardResp.StatusCode)
+		return
+	}
+
+	// Return clipboard data directly (JSON format with type and data)
 	res.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(res).Encode(response)
+	res.WriteHeader(http.StatusOK)
+
+	// Stream the clipboard JSON from clipboard server to response
+	_, err = io.Copy(res, clipboardResp.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to stream clipboard data")
+		return
+	}
+
+	log.Trace().
+		Str("session_id", sessionID).
+		Msg("Successfully retrieved clipboard from external agent container")
 }
+
+// @Summary Set session clipboard content
+// @Description Send clipboard content to remote desktop
+// @Tags ExternalAgents
+// @Accept json
+// @Param sessionID path string true "Session ID"
+// @Param clipboard body types.ClipboardData true "Clipboard data to set"
+// @Success 200
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/external-agents/{sessionID}/clipboard [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["sessionID"]
+
+	// Get the Helix session to verify ownership
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		http.Error(res, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify ownership
+	if session.Owner != user.ID {
+		log.Warn().Str("session_id", sessionID).Str("user_id", user.ID).Str("owner_id", session.Owner).Msg("User does not own session")
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get container name using Wolf executor
+	if apiServer.externalAgentExecutor == nil {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	containerName, err := apiServer.externalAgentExecutor.FindContainerBySessionID(req.Context(), sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to find external agent container")
+		http.Error(res, "External agent container not found", http.StatusNotFound)
+		return
+	}
+
+	// Read clipboard content from request body (JSON format)
+	clipboardContent, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read request body")
+		http.Error(res, "Failed to read clipboard content", http.StatusBadRequest)
+		return
+	}
+
+	// Make HTTP POST request to clipboard endpoint inside the container
+	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+
+	clipboardReq, err := http.NewRequestWithContext(req.Context(), "POST", clipboardURL, bytes.NewReader(clipboardContent))
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+		return
+	}
+	clipboardReq.Header.Set("Content-Type", "application/json")
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	clipboardResp, err := httpClient.Do(clipboardReq)
+	if err != nil {
+		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to set clipboard in container")
+		http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
+		return
+	}
+	defer clipboardResp.Body.Close()
+
+	// Check clipboard server response status
+	if clipboardResp.StatusCode != http.StatusOK {
+		log.Error().
+			Int("status", clipboardResp.StatusCode).
+			Str("container_name", containerName).
+			Msg("Clipboard server returned error")
+		http.Error(res, "Failed to set clipboard in container", clipboardResp.StatusCode)
+		return
+	}
+
+	res.WriteHeader(http.StatusOK)
+	log.Info().
+		Str("session_id", sessionID).
+		Int("clipboard_size", len(clipboardContent)).
+		Msg("Successfully set clipboard in external agent container")
+}
+
 
 // @Summary Auto-join Wolf lobby after connection
 // @Description Automatically join a Wolf lobby after moonlight-web has connected. This endpoint should be called by the frontend after the moonlight-web iframe has loaded and the user has connected to Wolf UI.
@@ -944,7 +1142,9 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		Msg("[AUTO-JOIN] Backend deriving Wolf client_id from client_unique_id pattern (secure)")
 
 	// Find the Wolf UI session with matching client_unique_id
+	// Prefer: Most recent session (last in list) since old sessions should be cleaned up
 	var moonlightSessionID string
+	var matchedCount int
 	var wolfUISessions []string
 
 	for _, session := range sessionsData.Sessions {
@@ -953,15 +1153,36 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
 			wolfUISessions = append(wolfUISessions, sessionInfo)
 
-			// Match by client_unique_id pattern (SECURE)
-			if session.ClientUniqueID == expectedUniqueID {
+			// SECURITY: Match by client_unique_id prefix pattern (handles FRONTEND_INSTANCE_ID suffix)
+			// Expected: "helix-agent-{sessionID}" but actual may be "helix-agent-{sessionID}-{instanceID}"
+			// Wolf now properly exposes client_unique_id in /api/v1/sessions
+			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, expectedUniqueID) {
+				matchedCount++
+				// Use last match (most recent in iteration order)
+				// Old sessions should have been cleaned up by moonlight-web on disconnect
 				moonlightSessionID = session.ClientID
 				log.Info().
 					Str("matched_client_id", session.ClientID).
 					Str("matched_unique_id", session.ClientUniqueID).
-					Msg("[AUTO-JOIN] ✅ Found matching Wolf UI session by client_unique_id")
+					Str("expected_prefix", expectedUniqueID).
+					Int("match_number", matchedCount).
+					Msg("[AUTO-JOIN] Found matching Wolf UI session by client_unique_id prefix")
 			}
 		}
+	}
+
+	// DEFENSIVE WARNING: Multiple matching sessions found
+	if matchedCount > 1 {
+		log.Warn().
+			Str("expected_unique_id", expectedUniqueID).
+			Int("match_count", matchedCount).
+			Strs("all_wolf_ui_sessions", wolfUISessions).
+			Str("selected_session", moonlightSessionID).
+			Msg("[AUTO-JOIN] ⚠️ Multiple matching sessions found - using last one (old sessions should have been cleaned up)")
+	} else if matchedCount == 1 {
+		log.Info().
+			Str("moonlight_session_id", moonlightSessionID).
+			Msg("[AUTO-JOIN] ✅ Found unique Wolf UI session match")
 	}
 
 	if moonlightSessionID == "" {
@@ -969,24 +1190,78 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 			Str("expected_unique_id", expectedUniqueID).
 			Strs("available_sessions", wolfUISessions).
 			Int("total_sessions", len(sessionsData.Sessions)).
-			Msg("[AUTO-JOIN] No Wolf UI session found with matching client_unique_id - client may not have connected yet")
-		return fmt.Errorf("Wolf UI session not found for client_unique_id '%s' - client may not have connected yet", expectedUniqueID)
+			Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
+		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
 	}
 
-	// Log all available Wolf UI sessions for debugging
-	if len(wolfUISessions) > 1 {
-		log.Info().
-			Strs("all_wolf_ui_sessions", wolfUISessions).
-			Str("selected_session", moonlightSessionID).
-			Str("matched_by", "client_unique_id").
-			Int("session_count", len(wolfUISessions)).
-			Msg("[AUTO-JOIN] Multiple Wolf UI sessions exist - securely matched by client_unique_id pattern")
+	// DEFENSIVE CHECK: Verify Wolf-UI session still exists (not stopped/orphaned)
+	// Re-query Wolf sessions to ensure session wasn't stopped since we last checked
+	freshSessionsResp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+	if err != nil {
+		return fmt.Errorf("failed to re-query Wolf sessions: %w", err)
+	}
+	defer freshSessionsResp.Body.Close()
+
+	if freshSessionsResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(freshSessionsResp.Body)
+		return fmt.Errorf("Wolf sessions API returned status %d: %s", freshSessionsResp.StatusCode, string(body))
+	}
+
+	var freshSessionsData struct {
+		Success  bool `json:"success"`
+		Sessions []struct {
+			ClientID string `json:"client_id"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(freshSessionsResp.Body).Decode(&freshSessionsData); err != nil {
+		return fmt.Errorf("failed to parse fresh Wolf sessions response: %w", err)
+	}
+
+	// Verify the Wolf session we're trying to use still exists
+	sessionExists := false
+	for _, session := range freshSessionsData.Sessions {
+		if session.ClientID == moonlightSessionID {
+			sessionExists = true
+			break
+		}
+	}
+
+	if !sessionExists {
+		log.Warn().
+			Str("moonlight_session_id", moonlightSessionID).
+			Str("expected_unique_id", expectedUniqueID).
+			Msg("[AUTO-JOIN] Wolf-UI session no longer exists - may have been stopped")
+		return fmt.Errorf("Wolf-UI session %s no longer exists", moonlightSessionID)
 	}
 
 	log.Info().
 		Str("moonlight_session_id", moonlightSessionID).
-		Str("derived_by", "backend_client_unique_id_match").
-		Msg("[AUTO-JOIN] Using Wolf UI session for auto-join (backend-derived, secure)")
+		Msg("[AUTO-JOIN] ✅ Wolf-UI session exists")
+
+	// DEFENSIVE CHECK 2: Verify lobby exists before attempting join
+	lobbies, err := wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list lobbies: %w", err)
+	}
+
+	lobbyExists := false
+	for _, lobby := range lobbies {
+		if lobby.ID == lobbyID {
+			lobbyExists = true
+			break
+		}
+	}
+
+	if !lobbyExists {
+		log.Warn().
+			Str("lobby_id", lobbyID).
+			Msg("[AUTO-JOIN] Lobby does not exist - may have been stopped")
+		return fmt.Errorf("lobby %s does not exist", lobbyID)
+	}
+
+	log.Info().
+		Str("lobby_id", lobbyID).
+		Msg("[AUTO-JOIN] ✅ Lobby exists, proceeding with join")
 
 	// Convert PIN string to array of int16 for Wolf API
 	var pinDigits []int16

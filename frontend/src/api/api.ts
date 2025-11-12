@@ -494,10 +494,14 @@ export interface ServerAgentProgressItem {
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
+  /** GPU encoder stats from Wolf (via nvidia-smi) */
+  gpu_stats?: ServerGPUStats;
+  /** Actual pipeline count from Wolf */
+  gstreamer_pipelines?: ServerGStreamerPipelineStats;
   /** Lobbies mode */
   lobbies?: ServerWolfLobbyInfo[];
   memory?: ServerWolfSystemMemory;
-  /** NEW: moonlight-web client connections */
+  /** moonlight-web client connections */
   moonlight_clients?: ServerMoonlightClientInfo[];
   sessions?: ServerWolfSessionInfo[];
   /** Current Wolf mode ("apps" or "lobbies") */
@@ -556,18 +560,6 @@ export interface ServerCoordinationLogResponse {
   total_events?: number;
 }
 
-export interface ServerCreatePersonalDevEnvironmentRequest {
-  app_id?: string;
-  description?: string;
-  /** Default: 120 */
-  display_fps?: number;
-  /** Default: 1640 (iPad Pro) */
-  display_height?: number;
-  /** Display configuration for the streaming session */
-  display_width?: number;
-  environment_name?: string;
-}
-
 export interface ServerCreateSampleRepositoryRequest {
   description?: string;
   /** Enable Kodit code intelligence indexing */
@@ -584,24 +576,13 @@ export interface ServerCreateSpecTaskFromDemoRequest {
   type?: string;
 }
 
-export interface ServerCreateSpecTaskRepositoryRequest {
-  description?: string;
-  name?: string;
-  owner_id?: string;
-  project_id?: string;
-  spec_task_id?: string;
-  template_files?: Record<string, string>;
-}
-
 export interface ServerCreateTopUpRequest {
   amount?: number;
   org_id?: string;
 }
 
 export interface ServerDesignDocsResponse {
-  current_task_index?: number;
-  design_markdown?: string;
-  progress_markdown?: string;
+  documents?: ServerDesignDocument[];
   task_id?: string;
 }
 
@@ -609,6 +590,12 @@ export interface ServerDesignDocsShareLinkResponse {
   expires_at?: string;
   share_url?: string;
   token?: string;
+}
+
+export interface ServerDesignDocument {
+  content?: string;
+  filename?: string;
+  path?: string;
 }
 
 export interface ServerForkSampleProjectRequest {
@@ -635,6 +622,33 @@ export interface ServerForkSimpleProjectResponse {
   message?: string;
   project_id?: string;
   tasks_created?: number;
+}
+
+export interface ServerGPUStats {
+  /** false if nvidia-smi failed */
+  available?: boolean;
+  encoder_average_fps?: number;
+  encoder_average_latency_us?: number;
+  encoder_session_count?: number;
+  encoder_utilization_percent?: number;
+  error?: string;
+  gpu_name?: string;
+  gpu_utilization_percent?: number;
+  memory_total_mb?: number;
+  memory_used_mb?: number;
+  memory_utilization_percent?: number;
+  /** How long nvidia-smi took in Wolf */
+  query_duration_ms?: number;
+  temperature_celsius?: number;
+}
+
+export interface ServerGStreamerPipelineStats {
+  /** Video + audio consumers (2 per session) */
+  consumer_pipelines?: number;
+  /** Video + audio producers (2 per lobby) */
+  producer_pipelines?: number;
+  /** Sum of producers + consumers */
+  total_pipelines?: number;
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
@@ -685,45 +699,6 @@ export interface ServerMoonlightClientInfo {
   /** "create", "keepalive", "join" */
   mode?: string;
   session_id?: string;
-}
-
-export interface ServerPersonalDevEnvironmentResponse {
-  /** Helix App ID for configuration (MCP servers, tools, etc.) */
-  appID?: string;
-  /** MCP servers enabled */
-  configured_tools?: string[];
-  /** Container information for direct network access */
-  container_name?: string;
-  createdAt?: string;
-  /** Connected data sources */
-  data_sources?: string[];
-  description?: string;
-  /** Streaming framerate */
-  display_fps?: number;
-  /** Streaming resolution height */
-  display_height?: number;
-  /** Display configuration for streaming */
-  display_width?: number;
-  /** User-friendly name */
-  environment_name?: string;
-  instanceID?: string;
-  /** "spec_task", "personal_dev", "shared_workspace" */
-  instanceType?: string;
-  /** Personal dev environment specific */
-  is_personal_env?: boolean;
-  lastActivity?: string;
-  projectPath?: string;
-  /** Optional - null for personal dev environments */
-  specTaskID?: string;
-  status?: string;
-  stream_url?: string;
-  threadCount?: number;
-  /** Always required */
-  userID?: string;
-  /** VNC port inside container (5901) */
-  vnc_port?: number;
-  /** Wolf's numeric session ID for API calls */
-  wolf_session_id?: string;
 }
 
 export interface ServerPhaseProgress {
@@ -935,8 +910,11 @@ export interface ServerWolfLobbyMemory {
 }
 
 export interface ServerWolfSessionInfo {
+  /** Wolf UI app ID in lobbies mode */
   app_id?: string;
   client_ip?: string;
+  /** Helix client ID (helix-agent-{session_id}-{instance_id}) */
+  client_unique_id?: string;
   display_mode?: {
     av1_supported?: boolean;
     height?: number;
@@ -944,7 +922,9 @@ export interface ServerWolfSessionInfo {
     refresh_rate?: number;
     width?: number;
   };
-  /** Exposed as session_id for frontend */
+  /** Which lobby this session is connected to (lobbies mode) */
+  lobby_id?: string;
+  /** Exposed as session_id for frontend (Wolf's client_id) */
   session_id?: string;
 }
 
@@ -952,7 +932,11 @@ export interface ServerWolfSystemMemory {
   /** Apps mode */
   apps?: ServerWolfAppMemory[];
   clients?: ServerWolfClientConnection[];
+  /** From Wolf's nvidia-smi query */
+  gpu_stats?: ServerGPUStats;
   gstreamer_buffer_bytes?: number;
+  /** From Wolf's state */
+  gstreamer_pipelines?: ServerGStreamerPipelineStats;
   /** Lobbies mode */
   lobbies?: ServerWolfLobbyMemory[];
   process_rss_bytes?: number;
@@ -986,11 +970,15 @@ export enum ServicesCoordinationEventType {
 }
 
 export interface ServicesCreateTaskRequest {
+  /** Optional: Helix agent to use for spec generation */
+  app_id?: string;
   priority?: string;
   project_id?: string;
   prompt?: string;
   type?: string;
   user_id?: string;
+  /** Optional: Skip human review and auto-approve specs */
+  yolo_mode?: boolean;
 }
 
 export interface ServicesDocumentHandoffConfig {
@@ -1026,6 +1014,7 @@ export interface ServicesGitRepository {
   local_path?: string;
   metadata?: Record<string, any>;
   name?: string;
+  organization_id?: string;
   owner_id?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
@@ -1040,10 +1029,17 @@ export interface ServicesGitRepositoryCreateRequest {
   initial_files?: Record<string, string>;
   metadata?: Record<string, any>;
   name?: string;
+  /** Organization ID - required for access control */
+  organization_id?: string;
   owner_id?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
   spec_task_id?: string;
+}
+
+export interface ServicesGitRepositoryFileResponse {
+  content?: string;
+  path?: string;
 }
 
 export enum ServicesGitRepositoryStatus {
@@ -1052,11 +1048,20 @@ export enum ServicesGitRepositoryStatus {
   GitRepositoryStatusDeleted = "deleted",
 }
 
+export interface ServicesGitRepositoryTreeResponse {
+  entries?: ServicesTreeEntry[];
+  path?: string;
+}
+
 export enum ServicesGitRepositoryType {
-  GitRepositoryTypeProject = "project",
-  GitRepositoryTypeSpecTask = "spec_task",
-  GitRepositoryTypeSample = "sample",
-  GitRepositoryTypeTemplate = "template",
+  GitRepositoryTypeInternal = "internal",
+  GitRepositoryTypeCode = "code",
+}
+
+export interface ServicesGitRepositoryUpdateRequest {
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
 }
 
 export interface ServicesHandoffResult {
@@ -1079,6 +1084,24 @@ export interface ServicesHandoffResult {
   zed_instance_id?: string;
 }
 
+export interface ServicesKoditEnrichmentAttributes {
+  content?: string;
+  created_at?: string;
+  subtype?: string;
+  type?: string;
+  updated_at?: string;
+}
+
+export interface ServicesKoditEnrichmentData {
+  attributes?: ServicesKoditEnrichmentAttributes;
+  id?: string;
+  type?: string;
+}
+
+export interface ServicesKoditEnrichmentListResponse {
+  data?: ServicesKoditEnrichmentData[];
+}
+
 export interface ServicesSampleProjectCode {
   description?: string;
   /** filepath -> content */
@@ -1089,6 +1112,8 @@ export interface ServicesSampleProjectCode {
   language?: string;
   name?: string;
   readme_url?: string;
+  /** Custom startup script for this project */
+  startup_script?: string;
   technologies?: string[];
 }
 
@@ -1133,6 +1158,21 @@ export interface ServicesSpecDocumentResult {
   warnings?: string[];
 }
 
+export interface ServicesStartupScriptVersion {
+  author?: string;
+  commit_hash?: string;
+  content?: string;
+  message?: string;
+  timestamp?: string;
+}
+
+export interface ServicesTreeEntry {
+  is_dir?: boolean;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
 export interface ServicesZedSessionCreationResult {
   /** "spawned", "planned", "ad_hoc" */
   creation_method?: string;
@@ -1168,6 +1208,43 @@ export interface SqlNullString {
   string?: string;
   /** Valid is true if String is not NULL */
   valid?: boolean;
+}
+
+export interface StoreGitRepository {
+  /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
+  clone_url?: string;
+  created_at?: string;
+  /** Reference to stored credentials (SSH key, OAuth token, etc.) */
+  credential_ref?: string;
+  default_branch?: string;
+  description?: string;
+  /** External platform's repository ID */
+  external_repo_id?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  external_type?: string;
+  /** Full URL to external repo (e.g., https://github.com/org/repo) */
+  external_url?: string;
+  id?: string;
+  /** External repository fields */
+  is_external?: boolean;
+  /** Code intelligence fields */
+  kodit_indexing?: boolean;
+  last_activity?: string;
+  /** Local filesystem path for Helix-hosted repos (empty for external) */
+  local_path?: string;
+  /** Transient field, not persisted (used by services) */
+  metadata?: Record<string, any>;
+  /** Stores Metadata as JSON */
+  metadata_json?: string;
+  name?: string;
+  /** Organization ID - will be backfilled for existing repos */
+  organization_id?: string;
+  owner_id?: string;
+  project_id?: string;
+  repo_type?: string;
+  spec_task_id?: string;
+  status?: string;
+  updated_at?: string;
 }
 
 export enum StripeSubscriptionStatus {
@@ -1328,16 +1405,16 @@ export interface TypesAgentWorkItem {
   assigned_session_id?: string;
   completed_at?: string;
   /** Agent configuration */
-  config?: number[];
+  config?: Record<string, any>;
   created_at?: string;
   deadline_at?: string;
   description?: string;
   id?: string;
   /** Labels/tags for filtering */
-  labels?: number[];
+  labels?: string[];
   last_error?: string;
   max_retries?: number;
-  metadata?: number[];
+  metadata?: Record<string, any>;
   name?: string;
   organization_id?: string;
   /** Lower = higher priority */
@@ -1359,7 +1436,7 @@ export interface TypesAgentWorkItem {
   updated_at?: string;
   user_id?: string;
   /** Work-specific data */
-  work_data?: number[];
+  work_data?: Record<string, any>;
 }
 
 export interface TypesAgentWorkItemCreateRequest {
@@ -1719,6 +1796,10 @@ export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
 
+export interface TypesBoardSettings {
+  wip_limits?: Record<string, number>;
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -1752,6 +1833,13 @@ export interface TypesChoice {
   index?: number;
   message?: TypesOpenAIMessage;
   text?: string;
+}
+
+export interface TypesClipboardData {
+  /** text content or base64-encoded image */
+  data?: string;
+  /** "text" or "image" */
+  type?: string;
 }
 
 export interface TypesContextMenuAction {
@@ -2133,8 +2221,6 @@ export interface TypesInteraction {
   prompt_message?: string;
   /** User prompt (multi-part) */
   prompt_message_content?: TypesMessageContent;
-  /** The question set this session belongs to, if any */
-  question_set_id?: string;
   rag_results?: TypesSessionRAGResult[];
   /** e.g. json */
   response_format?: TypesResponseFormat;
@@ -2717,6 +2803,58 @@ export interface TypesPricing {
   web_search?: string;
 }
 
+export interface TypesProject {
+  /** Automation settings */
+  auto_start_backlog_tasks?: boolean;
+  created_at?: string;
+  default_branch?: string;
+  /** Project-level repository management */
+  default_repo_id?: string;
+  /** Soft delete timestamp */
+  deleted_at?: GormDeletedAt;
+  description?: string;
+  github_repo_url?: string;
+  id?: string;
+  /**
+   * Internal project Git repository (stores project config, tasks, design docs)
+   * IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
+   * It is NEVER stored in the database - Git is the single source of truth
+   */
+  internal_repo_path?: string;
+  metadata?: number[];
+  name?: string;
+  organization_id?: string;
+  /** Transient field - loaded from Git, never persisted to database */
+  startup_script?: string;
+  /** "active", "archived", "completed" */
+  status?: string;
+  technologies?: string[];
+  updated_at?: string;
+  user_id?: string;
+}
+
+export interface TypesProjectCreateRequest {
+  default_branch?: string;
+  default_repo_id?: string;
+  description?: string;
+  github_repo_url?: string;
+  name?: string;
+  startup_script?: string;
+  technologies?: string[];
+}
+
+export interface TypesProjectUpdateRequest {
+  auto_start_backlog_tasks?: boolean;
+  default_branch?: string;
+  default_repo_id?: string;
+  description?: string;
+  github_repo_url?: string;
+  name?: string;
+  startup_script?: string;
+  status?: string;
+  technologies?: string[];
+}
+
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
@@ -2867,6 +3005,8 @@ export enum TypesResource {
   ResourceUser = "User",
   ResourceAny = "*",
   ResourceTypeDataset = "Dataset",
+  ResourceProject = "Project",
+  ResourceGitRepository = "GitRepository",
 }
 
 export interface TypesResponseFormat {
@@ -3063,9 +3203,13 @@ export interface TypesServerConfigForFrontend {
   /** "single" or "multi" - determines streaming architecture */
   moonlight_web_mode?: string;
   organizations_create_enabled_for_non_admins?: boolean;
+  /** Controls if users can add their own AI provider API keys */
+  providers_management_enabled?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
+  /** Requested video streaming bitrate in Mbps (default: 40) */
+  streaming_bitrate_mbps?: number;
   /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
@@ -3076,6 +3220,8 @@ export interface TypesSession {
   /** named config for backward compat */
   config?: TypesSessionMetadata;
   created?: string;
+  /** Soft delete support - allows cleanup of orphaned lobbies */
+  deleted_at?: GormDeletedAt;
   /** Current generation ID */
   generation_id?: number;
   id?: string;
@@ -3115,6 +3261,7 @@ export interface TypesSession {
    * stabilityai/stable-diffusion-xl-base-1.0
    */
   provider?: string;
+  /** The question set execution this session belongs to, if any */
   question_set_execution_id?: string;
   /** The question set this session belongs to, if any */
   question_set_id?: string;
@@ -3158,6 +3305,13 @@ export interface TypesSessionChatRequest {
   type?: TypesSessionType;
 }
 
+export interface TypesSessionIdleStatus {
+  has_external_agent?: boolean;
+  idle_minutes?: number;
+  warning_threshold?: boolean;
+  will_terminate_in?: number;
+}
+
 export interface TypesSessionMetadata {
   active_tools?: string[];
   /** Agent type: "helix" or "zed_external" */
@@ -3197,9 +3351,13 @@ export interface TypesSessionMetadata {
   /** Index of implementation task this session handles */
   implementation_task_index?: number;
   manually_review_questions?: boolean;
+  /** Path to saved screenshot when agent is paused */
+  paused_screenshot_path?: string;
   /** NEW: SpecTask phase (planning, implementation) */
   phase?: string;
   priority?: boolean;
+  /** ID of associated Project (for exploratory sessions) */
+  project_id?: string;
   /**
    * these settings control which features of a session we want to use
    * even if we have a Lora file and RAG indexed prepared
@@ -3210,7 +3368,7 @@ export interface TypesSessionMetadata {
   rag_enabled?: boolean;
   rag_settings?: TypesRAGSettings;
   session_rag_results?: TypesSessionRAGResult[];
-  /** "planning", "implementation", "coordination" */
+  /** "planning", "implementation", "coordination", "exploratory" */
   session_role?: string;
   /** Multi-session SpecTask context */
   spec_task_id?: string;
@@ -3349,47 +3507,60 @@ export interface TypesSpecApprovalResponse {
 }
 
 export interface TypesSpecTask {
-  /** Git repository attachments (multiple repos can be attached) */
-  attached_repositories?: number[];
+  /** Archive to hide from main view */
+  archived?: boolean;
+  /** Git tracking */
   branch_name?: string;
   completed_at?: string;
   created_at?: string;
   /** Metadata */
   created_by?: string;
   description?: string;
+  /** When design docs were pushed to helix-specs branch */
+  design_docs_pushed_at?: string;
   /** Simple tracking */
   estimated_hours?: number;
-  /** External agent tracking (single agent per SpecTask, spans multiple sessions) */
+  /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
-  implementation_agent?: string;
+  implementation_approved_at?: string;
+  /** Implementation tracking */
+  implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
-  implementation_session_id?: string;
   labels?: string[];
-  metadata?: number[];
+  /** When branch was last pushed */
+  last_push_at?: string;
+  /** Git tracking */
+  last_push_commit_hash?: string;
+  /** Merge commit hash */
+  merge_commit_hash?: string;
+  /** When merge happened */
+  merged_at?: string;
+  /** Whether branch was merged to main */
+  merged_to_main?: boolean;
+  metadata?: Record<string, any>;
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
-  /** Session tracking (same agent, different Helix sessions per phase) */
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
   planning_session_id?: string;
-  primary_repository_id?: string;
   /** "low", "medium", "high", "critical" */
   priority?: string;
   project_id?: string;
   project_path?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
-  /** Legacy fields (deprecated, keeping for backward compatibility) */
-  spec_agent?: string;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;
   /** Number of spec revisions requested */
   spec_revision_count?: number;
-  spec_session_id?: string;
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: string;
@@ -3399,6 +3570,8 @@ export interface TypesSpecTask {
   type?: string;
   updated_at?: string;
   workspace_config?: number[];
+  /** Skip human review, auto-approve specs */
+  yolo_mode?: boolean;
   /** Multi-session support */
   zed_instance_id?: string;
 }
@@ -3423,12 +3596,136 @@ export enum TypesSpecTaskActivityType {
   SpecTaskActivityPhaseTransition = "phase_transition",
 }
 
+export interface TypesSpecTaskDesignReview {
+  approved_at?: string;
+  /** Timestamps */
+  created_at?: string;
+  git_branch?: string;
+  /** Git information */
+  git_commit_hash?: string;
+  git_pushed_at?: string;
+  id?: string;
+  implementation_plan?: string;
+  /** Review decision */
+  overall_comment?: string;
+  rejected_at?: string;
+  /** Design document snapshots at time of review */
+  requirements_spec?: string;
+  /** Review metadata */
+  reviewer_id?: string;
+  spec_task_id?: string;
+  status?: TypesSpecTaskDesignReviewStatus;
+  technical_design?: string;
+  updated_at?: string;
+}
+
+export interface TypesSpecTaskDesignReviewComment {
+  /** Agent integration (NEW FIELDS) */
+  agent_response?: string;
+  /** When agent responded */
+  agent_response_at?: string;
+  /** The actual comment */
+  comment_text?: string;
+  /** Made optional - simplified to single type */
+  comment_type?: TypesSpecTaskDesignReviewCommentType;
+  /** Comment metadata */
+  commented_by?: string;
+  /** Timestamps */
+  created_at?: string;
+  /** Location in document */
+  document_type?: string;
+  /** Character offset in document */
+  end_offset?: number;
+  id?: string;
+  /** Link to Helix interaction */
+  interaction_id?: string;
+  /** Optional line number */
+  line_number?: number;
+  /** For inline comments - store the context around the comment */
+  quoted_text?: string;
+  /** "manual", "auto_text_removed", "agent_updated" */
+  resolution_reason?: string;
+  /** Status tracking */
+  resolved?: boolean;
+  resolved_at?: string;
+  resolved_by?: string;
+  review_id?: string;
+  /** e.g., "## Architecture/### Database Schema" */
+  section_path?: string;
+  /** Character offset in document */
+  start_offset?: number;
+  updated_at?: string;
+}
+
+export interface TypesSpecTaskDesignReviewCommentCreateRequest {
+  comment_text: string;
+  comment_type?: TypesSpecTaskDesignReviewCommentType;
+  document_type: "requirements" | "technical_design" | "implementation_plan";
+  end_offset?: number;
+  line_number?: number;
+  quoted_text?: string;
+  review_id: string;
+  section_path?: string;
+  start_offset?: number;
+}
+
+export interface TypesSpecTaskDesignReviewCommentListResponse {
+  comments?: TypesSpecTaskDesignReviewComment[];
+  total?: number;
+}
+
+export enum TypesSpecTaskDesignReviewCommentType {
+  SpecTaskDesignReviewCommentTypeGeneral = "general",
+  SpecTaskDesignReviewCommentTypeQuestion = "question",
+  SpecTaskDesignReviewCommentTypeSuggestion = "suggestion",
+  SpecTaskDesignReviewCommentTypeCritical = "critical",
+  SpecTaskDesignReviewCommentTypePraise = "praise",
+}
+
+export interface TypesSpecTaskDesignReviewDetailResponse {
+  comments?: TypesSpecTaskDesignReviewComment[];
+  review?: TypesSpecTaskDesignReview;
+  spec_task?: TypesSpecTask;
+}
+
+export interface TypesSpecTaskDesignReviewListResponse {
+  reviews?: TypesSpecTaskDesignReview[];
+  total?: number;
+}
+
+export enum TypesSpecTaskDesignReviewStatus {
+  SpecTaskDesignReviewStatusPending = "pending",
+  SpecTaskDesignReviewStatusInReview = "in_review",
+  SpecTaskDesignReviewStatusChangesRequested = "changes_requested",
+  SpecTaskDesignReviewStatusApproved = "approved",
+  SpecTaskDesignReviewStatusSuperseded = "superseded",
+}
+
+export interface TypesSpecTaskDesignReviewSubmitRequest {
+  /** "approve" or "request_changes" */
+  decision: "approve" | "request_changes";
+  overall_comment?: string;
+  review_id: string;
+}
+
 export interface TypesSpecTaskImplementationSessionsCreateRequest {
   /** @default true */
   auto_create_sessions?: boolean;
   project_path?: string;
   spec_task_id: string;
   workspace_config?: Record<string, any>;
+}
+
+export interface TypesSpecTaskImplementationStartResponse {
+  agent_instructions?: string;
+  base_branch?: string;
+  branch_name?: string;
+  created_at?: string;
+  local_path?: string;
+  pr_template_url?: string;
+  repository_id?: string;
+  repository_name?: string;
+  status?: string;
 }
 
 export enum TypesSpecTaskImplementationStatus {
@@ -3502,6 +3799,8 @@ export interface TypesSpecTaskUpdateRequest {
   name?: string;
   priority?: string;
   status?: string;
+  /** Pointer to allow explicit false */
+  yolo_mode?: boolean;
 }
 
 export interface TypesSpecTaskWorkSession {
@@ -4235,6 +4534,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Stop a Wolf lobby (terminates container and releases GPU resources)
+     *
+     * @tags Admin
+     * @name V1AdminWolfLobbiesDelete
+     * @summary Stop Wolf lobby
+     * @request DELETE:/api/v1/admin/wolf/lobbies/{lobbyId}
+     * @secure
+     */
+    v1AdminWolfLobbiesDelete: (lobbyId: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/admin/wolf/lobbies/${lobbyId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Stop a Wolf-UI streaming session (releases GPU memory)
+     *
+     * @tags Admin
+     * @name V1AdminWolfSessionsDelete
+     * @summary Stop Wolf streaming session
+     * @request DELETE:/api/v1/admin/wolf/sessions/{sessionId}
+     * @secure
+     */
+    v1AdminWolfSessionsDelete: (sessionId: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/admin/wolf/sessions/${sessionId}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -5206,21 +5539,39 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get keepalive session health status for an external agent
+     * @description Fetch current clipboard content from remote desktop
      *
      * @tags ExternalAgents
-     * @name V1ExternalAgentsKeepaliveDetail
-     * @summary Get keepalive session status
-     * @request GET:/api/v1/external-agents/{sessionID}/keepalive
+     * @name V1ExternalAgentsClipboardDetail
+     * @summary Get session clipboard content
+     * @request GET:/api/v1/external-agents/{sessionID}/clipboard
      * @secure
      */
-    v1ExternalAgentsKeepaliveDetail: (sessionId: string, params: RequestParams = {}) =>
-      this.request<Record<string, any>, SystemHTTPError>({
-        path: `/api/v1/external-agents/${sessionId}/keepalive`,
+    v1ExternalAgentsClipboardDetail: (sessionId: string, params: RequestParams = {}) =>
+      this.request<TypesClipboardData, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/clipboard`,
         method: "GET",
         secure: true,
-        type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Send clipboard content to remote desktop
+     *
+     * @tags ExternalAgents
+     * @name V1ExternalAgentsClipboardCreate
+     * @summary Set session clipboard content
+     * @request POST:/api/v1/external-agents/{sessionID}/clipboard
+     * @secure
+     */
+    v1ExternalAgentsClipboardCreate: (sessionId: string, clipboard: TypesClipboardData, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/external-agents/${sessionId}/clipboard`,
+        method: "POST",
+        body: clipboard,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -5491,6 +5842,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete a git repository and its metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDelete
+     * @summary Delete git repository
+     * @request DELETE:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get information about a specific git repository
      *
      * @tags git-repositories
@@ -5502,6 +5870,84 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1GitRepositoriesDetail: (id: string, params: RequestParams = {}) =>
       this.request<ServicesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing git repository's metadata
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesUpdate
+     * @summary Update git repository
+     * @request PUT:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesUpdate: (id: string, repository: ServicesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "PUT",
+        body: repository,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List access grants for a git repository (repository owners can list access grants)
+     *
+     * @tags gitrepositories
+     * @name V1GitRepositoriesAccessGrantsDetail
+     * @summary List repository access grants
+     * @request GET:/api/v1/git/repositories/{id}/access-grants
+     * @secure
+     */
+    v1GitRepositoriesAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant[], any>({
+        path: `/api/v1/git/repositories/${id}/access-grants`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Grant access to a repository to a user (repository owners can grant access)
+     *
+     * @tags gitrepositories
+     * @name V1GitRepositoriesAccessGrantsCreate
+     * @summary Grant access to a repository to a user
+     * @request POST:/api/v1/git/repositories/{id}/access-grants
+     * @secure
+     */
+    v1GitRepositoriesAccessGrantsCreate: (
+      id: string,
+      request: TypesCreateAccessGrantRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAccessGrant, any>({
+        path: `/api/v1/git/repositories/${id}/access-grants`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Get list of all branches in a repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryBranches
+     * @summary List repository branches
+     * @request GET:/api/v1/git/repositories/{id}/branches
+     * @secure
+     */
+    listGitRepositoryBranches: (id: string, params: RequestParams = {}) =>
+      this.request<string[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/branches`,
         method: "GET",
         secure: true,
         format: "json",
@@ -5527,6 +5973,98 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<ServerCloneCommandResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/clone-command`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get code intelligence enrichments for a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesEnrichmentsDetail
+     * @summary Get repository enrichments
+     * @request GET:/api/v1/git/repositories/{id}/enrichments
+     * @secure
+     */
+    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/enrichments`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the contents of a file at a specific path in a repository
+     *
+     * @tags git-repositories
+     * @name GetGitRepositoryFile
+     * @summary Get file contents
+     * @request GET:/api/v1/git/repositories/{id}/file
+     * @secure
+     */
+    getGitRepositoryFile: (
+      id: string,
+      query: {
+        /** File path */
+        path: string;
+        /** Branch name (defaults to HEAD if not specified) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesGitRepositoryFileResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/file`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get indexing status for a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKoditStatusDetail
+     * @summary Get repository indexing status
+     * @request GET:/api/v1/git/repositories/{id}/kodit-status
+     * @secure
+     */
+    v1GitRepositoriesKoditStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/kodit-status`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get list of files and directories at a specific path in a repository
+     *
+     * @tags git-repositories
+     * @name BrowseGitRepositoryTree
+     * @summary Browse repository tree
+     * @request GET:/api/v1/git/repositories/{id}/tree
+     * @secure
+     */
+    browseGitRepositoryTree: (
+      id: string,
+      query?: {
+        /** Path to browse (default: root) */
+        path?: string;
+        /** Branch to browse (default: HEAD) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesGitRepositoryTreeResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/tree`,
         method: "GET",
         query: query,
         secure: true,
@@ -5984,6 +6522,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
+     *
+     * @tags Moonlight
+     * @name V1MoonlightStatusList
+     * @summary Get moonlight-web internal state
+     * @request GET:/api/v1/moonlight/status
+     * @secure
+     */
+    v1MoonlightStatusList: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/moonlight/status`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List OAuth connections for the user.
      *
      * @tags oauth
@@ -6404,17 +6959,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get all personal development environments for the current user
+     * @description Get all projects for the current user
      *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsList
-     * @summary List personal development environments
-     * @request GET:/api/v1/personal-dev-environments
+     * @tags Projects
+     * @name V1ProjectsList
+     * @summary List projects
+     * @request GET:/api/v1/projects
      * @secure
      */
-    v1PersonalDevEnvironmentsList: (params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse[], SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments`,
+    v1ProjectsList: (params: RequestParams = {}) =>
+      this.request<TypesProject[], SystemHTTPError>({
+        path: `/api/v1/projects`,
         method: "GET",
         secure: true,
         type: ContentType.Json,
@@ -6423,17 +6978,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a new personal development environment with the specified configuration
+     * @description Create a new project
      *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsCreate
-     * @summary Create a personal development environment
-     * @request POST:/api/v1/personal-dev-environments
+     * @tags Projects
+     * @name V1ProjectsCreate
+     * @summary Create project
+     * @request POST:/api/v1/projects
      * @secure
      */
-    v1PersonalDevEnvironmentsCreate: (request: ServerCreatePersonalDevEnvironmentRequest, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments`,
+    v1ProjectsCreate: (request: TypesProjectCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects`,
         method: "POST",
         body: request,
         secure: true,
@@ -6443,36 +6998,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Delete a personal development environment by ID
+     * @description Delete a project by ID
      *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsDelete
-     * @summary Delete a personal development environment
-     * @request DELETE:/api/v1/personal-dev-environments/{environmentID}
+     * @tags Projects
+     * @name V1ProjectsDelete
+     * @summary Delete project
+     * @request DELETE:/api/v1/projects/{id}
      * @secure
      */
-    v1PersonalDevEnvironmentsDelete: (environmentId: string, params: RequestParams = {}) =>
-      this.request<void, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}`,
+    v1ProjectsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
         method: "DELETE",
         secure: true,
         type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
     /**
-     * @description Start a personal development environment by ID
+     * @description Get a project by ID
      *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsStartCreate
-     * @summary Start a personal development environment
-     * @request POST:/api/v1/personal-dev-environments/{environmentID}/start
+     * @tags Projects
+     * @name V1ProjectsDetail
+     * @summary Get project
+     * @request GET:/api/v1/projects/{id}
      * @secure
      */
-    v1PersonalDevEnvironmentsStartCreate: (environmentId: string, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}/start`,
-        method: "POST",
+    v1ProjectsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "GET",
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -6480,21 +7036,205 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Stop a personal development environment by ID
+     * @description Update an existing project
      *
-     * @tags PersonalDevEnvironments
-     * @name V1PersonalDevEnvironmentsStopCreate
-     * @summary Stop a personal development environment
-     * @request POST:/api/v1/personal-dev-environments/{environmentID}/stop
+     * @tags Projects
+     * @name V1ProjectsUpdate
+     * @summary Update project
+     * @request PUT:/api/v1/projects/{id}
      * @secure
      */
-    v1PersonalDevEnvironmentsStopCreate: (environmentId: string, params: RequestParams = {}) =>
-      this.request<ServerPersonalDevEnvironmentResponse, SystemHTTPError>({
-        path: `/api/v1/personal-dev-environments/${environmentId}/stop`,
-        method: "POST",
+    v1ProjectsUpdate: (id: string, request: TypesProjectUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesProject, SystemHTTPError>({
+        path: `/api/v1/projects/${id}`,
+        method: "PUT",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List access grants for a project (project owners and org owners can list access grants)
+     *
+     * @tags projects
+     * @name V1ProjectsAccessGrantsDetail
+     * @summary List project access grants
+     * @request GET:/api/v1/projects/{id}/access-grants
+     * @secure
+     */
+    v1ProjectsAccessGrantsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant[], any>({
+        path: `/api/v1/projects/${id}/access-grants`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Grant access to a project to a team or organization member (project owners and org owners can grant access)
+     *
+     * @tags projects
+     * @name V1ProjectsAccessGrantsCreate
+     * @summary Grant access to a project to a team or organization member
+     * @request POST:/api/v1/projects/{id}/access-grants
+     * @secure
+     */
+    v1ProjectsAccessGrantsCreate: (id: string, request: TypesCreateAccessGrantRequest, params: RequestParams = {}) =>
+      this.request<TypesAccessGrant, any>({
+        path: `/api/v1/projects/${id}/access-grants`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Stop the running exploratory session for a project (stops Wolf container, keeps session record)
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionDelete
+     * @summary Stop project exploratory session
+     * @request DELETE:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the active exploratory session for a project (returns null if none exists)
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionDetail
+     * @summary Get project exploratory session
+     * @request GET:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Start or return existing exploratory session for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsExploratorySessionCreate
+     * @summary Start project exploratory session
+     * @request POST:/api/v1/projects/{id}/exploratory-session
+     * @secure
+     */
+    v1ProjectsExploratorySessionCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSession, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/exploratory-session`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all repositories attached to a project
+     *
+     * @tags Projects
+     * @name GetProjectRepositories
+     * @summary Get project repositories
+     * @request GET:/api/v1/projects/{id}/repositories
+     * @secure
+     */
+    getProjectRepositories: (id: string, params: RequestParams = {}) =>
+      this.request<StoreGitRepository[], SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Attach an existing repository to a project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesAttachUpdate
+     * @summary Attach repository to project
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/attach
+     * @secure
+     */
+    v1ProjectsRepositoriesAttachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/attach`,
+        method: "PUT",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Detach a repository from its project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesDetachUpdate
+     * @summary Detach repository from project
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/detach
+     * @secure
+     */
+    v1ProjectsRepositoriesDetachUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/detach`,
+        method: "PUT",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Set the primary repository for a project
+     *
+     * @tags Projects
+     * @name V1ProjectsRepositoriesPrimaryUpdate
+     * @summary Set project primary repository
+     * @request PUT:/api/v1/projects/{id}/repositories/{repo_id}/primary
+     * @secure
+     */
+    v1ProjectsRepositoriesPrimaryUpdate: (id: string, repoId: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/projects/${id}/repositories/${repoId}/primary`,
+        method: "PUT",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get git commit history for project startup script
+     *
+     * @tags Projects
+     * @name V1ProjectsStartupScriptHistoryDetail
+     * @summary Get startup script version history
+     * @request GET:/api/v1/projects/{id}/startup-script/history
+     * @secure
+     */
+    v1ProjectsStartupScriptHistoryDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesStartupScriptVersion[], any>({
+        path: `/api/v1/projects/${id}/startup-script/history`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -7187,6 +7927,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Returns idle timeout information for a session with an external agent
+     *
+     * @tags sessions
+     * @name V1SessionsIdleStatusDetail
+     * @summary Get idle status for external agent session
+     * @request GET:/api/v1/sessions/{id}/idle-status
+     * @secure
+     */
+    v1SessionsIdleStatusDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSessionIdleStatus, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/idle-status`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List interactions for a session
      *
      * @tags interactions
@@ -7277,6 +8034,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Restarts the external agent container for a session that has been stopped
+     *
+     * @tags sessions
+     * @name V1SessionsResumeCreate
+     * @summary Resume a paused external agent session
+     * @request POST:/api/v1/sessions/{id}/resume
+     * @secure
+     */
+    v1SessionsResumeCreate: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/sessions/${id}/resume`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1SessionsStepInfoDetail
@@ -7288,6 +8062,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}/step-info`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Stop the external Zed agent for any session (stops container, keeps session record)
+     *
+     * @tags Sessions
+     * @name V1SessionsStopExternalAgentDelete
+     * @summary Stop external Zed agent session
+     * @request DELETE:/api/v1/sessions/{id}/stop-external-agent
+     * @secure
+     */
+    v1SessionsStopExternalAgentDelete: (id: string, params: RequestParams = {}) =>
+      this.request<Record<string, string>, SystemHTTPError>({
+        path: `/api/v1/sessions/${id}/stop-external-agent`,
+        method: "DELETE",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
@@ -7498,6 +8290,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Filter by user ID */
         user_id?: string;
         /**
+         * Include archived tasks
+         * @default false
+         */
+        include_archived?: boolean;
+        /**
          * Limit number of results
          * @default 50
          */
@@ -7519,7 +8316,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get the design documents from helix-design-docs worktree
+     * @description Get the design documents from helix-specs worktree
      *
      * @tags SpecTasks
      * @name V1SpecTasksDesignDocsDetail
@@ -7607,6 +8404,172 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Approve the implementation and instruct agent to merge to main branch
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksApproveImplementationCreate
+     * @summary Approve implementation and merge to main
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/approve-implementation
+     * @secure
+     */
+    v1SpecTasksApproveImplementationCreate: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/approve-implementation`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all design reviews for a spec task
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksDesignReviewsDetail
+     * @summary List design reviews
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDetail: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewListResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific design review for a spec task with comments and spec task details
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsDetail2
+     * @summary Get design review details
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}
+     * @originalName v1SpecTasksDesignReviewsDetail
+     * @duplicate
+     * @secure
+     */
+    v1SpecTasksDesignReviewsDetail2: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewDetailResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get all comments for a specific design review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsDetail
+     * @summary List design review comments
+     * @request GET:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsDetail: (specTaskId: string, reviewId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskDesignReviewCommentListResponse, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
+        method: "GET",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new comment on a design review document
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsCreate
+     * @summary Create design review comment
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsCreate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewCommentCreateRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Mark a design review comment as resolved
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsCommentsResolveCreate
+     * @summary Resolve design review comment
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve
+     * @secure
+     */
+    v1SpecTasksDesignReviewsCommentsResolveCreate: (
+      specTaskId: string,
+      reviewId: string,
+      commentId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReviewComment, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/comments/${commentId}/resolve`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Approve or request changes for a design review
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksDesignReviewsSubmitCreate
+     * @summary Submit design review decision
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit
+     * @secure
+     */
+    v1SpecTasksDesignReviewsSubmitCreate: (
+      specTaskId: string,
+      reviewId: string,
+      request: TypesSpecTaskDesignReviewSubmitRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSpecTaskDesignReview, SystemHTTPError>({
+        path: `/api/v1/spec-tasks/${specTaskId}/design-reviews/${reviewId}/submit`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Stop the running agent session for a spec task
+     *
+     * @tags spec-tasks
+     * @name V1SpecTasksStopAgentCreate
+     * @summary Stop agent session
+     * @request POST:/api/v1/spec-tasks/{spec_task_id}/stop-agent
+     * @secure
+     */
+    v1SpecTasksStopAgentCreate: (specTaskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, any>({
+        path: `/api/v1/spec-tasks/${specTaskId}/stop-agent`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Get detailed information about a specific spec-driven task
      *
      * @tags spec-driven-tasks
@@ -7678,6 +8641,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/${taskId}/approve-with-handoff`,
         method: "POST",
         body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Archive a spec task to hide it from the main view, or unarchive to restore it
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksArchivePartialUpdate
+     * @summary Archive or unarchive a spec task
+     * @request PATCH:/api/v1/spec-tasks/{taskId}/archive
+     * @secure
+     */
+    v1SpecTasksArchivePartialUpdate: (taskId: string, archived: boolean, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/archive`,
+        method: "PATCH",
+        body: archived,
         secure: true,
         type: ContentType.Json,
         format: "json",
@@ -7946,6 +8929,43 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Transition an approved spec task to implementation, creating a feature branch
+     *
+     * @tags SpecTasks
+     * @name V1SpecTasksStartImplementationCreate
+     * @summary Start implementation phase
+     * @request POST:/api/v1/spec-tasks/{taskId}/start-implementation
+     * @secure
+     */
+    v1SpecTasksStartImplementationCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTaskImplementationStartResponse, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/start-implementation`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksStartPlanningCreate
+     * @summary Start planning for a SpecTask
+     * @request POST:/api/v1/spec-tasks/{taskId}/start-planning
+     * @secure
+     */
+    v1SpecTasksStartPlanningCreate: (taskId: string, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}/start-planning`,
+        method: "POST",
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get all work sessions associated with a specific SpecTask
      *
      * @tags spec-driven-tasks
@@ -8027,6 +9047,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsList
+     * @summary Get board settings for spec tasks
+     * @request GET:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Update the Kanban board settings (WIP limits) for the default project
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksBoardSettingsUpdate
+     * @summary Update board settings for spec tasks
+     * @request PUT:/api/v1/spec-tasks/board-settings
+     * @secure
+     */
+    v1SpecTasksBoardSettingsUpdate: (request: TypesBoardSettings, params: RequestParams = {}) =>
+      this.request<TypesBoardSettings, TypesAPIError>({
+        path: `/api/v1/spec-tasks/board-settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Create a new SpecTask with a demo repository
      *
      * @tags SpecTasks
@@ -8059,26 +9117,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/spec-tasks/from-prompt`,
         method: "POST",
         body: request,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a git repository specifically for a SpecTask
-     *
-     * @tags specs
-     * @name V1SpecsRepositoriesCreate
-     * @summary Create SpecTask repository
-     * @request POST:/api/v1/specs/repositories
-     * @secure
-     */
-    v1SpecsRepositoriesCreate: (request: ServerCreateSpecTaskRepositoryRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
-        path: `/api/v1/specs/repositories`,
-        method: "POST",
-        body: request,
-        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,

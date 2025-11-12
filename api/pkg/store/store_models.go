@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -27,6 +29,11 @@ func (s *PostgresStore) seedModels(ctx context.Context) error {
 	err = s.seedVLLMModels(ctx)
 	if err != nil {
 		log.Err(err).Msg("failed to seed vllm models")
+	}
+
+	err = s.seedSampleProjects(ctx)
+	if err != nil {
+		log.Err(err).Msg("failed to seed sample projects")
 	}
 
 	return nil
@@ -519,4 +526,152 @@ func (s *PostgresStore) DeleteModel(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// seedSampleProjects seeds the database with sample project templates
+func (s *PostgresStore) seedSampleProjects(ctx context.Context) error {
+	sampleProjects := []types.SampleProject{
+		{
+			ID:          "sample-todo-app",
+			Name:        "Todo App (React + FastAPI)",
+			Description: "A full-stack todo application with React frontend and FastAPI backend. Perfect for learning full-stack development patterns.",
+			Category:    "web",
+			Difficulty:  "beginner",
+			RepositoryURL: "https://github.com/helixml/sample-todo-app",
+			ThumbnailURL: "",
+			// StartupScript is in the Git repo at .helix/startup.sh
+			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
+				{
+					Title:       "Add user authentication",
+					Description: "Implement user login and registration with JWT tokens",
+					Priority:    "high",
+					Type:        "feature",
+				},
+				{
+					Title:       "Implement dark mode toggle",
+					Description: "Add a dark mode theme toggle to the application settings",
+					Priority:    "medium",
+					Type:        "feature",
+				},
+				{
+					Title:       "Add task categories",
+					Description: "Allow users to organize todos into custom categories",
+					Priority:    "medium",
+					Type:        "feature",
+				},
+				{
+					Title:       "Export tasks to CSV",
+					Description: "Add functionality to export todo list as CSV file",
+					Priority:    "low",
+					Type:        "feature",
+				},
+			}),
+		},
+		{
+			ID:          "sample-chat-app",
+			Name:        "Real-time Chat (Node.js + Socket.io)",
+			Description: "A real-time chat application using Node.js, Express, and Socket.io. Learn WebSocket programming and real-time communication.",
+			Category:    "web",
+			Difficulty:  "intermediate",
+			RepositoryURL: "https://github.com/helixml/sample-chat-app",
+			ThumbnailURL: "",
+			// StartupScript is in the Git repo at .helix/startup.sh
+			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
+				{
+					Title:       "Add private messaging",
+					Description: "Implement direct messaging between users",
+					Priority:    "high",
+					Type:        "feature",
+				},
+				{
+					Title:       "Implement read receipts",
+					Description: "Show when messages have been read by recipients",
+					Priority:    "medium",
+					Type:        "feature",
+				},
+				{
+					Title:       "Add file upload support",
+					Description: "Allow users to share files and images in chat",
+					Priority:    "medium",
+					Type:        "feature",
+				},
+				{
+					Title:       "Create user presence indicators",
+					Description: "Show online/offline status for users",
+					Priority:    "low",
+					Type:        "feature",
+				},
+			}),
+		},
+		{
+			ID:          "sample-blog",
+			Name:        "Blog Platform (Next.js + Markdown)",
+			Description: "A modern blog platform built with Next.js and Markdown. Learn static site generation, file-based routing, and content management.",
+			Category:    "web",
+			Difficulty:  "beginner",
+			RepositoryURL: "https://github.com/helixml/sample-blog",
+			ThumbnailURL: "",
+			// StartupScript is in the Git repo at .helix/startup.sh
+			SampleTasks: mustMarshalJSON([]types.SampleProjectTask{
+				{
+					Title:       "Add tag filtering",
+					Description: "Allow users to filter blog posts by tags",
+					Priority:    "medium",
+					Type:        "feature",
+				},
+				{
+					Title:       "Implement search functionality",
+					Description: "Add full-text search across all blog posts",
+					Priority:    "high",
+					Type:        "feature",
+				},
+				{
+					Title:       "Add RSS feed",
+					Description: "Generate RSS feed for blog subscribers",
+					Priority:    "low",
+					Type:        "feature",
+				},
+				{
+					Title:       "Create reading time estimates",
+					Description: "Show estimated reading time for each post",
+					Priority:    "low",
+					Type:        "feature",
+				},
+			}),
+		},
+	}
+
+	for _, sample := range sampleProjects {
+		// Check if sample project already exists
+		existing, err := s.GetSampleProject(ctx, sample.ID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Warn().Err(err).Str("sample_id", sample.ID).Msg("Failed to check if sample project exists")
+			continue
+		}
+
+		if existing != nil {
+			log.Debug().Str("sample_id", sample.ID).Msg("Sample project already exists, skipping")
+			continue
+		}
+
+		// Create sample project
+		_, err = s.CreateSampleProject(ctx, &sample)
+		if err != nil {
+			log.Error().Err(err).Str("sample_id", sample.ID).Msg("Failed to seed sample project")
+			continue
+		}
+
+		log.Info().Str("sample_id", sample.ID).Str("name", sample.Name).Msg("Seeded sample project")
+	}
+
+	return nil
+}
+
+// mustMarshalJSON marshals a value to JSON or panics (for seed data only)
+func mustMarshalJSON(v interface{}) datatypes.JSON {
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal JSON for seed data: %v", err))
+	}
+	return datatypes.JSON(data)
 }

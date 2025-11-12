@@ -53,12 +53,14 @@ RUN apt-get update \
     && apt-get install -y docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Install grim, lsof, git, OnlyOffice, Ghostty, and emoji fonts
+# Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities
     grim lsof \
-    # Git and SSH for repository access
-    git openssh-client \
+    # Clipboard tools for Wayland clipboard sync
+    wl-clipboard \
+    # Shell and Git for repository access
+    bash git openssh-client \
     # Emoji and icon fonts for waybar
     fonts-noto-color-emoji fonts-font-awesome fonts-dejavu-core \
     # OnlyOffice Desktop Editors

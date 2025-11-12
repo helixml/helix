@@ -332,7 +332,7 @@ func (s *ZedToHelixSessionService) createSessionPair(
 		Created: time.Now(),
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:     specTask.ImplementationAgent,
+			AgentType:     "zed_external", // Single agent type for entire workflow
 			SpecTaskID:    creationContext.SpecTaskID,
 			SessionRole:   "implementation",
 			ZedThreadID:   creationContext.ZedThreadID,

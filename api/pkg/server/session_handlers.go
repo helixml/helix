@@ -422,6 +422,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				}
 			}
 
+			// Add user's API token for git operations (merges with any custom env vars)
+			if addErr := s.addUserAPITokenToAgent(req.Context(), zedAgent, session.Owner); addErr != nil {
+				log.Warn().Err(addErr).Str("user_id", session.Owner).Msg("Failed to add user API token (continuing without git)")
+				// Don't fail - external agents can work without git
+			}
+
 			// Register session in executor so RDP endpoint can find it
 			agentResp, regErr := s.externalAgentExecutor.StartZedAgent(req.Context(), zedAgent)
 			if regErr != nil {
@@ -1705,21 +1711,405 @@ func (s *HelixAPIServer) getSessionRDPConnection(rw http.ResponseWriter, req *ht
 		Msg("Found external agent session (Wolf-based)")
 
 	// Return Wolf-based connection details with WebSocket info
-	connectionInfo := map[string]interface{}{
-		"session_id":          agentSession.SessionID,
-		"screenshot_url":      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
-		"stream_url":          "moonlight://localhost:47989",
-		"status":              agentSession.Status,
-		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
-		"websocket_connected": s.isExternalAgentConnected(agentSession.SessionID),
+	connectionInfo := types.ExternalAgentConnectionInfo{
+		SessionID:          agentSession.SessionID,
+		ScreenshotURL:      fmt.Sprintf("/api/v1/external-agents/%s/screenshot", agentSession.SessionID),
+		StreamURL:          "moonlight://localhost:47989",
+		Status:             agentSession.Status,
+		WebsocketURL:       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agentSession.SessionID),
+		WebsocketConnected: s.isExternalAgentConnected(agentSession.SessionID),
 	}
 
 	log.Info().
 		Str("session_id", agentSession.SessionID).
 		Str("status", agentSession.Status).
-		Bool("websocket_connected", connectionInfo["websocket_connected"].(bool)).
+		Bool("websocket_connected", connectionInfo.WebsocketConnected).
 		Msg("Returning Wolf connection info")
 
 	rw.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(rw).Encode(connectionInfo)
 }
+
+// resumeSession godoc
+// @Summary Resume a paused external agent session
+// @Description Restarts the external agent container for a session that has been stopped
+// @Tags    sessions
+// @Success 200 {object} map[string]interface{}
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id}/resume [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := mux.Vars(req)["id"]
+
+	log.Info().
+		Str("session_id", id).
+		Str("user_id", user.ID).
+		Msg("Resume session request")
+
+	// Get the session to check if it's an external agent session
+	session, err := s.Controller.Options.Store.GetSession(ctx, id)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to get session for resume")
+		http.Error(rw, fmt.Sprintf("session not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	// Check if user owns this session
+	if session.Owner != user.ID {
+		log.Warn().
+			Str("session_id", id).
+			Str("user_id", user.ID).
+			Str("owner_id", session.Owner).
+			Msg("User not authorized to resume session")
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		log.Warn().
+			Str("session_id", id).
+			Str("agent_type", session.Metadata.AgentType).
+			Msg("Session is not an external agent session - cannot resume")
+		http.Error(rw, "only external agent sessions can be resumed", http.StatusBadRequest)
+		return
+	}
+
+	if s.externalAgentExecutor == nil {
+		http.Error(rw, "external agent executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Create a new ZedAgent request to restart the agent
+	// We need to get the spec task ID if this was a spec task session
+	specTaskID := session.Metadata.SpecTaskID
+
+	// Build the ZedAgent config for resume
+	agent := &types.ZedAgent{
+		SessionID:       id,
+		UserID:          user.ID,
+		HelixSessionID:  id, // This session already exists
+		Input:           "Resume session",
+		ProjectPath:     "workspace",
+		SpecTaskID:      specTaskID,
+		// WorkDir left empty - wolf_executor will use filestore path for persistence
+	}
+
+	// Load project context for both SpecTask AND exploratory sessions
+	// This ensures startup scripts run on resume for all project-scoped sessions
+	var projectID string
+
+	if specTaskID != "" {
+		// SpecTask session - get project from task
+		specTask, err := s.Controller.Options.Store.GetSpecTask(ctx, specTaskID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("spec_task_id", specTaskID).
+				Msg("Failed to load spec task for resume, continuing without repository info")
+		} else if specTask.ProjectID != "" {
+			projectID = specTask.ProjectID
+		}
+	} else if session.Metadata.ProjectID != "" {
+		// Exploratory session - get project from session metadata
+		projectID = session.Metadata.ProjectID
+		log.Info().
+			Str("session_id", id).
+			Str("project_id", projectID).
+			Msg("Loading project context for exploratory session resume")
+	}
+
+	// If we have a project, load repositories and startup script
+	if projectID != "" {
+		agent.ProjectID = projectID
+
+		projectRepos, err := s.Controller.Options.Store.GetProjectRepositories(ctx, projectID)
+		if err == nil && len(projectRepos) > 0 {
+			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
+			for _, repo := range projectRepos {
+				if repo.ID != "" {
+					agent.RepositoryIDs = append(agent.RepositoryIDs, repo.ID)
+				}
+			}
+
+			// Set primary repository from project (repos are now managed at project level)
+			project, err := s.Controller.Options.Store.GetProject(ctx, projectID)
+			if err == nil && project.DefaultRepoID != "" {
+				agent.PrimaryRepositoryID = project.DefaultRepoID
+			} else if len(projectRepos) > 0 {
+				// Use first repo as fallback if no default set
+				agent.PrimaryRepositoryID = projectRepos[0].ID
+			}
+		}
+	}
+
+	// Add user's API token to agent environment for git operations
+	if err := s.addUserAPITokenToAgent(ctx, agent, session.Owner); err != nil {
+		log.Error().Err(err).Str("user_id", session.Owner).Msg("Failed to add user API token to agent")
+		http.Error(rw, fmt.Sprintf("failed to get user API keys: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("spec_task_id", specTaskID).
+		Msg("Resuming external agent session")
+
+	// Start the external agent (this will create a new Wolf lobby)
+	response, err := s.externalAgentExecutor.StartZedAgent(ctx, agent)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to resume external agent")
+		http.Error(rw, fmt.Sprintf("failed to resume agent: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	// Update session metadata with new Wolf lobby info (only if non-empty)
+	// Don't overwrite existing metadata with empty values from lobby reuse
+	if response.WolfLobbyID != "" {
+		session.Metadata.WolfLobbyID = response.WolfLobbyID
+	}
+	if response.WolfLobbyPIN != "" {
+		session.Metadata.WolfLobbyPIN = response.WolfLobbyPIN
+	}
+	_, err = s.Controller.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", id).
+			Msg("Failed to update session metadata with new lobby info")
+		// Don't fail the request - the agent is running
+	}
+
+	log.Info().
+		Str("session_id", id).
+		Str("wolf_lobby_id", response.WolfLobbyID).
+		Msg("External agent session resumed successfully")
+
+	// If session has a ZedThreadID, send open_thread command to Zed
+	// This tells Zed to open the last thread in the AgentPanel UI
+	if session.Metadata.ZedThreadID != "" {
+		go func() {
+			// Wait for Zed WebSocket to connect (typically takes 3-4 seconds)
+			// Retry mechanism: try multiple times with delays
+			maxRetries := 5
+			retryDelay := 2 * time.Second
+
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				time.Sleep(retryDelay)
+
+				err := s.sendOpenThreadCommand(id, session.Metadata.ZedThreadID)
+				if err == nil {
+					// Success - command sent
+					log.Info().
+						Str("session_id", id).
+						Str("thread_id", session.Metadata.ZedThreadID).
+						Int("attempt", attempt).
+						Msg("✅ Sent open_thread command to Zed")
+					return
+				}
+
+				// Log retry attempt
+				log.Warn().
+					Err(err).
+					Str("session_id", id).
+					Str("thread_id", session.Metadata.ZedThreadID).
+					Int("attempt", attempt).
+					Int("max_retries", maxRetries).
+					Msg("Retrying open_thread command (WebSocket not connected yet)")
+			}
+
+			// All retries exhausted - log final failure
+			log.Error().
+				Str("session_id", id).
+				Str("thread_id", session.Metadata.ZedThreadID).
+				Int("retries", maxRetries).
+				Msg("❌ Failed to send open_thread command after all retries - WebSocket never connected")
+		}()
+	}
+
+	// Return success response
+	result := types.SessionResumeResponse{
+		SessionID:     id,
+		Status:        "resumed",
+		WolfLobbyID:   response.WolfLobbyID,
+		WolfLobbyPIN:  response.WolfLobbyPIN,
+		ScreenshotURL: response.ScreenshotURL,
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rw).Encode(result)
+}
+
+// sendOpenThreadCommand sends an open_thread command to Zed via WebSocket
+// to tell it to open a specific thread in the AgentPanel UI
+func (s *HelixAPIServer) sendOpenThreadCommand(sessionID string, acpThreadID string) error {
+	// Find the external agent WebSocket connection
+	conn, exists := s.externalAgentWSManager.getConnection(sessionID)
+	if !exists {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	// Create the open_thread command
+	command := types.ExternalAgentCommand{
+		Type: "open_thread",
+		Data: map[string]interface{}{
+			"acp_thread_id": acpThreadID,
+		},
+	}
+
+	// Send the command via WebSocket
+	select {
+	case conn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("acp_thread_id", acpThreadID).
+			Msg("📤 Queued open_thread command for Zed")
+		return nil
+	default:
+		return fmt.Errorf("send channel full for session %s", sessionID)
+	}
+}
+
+// getSessionIdleStatus godoc
+// @Summary Get idle status for external agent session
+// @Description Returns idle timeout information for a session with an external agent
+// @Tags    sessions
+// @Success 200 {object} types.SessionIdleStatus
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id}/idle-status [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getSessionIdleStatus(_ http.ResponseWriter, req *http.Request) (*types.SessionIdleStatus, *system.HTTPError) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+
+	// Get session to verify access
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	// Verify user owns this session
+	if user == nil || session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		return &types.SessionIdleStatus{
+			HasExternalAgent: false,
+		}, nil
+	}
+
+	// Try to find the external agent activity record
+	// External agent ID is the same as the session ID for external agent sessions
+	activity, err := s.Store.GetExternalAgentActivity(ctx, sessionID)
+	if err != nil {
+		// No activity record found - might be a very new session
+		log.Debug().
+			Str("session_id", sessionID).
+			Msg("No external agent activity found for session")
+
+		return &types.SessionIdleStatus{
+			HasExternalAgent: true,
+			IdleMinutes:      0,
+			WillTerminateIn:  30,
+			WarningThreshold: false,
+		}, nil
+	}
+
+	// Calculate idle minutes
+	idleMinutes := int(time.Since(activity.LastInteraction).Minutes())
+
+	// Idle threshold is 30 minutes
+	const idleThreshold = 30
+	willTerminateIn := idleThreshold - idleMinutes
+	if willTerminateIn < 0 {
+		willTerminateIn = 0
+	}
+
+	// Show warning when 25 minutes or less remaining (for easy testing visibility)
+	warningThreshold := willTerminateIn <= 25 && willTerminateIn > 0
+
+	return &types.SessionIdleStatus{
+		HasExternalAgent: true,
+		IdleMinutes:      idleMinutes,
+		WillTerminateIn:  willTerminateIn,
+		WarningThreshold: warningThreshold,
+	}, nil
+}
+
+// stopExternalAgentSession godoc
+// @Summary Stop external Zed agent session
+// @Description Stop the external Zed agent for any session (stops container, keeps session record)
+// @Tags Sessions
+// @Produce json
+// @Param id path string true "Session ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Security BearerAuth
+// @Router /api/v1/sessions/{id}/stop-external-agent [delete]
+func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http.Request) (map[string]string, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	sessionID := vars["id"]
+
+	// Get session to verify access and check if it's an external agent session
+	session, err := s.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
+		return nil, system.NewHTTPError404("session not found")
+	}
+
+	// Verify user owns this session
+	if user == nil || session.Owner != user.ID {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
+	// Check if this is an external agent session
+	if session.Metadata.AgentType != "zed_external" {
+		return nil, system.NewHTTPError400("session does not have an external Zed agent")
+	}
+
+	// Stop the Zed agent (Wolf container)
+	err = s.externalAgentExecutor.StopZedAgent(ctx, sessionID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", sessionID).
+			Msg("Failed to stop external Zed agent")
+		return nil, system.NewHTTPError500("failed to stop external Zed agent")
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", user.ID).
+		Msg("External Zed agent stopped successfully")
+
+	return map[string]string{
+		"message":    "external Zed agent stopped",
+		"session_id": sessionID,
+	}, nil
+}
+

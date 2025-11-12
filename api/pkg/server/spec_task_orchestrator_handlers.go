@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -110,6 +112,14 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		return nil, system.NewHTTPError500("failed to create demo repository")
 	}
 
+	// Get user's default external agent app for spec tasks
+	defaultApp, err := apiServer.getUserDefaultExternalAgentApp(ctx, user.ID)
+	if err != nil {
+		log.Warn().Err(err).
+			Str("user_id", user.ID).
+			Msg("Failed to get default external agent app, spec task may fail to start")
+	}
+
 	// Create SpecTask
 	task := &types.SpecTask{
 		ProjectID:      repo.ID,
@@ -120,6 +130,11 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: demoReq.Prompt,
 		CreatedBy:      user.ID,
+	}
+
+	// Set HelixAppID if we found a default app
+	if defaultApp != nil {
+		task.HelixAppID = defaultApp.ID
 	}
 
 	err = apiServer.Store.CreateSpecTask(ctx, task)
@@ -137,7 +152,7 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 }
 
 // @Summary Get design docs for SpecTask
-// @Description Get the design documents from helix-design-docs worktree
+// @Description Get the design documents from helix-specs worktree
 // @Tags SpecTasks
 // @Produce json
 // @Param id path string true "SpecTask ID"
@@ -151,30 +166,106 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 	vars := mux.Vars(req)
 	taskID := vars["id"]
 
-	// Get orchestrator
-	orchestrator := apiServer.GetOrchestrator()
-	if orchestrator == nil {
-		return nil, system.NewHTTPError500("orchestrator not initialized")
-	}
-
 	// Get task
 	task, err := apiServer.Store.GetSpecTask(ctx, taskID)
 	if err != nil {
 		return nil, system.NewHTTPError404("task not found")
 	}
 
-	// Get orchestrated task to find design docs path
-	// Note: This assumes the task has been through implementation setup
-	// In production, we'd store the design docs path in the database
+	// Get the project's default repository (design docs repo)
+	project, err := apiServer.Store.GetProject(ctx, task.ProjectID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get project")
+	}
+
+	if project.DefaultRepoID == "" {
+		return nil, system.NewHTTPError400("project has no default repository")
+	}
+
+	// Get repository
+	repo, err := apiServer.GetGitService().GetRepository(ctx, project.DefaultRepoID)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to get repository")
+	}
+
+	// Read design docs from Git repository helix-specs branch
+	// Docs are in task-specific subdirectory: tasks/{date}_{name}_{task_id}/
+	designDocs, err := apiServer.readDesignDocsFromGit(repo.LocalPath, task.ID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_path", repo.LocalPath).Str("task_id", task.ID).Msg("Failed to read design docs from git")
+		return nil, system.NewHTTPError500("failed to read design docs")
+	}
 
 	response := &DesignDocsResponse{
-		TaskID:           task.ID,
-		ProgressMarkdown: "", // Would read from worktree
-		DesignMarkdown:   "", // Would read from worktree
-		CurrentTaskIndex: -1,
+		TaskID:     task.ID,
+		Documents:  designDocs,
 	}
 
 	return response, nil
+}
+
+// readDesignDocsFromGit reads design documents from the helix-specs branch
+func (apiServer *HelixAPIServer) readDesignDocsFromGit(repoPath string, taskID string) ([]DesignDocument, error) {
+	// First, list all files in helix-specs branch to find task directory
+	// Format: design/tasks/{date}_{name}_{task_id}/
+	cmd := exec.Command("git", "ls-tree", "--name-only", "-r", "helix-specs")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// helix-specs branch might not exist yet
+		log.Debug().Err(err).Str("repo_path", repoPath).Msg("No helix-specs branch found")
+		return []DesignDocument{}, nil
+	}
+
+	// Find task directory by matching task ID in any file path
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var taskDir string
+	for _, file := range files {
+		if strings.Contains(file, taskID) {
+			// Extract directory path (e.g., design/tasks/2025-11-11_..._taskid/)
+			parts := strings.Split(file, "/")
+			if len(parts) >= 3 {
+				taskDir = strings.Join(parts[:len(parts)-1], "/")
+				break
+			}
+		}
+	}
+
+	if taskDir == "" {
+		log.Debug().Str("task_id", taskID).Msg("No design docs directory found for task in helix-specs")
+		return []DesignDocument{}, nil
+	}
+
+	log.Info().Str("task_dir", taskDir).Str("task_id", taskID).Msg("Found design docs directory")
+
+	// Read all .md files from the task directory
+	var docs []DesignDocument
+	for _, file := range files {
+		if !strings.HasPrefix(file, taskDir+"/") || !strings.HasSuffix(file, ".md") {
+			continue
+		}
+
+		// Read file content from helix-specs branch
+		contentCmd := exec.Command("git", "show", fmt.Sprintf("helix-specs:%s", file))
+		contentCmd.Dir = repoPath
+		content, err := contentCmd.CombinedOutput()
+		if err != nil {
+			log.Warn().Err(err).Str("file", file).Msg("Failed to read design doc file")
+			continue
+		}
+
+		// Extract just the filename (e.g., requirements.md)
+		filename := strings.TrimPrefix(file, taskDir+"/")
+
+		docs = append(docs, DesignDocument{
+			Filename: filename,
+			Content:  string(content),
+			Path:     file,
+		})
+	}
+
+	log.Info().Int("doc_count", len(docs)).Str("task_id", taskID).Msg("Read design documents from helix-specs")
+	return docs, nil
 }
 
 // Response types
@@ -209,10 +300,14 @@ type CreateSpecTaskFromDemoRequest struct {
 }
 
 type DesignDocsResponse struct {
-	TaskID           string `json:"task_id"`
-	ProgressMarkdown string `json:"progress_markdown"`
-	DesignMarkdown   string `json:"design_markdown"`
-	CurrentTaskIndex int    `json:"current_task_index"`
+	TaskID    string           `json:"task_id"`
+	Documents []DesignDocument `json:"documents"`
+}
+
+type DesignDocument struct {
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	Path     string `json:"path"`
 }
 
 // Helper functions
@@ -298,9 +393,12 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 	}
 
 	if externalAgent.Status != "running" {
-		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-			"message": "External agent is already stopped",
-			"status":  externalAgent.Status,
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode(types.SpecTaskStopResponse{
+			Message:         "External agent is already stopped",
+			Status:          externalAgent.Status,
+			ExternalAgentID: externalAgent.ID,
+			WorkspaceDir:    externalAgent.WorkspaceDir,
 		})
 		return
 	}
@@ -336,11 +434,12 @@ func (apiServer *HelixAPIServer) stopSpecTaskExternalAgent(res http.ResponseWrit
 		}
 	}
 
-	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-		"message":           "External agent stopped successfully",
-		"external_agent_id": externalAgent.ID,
-		"workspace_dir":     externalAgent.WorkspaceDir,
-		"note":              "Workspace preserved in filestore - use start endpoint to resume",
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(types.SpecTaskStopResponse{
+		Message:         "External agent stopped successfully",
+		ExternalAgentID: externalAgent.ID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		Note:            "Workspace preserved in filestore - use start endpoint to resume",
 	})
 }
 
@@ -385,10 +484,12 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 	}
 
 	if externalAgent.Status == "running" {
-		res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-			"message":           "External agent is already running",
-			"external_agent_id": externalAgent.ID,
-			"wolf_app_id":       externalAgent.WolfAppID,
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
+			Message:         "External agent is already running",
+			ExternalAgentID: externalAgent.ID,
+			WolfAppID:       externalAgent.WolfAppID,
+			WorkspaceDir:    externalAgent.WorkspaceDir,
 		})
 		return
 	}
@@ -408,6 +509,13 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		DisplayWidth:       2560,
 		DisplayHeight:      1600,
 		DisplayRefreshRate: 60,
+	}
+
+	// Add user's API token for git operations
+	if err := apiServer.addUserAPITokenToAgent(req.Context(), agentReq, task.CreatedBy); err != nil {
+		log.Error().Err(err).Str("user_id", task.CreatedBy).Msg("Failed to add user API token for SpecTask resurrection")
+		http.Error(res, fmt.Sprintf("Failed to get user API keys: %v", err), http.StatusInternalServerError)
+		return
 	}
 
 	agentResp, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), agentReq)
@@ -449,14 +557,15 @@ func (apiServer *HelixAPIServer) startSpecTaskExternalAgent(res http.ResponseWri
 		}
 	}
 
-	res.Header().Set("Content-Type", "application/json"); json.NewEncoder(res).Encode(map[string]interface{}{
-		"message":           "External agent started successfully",
-		"external_agent_id": externalAgent.ID,
-		"wolf_app_id":       agentResp.WolfAppID,
-		"workspace_dir":     externalAgent.WorkspaceDir,
-		"screenshot_url":    agentResp.ScreenshotURL,
-		"stream_url":        agentResp.StreamURL,
-		"note":              "Agent resumed with all previous state (threads, git repos, Zed state)",
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(types.SpecTaskStartResponse{
+		Message:         "External agent started successfully",
+		ExternalAgentID: externalAgent.ID,
+		WolfAppID:       agentResp.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		ScreenshotURL:   agentResp.ScreenshotURL,
+		StreamURL:       agentResp.StreamURL,
+		Note:            "Agent resumed with all previous state (threads, git repos, Zed state)",
 	})
 }
 
@@ -498,9 +607,9 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 	if err != nil {
 		// No external agent yet (task hasn't started)
 		res.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(res).Encode(map[string]interface{}{
-			"exists":  false,
-			"message": "External agent not created yet - task must enter planning phase",
+		json.NewEncoder(res).Encode(types.SpecTaskStatusResponse{
+			Exists:  false,
+			Message: "External agent not created yet - task must enter planning phase",
 		})
 		return
 	}
@@ -512,20 +621,23 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 		idleMinutes = int(time.Since(activity.LastInteraction).Minutes())
 	}
 
-	response := map[string]interface{}{
-		"exists":             true,
-		"external_agent_id":  externalAgent.ID,
-		"status":             externalAgent.Status,
-		"wolf_app_id":        externalAgent.WolfAppID,
-		"workspace_dir":      externalAgent.WorkspaceDir,
-		"helix_session_ids":  externalAgent.HelixSessionIDs,
-		"zed_thread_ids":     externalAgent.ZedThreadIDs,
-		"session_count":      len(externalAgent.HelixSessionIDs),
-		"created":            externalAgent.Created,
-		"last_activity":      externalAgent.LastActivity,
-		"idle_minutes":       idleMinutes,
-		"will_terminate_in":  max(0, 30-idleMinutes),
-		"warning_threshold":  idleMinutes >= 25,
+	var lastActivityPtr *time.Time
+	if !externalAgent.LastActivity.IsZero() {
+		lastActivityPtr = &externalAgent.LastActivity
+	}
+
+	response := types.SpecTaskStatusResponse{
+		Exists:          true,
+		ExternalAgentID: externalAgent.ID,
+		Status:          externalAgent.Status,
+		WolfAppID:       externalAgent.WolfAppID,
+		WorkspaceDir:    externalAgent.WorkspaceDir,
+		HelixSessionIDs: externalAgent.HelixSessionIDs,
+		ZedThreadIDs:    externalAgent.ZedThreadIDs,
+		SessionCount:    len(externalAgent.HelixSessionIDs),
+		Created:         externalAgent.Created,
+		LastActivity:    lastActivityPtr,
+		IdleMinutes:     idleMinutes,
 	}
 
 	res.Header().Set("Content-Type", "application/json")

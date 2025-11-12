@@ -99,6 +99,8 @@ spec:
               value: {{ .Values.controlplane.admin.userSource | quote }}
             - name: ADMIN_USER_IDS
               value: {{ .Values.controlplane.admin.userIds | quote }}
+            - name: PROVIDERS_MANAGEMENT_ENABLED
+              value: {{ .Values.controlplane.providersManagementEnabled | quote }}
             - name: FILESTORE_LOCALFS_PATH
               value: {{- with .Values.controlplane }} {{ .filestorePath | default "/filestore" }} {{- else }} "/filestore" {{- end }} 
             - name: TEXT_EXTRACTION_URL
