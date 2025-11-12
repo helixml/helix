@@ -2291,6 +2291,10 @@ type PasswordResetCompleteRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
+type PasswordUpdateRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
 type UserResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
