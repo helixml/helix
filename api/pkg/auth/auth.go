@@ -12,6 +12,7 @@ import (
 type Authenticator interface {
 	GetUserByID(ctx context.Context, userID string) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
+	UpdatePassword(ctx context.Context, userID, newPassword string) error
 	ValidatePassword(ctx context.Context, user *types.User, password string) error
 
 	// In both keycloak case and OIDC this is using OIDC client,
@@ -19,6 +20,9 @@ type Authenticator interface {
 	ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error)
 
 	GenerateUserToken(ctx context.Context, user *types.User) (string, error)
+
+	RequestPasswordReset(ctx context.Context, email string) error
+	PasswordResetComplete(ctx context.Context, token, newPassword string) error
 }
 
 type OIDC interface {
