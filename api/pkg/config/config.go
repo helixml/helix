@@ -12,8 +12,7 @@ type ServerConfig struct {
 	Inference          Inference
 	Providers          Providers
 	Tools              Tools
-	Keycloak           Keycloak
-	OIDC               OIDC
+	Auth               Auth
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
@@ -137,10 +136,22 @@ type Tools struct {
 	IsActionableHistoryLength int    `envconfig:"TOOLS_IS_ACTIONABLE_HISTORY_LENGTH" default:"4"` // 2 assistant messages, 2 user messages
 }
 
+type Auth struct {
+	Provider types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
+	Keycloak Keycloak
+	OIDC     OIDC
+	Regular  Regular
+}
+
+type Regular struct {
+	Enabled   bool   `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
+	JWTSecret string `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
+}
+
 // Keycloak is used for authentication. You can find keycloak documentation
 // at https://www.keycloak.org/guides
 type Keycloak struct {
-	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"true"`
+	KeycloakEnabled     bool   `envconfig:"KEYCLOAK_ENABLED" default:"false"`
 	KeycloakURL         string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
 	KeycloakFrontEndURL string `envconfig:"KEYCLOAK_FRONTEND_URL" default:"http://localhost:8080/auth"`
 	ServerURL           string `envconfig:"SERVER_URL" description:"The URL the api server is listening on."`
