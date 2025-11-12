@@ -166,50 +166,50 @@ services:
             - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
 
     # Kodit code indexing service
-    kodit:
-        image: registry.helixml.tech/helix/kodit:latest
-        # ports:
-        #   - 8632:8632
-        command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
-        restart: always
-        depends_on:
-            - vectorchord-kodit
-            - api
-        environment:
-            - DATA_DIR=/data
-            - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
-            - DEFAULT_SEARCH_PROVIDER=vectorchord
-            # External enrichment provider (TogetherAI direct)
-            # TODO: Switch to Helix proxy once we figure out litellm model name format
-            # Should be: ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1 with runner token
-            # Currently fails with "model not found" - need to investigate Helix model routing
-            - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
-            - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
-            - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
-            - ENRICHMENT_ENDPOINT_TIMEOUT=120
-            # Sync configuration
-            - SYNC_PERIODIC_ENABLED=true
-            - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
-            - SYNC_PERIODIC_RETRY_ATTEMPTS=3
-            - LOG_LEVEL=INFO
-            - LOG_FORMAT=json
-            - API_KEYS=${KODIT_API_KEYS:-dev-key}
-        volumes:
-            - helix-socket:/socket
-            - ${KODIT_DATA:-helix-kodit-data}:/data
+    # kodit:
+    #     image: registry.helixml.tech/helix/kodit:latest
+    #     # ports:
+    #     #   - 8632:8632
+    #     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
+    #     restart: always
+    #     depends_on:
+    #         - vectorchord-kodit
+    #         - api
+    #     environment:
+    #         - DATA_DIR=/data
+    #         - DB_URL=postgresql+asyncpg://postgres:postgres@vectorchord-kodit:5432/kodit
+    #         - DEFAULT_SEARCH_PROVIDER=vectorchord
+    #         # External enrichment provider (TogetherAI direct)
+    #         # TODO: Switch to Helix proxy once we figure out litellm model name format
+    #         # Should be: ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1 with runner token
+    #         # Currently fails with "model not found" - need to investigate Helix model routing
+    #         - ENRICHMENT_ENDPOINT_MODEL=together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct
+    #         - ENRICHMENT_ENDPOINT_API_KEY=${TOGETHER_API_KEY}
+    #         - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+    #         - ENRICHMENT_ENDPOINT_TIMEOUT=120
+    #         # Sync configuration
+    #         - SYNC_PERIODIC_ENABLED=true
+    #         - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
+    #         - SYNC_PERIODIC_RETRY_ATTEMPTS=3
+    #         - LOG_LEVEL=INFO
+    #         - LOG_FORMAT=json
+    #         - API_KEYS=${KODIT_API_KEYS:-dev-key}
+    #     volumes:
+    #         - helix-socket:/socket
+    #         - ${KODIT_DATA:-helix-kodit-data}:/data
 
     # Kodit PostgreSQL database with pgvector
-    vectorchord-kodit:
-        image: tensorchord/vchord-suite:pg17-20250601
-        restart: always
-        environment:
-            - POSTGRES_DB=kodit
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=postgres
-        volumes:
-            - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
-        # ports:
-        #   - 5434:5432
+    # vectorchord-kodit:
+    #     image: tensorchord/vchord-suite:pg17-20250601
+    #     restart: always
+    #     environment:
+    #         - POSTGRES_DB=kodit
+    #         - POSTGRES_USER=postgres
+    #         - POSTGRES_PASSWORD=postgres
+    #     volumes:
+    #         - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+    #     # ports:
+    #     #   - 5434:5432
     # keycloak:
     #     image: quay.io/keycloak/keycloak:23.0
     #     restart: always
