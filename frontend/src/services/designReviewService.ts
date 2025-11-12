@@ -169,7 +169,7 @@ export function useResolveComment(specTaskId: string, reviewId: string) {
 
   return useMutation({
     mutationFn: async (commentId: string) => {
-      const response = await apiClient.v1SpecTasksDesignReviewsCommentsResolveCreate(specTaskId, commentId)
+      const response = await apiClient.v1SpecTasksDesignReviewsCommentsResolveCreate(specTaskId, reviewId, commentId)
       return response.data
     },
     onSuccess: () => {

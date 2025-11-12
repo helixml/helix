@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Box,
   Tabs,
@@ -47,6 +47,13 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 import { useResize } from '../../hooks/useResize'
+import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
+import InlineCommentBubble from './InlineCommentBubble'
+import InlineCommentForm from './InlineCommentForm'
+import CommentLogSidebar from './CommentLogSidebar'
+import ReviewActionFooter from './ReviewActionFooter'
+import ReviewSubmitDialog from './ReviewSubmitDialog'
+import RejectDesignDialog from './RejectDesignDialog'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -77,19 +84,24 @@ export default function DesignReviewViewer({
   const api = useApi()
   const nodeRef = useRef(null)
 
+  // Calculate smart initial size and position
+  // Preferred size: 1000px wide (fits document + comments nicely), 80% of screen height
+  const preferredSize = getSmartInitialSize(1000, window.innerHeight * 0.8, 800, 500)
+  const initialPos = getSmartInitialPosition(preferredSize.width, preferredSize.height)
+
   // Window positioning state
   const [position, setPosition] = useState<WindowPosition>('center')
   const [isSnapped, setIsSnapped] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [windowPos, setWindowPos] = useState({ x: 100, y: 100 })
+  const [windowPos, setWindowPos] = useState(initialPos)
   const [snapPreview, setSnapPreview] = useState<string | null>(null)
   const [tileMenuAnchor, setTileMenuAnchor] = useState<null | HTMLElement>(null)
 
   // Resize support
   const { size, setSize, isResizing, getResizeHandles } = useResize({
-    initialSize: { width: Math.min(1400, window.innerWidth * 0.7), height: window.innerHeight * 0.85 },
+    initialSize: preferredSize,
     minSize: { width: 800, height: 500 },
     maxSize: { width: window.innerWidth, height: window.innerHeight },
     onResize: (newSize, direction) => {
@@ -113,9 +125,14 @@ export default function DesignReviewViewer({
   const [submitDecision, setSubmitDecision] = useState<'approve' | 'request_changes'>('approve')
   const [startingImplementation, setStartingImplementation] = useState(false)
   const [showCommentLog, setShowCommentLog] = useState(false)
+  const [viewedTabs, setViewedTabs] = useState<Set<DocumentType>>(new Set(['requirements']))
+  const [showRejectDialog, setShowRejectDialog] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [commentPositions, setCommentPositions] = useState<Map<string, number>>(new Map())
 
   // Refs for positioning
   const documentRef = useRef<HTMLDivElement>(null)
+  const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   const { data: reviewData, isLoading: reviewLoading } = useDesignReview(specTaskId, reviewId)
   const { data: commentsData, isLoading: commentsLoading } = useDesignReviewComments(specTaskId, reviewId)
@@ -125,8 +142,22 @@ export default function DesignReviewViewer({
 
   const review = reviewData?.review
   const allComments = commentsData?.comments || []
-  const activeDocComments = allComments.filter(c => c.document_type === activeTab)
+  const activeDocComments = useMemo(
+    () => allComments.filter(c => c.document_type === activeTab),
+    [allComments, activeTab]
+  )
   const unresolvedCount = getUnresolvedCount(allComments)
+
+  // Get comment counts per document type
+  const getCommentCount = (docType: DocumentType) => {
+    return allComments.filter(c => c.document_type === docType && !c.resolved).length
+  }
+
+  // Handle tab change - mark as viewed
+  const handleTabChange = (newTab: DocumentType) => {
+    setActiveTab(newTab)
+    setViewedTabs(prev => new Set(prev).add(newTab))
+  }
 
   // Debug logging
   useEffect(() => {
@@ -140,8 +171,14 @@ export default function DesignReviewViewer({
   }, [specTaskId, reviewId, reviewData, review, reviewLoading])
 
   // Separate comments with quoted_text (inline) vs without (general)
-  const inlineComments = activeDocComments.filter(c => c.quoted_text && !c.resolved)
-  const generalComments = activeDocComments.filter(c => !c.quoted_text)
+  const inlineComments = useMemo(
+    () => activeDocComments.filter(c => c.quoted_text && !c.resolved),
+    [activeDocComments]
+  )
+  const generalComments = useMemo(
+    () => activeDocComments.filter(c => !c.quoted_text),
+    [activeDocComments]
+  )
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -187,6 +224,68 @@ export default function DesignReviewViewer({
     window.addEventListener('keydown', handleKeyPress)
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [open, showCommentForm, showSubmitDialog])
+
+  // Recalculate comment positions when comments change or are rendered
+  useEffect(() => {
+    if (!documentRef.current || inlineComments.length === 0) {
+      setCommentPositions(new Map())
+      return
+    }
+
+    // Use requestAnimationFrame to ensure DOM is fully rendered before measuring
+    const rafId = requestAnimationFrame(() => {
+      // Calculate initial positions based on quoted text location
+      const positions: Array<{ id: string; baseY: number; height: number }> = []
+
+      inlineComments.forEach(comment => {
+        if (!comment.quoted_text) return
+
+        const baseY = findQuotedTextPosition(comment.quoted_text)
+        if (baseY === null) return
+
+        // Get actual height from DOM if available
+        const ref = commentRefs.current.get(comment.id!)
+        const height = ref?.offsetHeight || 250 // Fallback to estimate if not rendered yet
+
+        positions.push({ id: comment.id!, baseY, height })
+      })
+
+      // Calculate stacked positions to prevent overlaps
+      const newPositions = new Map<string, number>()
+      const minGap = 10
+
+      positions.forEach((comment, index) => {
+        let adjustedY = comment.baseY
+
+        // Check for overlaps with all previously positioned comments
+        let hasOverlap = true
+        while (hasOverlap) {
+          hasOverlap = false
+
+          for (let i = 0; i < index; i++) {
+            const other = positions[i]
+            const otherY = newPositions.get(other.id)!
+            const otherBottom = otherY + other.height
+            const thisBottom = adjustedY + comment.height
+
+            // Check if overlapping
+            if (!(adjustedY >= otherBottom + minGap || thisBottom <= otherY - minGap)) {
+              // Move below the overlapping comment
+              adjustedY = otherBottom + minGap
+              hasOverlap = true
+              break
+            }
+          }
+        }
+
+        newPositions.set(comment.id, adjustedY)
+      })
+
+      setCommentPositions(newPositions)
+    })
+
+    return () => cancelAnimationFrame(rafId)
+  }, [inlineComments, activeTab, allComments]) // Recalculate when comments change (including agent responses)
 
   // Helper to find the Y position of quoted text in the document
   const findQuotedTextPosition = (quotedText: string): number | null => {
@@ -309,9 +408,21 @@ export default function DesignReviewViewer({
       })
 
       if (submitDecision === 'approve') {
-        snackbar.success('Design approved! Ready to start implementation.')
+        // Automatically start implementation
+        const apiClient = api.getApiClient()
+        await apiClient.v1SpecTasksApproveSpecsCreate(specTaskId, {
+          approved: true,
+          comments: overallComment || 'Design approved',
+        })
+
+        snackbar.success('Design approved! Agent starting implementation...')
         setShowSubmitDialog(false)
-        // Don't close - keep review open so user can click "Start Implementation"
+
+        if (onImplementationStarted) {
+          onImplementationStarted()
+        }
+
+        onClose()
       } else {
         snackbar.success('Changes requested. Agent will be notified.')
         setShowSubmitDialog(false)
@@ -319,6 +430,19 @@ export default function DesignReviewViewer({
       }
     } catch (error: any) {
       snackbar.error(`Failed to submit review: ${error.message}`)
+    }
+  }
+
+  const handleRejectDesign = async () => {
+    try {
+      const apiClient = api.getApiClient()
+      await apiClient.v1SpecTasksArchivePartialUpdate(specTaskId, true)
+
+      snackbar.success('Design rejected - spec task archived')
+      setShowRejectDialog(false)
+      onClose()
+    } catch (error: any) {
+      snackbar.error(`Failed to reject design: ${error.message}`)
     }
   }
 
@@ -623,7 +747,7 @@ export default function DesignReviewViewer({
           <Box display="flex" alignItems="center" gap={2}>
             <DragIndicatorIcon sx={{ color: 'text.secondary' }} />
             <Typography variant="h6" sx={{ fontFamily: "'Palatino Linotype', Georgia, serif" }}>
-              Design Review
+              Spec Review
             </Typography>
             <Chip label={review.status.replace('_', ' ')} color={getStatusColor(review.status) as any} size="small" />
             {unresolvedCount > 0 && (
@@ -639,7 +763,7 @@ export default function DesignReviewViewer({
           <Box display="flex" alignItems="center" gap={1}>
             {/* Comment Log Toggle */}
             <IconButton size="small" onClick={() => setShowCommentLog(!showCommentLog)}>
-              <Badge badgeContent={unresolvedCount} color="error">
+              <Badge badgeContent={activeDocComments.length} color="primary">
                 <CommentIcon />
               </Badge>
             </IconButton>
@@ -677,12 +801,87 @@ export default function DesignReviewViewer({
           <Box flex={1} display="flex" flexDirection="column" overflow="hidden">
             <Tabs
               value={activeTab}
-              onChange={(_, value) => setActiveTab(value)}
+              onChange={(_, value) => handleTabChange(value)}
               sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.default' }}
             >
-              <Tab label={DOCUMENT_LABELS.requirements} value="requirements" />
-              <Tab label={DOCUMENT_LABELS.technical_design} value="technical_design" />
-              <Tab label={DOCUMENT_LABELS.implementation_plan} value="implementation_plan" />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {DOCUMENT_LABELS.requirements}
+                    {getCommentCount('requirements') > 0 && (
+                      <Chip
+                        label={getCommentCount('requirements')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
+                      />
+                    )}
+                    {!viewedTabs.has('requirements') && (
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: 'primary.main'
+                        }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="requirements"
+              />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {DOCUMENT_LABELS.technical_design}
+                    {getCommentCount('technical_design') > 0 && (
+                      <Chip
+                        label={getCommentCount('technical_design')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
+                      />
+                    )}
+                    {!viewedTabs.has('technical_design') && (
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: 'primary.main'
+                        }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="technical_design"
+              />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    {DOCUMENT_LABELS.implementation_plan}
+                    {getCommentCount('implementation_plan') > 0 && (
+                      <Chip
+                        label={getCommentCount('implementation_plan')}
+                        size="small"
+                        color="warning"
+                        sx={{ height: '18px', minWidth: '18px', fontSize: '0.7rem' }}
+                      />
+                    )}
+                    {!viewedTabs.has('implementation_plan') && (
+                      <Box
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          bgcolor: 'primary.main'
+                        }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="implementation_plan"
+              />
             </Tabs>
 
             <Box
@@ -700,7 +899,8 @@ export default function DesignReviewViewer({
                 onMouseUp={handleTextSelection}
                 sx={{
                   maxWidth: '650px',
-                  marginRight: '350px', // Space for inline comments
+                  minWidth: '450px', // Don't get too narrow
+                  marginRight: '320px', // Space for inline comments (300px) + 20px gap
                   position: 'relative',
                   '& .markdown-body': {
                     bgcolor: 'background.paper',
@@ -816,354 +1016,72 @@ export default function DesignReviewViewer({
 
 
               {/* Inline Comments Overlay */}
-              {(() => {
-                // Calculate positions for all comments first to enable stacking
-                const commentPositions: Array<{ comment: DesignReviewComment; y: number }> = []
+              {inlineComments.map(comment => {
+                if (!comment.quoted_text) return null
+                const yPos = commentPositions.get(comment.id!)
+                if (yPos === undefined) return null
 
-                inlineComments.forEach(comment => {
-                  if (!comment.quoted_text) return
-                  const baseY = findQuotedTextPosition(comment.quoted_text)
-                  if (baseY !== null) {
-                    const stackedY = getStackedCommentPosition(
-                      baseY,
-                      commentPositions.length,
-                      commentPositions.map(p => p.y)
-                    )
-                    commentPositions.push({ comment, y: stackedY })
-                  }
-                })
-
-                return commentPositions.map(({ comment, y: yPos }) => (
-                  <Paper
+                return (
+                  <InlineCommentBubble
                     key={comment.id}
-                    sx={{
-                      position: 'absolute',
-                      left: '670px',
-                      top: `${yPos}px`,
-                      width: '300px',
-                      p: 2,
-                      bgcolor: 'background.paper',
-                      border: 2,
-                      borderColor: 'warning.main',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                      zIndex: 10,
+                    comment={comment}
+                    yPos={yPos}
+                    onResolve={handleResolveComment}
+                    commentRef={(el) => {
+                      if (el) {
+                        commentRefs.current.set(comment.id!, el)
+                      } else {
+                        commentRefs.current.delete(comment.id!)
+                      }
                     }}
-                  >
-                    <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                      <Chip
-                        label="Comment"
-                        size="small"
-                        color="primary"
-                      />
-                      <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-
-                    {comment.quoted_text && (
-                      <Box
-                        sx={{
-                          bgcolor: 'action.hover',
-                          p: 1,
-                          borderLeft: '3px solid',
-                          borderColor: 'primary.main',
-                          mb: 1,
-                          fontStyle: 'italic',
-                          fontSize: '0.75rem',
-                        }}
-                      >
-                        "{comment.quoted_text.length > 100 ? comment.quoted_text.substring(0, 100) + '...' : comment.quoted_text}"
-                      </Box>
-                    )}
-
-                    <Typography variant="body2" sx={{ mb: 1, fontSize: '0.875rem' }}>
-                      {comment.comment_text}
-                    </Typography>
-
-                    {comment.agent_response && (
-                      <Box
-                        sx={{
-                          mt: 2,
-                          p: 1.5,
-                          bgcolor: 'info.light',
-                          borderLeft: '3px solid',
-                          borderColor: 'info.main',
-                          borderRadius: 1,
-                        }}
-                      >
-                        <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={0.5}>
-                          Agent:
-                        </Typography>
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
-                          {comment.agent_response}
-                        </Typography>
-                        {comment.agent_response_at && (
-                          <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-                            {new Date(comment.agent_response_at).toLocaleString()}
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
-
-                    <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                      {new Date(comment.created_at).toLocaleString()}
-                    </Typography>
-                  </Paper>
-                ))
-              })()}
+                  />
+                )
+              })}
 
               {/* New Comment Form (Inline) */}
-              {showCommentForm && selectedText && (
-                <Paper
-                  sx={{
-                    position: 'absolute',
-                    left: '670px',
-                    top: `${commentFormPosition.y}px`,
-                    width: '300px',
-                    p: 2,
-                    bgcolor: 'background.paper',
-                    border: '2px solid',
-                    borderColor: 'primary.main',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                    zIndex: 20,
-                  }}
-                >
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    Add Comment
-                  </Typography>
-
-                  {selectedText && (
-                    <Box
-                      sx={{
-                        bgcolor: 'action.hover',
-                        p: 1,
-                        borderLeft: '3px solid',
-                        borderColor: 'primary.main',
-                        mb: 1.5,
-                        fontStyle: 'italic',
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      "{selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}"
-                    </Box>
-                  )}
-
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Add your comment..."
-                    autoFocus
-                    sx={{ mb: 1.5 }}
-                  />
-
-                  <Box display="flex" gap={1} justifyContent="flex-end">
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        setShowCommentForm(false)
-                        setCommentText('')
-                        setSelectedText('')
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      onClick={handleCreateComment}
-                      disabled={!commentText.trim()}
-                    >
-                      Comment
-                    </Button>
-                  </Box>
-                </Paper>
-              )}
+              <InlineCommentForm
+                show={showCommentForm}
+                yPos={commentFormPosition.y}
+                selectedText={selectedText}
+                commentText={commentText}
+                onCommentChange={setCommentText}
+                onCreate={handleCreateComment}
+                onCancel={() => {
+                  setShowCommentForm(false)
+                  setCommentText('')
+                  setSelectedText('')
+                }}
+              />
               </Box>
 
             </Box>
           </Box>
 
           {/* Comment Log Sidebar - only show when toggled */}
-          {showCommentLog && (
-            <Box
-              width="400px"
-              borderLeft={1}
-              borderColor="divider"
-              display="flex"
-              flexDirection="column"
-              bgcolor="background.paper"
-            >
-              <Box p={2} borderBottom={1} borderColor="divider">
-                <Typography variant="h6">
-                  Comment Log ({activeDocComments.length})
-                </Typography>
-                <Box mt={1} p={1} bgcolor="grey.100" borderRadius={1}>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    <strong>Shortcuts:</strong> C=Comment, 1/2/3=Switch tabs, Esc=Close
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Box flex={1} overflow="auto" p={2}>
-                {activeDocComments.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" align="center" mt={4}>
-                    No comments yet. Select text in the document to add a comment.
-                  </Typography>
-                ) : (
-                  activeDocComments.map(comment => (
-                    <Paper key={comment.id} sx={{ mb: 2, p: 2, opacity: comment.resolved ? 0.6 : 1 }}>
-                      <Box display="flex" alignItems="flex-start" justifyContent="space-between" mb={1}>
-                        <Chip
-                          label={comment.quoted_text ? "Inline" : "General"}
-                          size="small"
-                          color={comment.quoted_text ? "primary" : "default"}
-                        />
-                        {!comment.resolved && (
-                          <IconButton size="small" onClick={() => handleResolveComment(comment.id)}>
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                      </Box>
-
-                      {comment.quoted_text && (
-                        <Box
-                          sx={{
-                            bgcolor: 'action.hover',
-                            p: 1,
-                            borderLeft: '3px solid',
-                            borderColor: 'primary.main',
-                            mb: 1,
-                            fontStyle: 'italic',
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          "{comment.quoted_text.length > 80 ? comment.quoted_text.substring(0, 80) + '...' : comment.quoted_text}"
-                        </Box>
-                      )}
-
-                      <Typography variant="body2" sx={{ mb: 1 }}>{comment.comment_text}</Typography>
-
-                      {/* Agent Response */}
-                      {comment.agent_response && (
-                        <Box
-                          sx={{
-                            mt: 2,
-                            p: 2,
-                            bgcolor: 'info.light',
-                            borderLeft: '3px solid',
-                            borderColor: 'info.main',
-                            borderRadius: 1,
-                          }}
-                        >
-                          <Typography variant="caption" color="primary" fontWeight="bold" display="block" mb={1}>
-                            Agent Response:
-                          </Typography>
-                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                            {comment.agent_response}
-                          </Typography>
-                          {comment.agent_response_at && (
-                            <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                              {new Date(comment.agent_response_at).toLocaleString()}
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-
-                      {comment.resolved && (
-                        <Chip
-                          label={comment.resolution_reason === 'auto_text_removed' ? 'Resolved (text updated)' : 'Resolved'}
-                          size="small"
-                          color="success"
-                          icon={<CheckCircleIcon />}
-                          sx={{ mt: 1 }}
-                        />
-                      )}
-
-                      <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                        {new Date(comment.created_at).toLocaleString()}
-                      </Typography>
-                    </Paper>
-                  ))
-                )}
-              </Box>
-            </Box>
-          )}
+          <CommentLogSidebar
+            show={showCommentLog}
+            comments={activeDocComments}
+            onResolveComment={handleResolveComment}
+          />
         </Box>
 
         {/* Global Review Actions Footer */}
         {review && (
-          <Box
-            sx={{
-              borderTop: 1,
-              borderColor: 'divider',
-              bgcolor: 'background.paper',
-              p: 2,
-              display: 'flex',
-              gap: 2,
-              justifyContent: 'flex-end',
+          <ReviewActionFooter
+            reviewStatus={review.status}
+            unresolvedCount={unresolvedCount}
+            startingImplementation={startingImplementation}
+            onApprove={() => {
+              setSubmitDecision('approve')
+              setShowSubmitDialog(true)
             }}
-          >
-            {review.status === 'approved' ? (
-              <Box display="flex" gap={2} flex={1}>
-                <Alert severity="success" sx={{ flex: 1 }}>
-                  Design approved! Ready to start implementation.
-                </Alert>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  startIcon={<CodeIcon />}
-                  onClick={handleStartImplementation}
-                  disabled={startingImplementation}
-                >
-                  {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
-                </Button>
-              </Box>
-            ) : review.status !== 'superseded' ? (
-              <>
-                {unresolvedCount > 0 && (
-                  <Alert severity="warning" sx={{ flex: 1 }}>
-                    {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
-                  </Alert>
-                )}
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={() => setShowRejectDialog(true)}
-                >
-                  Reject Design
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  onClick={() => {
-                    setSubmitDecision('request_changes')
-                    setShowSubmitDialog(true)
-                  }}
-                >
-                  Request Changes
-                </Button>
-                <Button
-                  variant="contained"
-                  color="success"
-                  onClick={() => {
-                    setSubmitDecision('approve')
-                    setShowSubmitDialog(true)
-                  }}
-                  disabled={unresolvedCount > 0}
-                >
-                  Approve Design
-                </Button>
-              </>
-            ) : (
-              <Alert severity="info" sx={{ flex: 1 }}>
-                This review has been superseded by a newer version
-              </Alert>
-            )}
-          </Box>
+            onRequestChanges={() => {
+              setSubmitDecision('request_changes')
+              setShowSubmitDialog(true)
+            }}
+            onReject={() => setShowRejectDialog(true)}
+            onStartImplementation={handleStartImplementation}
+          />
         )}
       </Paper>
 
@@ -1196,34 +1114,24 @@ export default function DesignReviewViewer({
         </MenuItem>
       </Menu>
 
-      {/* Submit dialog */}
-      <Dialog open={showSubmitDialog} onClose={() => setShowSubmitDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          {submitDecision === 'approve' ? 'Approve Design' : 'Request Changes'}
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="Overall Comment (optional)"
-            value={overallComment}
-            onChange={e => setOverallComment(e.target.value)}
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <Box p={2} display="flex" gap={2} justifyContent="flex-end">
-          <Button onClick={() => setShowSubmitDialog(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color={submitDecision === 'approve' ? 'success' : 'warning'}
-            onClick={handleSubmitReview}
-            disabled={submitReviewMutation.isPending}
-          >
-            {submitDecision === 'approve' ? 'Approve' : 'Submit Feedback'}
-          </Button>
-        </Box>
-      </Dialog>
+      {/* Dialogs */}
+      <ReviewSubmitDialog
+        open={showSubmitDialog}
+        onClose={() => setShowSubmitDialog(false)}
+        decision={submitDecision}
+        overallComment={overallComment}
+        onCommentChange={setOverallComment}
+        onSubmit={handleSubmitReview}
+        isSubmitting={submitReviewMutation.isPending}
+      />
+
+      <RejectDesignDialog
+        open={showRejectDialog}
+        onClose={() => setShowRejectDialog(false)}
+        reason={rejectReason}
+        onReasonChange={setRejectReason}
+        onReject={handleRejectDesign}
+      />
     </>
   )
 }

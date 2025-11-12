@@ -129,7 +129,7 @@ func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agen
 }
 
 // Additional methods added to satisfy store.Store interface evolution
-func (m *MockStoreForWolf) CreateKnowledgeEmbedding(ctx context.Context, embedding *types.KnowledgeEmbedding) (*types.KnowledgeEmbedding, error) { return nil, nil }
+func (m *MockStoreForWolf) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error { return nil }
 func (m *MockStoreForWolf) DetachRepositoryFromProject(ctx context.Context, repoID string) error { return nil }
 func (m *MockStoreForWolf) GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error) { return nil, nil }
 func (m *MockStoreForWolf) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) { return nil, nil }
@@ -139,15 +139,16 @@ func (m *MockStoreForWolf) GetProject(ctx context.Context, id string) (*types.Pr
 func (m *MockStoreForWolf) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) { return nil, nil }
 func (m *MockStoreForWolf) GetProjectRepositories(ctx context.Context, projectID string) ([]*store.GitRepository, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSpecTaskDesignReviewComment(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSpecTaskGitPushEvent(ctx context.Context, id string) (*types.SpecTaskGitPushEvent, error) { return nil, nil }
 func (m *MockStoreForWolf) GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error) { return nil, nil }
-func (m *MockStoreForWolf) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]*types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
 func (m *MockStoreForWolf) Includes(m2 map[string]bool, s string) bool { return false }
 func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context) ([]*store.GitRepository, error) { return nil, nil }
-func (m *MockStoreForWolf) ListProjects(ctx context.Context, query *types.ProjectQuery) ([]*types.Project, error) { return nil, nil }
+func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSessionsQuery(ctx context.Context, query *store.ListSessionsQuery) ([]*types.Session, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]*types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
@@ -156,7 +157,7 @@ func (m *MockStoreForWolf) ListSpecTaskDesignReviews(ctx context.Context, specTa
 func (m *MockStoreForWolf) ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]*types.SpecTaskGitPushEvent, error) { return nil, nil }
 func (m *MockStoreForWolf) ListUnprocessedGitPushEvents(ctx context.Context) ([]*types.SpecTaskGitPushEvent, error) { return nil, nil }
 func (m *MockStoreForWolf) ListUnresolvedComments(ctx context.Context, reviewID string) ([]*types.SpecTaskDesignReviewComment, error) { return nil, nil }
-func (m *MockStoreForWolf) QueryKnowledgeEmbeddings(ctx context.Context, ownerID string, dataEntityID *string, embedding []float32, limit int) ([]*types.KnowledgeEmbedding, error) { return nil, nil }
+func (m *MockStoreForWolf) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) { return nil, nil }
 func (m *MockStoreForWolf) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error { return nil }
 func (m *MockStoreForWolf) UpdateGitRepository(ctx context.Context, repo *store.GitRepository) error { return nil }
 

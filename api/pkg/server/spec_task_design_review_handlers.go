@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -236,13 +237,67 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 		review.ApprovedAt = &now
 		review.OverallComment = req.OverallComment
 
-		specTask.Status = types.TaskStatusSpecApproved
+		// Get base branch for implementation
+		var baseBranch string
+		if project.DefaultRepoID != "" {
+			repo, err := s.Store.GetGitRepository(ctx, project.DefaultRepoID)
+			if err == nil && repo != nil {
+				baseBranch = repo.DefaultBranch
+			}
+		}
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+
+		// Generate feature branch name
+		branchName := fmt.Sprintf("feature/%s-%s", specTask.Name, specTask.ID[:8])
+		branchName = sanitizeBranchName(branchName)
+
+		// Move to implementation status
+		specTask.Status = types.TaskStatusImplementation
+		specTask.BranchName = branchName
 		specTask.SpecApprovedBy = user.ID
 		specTask.SpecApprovedAt = &now
+		specTask.StartedAt = &now
 
 		if err := s.Store.UpdateSpecTask(ctx, specTask); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// Send implementation instruction to agent (reuse existing session)
+		sessionID := specTask.PlanningSessionID
+		if sessionID == "" {
+			sessionID = specTask.SpecSessionID // Legacy fallback
+		}
+
+		if sessionID != "" {
+			agentInstructionService := services.NewAgentInstructionService(s.Store)
+			go func() {
+				err := agentInstructionService.SendApprovalInstruction(
+					context.Background(),
+					sessionID,
+					branchName,
+					baseBranch,
+				)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("task_id", specTask.ID).
+						Str("session_id", sessionID).
+						Msg("Failed to send approval instruction to agent")
+				}
+			}()
+
+			log.Info().
+				Str("task_id", specTask.ID).
+				Str("session_id", sessionID).
+				Str("branch_name", branchName).
+				Msg("Design approved - sent implementation instruction to existing agent")
+		} else {
+			log.Warn().
+				Str("task_id", specTask.ID).
+				Msg("No session ID found - agent will not receive implementation instruction")
 		}
 
 	case "request_changes":
