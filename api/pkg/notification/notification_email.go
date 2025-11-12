@@ -182,7 +182,16 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 
 		return n.Session.Name, buf.String(), nil
 	case types.EventPasswordResetRequest:
-		return "Password Reset Request", n.Message, nil
+		var buf bytes.Buffer
+
+		err = passwordResetRequestTmpl.Execute(&buf, &templateData{
+			Message: template.HTML(n.Message),
+		})
+		if err != nil {
+			return "", "", fmt.Errorf("failed to execute template: %w", err)
+		}
+
+		return "Password Reset Request", buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}

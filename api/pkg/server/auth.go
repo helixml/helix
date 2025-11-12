@@ -327,8 +327,47 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 	writeResponse(w, response, http.StatusOK)
 }
 
+// passwordUpdate godoc
+// @Summary Update Password
+// @Description Update the password for the authenticated user
+// @Tags    auth
+// @Success 200
+// @Param request    body types.PasswordUpdateRequest true "Request body with new password."
+// @Router /api/v1/auth/password-update [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
 
+	ctx := r.Context()
+
+	user := getRequestUser(r)
+	if user == nil || user.ID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var passwordUpdateRequest types.PasswordUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&passwordUpdateRequest); err != nil {
+		log.Error().Err(err).Msg("Failed to decode password update request")
+		http.Error(w, "Failed to decode password update request", http.StatusBadRequest)
+		return
+	}
+
+	if passwordUpdateRequest.NewPassword == "" {
+		http.Error(w, "New password is required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.authenticator.UpdatePassword(ctx, user.ID, passwordUpdateRequest.NewPassword)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to update password")
+		http.Error(w, "Failed to update password: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // login godoc
