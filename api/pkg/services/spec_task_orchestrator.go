@@ -513,10 +513,14 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 	}
 
 	// Get repositories from parent project - repos are now managed at project level
-	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
-		projectRepos = nil
+	var projectRepos []*store.GitRepository
+	if o.store != nil {
+		var err error
+		projectRepos, err = o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
+			projectRepos = nil
+		}
 	}
 
 	// Find primary repo path (use first repo as fallback)
@@ -912,10 +916,14 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	}
 
 	// Get repositories from parent project - repos are now managed at project level
-	projectRepos, err := o.store.GetProjectRepositories(context.Background(), task.ProjectID)
-	if err != nil {
-		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
-		projectRepos = nil
+	var projectRepos []*store.GitRepository
+	if o.store != nil {
+		var err error
+		projectRepos, err = o.store.GetProjectRepositories(context.Background(), task.ProjectID)
+		if err != nil {
+			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
+			projectRepos = nil
+		}
 	}
 
 	// Note which repositories are available (already cloned by API server)
@@ -933,9 +941,10 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	}
 
 	// Get project's primary repo (or use first repo as fallback)
-	project, projErr := o.store.GetProject(context.Background(), task.ProjectID)
 	primaryRepoPath := "backend" // Default fallback
-	if projErr == nil && len(projectRepos) > 0 {
+	if o.store != nil {
+		project, projErr := o.store.GetProject(context.Background(), task.ProjectID)
+		if projErr == nil && len(projectRepos) > 0 {
 		// Find the primary repo
 		for _, repo := range projectRepos {
 			if repo.ID == project.DefaultRepoID {
@@ -952,6 +961,7 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 			if primaryRepoPath == "" {
 				primaryRepoPath = "backend"
 			}
+		}
 		}
 	}
 
