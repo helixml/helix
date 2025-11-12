@@ -38,7 +38,7 @@ RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_V
 
 ### Frontend Base ###
 #--------------------
-FROM node:23-alpine AS ui-base
+FROM node:25-alpine AS ui-base
 WORKDIR /app
 # - Install dependencies
 COPY ./frontend/*.json /app/
