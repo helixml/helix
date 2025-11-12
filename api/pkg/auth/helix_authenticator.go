@@ -132,7 +132,7 @@ func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email str
 		Session:        &types.Session{Owner: user.ID}, // TODO: switch fully to user IDs, remove session
 		Email:          user.Email,
 		Event:          types.EventPasswordResetRequest,
-		Message:        fmt.Sprintf("Click on this [link](%s) to reset your password.", callbackURL),
+		Message:        fmt.Sprintf("Click on this [link](%s) to reset your password. If you did not request a password reset, please ignore this email.", callbackURL),
 		RenderMarkdown: true,
 	}
 	err = h.notifier.Notify(ctx, notification)
