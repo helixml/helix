@@ -70,6 +70,11 @@ func (m *MockStoreForWolf) CreateGitRepository(ctx context.Context, repo *store.
 	return args.Error(0)
 }
 
+func (m *MockStoreForWolf) DeleteGitRepository(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 func (m *MockStoreForWolf) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
 	args := m.Called(ctx, sample)
 	if args.Get(0) == nil {
@@ -585,26 +590,6 @@ func (m *MockStoreForWolf) CreateSlot(ctx context.Context, slot *types.RunnerSlo
 	return nil, nil
 }
 
-func (m *MockStoreForWolf) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
-	return nil
-}
-
 func (m *MockStoreForWolf) CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error) {
 	return nil, nil
 }
@@ -688,6 +673,8 @@ func (m *MockStoreForWolf) DeletePersonalDevEnvironment(ctx context.Context, id 
 }
 
 func (m *MockStoreForWolf) DeleteProviderEndpoint(ctx context.Context, id string) error { return nil }
+
+func (m *MockStoreForWolf) DeleteProject(ctx context.Context, id string) error { return nil }
 
 func (m *MockStoreForWolf) DeleteRole(ctx context.Context, id string) error { return nil }
 

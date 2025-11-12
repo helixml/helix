@@ -153,6 +153,7 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 
 	existingTask := &types.SpecTask{
 		ID:                 taskID,
+		ProjectID:          "test-project-id",
 		Status:             types.TaskStatusSpecReview,
 		RequirementsSpec:   "Generated requirements",
 		TechnicalDesign:    "Generated design",
@@ -166,11 +167,23 @@ func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
 		ApprovedAt: time.Now(),
 	}
 
+	mockProject := &types.Project{
+		ID:            "test-project-id",
+		DefaultRepoID: "test-repo-id",
+	}
+
+	mockRepo := &store.GitRepository{
+		ID:            "test-repo-id",
+		DefaultBranch: "main",
+	}
+
 	// Mock expectations
 	mockStore.EXPECT().GetSpecTask(ctx, taskID).Return(existingTask, nil)
+	mockStore.EXPECT().GetProject(ctx, "test-project-id").Return(mockProject, nil)
+	mockStore.EXPECT().GetGitRepository(ctx, "test-repo-id").Return(mockRepo, nil)
 	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
 		func(ctx context.Context, task *types.SpecTask) error {
-			assert.Equal(t, types.TaskStatusSpecApproved, task.Status)
+			assert.Equal(t, types.TaskStatusImplementation, task.Status)
 			assert.Equal(t, "test-user", task.SpecApprovedBy)
 			return nil
 		},
