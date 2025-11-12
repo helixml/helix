@@ -151,15 +151,16 @@ func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context, ownerID stri
 func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSessionsQuery(ctx context.Context, query *store.ListSessionsQuery) ([]*types.Session, error) { return nil, nil }
-func (m *MockStoreForWolf) ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]*types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
-func (m *MockStoreForWolf) ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]*types.SpecTaskDesignReviewComment, error) { return nil, nil }
-func (m *MockStoreForWolf) ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]*types.SpecTaskDesignReview, error) { return nil, nil }
-func (m *MockStoreForWolf) ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]*types.SpecTaskGitPushEvent, error) { return nil, nil }
-func (m *MockStoreForWolf) ListUnprocessedGitPushEvents(ctx context.Context) ([]*types.SpecTaskGitPushEvent, error) { return nil, nil }
-func (m *MockStoreForWolf) ListUnresolvedComments(ctx context.Context, reviewID string) ([]*types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
 func (m *MockStoreForWolf) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) { return nil, nil }
 func (m *MockStoreForWolf) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error { return nil }
 func (m *MockStoreForWolf) UpdateGitRepository(ctx context.Context, repo *store.GitRepository) error { return nil }
+func (m *MockStoreForWolf) UpdateProject(ctx context.Context, project *types.Project) error { return nil }
 
 // Stub methods to satisfy store.Store interface (auto-generated from store_mocks.go)
 // These are not used in the cleanup tests, but needed to satisfy the interface
