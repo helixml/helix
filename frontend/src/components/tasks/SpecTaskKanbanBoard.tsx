@@ -371,7 +371,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     },
     {
       id: 'review',
-      title: 'Review',
+      title: 'Spec Review',
       color: '#3b82f6',
       backgroundColor: 'rgba(59, 130, 246, 0.08)',
       description: 'Ready for review',
@@ -385,7 +385,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       backgroundColor: 'rgba(16, 185, 129, 0.08)',
       description: 'Implementation active',
       limit: WIP_LIMITS.implementation,
-      tasks: tasks.filter(t => (t as any).phase === 'implementation' && (t.activeSessionsCount || 0) > 0),
+      tasks: tasks.filter(t => (t as any).phase === 'implementation'),
     },
     {
       id: 'completed',

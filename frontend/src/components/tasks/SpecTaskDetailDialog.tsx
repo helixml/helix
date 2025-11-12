@@ -30,6 +30,7 @@ import useApi from '../../hooks/useApi'
 import { useStreaming } from '../../contexts/streaming'
 import { SESSION_TYPE_TEXT } from '../../types'
 import { useResize } from '../../hooks/useResize'
+import { getSmartInitialPosition, getSmartInitialSize } from '../../utils/windowPositioning'
 
 type WindowPosition = 'center' | 'full' | 'half-left' | 'half-right' | 'corner-tl' | 'corner-tr' | 'corner-bl' | 'corner-br'
 
@@ -58,15 +59,27 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [windowPos, setWindowPos] = useState({ x: 100, y: 100 })
   const [message, setMessage] = useState('')
   const [clientUniqueId, setClientUniqueId] = useState<string>('')
   const [refreshedTask, setRefreshedTask] = useState<TypesSpecTask | null>(task)
   const nodeRef = useRef(null)
 
   // Resize hook for window resizing
+  // Calculate size based on 4:3 aspect ratio for session viewer
+  // Total chrome: title bar (~60px) + tabs (~48px) + message box (~110px) = ~220px
+  const chromeHeight = 220
+  const preferredHeight = window.innerHeight * 0.75 // Smaller default - 75% instead of 85%
+  const sessionHeight = preferredHeight - chromeHeight
+  const sessionWidth = sessionHeight * (4 / 3) // 4:3 aspect ratio
+  const preferredWidth = Math.min(sessionWidth + 60, window.innerWidth * 0.6) // Smaller - 60% instead of 70%
+
+  const smartSize = getSmartInitialSize(preferredWidth, preferredHeight, 700, 500)
+  const smartPos = getSmartInitialPosition(smartSize.width, smartSize.height)
+
+  const [windowPos, setWindowPos] = useState(smartPos)
+
   const { size, setSize, isResizing, getResizeHandles } = useResize({
-    initialSize: { width: Math.min(1200, window.innerWidth * 0.6), height: window.innerHeight * 0.8 },
+    initialSize: smartSize,
     minSize: { width: 600, height: 400 },
     maxSize: { width: window.innerWidth, height: window.innerHeight },
     onResize: (newSize, direction) => {
