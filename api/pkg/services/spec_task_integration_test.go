@@ -312,25 +312,17 @@ func TestPromptGeneration_RealRepoURLs(t *testing.T) {
 	gitRepo, err := gitService.CreateRepository(ctx, &GitRepositoryCreateRequest{
 		Name:          "backend-service",
 		Description:   "Backend microservice",
-		RepoType:      GitRepositoryTypeProject,
+		RepoType:      GitRepositoryTypeCode,
 		OwnerID:       "user_test",
 		InitialFiles:  map[string]string{"README.md": "# Backend"},
 		DefaultBranch: "main",
 	})
 	require.NoError(t, err)
 
-	// Create SpecTask with real repository
+	// Create SpecTask with real repository (repositories now managed at project level)
 	task := &types.SpecTask{
 		ID:             "spec_prompt_test",
 		OriginalPrompt: "Add user authentication to the backend service",
-		AttachedRepositories: mustMarshalJSON([]types.AttachedRepository{
-			{
-				RepositoryID: gitRepo.ID,
-				CloneURL:     gitRepo.CloneURL,
-				LocalPath:    "backend",
-				IsPrimary:    true,
-			},
-		}),
 	}
 
 	app := &types.App{

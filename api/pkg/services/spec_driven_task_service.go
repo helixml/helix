@@ -768,12 +768,9 @@ git push origin helix-specs
 
 Start by analyzing the user's request complexity, then create SHORT, SIMPLE spec documents in the worktree.`,
 		task.ProjectID, task.Type, task.Priority, task.ID,             // Project context
-		SpecsWorktreeRelPath,                                           // Base path (line 609)
-		SpecsWorktreeRelPath,                                           // Base path (line 615)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 615)
-		SpecsWorktreeRelPath,                                           // cd path (line 629)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 632)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 635)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 689)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 709)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 712)
 		task.ID)                                                                       // Commit message
 }
 
@@ -870,17 +867,12 @@ git push origin helix-specs
 - The orchestrator monitors these pushes to track your progress
 
 Start by reading the spec documents from the worktree, then work through the task list systematically.`,
-		task.Name, task.ID,                                                           // Task context
-		SpecsWorktreeRelPath,                                                         // Base path (line 704)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 704)
-		SpecsWorktreeRelPath,                                                         // Base path (line 710)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 710)
-		SpecsWorktreeRelPath,                                                         // Base path (line 726)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 726)
-		SpecsWorktreeRelPath,                                                         // Base path (line 745)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 745)
-		task.OriginalPrompt,                                                          // Original request
-		SpecsWorktreeRelPath)                                                         // Base path (line 759)
+		task.Name, task.ID,                                                           // Task context (lines 781-782)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 786 - hardcoded base path)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 795 - tree structure)
+		SpecsWorktreeRelPath, time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 811)
+		SpecsWorktreeRelPath, time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 830)
+		task.OriginalPrompt)                                                          // Original request (line 841)
 }
 
 // Helper functions
