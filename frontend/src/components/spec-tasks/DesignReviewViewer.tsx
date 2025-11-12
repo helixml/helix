@@ -570,6 +570,16 @@ export default function DesignReviewViewer({
     })
   }
 
+  // Prevent text selection globally while dragging
+  useEffect(() => {
+    if (isDragging) {
+      document.body.style.userSelect = 'none'
+      return () => {
+        document.body.style.userSelect = ''
+      }
+    }
+  }, [isDragging])
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (dragStart && !isDragging && !isResizing) {

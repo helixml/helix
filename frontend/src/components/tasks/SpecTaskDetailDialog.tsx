@@ -318,6 +318,16 @@ I'll give you feedback and we can iterate on any changes needed.`
     })
   }
 
+  // Prevent text selection globally while dragging
+  useEffect(() => {
+    if (isDragging) {
+      document.body.style.userSelect = 'none'
+      return () => {
+        document.body.style.userSelect = ''
+      }
+    }
+  }, [isDragging])
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       // Check if we should start dragging (higher threshold when snapped to prevent accidental unsnapping)
@@ -470,6 +480,7 @@ I'll give you feedback and we can iterate on any changes needed.`
             borderColor: 'divider',
             backgroundColor: 'background.default',
             minHeight: 32,
+            userSelect: 'none', // Prevent text selection when dragging
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
