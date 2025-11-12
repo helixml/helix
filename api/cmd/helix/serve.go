@@ -270,6 +270,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
+	notifier, err := notification.New(&cfg.Notifications, postgresStore)
+	if err != nil {
+		return fmt.Errorf("failed to create notifier: %v", err)
+	}
+
 	var authenticator auth.Authenticator
 
 	switch cfg.Auth.Provider {
@@ -280,15 +285,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	default:
 		// Default authenticator, using regular authentication
-		authenticator, err = auth.NewHelixAuthenticator(postgresStore, cfg.Auth.Regular.JWTSecret)
+		authenticator, err = auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
 		if err != nil {
 			return fmt.Errorf("failed to create helix authenticator: %v", err)
 		}
-	}
-
-	notifier, err := notification.New(&cfg.Notifications, authenticator)
-	if err != nil {
-		return fmt.Errorf("failed to create notifier: %v", err)
 	}
 
 	janitor := janitor.NewJanitor(cfg.Janitor)
