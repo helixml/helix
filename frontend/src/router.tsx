@@ -31,6 +31,8 @@ import QuestionSetResults from './pages/QuestionSetResults'
 import GitRepos from './pages/GitRepos'
 import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
+import PasswordReset from './pages/PasswordReset'
+import PasswordResetComplete from './pages/PasswordResetComplete'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -334,6 +336,22 @@ const routes: IApplicationRoute[] = [
     drawer: false,
   },
   render: () => <OpenAPI />,
+}, {
+  name: 'password-reset',
+  path: '/password-reset',
+  meta: {
+    drawer: false,
+    title: 'Reset Password',
+  },
+  render: () => <PasswordReset />,
+}, {
+  name: 'password-reset-complete',
+  path: '/password-reset-complete',
+  meta: {
+    drawer: false,
+    title: 'Set New Password',
+  },
+  render: () => <PasswordResetComplete />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
