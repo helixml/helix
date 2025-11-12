@@ -206,7 +206,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	// Mock Notify for success notification
 	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, n *notification.Notification) error {
-			suite.Equal(notification.EventCronTriggerComplete, n.Event)
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
 			suite.NotEmpty(n.Message)
 			return nil
 		},
@@ -335,7 +335,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	// Mock Notify for success notification
 	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, n *notification.Notification) error {
-			suite.Equal(notification.EventCronTriggerComplete, n.Event)
+			suite.Equal(types.EventCronTriggerComplete, n.Event)
 			suite.NotEmpty(n.Message)
 			return nil
 		},

@@ -719,7 +719,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
 
 	insecureRouter.HandleFunc("/auth/password-reset", apiServer.passwordReset).Methods(http.MethodPost)
-	insecureRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/password-reset-complete", apiServer.passwordResetComplete).Methods(http.MethodPost)
+	authRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost) // Update for authenticated users
 
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
