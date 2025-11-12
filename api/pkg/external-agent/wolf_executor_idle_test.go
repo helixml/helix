@@ -161,6 +161,8 @@ func (m *MockStoreForWolf) QueryKnowledgeEmbeddings(ctx context.Context, q *type
 func (m *MockStoreForWolf) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error { return nil }
 func (m *MockStoreForWolf) UpdateGitRepository(ctx context.Context, repo *store.GitRepository) error { return nil }
 func (m *MockStoreForWolf) UpdateProject(ctx context.Context, project *types.Project) error { return nil }
+func (m *MockStoreForWolf) UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error { return nil }
+func (m *MockStoreForWolf) UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error { return nil }
 
 // Stub methods to satisfy store.Store interface (auto-generated from store_mocks.go)
 // These are not used in the cleanup tests, but needed to satisfy the interface
