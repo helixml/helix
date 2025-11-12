@@ -22,6 +22,8 @@ import DialogContentText from '@mui/material/DialogContentText'
 import Page from '../components/system/Page'
 import CopyIcon from '@mui/icons-material/CopyAll'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import DarkDialog from '../components/dialog/DarkDialog'
+import CloseIcon from '@mui/icons-material/Close'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
@@ -37,7 +39,8 @@ import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import SmallSpinner from '../components/system/SmallSpinner'
 
-import { useGetUserAPIKeys, useGetConfig } from '../services/userService'
+import { useGetUserAPIKeys, useGetConfig, useUpdatePassword } from '../services/userService'
+import { TypesAuthProvider } from '../api/api'
 import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
@@ -58,10 +61,16 @@ const Account: FC = () => {
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  const [password, setPassword] = useState<string>('')
+  const [passwordConfirm, setPasswordConfirm] = useState<string>('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
 
   const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
 
   const regenerateApiKey = useRegenerateUserAPIKey()
+  const updatePassword = useUpdatePassword()
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -95,6 +104,27 @@ const Account: FC = () => {
     setRegenerateDialogOpen(false)
     setKeyToRegenerate('')
   }, [])
+
+  const handleUpdatePassword = useCallback(async () => {
+    if (password !== passwordConfirm) {
+      snackbar.error('Passwords do not match')
+      return
+    }
+    if (!password || password.length === 0) {
+      snackbar.error('Password cannot be empty')
+      return
+    }
+    try {
+      await updatePassword.mutateAsync(password)
+      snackbar.success('Password updated successfully')
+      setPassword('')
+      setPasswordConfirm('')
+      setPasswordDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to update password:', error)
+      snackbar.error('Failed to update password')
+    }
+  }, [password, passwordConfirm, updatePassword, snackbar])
 
   const handleSubscribe = useCallback(async () => {
     const result = await api.post(`/api/v1/subscription/new`, undefined, {}, {
@@ -264,6 +294,24 @@ export HELIX_API_KEY=${apiKey}
                       </Box>
                     </Box>
                   </Grid></>
+              </Grid>
+            )}
+
+            {/* Password Update */}
+            {serverConfig?.auth_provider === TypesAuthProvider.AuthProviderRegular && (
+              <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+                <Grid item xs={12}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="h6" gutterBottom>Update Password</Typography>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => setPasswordDialogOpen(true)}
+                    >
+                      Update Password
+                    </Button>
+                  </Box>
+                </Grid>
               </Grid>
             )}
 
@@ -445,6 +493,101 @@ export HELIX_API_KEY=${apiKey}
           {/* TODO: Add footer text, maybe helix version */}
         </Typography>
       </Box>
+
+      {/* Password Update Dialog */}
+      <DarkDialog
+        open={passwordDialogOpen}
+        onClose={() => {
+          setPasswordDialogOpen(false)
+          setPassword('')
+          setPasswordConfirm('')
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" component="div">
+            Update Password
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => {
+              setPasswordDialogOpen(false)
+              setPassword('')
+              setPasswordConfirm('')
+            }}
+            sx={{ color: '#A0AEC0' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              fullWidth
+              label="New Password"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              variant="outlined"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <TextField
+              fullWidth
+              label="Confirm Password"
+              type={showPasswordConfirm ? 'text' : 'password'}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              variant="outlined"
+              error={password !== '' && passwordConfirm !== '' && password !== passwordConfirm}
+              helperText={password !== '' && passwordConfirm !== '' && password !== passwordConfirm ? 'Passwords do not match' : ''}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
+                      edge="end"
+                    >
+                      {showPasswordConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              setPasswordDialogOpen(false)
+              setPassword('')
+              setPasswordConfirm('')
+            }}
+            disabled={updatePassword.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleUpdatePassword}
+            disabled={updatePassword.isPending || !password || !passwordConfirm || password !== passwordConfirm}
+          >
+            {updatePassword.isPending ? 'Updating...' : 'Update Password'}
+          </Button>
+        </DialogActions>
+      </DarkDialog>
 
       {/* Regenerate API Key Confirmation Dialog */}
       <Dialog

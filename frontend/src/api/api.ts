@@ -2724,6 +2724,10 @@ export interface TypesPasswordResetRequest {
   email?: string;
 }
 
+export interface TypesPasswordUpdateRequest {
+  new_password?: string;
+}
+
 export interface TypesPricing {
   audio?: string;
   completion?: string;
@@ -3910,11 +3914,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -5142,6 +5146,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/auth/password-reset-complete`,
         method: "POST",
         body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Update the password for the authenticated user
+     *
+     * @tags auth
+     * @name V1AuthPasswordUpdateCreate
+     * @summary Update Password
+     * @request POST:/api/v1/auth/password-update
+     * @secure
+     */
+    v1AuthPasswordUpdateCreate: (request: TypesPasswordUpdateRequest, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/password-update`,
+        method: "POST",
+        body: request,
+        secure: true,
         type: ContentType.Json,
         ...params,
       }),

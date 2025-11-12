@@ -138,3 +138,14 @@ export function useRegenerateUserAPIKey() {
     },
   })
 }
+
+export function useUpdatePassword() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useMutation({
+    mutationFn: async (newPassword: string) => {
+      await apiClient.v1AuthPasswordUpdateCreate({ new_password: newPassword })
+      return newPassword
+    },
+  })
+}

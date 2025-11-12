@@ -4694,6 +4694,11 @@ definitions:
       email:
         type: string
     type: object
+  types.PasswordUpdateRequest:
+    properties:
+      new_password:
+        type: string
+    type: object
   types.Pricing:
     properties:
       audio:
@@ -6766,18 +6771,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -8070,6 +8075,24 @@ paths:
         "200":
           description: OK
       summary: Complete Password Reset
+      tags:
+      - auth
+  /api/v1/auth/password-update:
+    post:
+      description: Update the password for the authenticated user
+      parameters:
+      - description: Request body with new password.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PasswordUpdateRequest'
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Update Password
       tags:
       - auth
   /api/v1/auth/refresh:
