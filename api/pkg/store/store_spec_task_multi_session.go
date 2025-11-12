@@ -506,7 +506,7 @@ func (s *PostgresStore) CreateImplementationSessions(ctx context.Context, specTa
 				Created: time.Now(),
 				Updated: time.Now(),
 				Metadata: types.SessionMetadata{
-					AgentType:               specTask.ImplementationAgent,
+					AgentType:               "zed_external", // Same external agent as planning
 					SpecTaskID:              specTask.ID,
 					SessionRole:             "implementation",
 					ImplementationTaskIndex: implTask.Index,
@@ -611,7 +611,7 @@ func (s *PostgresStore) SpawnWorkSession(ctx context.Context, parentSessionID st
 		Created: time.Now(),
 		Updated: time.Now(),
 		Metadata: types.SessionMetadata{
-			AgentType:    specTask.ImplementationAgent,
+			AgentType:    "zed_external", // Same external agent as planning
 			SpecTaskID:   parentSession.SpecTaskID,
 			SessionRole:  "implementation",
 			SystemPrompt: "", // Will be set when session starts

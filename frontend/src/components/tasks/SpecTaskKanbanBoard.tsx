@@ -47,6 +47,14 @@ import {
   Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Close as CloseIcon,
+  Refresh as RefreshIcon,
+  Restore as RestoreIcon,
+  VisibilityOff as VisibilityOffIcon,
+  Circle as CircleIcon,
+  MenuBook as DesignDocsIcon,
+  Stop as StopIcon,
+  RocketLaunch as LaunchIcon,
 } from '@mui/icons-material';
 // Removed drag-and-drop imports to prevent infinite loops
 import { useTheme } from '@mui/material/styles';
@@ -54,6 +62,9 @@ import { useTheme } from '@mui/material/styles';
 
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
+import useRouter from '../../hooks/useRouter';
+import DesignReviewViewer from '../spec-tasks/DesignReviewViewer';
+import TaskCard from './TaskCard';
 import specTaskService, {
   SpecTask,
   MultiSessionOverview,
@@ -63,7 +74,6 @@ import specTaskService, {
 import gitRepositoryService, {
   SampleType,
   useCreateSampleRepository,
-  getSampleTypeIcon,
   getSampleTypeCategory,
   isBusinessTask,
   getBusinessTaskDescription,
@@ -85,6 +95,7 @@ interface SpecTaskWithExtras extends SpecTask {
   activeSessionsCount?: number;
   completedSessionsCount?: number;
   specApprovalNeeded?: boolean;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
 }
 
 interface KanbanColumn {
@@ -99,174 +110,183 @@ interface KanbanColumn {
 
 interface SpecTaskKanbanBoardProps {
   userId?: string;
-  onTaskClick?: (task: SpecTaskWithExtras) => void;
+  projectId?: string; // Filter tasks by project ID
+  onCreateTask?: () => void;
+  onTaskClick?: (task: any) => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshTrigger?: number;
+  wipLimits?: {
+    planning: number;
+    review: number;
+    implementation: number;
+  };
+  // repositories prop removed - repos are now managed at project level
 }
 
 const DroppableColumn: React.FC<{
   column: KanbanColumn;
+  columns: KanbanColumn[];
+  onStartPlanning?: (task: SpecTaskWithExtras) => Promise<void>;
+  onArchiveTask?: (task: SpecTaskWithExtras, archived: boolean) => Promise<void>;
   onTaskClick?: (task: SpecTaskWithExtras) => void;
-  onAssignAgent: (taskId: string, agentType: string) => void;
+  onReviewDocs?: (task: SpecTaskWithExtras) => void;
+  projectId?: string;
   theme: any;
-}> = ({ column, onTaskClick, onAssignAgent, theme }): JSX.Element => {
+}> = ({ column, columns, onStartPlanning, onArchiveTask, onTaskClick, onReviewDocs, projectId, theme }): JSX.Element => {
+  const router = useRouter();
+  const account = useAccount();
+
   // Simplified - no drag and drop, no complex interactions
   const setNodeRef = (node: HTMLElement | null) => {};
 
   // Render task card wrapper - simplified
   const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
-    const TaskCard: React.FC<{ task: SpecTaskWithExtras; index: number }> = ({ task, index }) => {
-      // Removed drag and drop functionality
-      const style = {
-        opacity: 1,
-      };
+    return (
+      <TaskCard
+        key={task.id || `task-${index}`}
+        task={task}
+        index={index}
+        columns={columns}
+        onStartPlanning={onStartPlanning}
+        onArchiveTask={onArchiveTask}
+        onTaskClick={onTaskClick}
+        onReviewDocs={onReviewDocs}
+        projectId={projectId}
+      />
+    );
+  };
 
-      return (
-        <Card
-          style={style}
-          sx={{
-            mb: 1,
-            cursor: 'pointer',
-            backgroundColor: 'background.paper',
-          }}
-          onClick={() => onTaskClick?.(task)}
-        >
-          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-              {task.name}
-            </Typography>
-            
-            {task.description && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {task.description.length > 100 
-                  ? `${task.description.substring(0, 100)}...` 
-                  : task.description}
-              </Typography>
-            )}
+    // Column color mapping
+    const getColumnAccent = (id: string) => {
+      switch (id) {
+        case 'backlog': return { color: '#6b7280', bg: 'transparent' };
+        case 'planning': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' };
+        case 'review': return { color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' };
+        case 'implementation': return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' };
+        case 'completed': return { color: '#6b7280', bg: 'transparent' };
+        default: return { color: '#6b7280', bg: 'transparent' };
+      }
+    };
 
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Chip 
-                size="small" 
-                label={task.phase || 'backlog'} 
-                color={task.phase === 'completed' ? 'success' : 'default'}
-              />
-              
-              {task.hasSpecs && (
-                <Chip size="small" label="Has Specs" color="info" />
-              )}
+    const accent = getColumnAccent(column.id);
 
-              {(task.activeSessionsCount ?? 0) > 0 && (
-                <Chip 
-                  size="small" 
-                  label={`${task.activeSessionsCount ?? 0} Active`}
-                  color="warning" 
-                />
-              )}
-
-              {(task.completedSessionsCount ?? 0) > 0 && (
-                <Chip 
-                  size="small" 
-                  label={`${task.completedSessionsCount ?? 0} Done`}
-                  color="success" 
-                />
-              )}
-            </Box>
-
-            {task.phase === 'planning' && (
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="primary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAssignAgent(task.id || '', 'zed');
-                  }}
-                  sx={{ mr: 1 }}
-                >
-                  Assign Zed Agent
-                </Button>
-                {task.planningStatus === 'active' && (
-                  <Box sx={{ mt: 1 }}>
-                    <Chip
-                      size="small"
-                      label="Agent Working..."
-                      color="info"
-                      sx={{ mb: 1 }}
-                    />
-                    {/* TODO: Add live RDP view for Zed sessions here */}
-                    {/* TODO: Add session progress indicator */}
-                    {/* TODO: Add "View Live Session" button */}
+    return (
+      <Box key={column.id} sx={{ width: 300, flexShrink: 0, height: '100%' }}>
+        <Box sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid',
+          borderColor: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: 2,
+          backgroundColor: 'background.paper',
+          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.04), inset 0 1px 0 0 rgba(255, 255, 255, 0.5)',
+        }}>
+          {/* Column header - Linear style */}
+          <Box sx={{
+            px: 2.5,
+            py: 2,
+            borderBottom: '1px solid',
+            borderColor: 'rgba(0, 0, 0, 0.06)',
+            flexShrink: 0,
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary', fontSize: '0.8125rem' }}>
+                  {column.title}
+                </Typography>
+                <Box sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '20px',
+                  height: '20px',
+                  px: 0.75,
+                  borderRadius: '10px',
+                  backgroundColor: accent.bg || 'rgba(0, 0, 0, 0.04)',
+                  border: '1px solid',
+                  borderColor: accent.bg ? `${accent.color}20` : 'rgba(0, 0, 0, 0.06)',
+                }}>
+                  <Typography variant="caption" sx={{
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: accent.color || 'text.secondary',
+                    lineHeight: 1,
+                  }}>
+                    {column.tasks.length}
+                  </Typography>
+                </Box>
+                {column.limit && column.tasks.length >= column.limit && (
+                  <Box sx={{
+                    px: 0.75,
+                    py: 0.25,
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                  }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 600, color: '#ef4444' }}>
+                      FULL
+                    </Typography>
                   </Box>
                 )}
               </Box>
-            )}
-          </CardContent>
-        </Card>
-      );
-    };
+            </Box>
+          </Box>
 
-    return <TaskCard key={task.id || `task-${index}`} task={task} index={index} />;
-  };
-
-    return (
-      <Box key={column.id} sx={{ width: 320, flexShrink: 0, height: '100%' }}>
-        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <CardHeader
-            title={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="h6" sx={{ color: column.color }}>
-                  {column.title}
-                </Typography>
-                <Chip
-                  size="small"
-                  label={column.tasks.length}
-                  sx={{
-                    backgroundColor: column.backgroundColor,
-                    color: column.color,
-                    minWidth: '24px'
-                  }}
-                />
-                {column.limit && column.tasks.length >= column.limit && (
-                  <Chip size="small" label="FULL" color="error" />
-                )}
-              </Box>
-            }
-            sx={{
-              pb: 1,
-              flexShrink: 0,
-              '& .MuiCardHeader-title': { fontSize: '1rem' }
-            }}
-          />
-          <CardContent
+          {/* Column content */}
+          <Box
             ref={setNodeRef}
             sx={{
               flex: 1,
               minHeight: 0,
               overflowY: 'auto',
               overflowX: 'hidden',
-              backgroundColor: 'transparent',
-              p: 1,
-              '&:last-child': { pb: 1 }
+              px: 2,
+              pt: 2,
+              pb: 1,
+              '&::-webkit-scrollbar': {
+                width: '6px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'rgba(0, 0, 0, 0.1)',
+                borderRadius: '3px',
+                '&:hover': {
+                  background: 'rgba(0, 0, 0, 0.15)',
+                },
+              },
             }}
           >
             {column.tasks.map((task, index) => renderTaskCard(task, index))}
             {column.tasks.length === 0 && (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ textAlign: 'center', py: 2 }}
-              >
-                No tasks
-              </Typography>
+              <Box sx={{
+                textAlign: 'center',
+                py: 6,
+                color: 'text.disabled',
+              }}>
+                <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                  No tasks
+                </Typography>
+              </Box>
             )}
-          </CardContent>
-        </Card>
+          </Box>
+        </Box>
       </Box>
     );
 };
 
 const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   userId,
+  projectId,
+  onCreateTask,
   onTaskClick,
+  onRefresh,
+  refreshing = false,
+  refreshTrigger,
+  wipLimits = { planning: 3, review: 2, implementation: 5 },
 }) => {
   const theme = useTheme();
   const api = useApi();
@@ -278,14 +298,18 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   const [tasks, setTasks] = useState<SpecTaskWithExtras[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [planningDialogOpen, setPlanningDialogOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<SpecTaskWithExtras | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [taskToArchive, setTaskToArchive] = useState<SpecTaskWithExtras | null>(null);
 
-  // Create task form state
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskDescription, setNewTaskDescription] = useState('');
+  // Design review viewer state
+  const [reviewingTask, setReviewingTask] = useState<SpecTaskWithExtras | null>(null);
+  const [designReviewViewerOpen, setDesignReviewViewerOpen] = useState(false);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+
+  // Planning form state
   const [newTaskRequirements, setNewTaskRequirements] = useState('');
   const [selectedSampleType, setSelectedSampleType] = useState('');
 
@@ -297,61 +321,81 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     console.log('Sample types data updated:', sampleTypes);
   }, [sampleTypes]);
 
-  // WIP limits for kanban columns
+  // Keyboard shortcut for creating new task (Enter key)
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Only trigger if not in an input field
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      if (e.key === 'Enter') {
+        if (onCreateTask) {
+          onCreateTask()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [onCreateTask])
+
+  // WIP limits for kanban columns (use prop values or defaults)
   const WIP_LIMITS = {
     backlog: undefined,
-    planning: 3,
-    review: 2,
-    implementation: 5,
+    planning: wipLimits.planning,
+    review: wipLimits.review,
+    implementation: wipLimits.implementation,
     completed: undefined,
   };
 
-  // Kanban columns configuration
+  // Kanban columns configuration - Linear color scheme
   const columns: KanbanColumn[] = useMemo(() => [
     {
       id: 'backlog',
       title: 'Backlog',
-      color: theme.palette.mode === 'dark' ? theme.palette.grey[400] : theme.palette.text.secondary,
-      backgroundColor: theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[200],
+      color: '#6b7280',
+      backgroundColor: 'transparent',
       description: 'Tasks without specifications',
       tasks: tasks.filter(t => (t as any).phase === 'backlog' && !t.hasSpecs),
     },
     {
       id: 'planning',
       title: 'Planning',
-      color: theme.palette.warning.main,
-      backgroundColor: theme.palette.warning.light + '20',
-      description: 'Specs being generated by Zed agents',
+      color: '#f59e0b',
+      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+      description: 'Specs being generated',
       limit: WIP_LIMITS.planning,
       tasks: tasks.filter(t => (t as any).phase === 'planning' || t.planningStatus === 'active'),
     },
     {
       id: 'review',
       title: 'Spec Review',
-      color: theme.palette.info.main,
-      backgroundColor: theme.palette.info.light + '20',
-      description: 'Specs ready for human review',
+      color: '#3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+      description: 'Ready for review',
       limit: WIP_LIMITS.review,
       tasks: tasks.filter(t => (t as any).phase === 'review' || t.specApprovalNeeded),
     },
     {
       id: 'implementation',
-      title: 'Implementation',
-      color: theme.palette.success.main,
-      backgroundColor: theme.palette.success.light + '20',
-      description: 'Multi-session implementation in progress',
+      title: 'In Progress',
+      color: '#10b981',
+      backgroundColor: 'rgba(16, 185, 129, 0.08)',
+      description: 'Implementation active',
       limit: WIP_LIMITS.implementation,
-      tasks: tasks.filter(t => (t as any).phase === 'implementation' && (t.activeSessionsCount || 0) > 0),
+      tasks: tasks.filter(t => (t as any).phase === 'implementation'),
     },
     {
       id: 'completed',
-      title: 'Completed',
-      color: theme.palette.success.dark,
-      backgroundColor: theme.palette.success.dark + '20',
-      description: 'Completed tasks',
+      title: 'Done',
+      color: '#6b7280',
+      backgroundColor: 'transparent',
+      description: 'Completed',
       tasks: tasks.filter(t => (t as any).phase === 'completed' || t.status === 'completed'),
     },
-  ], [tasks, theme]);
+  ], [tasks, theme, wipLimits]);
 
   // Load sample types using generated client
   const { data: sampleTypesData, loading: sampleTypesLoading } = useSampleTypes();
@@ -359,39 +403,44 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   // Initial load
   useEffect(() => {
     if (!account.user?.id) return;
-    
+
     const loadTasks = async () => {
       try {
         setLoading(true);
         const response = await api.get('/api/v1/spec-tasks', {
-          params: { project_id: 'default' }
+          params: {
+            project_id: projectId || 'default',
+            archived_only: showArchived
+          }
         });
-        
+
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-        
+
         // Better phase mapping based on actual status
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
           let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-          
+
           if (task.status === 'spec_generation') {
             phase = 'planning';
             planningStatus = 'active';
           } else if (task.status === 'spec_review') {
             phase = 'review';
             planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'implementing') {
+          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
           } else if (task.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
           }
-          
+
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
+          }
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -399,6 +448,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -412,7 +462,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     };
 
     loadTasks();
-  }, [account.user?.id]);
+  }, [account.user?.id, projectId, showArchived, refreshTrigger]);
 
   // Set up polling for real-time updates
   useEffect(() => {
@@ -421,33 +471,38 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     const interval = setInterval(async () => {
       try {
         const response = await api.get('/api/v1/spec-tasks', {
-          params: { project_id: 'default' }
+          params: {
+            project_id: projectId || 'default',
+            archived_only: showArchived
+          }
         });
-        
+
         const tasksData = response.data || response;
         const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
-        
+
         const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((task) => {
           let phase: SpecTaskPhase = 'backlog';
           let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
-            
+
           if (task.status === 'spec_generation') {
             phase = 'planning';
             planningStatus = 'active';
           } else if (task.status === 'spec_review') {
             phase = 'review';
             planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'implementing') {
+          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
           } else if (task.status === 'completed') {
             phase = 'completed';
             planningStatus = 'completed';
           }
-            
+
+          // Check for errors in metadata (tasks stay in backlog with error)
+          if (task.status === 'backlog' && task.metadata?.error) {
+            planningStatus = 'failed';
+          }
+
           return {
             ...task,
             hasSpecs: task.status !== 'backlog',
@@ -455,6 +510,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             planningStatus,
             activeSessionsCount: 0,
             completedSessionsCount: 0,
+            onReviewDocs: handleReviewDocs,
           };
         });
 
@@ -462,10 +518,10 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       } catch (err) {
         console.error('Failed to poll tasks:', err);
       }
-    }, 10000);
+    }, 3000); // Faster polling: 3 seconds instead of 10 for responsive updates
 
     return () => clearInterval(interval);
-  }, [account.user?.id]);
+  }, [account.user?.id, projectId, showArchived]);
 
   // Update sample types when data loads
   useEffect(() => {
@@ -501,20 +557,20 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
         agent_type: agentType,
         work_data: {
           task_id: taskId,
-          project_id: 'default',
+          project_id: projectId || 'default',
           action: 'generate_specs'
         }
       });
-      
+
       if (response && response.data) {
         console.log('Agent session started:', response.data);
-        
+
         // Don't update task status from frontend - let backend handle this
         // The backend should update task status based on agent progress
         // Reload tasks immediately to show the session was created
         try {
           const refreshResponse = await api.get('/api/v1/spec-tasks', {
-            params: { project_id: 'default' }
+            params: { project_id: projectId || 'default' }
           });
           
           const tasksData = refreshResponse.data || refreshResponse;
@@ -689,7 +745,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       const response = await api.post('/api/v1/spec-tasks/from-prompt', {
         name: newTaskName,
         description: newTaskDescription,
-        project_id: 'default',
+        project_id: projectId || 'default',
       });
 
       if (response.data) {
@@ -734,12 +790,205 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       return { icon: <CircularProgress size={16} />, color: theme.palette.warning.main, text: 'Generating specs' };
     } else if (task.planningStatus === 'pending_review') {
       return { icon: <ViewIcon />, color: theme.palette.info.main, text: 'Review needed' };
-    } else if (task.planningStatus === 'completed') {
-      return { icon: <ApproveIcon />, color: theme.palette.success.main, text: 'Specs approved' };
     } else if (task.planningStatus === 'failed') {
       return { icon: <CancelIcon />, color: theme.palette.error.main, text: 'Planning failed' };
+    } else if (task.planningStatus === 'completed') {
+      return { icon: <ApproveIcon />, color: theme.palette.success.main, text: 'Specs approved' };
     }
     return { icon: <SpecIcon />, color: theme.palette.grey[500], text: 'Unknown' };
+  };
+
+  // Handle archiving/unarchiving a task
+  const handleArchiveTask = async (task: SpecTaskWithExtras, archived: boolean) => {
+    // If archiving (not unarchiving), show confirmation dialog
+    if (archived) {
+      setTaskToArchive(task);
+      setArchiveConfirmOpen(true);
+      return;
+    }
+
+    // Unarchiving doesn't need confirmation
+    await performArchive(task, archived);
+  };
+
+  // Actually perform the archive operation (called after confirmation or for unarchive)
+  const performArchive = async (task: SpecTaskWithExtras, archived: boolean) => {
+    try {
+      await api.getApiClient().v1SpecTasksArchivePartialUpdate(task.id!, { archived });
+
+      // Refresh tasks
+      const response = await api.get('/api/v1/spec-tasks', {
+        params: {
+          project_id: projectId || 'default',
+          archived_only: showArchived
+        }
+      });
+
+      const tasksData = response.data || response;
+      const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+      const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+        let phase: SpecTaskPhase = 'backlog';
+        let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+        if (t.status === 'spec_generation') {
+          phase = 'planning';
+          planningStatus = 'active';
+        } else if (t.status === 'spec_review') {
+          phase = 'review';
+          planningStatus = 'pending_review';
+        } else if (t.status === 'spec_approved') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'implementing') {
+          phase = 'implementation';
+          planningStatus = 'completed';
+        } else if (t.status === 'completed') {
+          phase = 'completed';
+          planningStatus = 'completed';
+        }
+
+        return {
+          ...t,
+          hasSpecs: t.status === 'spec_approved' || t.status === 'implementing' || t.status === 'completed',
+          planningStatus,
+          phase,
+          activeSessionsCount: 0,
+          completedSessionsCount: 0,
+        };
+      });
+
+      setTasks(enhancedTasks);
+    } catch (error) {
+      console.error('Failed to archive task:', error);
+      setError('Failed to archive task');
+    }
+  };
+
+  // Handle starting planning for a task
+  const handleStartPlanning = async (task: SpecTaskWithExtras) => {
+    // Check WIP limit
+    const planningColumn = columns.find(col => col.id === 'planning');
+    const isPlanningFull = planningColumn && planningColumn.limit
+      ? planningColumn.tasks.length >= planningColumn.limit
+      : false;
+
+    if (isPlanningFull) {
+      setError(`Planning column is full (${planningColumn?.limit} tasks max). Please complete existing planning tasks first.`);
+      return;
+    }
+
+    try {
+      // Call the start-planning endpoint which actually starts spec generation
+      await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id!);
+
+      // Aggressive polling after starting planning to catch planning_session_id update
+      // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
+      const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
+        const response = await api.getApiClient().v1SpecTasksList({
+          project_id: projectId || 'default'
+        });
+
+        const tasksData = response.data || response;
+        const specTasks: SpecTask[] = Array.isArray(tasksData) ? tasksData : [];
+
+        const enhancedTasks: SpecTaskWithExtras[] = specTasks.map((t) => {
+          let phase: SpecTaskPhase = 'backlog';
+          let planningStatus: 'none' | 'active' | 'pending_review' | 'completed' | 'failed' = 'none';
+
+          if (t.status === 'spec_generation') {
+            phase = 'planning';
+            planningStatus = 'active';
+          } else if (t.status === 'spec_review') {
+            phase = 'review';
+            planningStatus = 'pending_review';
+          } else if (t.status === 'spec_approved') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'implementing') {
+            phase = 'implementation';
+            planningStatus = 'completed';
+          } else if (t.status === 'completed') {
+            phase = 'completed';
+            planningStatus = 'completed';
+          }
+
+          return {
+            ...t,
+            hasSpecs: t.status !== 'backlog',
+            phase,
+            planningStatus,
+            activeSessionsCount: 0,
+            completedSessionsCount: 0,
+          };
+        });
+
+        setTasks(enhancedTasks);
+
+        // Check if the task has planning_session_id now
+        const updatedTask = specTasks.find(t => t.id === task.id);
+
+        // Check if task failed during async agent launch (error stored in metadata)
+        if (updatedTask?.status === 'backlog' && updatedTask?.metadata?.error) {
+          console.error('❌ Planning failed:', updatedTask.metadata.error);
+          setError(updatedTask.metadata.error as string);
+          return;
+        }
+
+        if (updatedTask?.planning_session_id) {
+          console.log('✅ Planning session ID populated:', updatedTask.planning_session_id);
+          return; // Session ID found, stop polling
+        }
+
+        // If session ID not found and we haven't exhausted retries, poll again
+        if (retryCount < maxRetries) {
+          const delay = retryCount < 3 ? 1000 : 2000; // 1s for first 3 retries, 2s after
+          console.log(`⏳ Polling for session ID (attempt ${retryCount + 1}/${maxRetries}), waiting ${delay}ms...`);
+          setTimeout(() => pollForSessionId(retryCount + 1, maxRetries), delay);
+        } else {
+          console.warn('⚠️ Session ID not populated after max retries');
+        }
+      };
+
+      // Start aggressive polling
+      await pollForSessionId();
+    } catch (err: any) {
+      console.error('Failed to start planning:', err);
+      // Extract error message from API response
+      const errorMessage = err?.response?.data?.error
+        || err?.response?.data?.message
+        || err?.message
+        || 'Failed to start planning. Please try again.';
+      setError(errorMessage);
+    }
+  };
+
+  // Handle reviewing documents
+  const handleReviewDocs = async (task: SpecTaskWithExtras) => {
+    setReviewingTask(task);
+
+    // Fetch the latest design review for this task using generated client
+    try {
+      const response = await api.getApiClient().v1SpecTasksDesignReviewsDetail(task.id);
+      console.log('Design reviews response:', response);
+      const reviews = response.data?.reviews || [];
+      console.log('Reviews array:', reviews);
+
+      if (reviews.length > 0) {
+        // Get the latest non-superseded review
+        const latestReview = reviews.find((r: any) => r.status !== 'superseded') || reviews[0];
+        console.log('Opening review:', latestReview.id, 'for task:', task.id);
+        setActiveReviewId(latestReview.id);
+        setDesignReviewViewerOpen(true);
+      } else {
+        // This shouldn't happen since we auto-create reviews on push
+        console.error('No design review found for task:', task.id);
+        setError('No design review found. Please try starting planning again.');
+      }
+    } catch (error) {
+      console.error('Failed to fetch design reviews:', error);
+      setError('Failed to load design review');
+    }
   };
 
   // Render draggable task card
@@ -875,9 +1124,9 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   if (loading) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: 400, gap: 2 }}>
-        <CircularProgress />
-        <Typography variant="body2" color="text.secondary">
-          Loading spec tasks...
+        <CircularProgress size={32} sx={{ color: 'text.secondary' }} />
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8125rem' }}>
+          Loading tasks...
         </Typography>
       </Box>
     );
@@ -910,148 +1159,106 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Header */}
-      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600 }}>
-          SpecTask Board
-        </Typography>
-
+      {/* Header - Linear style */}
+      <Box sx={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid', borderColor: 'rgba(0, 0, 0, 0.06)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600, fontSize: '1.25rem', color: 'text.primary' }}>
+            Tasks
+          </Typography>
+          {onCreateTask && (
+            <Tooltip title="Press Enter">
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<AddIcon />}
+                onClick={onCreateTask}
+              >
+                New Task
+              </Button>
+            </Tooltip>
+          )}
+        </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
+            size="small"
             variant="outlined"
-            startIcon={refreshing ? <CircularProgress size={16} /> : <TimelineIcon />}
-            onClick={() => {
-              setRefreshing(true);
-              // Inline refresh logic to avoid function dependencies
-              const refresh = async () => {
-                try {
-                  setError(null);
-                  if (!account.user?.id) {
-                    setTasks([]);
-                    return;
-                  }
-
-                  const response = await api.get('/api/v1/spec-tasks', {
-                    params: {
-                      project_id: 'default'
-                    },
-                  });
-
-                  if (!response || !response.data) {
-                    setTasks([]);
-                    return;
-                  }
-
-                  const specTasks = Array.isArray(response.data) ? response.data : [];
-                  const enhancedTasks = specTasks.map((task: any) => ({
-                    ...task,
-                    hasSpecs: task.status === 'spec_approved' || task.status === 'implementing' || task.status === 'completed',
-                    planningStatus: 'none' as const,
-                    phase: task.status === 'completed' ? 'completed' as const : 'backlog' as const,
-                    activeSessionsCount: 0,
-                    completedSessionsCount: 0,
-                  }));
-
-                  setTasks(enhancedTasks);
-                } catch (err: any) {
-                  console.error('Failed to refresh tasks:', err);
-                  const errorMessage = err?.response?.status === 404
-                    ? 'Spec tasks feature is not available yet.'
-                    : 'Failed to load tasks. Please try again.';
-                  setError(errorMessage);
-                }
-              };
-
-              refresh().finally(() => setRefreshing(false));
-            }}
-            disabled={refreshing}
+            startIcon={showArchived ? <ViewIcon /> : <VisibilityOffIcon />}
+            onClick={() => setShowArchived(!showArchived)}
           >
-            Refresh
-          </Button>
-
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            New Task
+            {showArchived ? 'Active' : 'Archived'}
           </Button>
         </Box>
       </Box>
 
-      {error && <Alert severity="error" sx={{ flexShrink: 0, mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && (
+        <Alert
+          severity="error"
+          sx={{
+            flexShrink: 0,
+            mb: 2,
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+          }}
+          onClose={() => setError(null)}
+        >
+          {error}
+        </Alert>
+      )}
 
-      {/* Kanban Board - drag and drop disabled to prevent infinite loops */}
-      <Box sx={{ flex: 1, display: 'flex', gap: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 0 }}>
+      {/* Kanban Board */}
+      <Box sx={{
+        flex: 1,
+        display: 'flex',
+        gap: 2,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        minHeight: 0,
+        pb: 2,
+        '&::-webkit-scrollbar': {
+          height: '8px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: 'rgba(0, 0, 0, 0.02)',
+          borderRadius: '4px',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: 'rgba(0, 0, 0, 0.1)',
+          borderRadius: '4px',
+          '&:hover': {
+            background: 'rgba(0, 0, 0, 0.15)',
+          },
+        },
+      }}>
         {columns.map((column) => (
           <DroppableColumn
             key={column.id}
             column={column}
+            columns={columns}
+            onStartPlanning={handleStartPlanning}
+            onArchiveTask={handleArchiveTask}
             onTaskClick={onTaskClick}
-            onAssignAgent={handleAssignAgent}
+            onReviewDocs={handleReviewDocs}
+            projectId={projectId}
             theme={theme}
           />
         ))}
       </Box>
 
-      {/* Create Task Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Create New SpecTask</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Task Name"
-              fullWidth
-              value={newTaskName}
-              onChange={(e) => setNewTaskName(e.target.value)}
-            />
-            <TextField
-              label="Description"
-              fullWidth
-              multiline
-              rows={3}
-              value={newTaskDescription}
-              onChange={(e) => setNewTaskDescription(e.target.value)}
-            />
-            
-            <FormControl fullWidth>
-              <InputLabel>Project Template</InputLabel>
-              <Select
-                value={selectedSampleType}
-                onChange={(e) => {
-                  console.log('🔥 CREATE DIALOG SELECT ONCHANGE FIRED!', e.target.value);
-                  setSelectedSampleType(e.target.value as string);
-                }}
-                onOpen={() => console.log('🔥 CREATE DIALOG SELECT OPENED')}
-                onClose={() => console.log('🔥 CREATE DIALOG SELECT CLOSED')}
-                displayEmpty
-              >
-                <MenuItem value="">
-                  <em>Select a project template</em>
-                </MenuItem>
-                {sampleTypes.map((type: SampleType, index) => {
-                  const typeId = type.id || `sample-${index}`;
-                  
-                  return (
-                    <MenuItem 
-                      key={typeId} 
-                      value={typeId}
-                    >
-                      {getSampleTypeIcon(type.id || '')} {type.name}
-                    </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button onClick={createTask} variant="contained" disabled={!newTaskName.trim()}>
-            Create Task
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Design Review Viewer - Floating window for spec review */}
+      {designReviewViewerOpen && reviewingTask && activeReviewId && (
+        <DesignReviewViewer
+          open={designReviewViewerOpen}
+          onClose={() => {
+            setDesignReviewViewerOpen(false);
+            setReviewingTask(null);
+            setActiveReviewId(null);
+            // Refresh tasks to update status
+            if (onRefresh) onRefresh();
+          }}
+          specTaskId={reviewingTask.id!}
+          reviewId={activeReviewId}
+        />
+      )}
 
       {/* Planning Dialog */}
       <Dialog open={planningDialogOpen} onClose={() => setPlanningDialogOpen(false)} maxWidth="md" fullWidth>
@@ -1115,6 +1322,54 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             disabled={!newTaskRequirements.trim() || !selectedSampleType}
           >
             Start Planning
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Archive Confirmation Dialog */}
+      <Dialog open={archiveConfirmOpen} onClose={() => setArchiveConfirmOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 600, fontSize: '1.125rem' }}>Archive Task?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2, border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+              Archiving this task will:
+            </Typography>
+            <ul style={{ marginTop: 0, marginBottom: 0, paddingLeft: 20 }}>
+              <li><Typography variant="body2">Stop any running external agents</Typography></li>
+              <li><Typography variant="body2">Lose any unsaved data in the desktop</Typography></li>
+              <li><Typography variant="body2">Hide the task from the board</Typography></li>
+            </ul>
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            The conversation history will be preserved and you can restore the task later.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button
+            onClick={() => {
+              setArchiveConfirmOpen(false);
+              setTaskToArchive(null);
+            }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 500,
+              color: 'text.secondary',
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (taskToArchive) {
+                setArchiveConfirmOpen(false);
+                await performArchive(taskToArchive, true);
+                setTaskToArchive(null);
+              }
+            }}
+            variant="contained"
+            color="warning"
+          >
+            Archive Task
           </Button>
         </DialogActions>
       </Dialog>

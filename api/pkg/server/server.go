@@ -121,12 +121,14 @@ type HelixAPIServer struct {
 	specDrivenTaskService       *services.SpecDrivenTaskService
 	sampleProjectCodeService    *services.SampleProjectCodeService
 	gitRepositoryService        *services.GitRepositoryService
-	zedPlanningService          *services.ZedPlanningService
+	koditService                *services.KoditService
+	gitHTTPServer               *services.GitHTTPServer
 	moonlightProxy              *moonlight.MoonlightProxy
 	moonlightServer             *moonlight.MoonlightServer
 	specTaskOrchestrator        *services.SpecTaskOrchestrator
 	externalAgentPool           *services.ExternalAgentPool
 	designDocsWorktreeManager   *services.DesignDocsWorktreeManager
+	projectInternalRepoService  *services.ProjectInternalRepoService
 	anthropicProxy              *anthropic.Proxy
 }
 
@@ -307,6 +309,8 @@ func NewServer(
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 			ps,                         // PubSub for Zed integration
+			externalAgentExecutor,      // Wolf executor for launching external agents
+			nil,                        // Will set callback after apiServer is constructed
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 		connman:                  connectionManager,
@@ -340,15 +344,44 @@ func NewServer(
 		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
 	}
 
-	// Initialize Zed Planning Service
-	apiServer.zedPlanningService = services.NewZedPlanningService(
+	// Initialize Kodit Service for code intelligence
+	if cfg.Kodit.Enabled {
+		apiServer.koditService = services.NewKoditService(cfg.Kodit.BaseURL, cfg.Kodit.APIKey)
+		apiServer.gitRepositoryService.SetKoditService(apiServer.koditService)
+		log.Info().
+			Str("kodit_base_url", cfg.Kodit.BaseURL).
+			Msg("Initialized Kodit code intelligence service")
+	} else {
+		apiServer.koditService = services.NewKoditService("", "") // Disabled instance
+		log.Info().Msg("Kodit code intelligence service disabled")
+	}
+
+	// Initialize Git HTTP Server for clone/push operations
+	apiServer.gitHTTPServer = services.NewGitHTTPServer(
 		store,
-		controller,
-		ps,
-		apiServer.specDrivenTaskService.ZedIntegrationService,
 		apiServer.gitRepositoryService,
-		"/workspace", // Default workspace path for Zed agents
+		&services.GitHTTPServerConfig{
+			ServerBaseURL:     cfg.WebServer.URL,
+			GitExecutablePath: "git",
+			AuthTokenHeader:   "Authorization",
+			EnablePush:        true,
+			EnablePull:        true,
+			MaxRepoSize:       1024 * 1024 * 1024, // 1GB
+			RequestTimeout:    5 * time.Minute,
+		},
+		apiServer.authorizeUserToResource, // Use server's existing RBAC system
 	)
+	log.Info().Msg("Initialized Git HTTP server for clone/push operations")
+
+	// Initialize Project Internal Repo Service
+	projectsBasePath := filepath.Join(cfg.FileStore.LocalFSPath, "projects")
+	apiServer.projectInternalRepoService = services.NewProjectInternalRepoService(projectsBasePath)
+	log.Info().
+		Str("projects_base_path", projectsBasePath).
+		Msg("Initialized project internal repository service")
+
+	// Set the request mapping callback for SpecDrivenTaskService
+	apiServer.specDrivenTaskService.RegisterRequestMapping = apiServer.RegisterRequestToSessionMapping
 
 	// Initialize SpecTask Orchestrator components
 	apiServer.designDocsWorktreeManager = services.NewDesignDocsWorktreeManager(
@@ -372,46 +405,6 @@ func NewServer(
 			log.Error().Err(err).Msg("Failed to start SpecTask orchestrator")
 		}
 	}()
-
-	// Run reconciliation to clean up any orphaned Wolf apps/sessions on startup
-	if wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor); ok {
-		go func() {
-			// Wolf is pre-registered in moonlight-web's data.json via installer
-			// Per-session pairing happens automatically in moonlight-web's stream.rs
-			// Initial reconciliation on startup
-			time.Sleep(8 * time.Second)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
-				log.Error().Err(err).Msg("Failed to reconcile personal dev environments on startup")
-			}
-
-			// Start periodic reconciliation to detect Wolf restarts
-			ticker := time.NewTicker(5 * time.Second) // Check every 5 seconds
-			defer ticker.Stop()
-
-			log.Info().Msg("Starting periodic personal dev environment reconciliation (every 5s)")
-
-			for {
-				select {
-				case <-ticker.C:
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if err := wolfExecutor.ReconcilePersonalDevEnvironments(ctx); err != nil {
-						log.Error().Err(err).Msg("Failed during periodic reconciliation")
-					}
-					cancel()
-				case <-controller.Ctx.Done():
-					log.Info().Msg("Stopping periodic reconciliation due to server shutdown")
-					return
-				}
-			}
-
-			// Wait for server shutdown
-			<-controller.Ctx.Done()
-			log.Info().Msg("Stopping reconciliation goroutine due to server shutdown")
-		}()
-	}
 
 	return apiServer, nil
 }
@@ -587,6 +580,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/step-info", system.Wrapper(apiServer.getSessionStepInfo)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/rdp-connection", apiServer.getSessionRDPConnection).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/wolf-app-state", apiServer.getSessionWolfAppState).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/resume", apiServer.resumeSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/sessions/{id}/idle-status", system.Wrapper(apiServer.getSessionIdleStatus)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sessions/{id}/stop-external-agent", system.Wrapper(apiServer.stopExternalAgentSession)).Methods(http.MethodDelete)
 
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.listQuestionSets)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/question-sets", system.Wrapper(apiServer.createQuestionSet)).Methods(http.MethodPost)
@@ -681,18 +677,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/screenshot", apiServer.getExternalAgentScreenshot).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/keepalive", apiServer.getExternalAgentKeepaliveStatus).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.getExternalAgentClipboard).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/clipboard", apiServer.setExternalAgentClipboard).Methods("POST")
 	authRouter.HandleFunc("/external-agents/{sessionID}/auto-join-lobby", apiServer.autoJoinExternalAgentLobby).Methods("POST")
-
-	// Personal dev environment routes
-	authRouter.HandleFunc("/personal-dev-environments", apiServer.listPersonalDevEnvironments).Methods("GET")
-	authRouter.HandleFunc("/personal-dev-environments", apiServer.createPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.getPersonalDevEnvironment).Methods("GET")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.updatePersonalDevEnvironment).Methods("PUT")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}", apiServer.deletePersonalDevEnvironment).Methods("DELETE")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/start", apiServer.startPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/stop", apiServer.stopPersonalDevEnvironment).Methods("POST")
-	authRouter.HandleFunc("/personal-dev-environments/{environmentID}/screenshot", apiServer.getPersonalDevEnvironmentScreenshot).Methods("GET")
 
 	// Wolf pairing routes
 	authRouter.HandleFunc("/wolf/pairing/pending", apiServer.getWolfPendingPairRequests).Methods("GET")
@@ -730,6 +717,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Agent Sandboxes debugging routes (Wolf streaming infrastructure)
 	authRouter.HandleFunc("/admin/agent-sandboxes/debug", apiServer.getAgentSandboxesDebug).Methods("GET")
 	authRouter.HandleFunc("/admin/agent-sandboxes/events", apiServer.getAgentSandboxesEvents).Methods("GET")
+	authRouter.HandleFunc("/admin/wolf/lobbies/{lobbyId}", apiServer.deleteWolfLobby).Methods("DELETE")
+	authRouter.HandleFunc("/admin/wolf/sessions/{sessionId}", apiServer.deleteWolfSession).Methods("DELETE")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -879,15 +868,23 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
+	// Moonlight Web observability endpoint (authenticated)
+	authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
+
 	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
 	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
 	moonlightRouter.Use(apiServer.authMiddleware.extractMiddleware)
 	moonlightRouter.PathPrefix("/").HandlerFunc(apiServer.proxyToMoonlightWeb)
 
+	// Register Git HTTP protocol routes for clone/push operations BEFORE default handler
+	// These routes don't use authRouter - they have their own auth middleware
+	// IMPORTANT: Must be before registerDefaultHandler to avoid being proxied to frontend
+	apiServer.gitHTTPServer.RegisterRoutes(router)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
-	// proxy other routes to frontend
+	// proxy other routes to frontend (MUST BE LAST - catch-all handler)
 	apiServer.registerDefaultHandler(router)
 
 	// only admins can manage licenses
@@ -897,14 +894,47 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// OAuth routes
 	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
 
+	// Project routes
+	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.listProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects", system.Wrapper(apiServer.createProject)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.getProject)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.updateProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}", system.Wrapper(apiServer.deleteProject)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/repositories", system.Wrapper(apiServer.getProjectRepositories)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/primary", system.Wrapper(apiServer.setProjectPrimaryRepository)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/attach", system.Wrapper(apiServer.attachRepositoryToProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/repositories/{repo_id}/detach", system.Wrapper(apiServer.detachRepositoryFromProject)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.getProjectExploratorySession)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.startExploratorySession)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/exploratory-session", system.Wrapper(apiServer.stopExploratorySession)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/projects/{id}/startup-script/history", system.Wrapper(apiServer.getProjectStartupScriptHistory)).Methods(http.MethodGet)
+
+	// Project access grant routes
+	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.listProjectAccessGrants).Methods(http.MethodGet)
+	authRouter.HandleFunc("/projects/{id}/access-grants", apiServer.createProjectAccessGrant).Methods(http.MethodPost)
+	authRouter.HandleFunc("/projects/{id}/access-grants/{grant_id}", apiServer.deleteProjectAccessGrant).Methods(http.MethodDelete)
+
+	// Sample project routes (simple in-memory)
+	authRouter.HandleFunc("/sample-projects/simple", system.Wrapper(apiServer.listSimpleSampleProjects)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/simple/fork", system.Wrapper(apiServer.forkSimpleProject)).Methods(http.MethodPost)
+
 	// Spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.getBoardSettings).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/board-settings", apiServer.updateBoardSettings).Methods(http.MethodPut)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.updateSpecTask).Methods(http.MethodPut)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/archive", apiServer.archiveSpecTask).Methods(http.MethodPatch)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/specs", apiServer.getTaskSpecs).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/start-planning", apiServer.startPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/start-implementation", apiServer.startImplementation).Methods(http.MethodPost)
+
+	// Workflow automation routes
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/approve-implementation", apiServer.approveImplementation).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/stop-agent", apiServer.stopAgentSession).Methods(http.MethodPost)
 
 	// Multi-session spec-driven task routes
 	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
@@ -929,6 +959,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
 	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
 
+	// Design review routes
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews", apiServer.listDesignReviews).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}", apiServer.getDesignReview).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit", apiServer.submitDesignReview).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.createDesignReviewComment).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments", apiServer.listDesignReviewComments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve", apiServer.resolveDesignReviewComment).Methods(http.MethodPost)
+
 	// Zed integration routes
 	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)
 	authRouter.HandleFunc("/zed/instances/{instanceId}/threads/{threadId}/events", apiServer.handleZedThreadEvent).Methods(http.MethodPost)
@@ -939,20 +977,26 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-threads", apiServer.listZedThreads).Methods(http.MethodGet)
 	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
 
-	// Sample project code routes
-	authRouter.HandleFunc("/sample-projects", apiServer.listSampleProjects).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects/{projectId}/code", apiServer.getSampleProjectCode).Methods(http.MethodGet)
-	authRouter.HandleFunc("/sample-projects/{projectId}/archive", apiServer.getSampleProjectCodeArchive).Methods(http.MethodGet)
-
 	// Git repository routes (actual git repository management)
 	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
 	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.updateGitRepository).Methods(http.MethodPut)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.deleteGitRepository).Methods(http.MethodDelete)
 	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/branches", apiServer.listGitRepositoryBranches).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/tree", apiServer.browseGitRepositoryTree).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/file", apiServer.getGitRepositoryFile).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/enrichments", apiServer.getRepositoryEnrichments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/kodit-status", apiServer.getRepositoryIndexingStatus).Methods(http.MethodGet)
+
+	// Git repository access grant routes
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.listRepositoryAccessGrants).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants", apiServer.createRepositoryAccessGrant).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/{id}/access-grants/{grant_id}", apiServer.deleteRepositoryAccessGrant).Methods(http.MethodDelete)
 
 	// Spec-driven task routes
 	authRouter.HandleFunc("/specs/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
-	authRouter.HandleFunc("/specs/repositories", apiServer.createSpecTaskRepository).Methods(http.MethodPost)
 
 	// SpecTask orchestrator routes
 	authRouter.HandleFunc("/agents/fleet/live-progress", system.Wrapper(apiServer.getAgentFleetLiveProgress)).Methods(http.MethodGet)
@@ -971,14 +1015,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Sample repository routes
 	authRouter.HandleFunc("/samples/repositories", apiServer.createSampleRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/samples/initialize", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
-
-	// Zed planning routes
-	authRouter.HandleFunc("/zed/planning/sessions", apiServer.startZedPlanningSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/sessions", apiServer.listZedPlanningSessions).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}", apiServer.getZedPlanningSession).Methods(http.MethodGet)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}/complete", apiServer.completeZedPlanning).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/sessions/{id}/cancel", apiServer.cancelZedPlanningSession).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/from-sample", apiServer.createZedPlanningFromSample).Methods(http.MethodPost)
 
 	apiServer.router = router
 
@@ -1751,4 +1787,30 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// The connection is now managed by connman
 		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
 	})
+}
+
+// getUserDefaultExternalAgentApp gets the user's default app for external agents (zed_external)
+// Returns the first app with zed_external agent type, or the first app if none found
+func (apiServer *HelixAPIServer) getUserDefaultExternalAgentApp(ctx context.Context, userID string) (*types.App, error) {
+	apps, err := apiServer.Store.ListApps(ctx, &store.ListAppsQuery{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list user apps: %w", err)
+	}
+
+	if len(apps) == 0 {
+		return nil, fmt.Errorf("user has no apps configured")
+	}
+
+	// Find the first app with zed_external default agent type
+	for _, app := range apps {
+		if app.Config.Helix.DefaultAgentType == "zed_external" {
+			return app, nil
+		}
+	}
+
+	// Fall back to first app if no zed_external app found
+	return apps[0], nil
 }

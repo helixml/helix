@@ -71,7 +71,7 @@ func (p *AgentWorkQueueProcessor) processWorkQueue(ctx context.Context) {
 	}
 
 	if len(response.WorkItems) == 0 {
-		log.Debug().Msg("No pending work items to process")
+		log.Trace().Msg("No pending work items to process")
 		return
 	}
 

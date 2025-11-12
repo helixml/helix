@@ -453,10 +453,20 @@ function start() {
 function stop() {
   echo "🛑 Stopping docker containers and tmux session..."
 
-  # Clean up Wolf config to ensure fresh start next time
+  # Clean up Wolf config and certificates to ensure fresh start next time
   if [ -f "wolf/config.toml" ]; then
     echo "🗑️  Removing Wolf config.toml (will be regenerated from template on next start)"
     rm -f wolf/config.toml
+  fi
+  if [ -f "wolf/cert.pem" ] || [ -f "wolf/key.pem" ]; then
+    echo "🗑️  Removing Wolf SSL certificates (will be regenerated on next start)"
+    rm -f wolf/cert.pem wolf/key.pem
+  fi
+
+  # Clean up Moonlight Web pairing data to ensure fresh pairing with Wolf's new certs
+  if [ -f "moonlight-web-config/data.json" ]; then
+    echo "🗑️  Removing Moonlight Web pairing data (will re-pair with Wolf on next start)"
+    rm -f moonlight-web-config/data.json
   fi
 
   # Build exclude pattern for services that should not be stopped
@@ -823,13 +833,13 @@ function build-moonlight-web() {
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  # Determine build mode: production mode always uses release, dev mode uses debug
-  local BUILD_MODE="debug"
-  if [ -n "${SKIP_DEV_RESTART:-}" ]; then
-    BUILD_MODE="release"
+  # Determine build mode: always use release (fast, optimized)
+  # Set BUILD_MODE=debug to override for debugging purposes
+  local BUILD_MODE="${BUILD_MODE:-release}"
+  if [ "$BUILD_MODE" = "release" ]; then
     echo "🔨 Building Moonlight Web container from source (RELEASE MODE)..."
   else
-    echo "🔨 Building Moonlight Web container from source (debug mode)..."
+    echo "🔨 Building Moonlight Web container from source (DEBUG MODE)..."
   fi
   cd ../moonlight-web-stream
 

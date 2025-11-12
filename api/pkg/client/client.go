@@ -86,13 +86,6 @@ type Client interface {
 	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
 	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
 
-	// Personal Dev Environments
-	ListPersonalDevEnvironments(ctx context.Context) ([]byte, error)
-	CreatePersonalDevEnvironment(ctx context.Context, data []byte) ([]byte, error)
-	DeletePersonalDevEnvironment(ctx context.Context, environmentID string) error
-	StartPersonalDevEnvironment(ctx context.Context, environmentID string) error
-	StopPersonalDevEnvironment(ctx context.Context, environmentID string) error
-
 	// Wolf Pairing
 	GetWolfPendingPairRequests(ctx context.Context) ([]byte, error)
 	CompleteWolfPairing(ctx context.Context, data []byte) ([]byte, error)
@@ -225,37 +218,6 @@ func (c *HelixClient) UpdateSystemSettings(ctx context.Context, settings *types.
 		return nil, err
 	}
 	return &response, nil
-}
-
-// Personal Dev Environment methods
-func (c *HelixClient) ListPersonalDevEnvironments(ctx context.Context) ([]byte, error) {
-	var response json.RawMessage
-	err := c.makeRequest(ctx, http.MethodGet, "/personal-dev-environments", nil, &response)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(response), nil
-}
-
-func (c *HelixClient) CreatePersonalDevEnvironment(ctx context.Context, data []byte) ([]byte, error) {
-	var response json.RawMessage
-	err := c.makeRequest(ctx, http.MethodPost, "/personal-dev-environments", strings.NewReader(string(data)), &response)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(response), nil
-}
-
-func (c *HelixClient) DeletePersonalDevEnvironment(ctx context.Context, environmentID string) error {
-	return c.makeRequest(ctx, http.MethodDelete, fmt.Sprintf("/personal-dev-environments/%s", environmentID), nil, nil)
-}
-
-func (c *HelixClient) StartPersonalDevEnvironment(ctx context.Context, environmentID string) error {
-	return c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/personal-dev-environments/%s/start", environmentID), nil, nil)
-}
-
-func (c *HelixClient) StopPersonalDevEnvironment(ctx context.Context, environmentID string) error {
-	return c.makeRequest(ctx, http.MethodPost, fmt.Sprintf("/personal-dev-environments/%s/stop", environmentID), nil, nil)
 }
 
 // Wolf Pairing methods

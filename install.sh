@@ -117,6 +117,7 @@ CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
 EXTERNAL_ZED_RUNNER_ID=""
 EXTERNAL_ZED_CONCURRENCY="1"
+PROVIDERS_MANAGEMENT_ENABLED="true"
 
 # Enhanced environment detection
 detect_environment() {
@@ -235,6 +236,8 @@ Options:
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
+  --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
+  --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
   --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
   --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   -y                       Auto approve the installation
@@ -422,6 +425,18 @@ while [[ $# -gt 0 ]]; do
             HF_TOKEN="$2"
             shift 2
             ;;
+        --providers-management-enabled=*)
+            PROVIDERS_MANAGEMENT_ENABLED="${1#*=}"
+            shift
+            ;;
+        --providers-management-enabled)
+            PROVIDERS_MANAGEMENT_ENABLED="$2"
+            shift 2
+            ;;
+        --no-providers-management)
+            PROVIDERS_MANAGEMENT_ENABLED="false"
+            shift
+            ;;
         -y)
             AUTO_APPROVE=true
             shift
@@ -568,10 +583,67 @@ install_docker() {
             echo "Unable to determine OS distribution. Please install Docker manually."
             exit 1
         fi
+    else
+        # Docker is already installed, but check if Docker Compose plugin is missing
+        if ! docker compose version &> /dev/null; then
+            install_docker_compose_only
+        fi
     fi
 
     # Docker Compose plugin is included in docker-ce installation above for Ubuntu/Debian/Fedora
     # No additional installation needed - it's part of docker-compose-plugin package
+}
+
+# Function to install Docker Compose plugin if Docker is installed but Compose is missing
+install_docker_compose_only() {
+    if command -v docker &> /dev/null && ! docker compose version &> /dev/null; then
+        echo "Docker is installed but Docker Compose plugin is missing."
+        echo "Installing Docker Compose plugin..."
+
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case $ID in
+                ubuntu|debian)
+                    # Always ensure Docker's official repo is configured
+                    echo "Setting up Docker official repository..."
+                    sudo apt-get update
+                    sudo apt-get install -y ca-certificates curl gnupg
+                    sudo install -m 0755 -d /etc/apt/keyrings
+                    curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    sudo apt-get update
+
+                    # Install docker-compose-plugin
+                    if ! sudo apt-get install -y docker-compose-plugin; then
+                        echo "Failed to install docker-compose-plugin from Docker official repository."
+                        echo "Please try installing manually:"
+                        echo "  sudo apt-get update"
+                        echo "  sudo apt-get install -y docker-compose-plugin"
+                        exit 1
+                    fi
+                    ;;
+                fedora)
+                    # Ensure Docker's official repo is configured
+                    if ! sudo dnf repolist | grep -q docker-ce-stable; then
+                        echo "Setting up Docker official repository..."
+                        sudo dnf -y install dnf-plugins-core
+                        sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+                    fi
+                    sudo dnf install -y docker-compose-plugin
+                    ;;
+                *)
+                    echo "Unsupported distribution for Docker Compose plugin installation."
+                    echo "Please install Docker Compose manually from https://docs.docker.com/compose/install/"
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "Unable to determine OS distribution."
+            echo "Please install Docker Compose manually from https://docs.docker.com/compose/install/"
+            exit 1
+        fi
+    fi
 }
 
 # default docker command
@@ -684,16 +756,14 @@ check_nvidia_runtime_needed() {
     fi
 
     # Check if NVIDIA runtime is already configured in Docker
-    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    # This is the definitive check - docker info will show "Runtimes: ... nvidia ..." if configured
+    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null; then
         return 1  # Already configured
     fi
 
-    # Check if nvidia-container-toolkit command exists
-    if command -v nvidia-container-toolkit &> /dev/null; then
-        return 1  # Already installed
-    fi
-
-    return 0  # NVIDIA GPU present but runtime not installed
+    # NVIDIA GPU is present but runtime is not configured in Docker
+    # (The toolkit package may or may not be installed, but it needs to be configured)
+    return 0
 }
 
 # Function to install NVIDIA Docker runtime
@@ -1337,6 +1407,11 @@ EOF
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
 
+    # Add providers management configuration
+    cat << EOF >> "$ENV_FILE"
+PROVIDERS_MANAGEMENT_ENABLED=$PROVIDERS_MANAGEMENT_ENABLED
+EOF
+
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
         cat << EOF >> "$ENV_FILE"
@@ -1817,6 +1892,8 @@ EOF
                 # Check if the keyring file already exists
                 if [ ! -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg ]; then
                     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+                    # Fix file permissions so _apt user can read the keyring
+                    sudo chmod 644 /usr/share/keyrings/caddy-stable-archive-keyring.gpg
                 fi
 
                 # Check if the source list file already exists

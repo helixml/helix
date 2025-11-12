@@ -326,10 +326,17 @@ func (apiServer *HelixAPIServer) handleExternalAgentSync(res http.ResponseWriter
 						}
 
 						if requestID != "" {
+							// Combine system prompt and user message into a single message
+							// This ensures Zed receives the planning instructions
+							fullMessage := interactions[i].PromptMessage
+							if interactions[i].SystemPrompt != "" {
+								fullMessage = interactions[i].SystemPrompt + "\n\n**User Request:**\n" + interactions[i].PromptMessage
+							}
+
 							command := types.ExternalAgentCommand{
 								Type: "chat_message",
 								Data: map[string]interface{}{
-									"message":       interactions[i].PromptMessage,
+									"message":       fullMessage,
 									"request_id":    requestID,
 									"acp_thread_id": nil, // null = create new thread
 								},
@@ -476,6 +483,20 @@ func (apiServer *HelixAPIServer) processExternalAgentSyncMessage(sessionID strin
 		Str("session_id", sessionID).
 		Str("event_type", syncMsg.EventType).
 		Msg("Processing external agent sync message")
+
+	// Update activity tracking to prevent idle timeout for active sessions
+	// Get activity record to update last_interaction timestamp
+	activity, err := apiServer.Store.GetExternalAgentActivity(context.Background(), sessionID)
+	if err == nil && activity != nil {
+		// Activity record exists - update it to extend idle timeout
+		activity.LastInteraction = time.Now()
+		err = apiServer.Store.UpsertExternalAgentActivity(context.Background(), activity)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to update activity for WebSocket message")
+			// Non-fatal - continue processing message
+		}
+	}
+	// If no activity record exists, that's OK - might be an old session or non-external-agent session
 
 	// Process sync message directly
 	switch syncMsg.EventType {
@@ -900,6 +921,16 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				return fmt.Errorf("failed to update interaction %s: %w", targetInteraction.ID, err)
 			}
 
+			// Link agent response to design review comment if this interaction came from a comment
+			go func() {
+				if err := apiServer.linkAgentResponseToComment(context.Background(), targetInteraction); err != nil {
+					log.Debug().
+						Err(err).
+						Str("interaction_id", targetInteraction.ID).
+						Msg("No design review comment linked to this interaction (this is normal for non-comment interactions)")
+				}
+			}()
+
 			log.Info().
 				Str("session_id", sessionID).
 				Str("context_id", contextID).
@@ -908,6 +939,43 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 				Str("role", role).
 				Str("content", content).
 				Msg("📝 [HELIX] Updated interaction with AI response (keeping Waiting state)")
+
+			// CRITICAL: Also send to response channel for HTTP streaming
+			// The request_id was sent to Zed in the chat_message command
+			// We need to find it using the request->session mapping
+			var foundRequestID string
+			if apiServer.requestToSessionMapping != nil {
+				for reqID, sessID := range apiServer.requestToSessionMapping {
+					if sessID == helixSessionID {
+						foundRequestID = reqID
+						break
+					}
+				}
+			}
+
+			if foundRequestID != "" {
+				responseChan, _, _, exists := apiServer.getResponseChannel(helixSessionID, foundRequestID)
+				if exists {
+					select {
+					case responseChan <- content:
+						log.Info().
+							Str("session_id", helixSessionID).
+							Str("request_id", foundRequestID).
+							Int("content_length", len(content)).
+							Msg("✅ [HELIX] Sent message_added content to HTTP streaming channel")
+					default:
+						log.Warn().
+							Str("session_id", helixSessionID).
+							Str("request_id", foundRequestID).
+							Msg("HTTP response channel full or closed")
+					}
+				} else {
+					log.Debug().
+						Str("session_id", helixSessionID).
+						Str("request_id", foundRequestID).
+						Msg("No HTTP response channel found (may not be an HTTP streaming request)")
+				}
+			}
 
 			// Reload session with all interactions so WebSocket event has latest data
 			reloadedSession, err := apiServer.Controller.Options.Store.GetSession(context.Background(), helixSessionID)
@@ -998,6 +1066,38 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	// TODO: Update context title in Helix
 	log.Debug().Str("session_id", sessionID).Msg("Context title changed")
 	return nil
+}
+
+// sendChatMessageToExternalAgent sends a chat message to an external agent session
+// This is the proper way to send messages that trigger agent responses
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
+	// Get the WebSocket connection for this session
+	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
+	if !exists || wsConn == nil {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":       message,
+			"request_id":    requestID,
+			"acp_thread_id": nil, // nil = continue in existing thread
+			"session_id":    sessionID,
+		},
+	}
+
+	// Send command to the external agent
+	select {
+	case wsConn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("✅ Sent chat message to external agent")
+		return nil
+	default:
+		return fmt.Errorf("external agent send channel full for session %s", sessionID)
+	}
 }
 
 // sendCommandToExternalAgent sends a command to the external agent

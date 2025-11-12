@@ -13,6 +13,7 @@ import FilesSidebar from '../components/files/FilesSidebar'
 import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
 import OrgSidebar from '../components/orgs/OrgSidebar'
 import AppSidebar from '../components/app/AppSidebar'
+import ProjectsSidebar from '../components/project/ProjectsSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -202,12 +203,15 @@ const Layout: FC<{
     switch (routeName) {
       case 'dashboard':
         return <AdminPanelSidebar />
-      
+
+      case 'projects':
+        return <ProjectsSidebar />
+
       case 'app':
       case 'org_app':
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />
-      
+
       case 'org_settings':
       case 'org_people':
       case 'org_teams':
@@ -215,10 +219,10 @@ const Layout: FC<{
       case 'team_people':
         // Organization management pages use the org context sidebar
         return <OrgSidebar />
-      
+
       case 'files':
         return <FilesSidebar onOpenFile={() => {}} />
-      
+
       default:
         // Default to SessionsMenu for most routes
         return (
@@ -257,12 +261,17 @@ const Layout: FC<{
                 height: '100%',
                 '& .MuiDrawer-paper': {
                   backgroundColor: lightTheme.backgroundColor,
-                  position: 'relative',
+                  // For mobile (temporary), let MUI handle positioning (fixed)
+                  // For desktop (permanent), use relative positioning
+                  position: isBigScreen ? 'relative' : undefined,
                   whiteSpace: 'nowrap',
                   width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
                   overflowX: 'hidden', // Prevent horizontal scrolling
-                  height: userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%',
+                  // Mobile gets full height, desktop respects user menu
+                  height: isBigScreen
+                    ? (userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%')
+                    : '100vh',
                   overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
@@ -423,7 +432,7 @@ const Layout: FC<{
           )
         }
         {
-          account.admin && floatingModal.isVisible && (
+          floatingModal.isVisible && (account.admin || floatingModal.modalConfig?.type === 'exploratory_session') && (
             <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }

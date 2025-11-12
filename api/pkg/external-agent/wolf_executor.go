@@ -3,21 +3,28 @@ package external_agent
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
 )
+
+// lobbyCacheEntry represents a cached lobby lookup result
+type lobbyCacheEntry struct {
+	lobbyID   string
+	timestamp time.Time
+}
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
@@ -32,7 +39,40 @@ type WolfExecutor struct {
 	helixAPIToken string
 
 	// Workspace configuration for dev stack
-	workspaceBasePath string
+	// CRITICAL: We need TWO paths because API container and Wolf/host see different paths:
+	// - workspaceBasePathForCloning: Path inside API container where we git clone repos
+	// - workspaceBasePathForMounting: Absolute host path that Wolf uses to mount into containers
+	workspaceBasePathForCloning  string // e.g., /filestore/workspaces (inside API container)
+	workspaceBasePathForMounting string // e.g., /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces (on host)
+
+	// Cache for lobby lookups to prevent Wolf API spam
+	lobbyCache      map[string]*lobbyCacheEntry
+	lobbyCacheMutex sync.RWMutex
+	lobbyCacheTTL   time.Duration
+
+	// Per-session locks to prevent concurrent lobby creation for same session
+	creationLocks      map[string]*sync.Mutex
+	creationLocksMutex sync.Mutex
+
+	// Track if nvidia-smi has ever worked (avoid false alarms on non-NVIDIA systems)
+	hasSeenValidGPUStats bool
+	gpuStatsMutex        sync.RWMutex
+}
+
+// translateToHostPath converts API container path to absolute host path for Wolf mounting
+// API container sees: /filestore/workspaces/...
+// Host sees: /var/lib/docker/volumes/helix_helix-filestore/_data/workspaces/...
+func (w *WolfExecutor) translateToHostPath(containerPath string) string {
+	// Replace /filestore with the absolute host volume path
+	if strings.HasPrefix(containerPath, "/filestore/") {
+		relativePath := strings.TrimPrefix(containerPath, "/filestore/")
+		// workspaceBasePathForMounting already includes "workspaces" from the volume root
+		// e.g., /var/lib/docker/volumes/.../workspaces
+		// So we need to go up to the volume root first
+		volumeRoot := filepath.Dir(w.workspaceBasePathForMounting)
+		return filepath.Join(volumeRoot, relativePath)
+	}
+	return containerPath
 }
 
 // generateWolfAppID creates a consistent, numeric Wolf-compatible app ID
@@ -70,6 +110,8 @@ type SwayWolfAppConfig struct {
 	SessionID         string   // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
+	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
+	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
 	DisplayWidth      int
 	DisplayHeight     int
 	DisplayFPS        int
@@ -94,6 +136,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
 	}
+
+	// Startup script is executed directly from cloned internal Git repo
+	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
 
 	// Add any extra environment variables
 	env = append(env, config.ExtraEnv...)
@@ -132,6 +177,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 			Str("ssh_key_dir", sshKeyDir).
 			Msg("Mounting SSH keys for git access")
 	}
+
+	// Add extra mounts (e.g., internal project repo)
+	mounts = append(mounts, config.ExtraMounts...)
 
 	// Standard Docker configuration (same for all Sway apps)
 	baseCreateJSON := fmt.Sprintf(`{
@@ -211,115 +259,127 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 
 	wolfClient := wolf.NewClient(wolfSocketPath)
 
+	// CRITICAL: Workspace paths need to work in two contexts:
+	// 1. Inside API container where we git clone: /filestore/workspaces
+	// 2. Wolf creates containers on HOST: needs absolute host path /var/lib/docker/volumes/.../workspaces
+	//
+	// Get the absolute host path for the filestore volume
+	filestoreVolumePath := os.Getenv("FILESTORE_VOLUME_PATH")
+	if filestoreVolumePath == "" {
+		// Default to standard Docker volume path on host
+		filestoreVolumePath = "/var/lib/docker/volumes/helix_helix-filestore/_data"
+		log.Info().
+			Str("default_path", filestoreVolumePath).
+			Msg("FILESTORE_VOLUME_PATH not set, using default Docker volume path")
+	}
+
 	executor := &WolfExecutor{
-		wolfClient:        wolfClient,
-		store:             store,
-		sessions:          make(map[string]*ZedSession),
-		zedImage:          zedImage,
-		helixAPIURL:       helixAPIURL,
-		helixAPIToken:     helixAPIToken,
-		workspaceBasePath: "/opt/helix/filestore/workspaces", // Default workspace base path
+		wolfClient:                   wolfClient,
+		store:                        store,
+		sessions:                     make(map[string]*ZedSession),
+		zedImage:                     zedImage,
+		helixAPIURL:                  helixAPIURL,
+		helixAPIToken:                helixAPIToken,
+		workspaceBasePathForCloning:  "/filestore/workspaces",                          // Path inside API container for git clone operations
+		workspaceBasePathForMounting: filepath.Join(filestoreVolumePath, "workspaces"), // Absolute host path for Wolf to mount
+		lobbyCache:                   make(map[string]*lobbyCacheEntry),
+		lobbyCacheTTL:                5 * time.Second, // Cache lobby lookups for 5 seconds to prevent Wolf API spam
+		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
 	// Lobbies persist naturally across Wolf restarts
 
-	// Start idle external agent cleanup loop (30min timeout)
+	// Start idle external agent cleanup loop (5min timeout)
 	go executor.idleExternalAgentCleanupLoop(context.Background())
+
+	// Start Wolf resource monitoring loop (logs metrics every minute)
+	go executor.wolfResourceMonitoringLoop(context.Background())
+
+	// TEMPORARILY DISABLED: Start orphaned Wolf-UI session cleanup loop (cleans up streaming sessions without active containers)
+	// ISSUE: This cleanup kills Wolf-UI sessions that have active browser connections
+	// It only checks if lobby exists, not if browsers are actively streaming
+	// Disabling until we can add proper check for active WebRTC connections
+	// go executor.cleanupOrphanedWolfUISessionsLoop(context.Background())
 
 	return executor
 }
 
-// keepaliveReconciliationLoop runs periodically to check and restart failed keepalive sessions
-// This handles moonlight-web restarts and other connection failures
-func (w *WolfExecutor) keepaliveReconciliationLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	log.Info().Msg("Starting keepalive reconciliation loop")
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info().Msg("Keepalive reconciliation loop stopped")
-			return
-
-		case <-ticker.C:
-			w.reconcileKeepaliveSessions(ctx)
-		}
-	}
-}
-
-// reconcileKeepaliveSessions checks all active sessions and restarts failed keepalive connections
-func (w *WolfExecutor) reconcileKeepaliveSessions(ctx context.Context) {
-	w.mutex.RLock()
-	sessionsToReconcile := make(map[string]*ZedSession)
-	for sessionID, session := range w.sessions {
-		// Check if keepalive needs reconciliation
-		if session.KeepaliveStatus == "failed" || session.KeepaliveStatus == "" {
-			sessionsToReconcile[sessionID] = session
-		} else if session.KeepaliveStatus == "active" && session.KeepaliveLastCheck != nil {
-			// Check if last check was too long ago (stale connection)
-			if time.Since(*session.KeepaliveLastCheck) > 2*time.Minute {
-				log.Warn().
-					Str("session_id", sessionID).
-					Time("last_check", *session.KeepaliveLastCheck).
-					Msg("Keepalive session appears stale, will restart")
-				sessionsToReconcile[sessionID] = session
-			}
-		}
-	}
-	w.mutex.RUnlock()
-
-	if len(sessionsToReconcile) == 0 {
-		return
-	}
-
-	log.Info().
-		Int("session_count", len(sessionsToReconcile)).
-		Msg("Reconciling keepalive sessions")
-
-	for sessionID, session := range sessionsToReconcile {
-		log.Info().
-			Str("session_id", sessionID).
-			Str("lobby_id", session.WolfLobbyID).
-			Str("keepalive_status", session.KeepaliveStatus).
-			Msg("Restarting failed/stale keepalive session")
-
-		// Get lobby PIN from session (we need it for reconnection)
-		// Note: For external agents, we don't store the PIN in the session currently
-		// This is a limitation - we should store it for reconciliation
-		// For now, attempt without PIN (will fail if PIN is required)
-
-		// Start new keepalive goroutine
-		go w.startKeepaliveSession(ctx, sessionID, session.WolfLobbyID, "")
-	}
-}
 
 // StartZedAgent implements the Executor interface for external agent sessions
 func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
+	// Get or create a per-session lock to prevent concurrent lobby creation for the same session
+	w.creationLocksMutex.Lock()
+	sessionLock, exists := w.creationLocks[agent.SessionID]
+	if !exists {
+		sessionLock = &sync.Mutex{}
+		w.creationLocks[agent.SessionID] = sessionLock
+	}
+	w.creationLocksMutex.Unlock()
+
+	// Lock this specific session to prevent duplicate lobby creation
+	sessionLock.Lock()
+	defer sessionLock.Unlock()
 
 	log.Info().
 		Str("session_id", agent.SessionID).
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
-		Msg("Starting external Zed agent via Wolf")
+		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
 	// Use session ID as environment name for consistency
 	wolfAppID := w.generateWolfAppID(agent.UserID, agent.SessionID)
 
-	// Determine workspace directory - use session-specific path
+	// Determine workspace directory - use task-scoped for SpecTasks, session-scoped otherwise
+	// CRITICAL: Use workspaceBasePathForCloning here since we'll be git cloning into this directory
 	workspaceDir := agent.WorkDir
 	if workspaceDir == "" {
-		workspaceDir = filepath.Join(w.workspaceBasePath, "external-agents", agent.SessionID)
+		if agent.SpecTaskID != "" {
+			// SpecTask agents share workspace across planning and implementation
+			workspaceDir = filepath.Join(w.workspaceBasePathForCloning, "spec-tasks", agent.SpecTaskID)
+			log.Info().
+				Str("spec_task_id", agent.SpecTaskID).
+				Str("workspace_dir", workspaceDir).
+				Msg("Using task-scoped workspace for SpecTask agent")
+		} else {
+			// Regular external agents use session-scoped workspace
+			workspaceDir = filepath.Join(w.workspaceBasePathForCloning, "external-agents", agent.SessionID)
+		}
 	}
 
 	// Create workspace directory if it doesn't exist
 	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Internal repos are now cloned like any other repo (no longer mounted)
+	// This allows Wolf server to be separated from API server over the network
+
+	// Clone git repositories if specified (for SpecTasks with repository context)
+	// Internal repos are now cloned like any other repo (no special handling)
+	var primaryRepoName string
+	if len(agent.RepositoryIDs) > 0 {
+		// Repository cloning now handled by startup script (start-zed-helix.sh)
+		// Startup script uses HELIX_REPOSITORY_IDS and USER_API_TOKEN env vars
+		// This is cleaner: git credentials already configured in container, uses HTTP connectivity
+		log.Info().
+			Strs("repository_ids", agent.RepositoryIDs).
+			Msg("Repositories will be cloned by startup script before Zed starts")
+
+		// Get primary repository name for environment variable (startup script needs this)
+		if agent.PrimaryRepositoryID != "" {
+			repo, err := w.store.GetGitRepository(ctx, agent.PrimaryRepositoryID)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get primary repository name")
+			} else {
+				primaryRepoName = repo.Name
+				log.Info().
+					Str("primary_repo_id", agent.PrimaryRepositoryID).
+					Str("primary_repo_name", primaryRepoName).
+					Msg("Primary repository will be used for design docs worktree")
+			}
+		}
 	}
 
 	log.Info().
@@ -368,6 +428,34 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 		"SWAY_STOP_ON_APP_EXIT=no", // Keep desktop alive when Zed restarts
 	}
+
+	// Add primary repository name for design docs worktree setup
+	if primaryRepoName != "" {
+		extraEnv = append(extraEnv, fmt.Sprintf("HELIX_PRIMARY_REPO_NAME=%s", primaryRepoName))
+	}
+
+	// Pass repository information for startup script to clone
+	// Format: "id:name:type,id:name:type,..." (simple parsing, no jq needed)
+	if len(agent.RepositoryIDs) > 0 {
+		var repoSpecs []string
+		for _, repoID := range agent.RepositoryIDs {
+			repo, err := w.store.GetGitRepository(ctx, repoID)
+			if err != nil {
+				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to get repository metadata")
+				continue
+			}
+			// Format: id:name:type
+			repoSpec := fmt.Sprintf("%s:%s:%s", repo.ID, repo.Name, repo.RepoType)
+			repoSpecs = append(repoSpecs, repoSpec)
+		}
+		if len(repoSpecs) > 0 {
+			extraEnv = append(extraEnv, fmt.Sprintf("HELIX_REPOSITORIES=%s", strings.Join(repoSpecs, ",")))
+		}
+	}
+
+	// Pass API base URL for git cloning (always api:8080 from Wolf container)
+	extraEnv = append(extraEnv, "HELIX_API_BASE_URL=http://api:8080")
+
 	// Add custom env vars from agent request
 	extraEnv = append(extraEnv, agent.Env...)
 
@@ -385,8 +473,153 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		displayRefreshRate = 60
 	}
 
+	// No extra mounts needed - internal repos are now cloned instead of mounted
+	extraMounts := []string{}
+
+	// CRITICAL: Check if lobby already exists for this session to prevent duplicates
+	// This prevents GPU resource exhaustion when resume endpoint is called multiple times
+	existingLobbyID, err := w.FindExistingLobbyForSession(ctx, agent.SessionID)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", agent.SessionID).Msg("Failed to check for existing lobby")
+		// Continue with creation anyway - not a fatal error
+	} else if existingLobbyID != "" {
+		// Lobby already exists for this session - reuse it instead of creating duplicate
+		log.Info().
+			Str("lobby_id", existingLobbyID).
+			Str("session_id", agent.SessionID).
+			Msg("🔄 Reusing existing lobby for session (prevents GPU resource exhaustion)")
+
+		// CRITICAL: Still need to track the session for WebSocket sync to work
+		// Even though lobby exists, we need to register it in our sessions map
+		session := &ZedSession{
+			SessionID:      agent.SessionID,
+			HelixSessionID: helixSessionID,
+			UserID:         agent.UserID,
+			Status:         "running",
+			StartTime:      time.Now(),
+			LastAccess:     time.Now(),
+			ProjectPath:    agent.ProjectPath,
+			WolfLobbyID:    existingLobbyID,
+			ContainerName:  containerHostname,
+		}
+		w.sessions[agent.SessionID] = session
+
+		// Track activity for idle cleanup
+		agentType := "agent"
+		if agent.ProjectID != "" {
+			agentType = "exploratory"
+		}
+		if agent.SpecTaskID != "" {
+			agentType = "spectask"
+		}
+
+		err = w.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+			ExternalAgentID: agent.SessionID,
+			SpecTaskID:      agent.SpecTaskID,
+			LastInteraction: time.Now(),
+			AgentType:       agentType,
+			WolfAppID:       "", // Don't have app ID for reused lobby
+			WorkspaceDir:    workspaceDir,
+			UserID:          agent.UserID,
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", agent.SessionID).
+				Msg("Failed to track activity for reused lobby")
+		}
+
+		// Fetch PIN from session metadata for auto-join support
+		// With the session_handlers fix, this will preserve existing PINs even if we return empty
+		var lobbyPIN string
+		if helixSessionID != "" {
+			helixSession, err := w.store.GetSession(ctx, helixSessionID)
+			if err != nil {
+				log.Warn().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to get session for PIN retrieval")
+			} else {
+				lobbyPIN = helixSession.Metadata.WolfLobbyPIN
+				log.Debug().
+					Str("helix_session_id", helixSessionID).
+					Bool("has_pin", lobbyPIN != "").
+					Msg("Retrieved lobby PIN from session metadata for reuse")
+			}
+		}
+
+		// Build response using existing lobby
+		response := &types.ZedAgentResponse{
+			SessionID:     agent.SessionID,
+			ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+			StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
+			Status:        "running",
+			WolfLobbyID:   existingLobbyID,
+			WolfLobbyPIN:  lobbyPIN, // Include PIN for auto-join support
+			ContainerName: containerHostname,
+		}
+
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Str("lobby_id", existingLobbyID).
+			Bool("has_pin", lobbyPIN != "").
+			Msg("Reused existing lobby and registered for WebSocket sync")
+
+		return response, nil
+	}
+
+	// No existing lobby - create a new one
+	log.Info().Str("session_id", agent.SessionID).Msg("No existing lobby found, creating new lobby")
+
+	// CRITICAL: Enforce hard limit of 5 concurrent lobbies to prevent GPU resource exhaustion
+	// Discovery: NVML fails at ~5-6 lobbies, GPU crashes at 6-7 lobbies
+	// See: design/2025-11-05-wolf-gpu-resource-limits-and-monitoring.md
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check lobby count before creation")
+		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
+	}
+
+	const maxConcurrentLobbies = 5
+	if len(lobbies) >= maxConcurrentLobbies {
+		log.Error().
+			Int("active_lobbies", len(lobbies)).
+			Int("max_lobbies", maxConcurrentLobbies).
+			Str("session_id", agent.SessionID).
+			Msg("GPU resource limit reached - cannot create new lobby")
+		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), maxConcurrentLobbies)
+	}
+
+	log.Info().
+		Int("active_lobbies", len(lobbies)).
+		Int("max_lobbies", maxConcurrentLobbies).
+		Msg("GPU capacity check passed, proceeding with lobby creation")
+
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
 	lobbyPIN, lobbyPINString := generateLobbyPIN()
+
+	// Log Wolf resources before creating lobby (for correlation with failures)
+	w.logWolfResourceMetrics(ctx)
+
+	// CRITICAL: Translate workspace path from API container path to absolute host path
+	// Wolf runs on host and needs host paths for mounts, not container paths
+	workspaceDirForMount := w.translateToHostPath(workspaceDir)
+
+	log.Info().
+		Str("workspace_dir_container", workspaceDir).
+		Str("workspace_dir_host", workspaceDirForMount).
+		Msg("Translated workspace path for Wolf mounting")
+
+	// Translate extra mounts (internal repo path) to host paths as well
+	translatedExtraMounts := []string{}
+	for _, mount := range extraMounts {
+		// Mount format is "source:dest:options"
+		parts := strings.Split(mount, ":")
+		if len(parts) >= 2 {
+			hostSource := w.translateToHostPath(parts[0])
+			parts[0] = hostSource
+			translatedExtraMounts = append(translatedExtraMounts, strings.Join(parts, ":"))
+		} else {
+			translatedExtraMounts = append(translatedExtraMounts, mount)
+		}
+	}
 
 	// NEW: Create lobby instead of app for immediate auto-start
 	lobbyReq := &wolf.CreateLobbyRequest{
@@ -413,8 +646,9 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			ContainerHostname: containerHostname,
 			UserID:            agent.UserID,
 			SessionID:         agent.SessionID,
-			WorkspaceDir:      workspaceDir,
+			WorkspaceDir:      workspaceDirForMount, // CRITICAL: Use host path for Wolf mount
 			ExtraEnv:          extraEnv,
+			ExtraMounts:       translatedExtraMounts, // Translated to host paths
 			DisplayWidth:      displayWidth,
 			DisplayHeight:     displayHeight,
 			DisplayFPS:        displayRefreshRate,
@@ -433,18 +667,55 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("lobby_pin", lobbyPINString).
 		Msg("Wolf lobby created successfully - container starting immediately")
 
+	// Log resources AFTER lobby creation to see impact
+	go func() {
+		// Wait a few seconds for container to fully start
+		time.Sleep(3 * time.Second)
+		w.logWolfResourceMetrics(context.Background())
+	}()
+
+	// Immediately cache the new lobby to prevent duplicate creation on rapid resume attempts
+	w.lobbyCacheMutex.Lock()
+	w.lobbyCache[agent.SessionID] = &lobbyCacheEntry{
+		lobbyID:   lobbyResp.LobbyID,
+		timestamp: time.Now(),
+	}
+	w.lobbyCacheMutex.Unlock()
+
+	// Update Helix session metadata with lobby ID and PIN so frontend can display them
+	if helixSessionID != "" {
+		helixSession, err := w.store.GetSession(ctx, helixSessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to get Helix session for lobby metadata update")
+		} else {
+			// Update session metadata with Wolf lobby information
+			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
+			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+
+			_, err = w.store.UpdateSession(ctx, *helixSession)
+			if err != nil {
+				log.Error().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to update Helix session with lobby metadata")
+			} else {
+				log.Info().
+					Str("helix_session_id", helixSessionID).
+					Str("lobby_id", lobbyResp.LobbyID).
+					Str("lobby_pin", lobbyPINString).
+					Msg("Updated Helix session metadata with Wolf lobby ID and PIN")
+			}
+		}
+	}
+
 	// Track session with lobby ID
 	session := &ZedSession{
-		SessionID:       agent.SessionID,
-		HelixSessionID:  helixSessionID, // Store Helix session ID for screenshot lookup
-		UserID:          agent.UserID,
-		Status:          "running", // Container is running immediately with lobbies
-		StartTime:       time.Now(),
-		LastAccess:      time.Now(),
-		ProjectPath:     agent.ProjectPath,
-		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
-		ContainerName:   containerHostname,
-		KeepaliveStatus: "starting", // Initialize keepalive as starting
+		SessionID:      agent.SessionID,
+		HelixSessionID: helixSessionID, // Store Helix session ID for screenshot lookup
+		UserID:         agent.UserID,
+		Status:         "running", // Container is running immediately with lobbies
+		StartTime:      time.Now(),
+		LastAccess:     time.Now(),
+		ProjectPath:    agent.ProjectPath,
+		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Track lobby ID
+		ContainerName:  containerHostname,
 	}
 	w.sessions[agent.SessionID] = session
 
@@ -467,6 +738,41 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("screenshot_url", response.ScreenshotURL).
 		Str("container_name", containerHostname).
 		Msg("External Zed agent started successfully")
+
+	// Track activity for idle cleanup (all external agent types)
+	// Determine agent type based on session metadata
+	agentType := "agent" // Default for regular agent sessions
+	if agent.ProjectID != "" {
+		agentType = "exploratory" // Exploratory sessions have project ID
+	}
+	if agent.SpecTaskID != "" {
+		agentType = "spectask" // SpecTask agents have spec task ID
+	}
+
+	err = w.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
+		ExternalAgentID: agent.SessionID,
+		SpecTaskID:      agent.SpecTaskID, // May be empty for non-SpecTask agents
+		LastInteraction: time.Now(),
+		AgentType:       agentType,
+		WolfAppID:       response.WolfAppID,
+		WolfLobbyID:     response.WolfLobbyID,   // Store lobby ID for cleanup even after session deleted
+		WolfLobbyPIN:    response.WolfLobbyPIN,  // Store lobby PIN for cleanup
+		WorkspaceDir:    workspaceDir,
+		UserID:          agent.UserID,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("session_id", agent.SessionID).
+			Str("agent_type", agentType).
+			Msg("Failed to track external agent activity - cleanup won't work for this session")
+		// Non-fatal - session is already created
+	} else {
+		log.Info().
+			Str("session_id", agent.SessionID).
+			Str("agent_type", agentType).
+			Msg("External agent activity tracked for idle cleanup")
+	}
 
 	return response, nil
 }
@@ -512,49 +818,171 @@ func joinEnvVars(envVars []string) string {
 
 // StopZedAgent implements the Executor interface
 func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
 	log.Info().Str("session_id", sessionID).Msg("Stopping Zed agent via Wolf")
 
+	// CRITICAL: Only hold mutex when accessing in-memory map
+	// Do NOT hold mutex during Wolf API calls (prevents deadlock)
+	w.mutex.Lock()
 	session, exists := w.sessions[sessionID]
-	if !exists {
-		return fmt.Errorf("session %s not found", sessionID)
+	var wolfLobbyID string
+	if exists {
+		wolfLobbyID = session.WolfLobbyID
+	}
+	w.mutex.Unlock()
+
+	// Always fetch from database to get lobby ID and PIN (handles sessions created before restart)
+	// Use GetSessionIncludingDeleted to find soft-deleted sessions (e.g., from project deletion)
+	dbSession, err := w.store.GetSessionIncludingDeleted(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session from database for stop (including soft-deleted)")
+		return fmt.Errorf("session %s not found in database", sessionID)
 	}
 
-	// Stop the lobby (tears down container)
-	if session.WolfLobbyID != "" {
-		stopReq := &wolf.StopLobbyRequest{
-			LobbyID: session.WolfLobbyID,
-			// PIN not needed - Helix created the lobby, can stop it without PIN
+	// Use database lobby ID if we don't have it from memory
+	if wolfLobbyID == "" {
+		wolfLobbyID = dbSession.Metadata.WolfLobbyID
+	}
+
+	// Get PIN from database
+	wolfLobbyPIN := dbSession.Metadata.WolfLobbyPIN
+
+	// Save final screenshot before stopping (for paused state preview)
+	screenshotPath := ""
+	containerName := fmt.Sprintf("zed-external-%s_%s", sessionID, wolfLobbyID)
+	screenshotBytes, err := w.getContainerScreenshot(ctx, containerName)
+	if err == nil && len(screenshotBytes) > 0 {
+		// Save to filestore (use cloning path since we're writing from API container)
+		screenshotPath = filepath.Join(w.workspaceBasePathForCloning, "paused-screenshots", fmt.Sprintf("%s.png", sessionID))
+		screenshotDir := filepath.Dir(screenshotPath)
+		if err := os.MkdirAll(screenshotDir, 0755); err == nil {
+			if err := os.WriteFile(screenshotPath, screenshotBytes, 0644); err == nil {
+				// Update session metadata with paused screenshot path
+				dbSession.Metadata.PausedScreenshotPath = screenshotPath
+				_, err = w.store.UpdateSession(ctx, *dbSession)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to update session with paused screenshot path")
+				}
+
+				log.Info().
+					Str("session_id", sessionID).
+					Str("screenshot_path", screenshotPath).
+					Msg("Saved final screenshot for paused state preview")
+			}
 		}
-		err := w.wolfClient.StopLobby(ctx, stopReq)
-		if err != nil {
-			log.Error().Err(err).Str("lobby_id", session.WolfLobbyID).Msg("Failed to stop Wolf lobby")
-			// Continue with cleanup even if stop fails
-		}
-		log.Info().
-			Str("lobby_id", session.WolfLobbyID).
-			Str("session_id", sessionID).
-			Msg("Wolf lobby stopped successfully")
 	} else {
-		// Fallback for old app-based sessions (backward compatibility during migration)
-		appID := fmt.Sprintf("zed-agent-%s", sessionID)
-		err := w.wolfClient.StopSession(ctx, sessionID)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to stop Wolf session")
+		log.Debug().Str("session_id", sessionID).Msg("Could not capture final screenshot (agent may already be stopped)")
+	}
+
+	// CRITICAL: Stop Wolf-UI streaming sessions BEFORE stopping lobby
+	// Wolf-UI sessions persist after lobby stops, consuming 245MB GPU memory each
+	// Query all sessions and stop ones matching this Helix session ID
+	// Add timeout to prevent hanging forever on stuck Wolf API calls
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer listCancel()
+
+	sessions, err := w.wolfClient.ListSessions(listCtx)
+	if err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
+	} else {
+		sessionPrefix := fmt.Sprintf("helix-agent-%s-", sessionID)
+		stoppedCount := 0
+
+		for _, session := range sessions {
+			// Match sessions by client_unique_id prefix (handles multiple browser tabs)
+			if session.ClientUniqueID != "" && strings.HasPrefix(session.ClientUniqueID, sessionPrefix) {
+				log.Info().
+					Str("client_id", session.ClientID).
+					Str("client_unique_id", session.ClientUniqueID).
+					Str("session_id", sessionID).
+					Msg("Stopping Wolf-UI streaming session before lobby teardown")
+
+				// Add timeout to prevent hanging on stuck Wolf sessions
+				stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := w.wolfClient.StopSession(stopCtx, session.ClientID)
+				stopCancel()
+
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("client_id", session.ClientID).
+						Msg("Failed to stop Wolf-UI session (will be orphaned - timeout or error)")
+				} else {
+					stoppedCount++
+					log.Info().
+						Str("client_id", session.ClientID).
+						Msg("✅ Stopped Wolf-UI streaming session")
+				}
+			}
 		}
-		err = w.wolfClient.RemoveApp(ctx, appID)
-		if err != nil {
-			log.Error().Err(err).Str("app_id", appID).Msg("Failed to remove Wolf app")
+
+		if stoppedCount > 0 {
+			log.Info().
+				Str("session_id", sessionID).
+				Int("stopped_count", stoppedCount).
+				Msg("Cleaned up Wolf-UI streaming sessions")
 		}
 	}
 
-	// Update session status
-	session.Status = "stopped"
+	// Stop the lobby (tears down Zed container)
+	if wolfLobbyID != "" {
+		// CRITICAL: Must provide PIN to stop lobby
+		var lobbyPIN []int16
 
-	// Remove from our tracking
+		if wolfLobbyPIN != "" && len(wolfLobbyPIN) == 4 {
+			// PIN is stored as "1234" string, convert to [1,2,3,4] slice
+			lobbyPIN = make([]int16, 4)
+			for i, ch := range wolfLobbyPIN {
+				lobbyPIN[i] = int16(ch - '0')
+			}
+			log.Debug().
+				Str("lobby_id", wolfLobbyID).
+				Str("lobby_pin", wolfLobbyPIN).
+				Msg("Retrieved lobby PIN from database for stop request")
+		}
+
+		stopReq := &wolf.StopLobbyRequest{
+			LobbyID: wolfLobbyID,
+			PIN:     lobbyPIN, // CRITICAL: Wolf requires PIN to stop lobbies
+		}
+
+		// Add timeout to prevent hanging on stuck Wolf API
+		lobbyStopCtx, lobbyStopCancel := context.WithTimeout(ctx, 10*time.Second)
+		err = w.wolfClient.StopLobby(lobbyStopCtx, stopReq)
+		lobbyStopCancel()
+
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("lobby_id", wolfLobbyID).
+				Interface("lobby_pin", lobbyPIN).
+				Msg("Failed to stop Wolf lobby (timeout or error)")
+			// Continue with cleanup even if stop fails
+		} else {
+			log.Info().
+				Str("lobby_id", wolfLobbyID).
+				Str("session_id", sessionID).
+				Msg("Wolf lobby stopped successfully")
+		}
+	} else {
+		log.Warn().
+			Str("session_id", sessionID).
+			Msg("No Wolf lobby ID found in database - session may not have external agent running")
+		return fmt.Errorf("no Wolf lobby ID found for session %s", sessionID)
+	}
+
+	// Update in-memory session status and remove from tracking
+	// CRITICAL: Acquire mutex only for map operations
+	w.mutex.Lock()
+	if session, exists := w.sessions[sessionID]; exists {
+		session.Status = "stopped"
+	}
 	delete(w.sessions, sessionID)
+	w.mutex.Unlock()
+
+	// Invalidate lobby cache so restart creates fresh lobby instead of reusing stopped one
+	w.lobbyCacheMutex.Lock()
+	delete(w.lobbyCache, sessionID)
+	w.lobbyCacheMutex.Unlock()
 
 	log.Info().Str("session_id", sessionID).Msg("Zed agent stopped successfully")
 
@@ -677,481 +1105,6 @@ func (w *WolfExecutor) ListInstanceThreads(instanceID string) ([]*ZedThreadInfo,
 	}, nil
 }
 
-// Personal Development Environment Management
-
-// CreatePersonalDevEnvironment creates a new personal development environment with default display settings
-func (w *WolfExecutor) CreatePersonalDevEnvironment(ctx context.Context, userID, appID, environmentName string) (*ZedInstanceInfo, error) {
-	return w.CreatePersonalDevEnvironmentWithDisplay(ctx, userID, appID, environmentName, 3840, 2160, 60)
-}
-
-// CreatePersonalDevEnvironmentWithDisplay creates a new personal development environment with custom display settings
-func (w *WolfExecutor) CreatePersonalDevEnvironmentWithDisplay(ctx context.Context, userID, appID, environmentName string, displayWidth, displayHeight, displayFPS int) (*ZedInstanceInfo, error) {
-	// Validate display parameters
-	if err := validateDisplayParams(displayWidth, displayHeight, displayFPS); err != nil {
-		return nil, fmt.Errorf("invalid display configuration: %w", err)
-	}
-
-	// Create Wolf app for this personal dev environment
-	wolfAppID := w.generateWolfAppID(userID, environmentName)
-
-	// Generate unique timestamp-based ID for this instance
-	timestamp := time.Now().Unix()
-	instanceID := fmt.Sprintf("personal-dev-%s-%d", userID, timestamp)
-
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("user_id", userID).
-		Str("app_id", appID).
-		Str("environment_name", environmentName).
-		Int("display_width", displayWidth).
-		Int("display_height", displayHeight).
-		Int("display_fps", displayFPS).
-		Msg("Creating personal development environment via Wolf")
-
-	// Create persistent workspace directory
-	workspaceDir, err := w.createWorkspaceDirectory(instanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
-	}
-
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("workspace_dir", workspaceDir).
-		Msg("Created persistent workspace directory")
-
-	// Create Sway configuration for this personal dev environment
-	err = w.createSwayConfig(instanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Sway config: %w", err)
-	}
-
-	log.Info().
-		Str("instance_id", instanceID).
-		Msg("Created Sway compositor configuration")
-
-	// Use Wolf app ID as both container name and hostname for predictable DNS
-	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
-	containerName := containerHostname
-
-	// Build extra environment variables specific to PDEs
-	extraEnv := []string{
-		"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh",
-	}
-
-	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
-	lobbyPIN, lobbyPINString := generateLobbyPIN()
-
-	// NEW: Create lobby instead of app for immediate auto-start
-	lobbyReq := &wolf.CreateLobbyRequest{
-		ProfileID:              "helix-sessions",
-		Name:                   fmt.Sprintf("PDE: %s", environmentName),
-		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Keep running when clients disconnect
-		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
-		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:                   displayWidth,
-			Height:                  displayHeight,
-			RefreshRate:             displayFPS,
-			WaylandRenderNode:       "/dev/dri/renderD128",
-			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
-		},
-		AudioSettings: &wolf.LobbyAudioSettings{
-			ChannelCount: 2,
-		},
-		RunnerStateFolder: filepath.Join("/wolf-state", instanceID),
-		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
-			WolfAppID:         wolfAppID,
-			Title:             fmt.Sprintf("Personal Dev Environment %s", environmentName),
-			ContainerHostname: containerHostname,
-			UserID:            userID,
-			SessionID:         instanceID, // Use instance ID as session ID for settings sync
-			WorkspaceDir:      workspaceDir,
-			ExtraEnv:          extraEnv,
-			DisplayWidth:      displayWidth,
-			DisplayHeight:     displayHeight,
-			DisplayFPS:        displayFPS,
-		}).Runner,
-	}
-
-	// Create lobby (container starts immediately!)
-	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create lobby for PDE: %w", err)
-	}
-
-	log.Info().
-		Str("lobby_id", lobbyResp.LobbyID).
-		Str("instance_id", instanceID).
-		Str("lobby_pin", lobbyPINString).
-		Msg("Wolf lobby created successfully - PDE container starting immediately")
-
-	// Save to database
-	pde := &types.PersonalDevEnvironment{
-		ID:              instanceID,
-		UserID:          userID,
-		AppID:           appID, // Original Helix App ID for configuration
-		WolfAppID:       wolfAppID, // Keep for backward compatibility
-		WolfLobbyID:     lobbyResp.LobbyID, // NEW: Track lobby ID
-		WolfLobbyPIN:    lobbyPINString, // NEW: Store PIN for access control
-		EnvironmentName: environmentName,
-		Status:          "running", // Container is running immediately with lobbies
-		LastActivity:    time.Now(),
-		DisplayWidth:    displayWidth,
-		DisplayHeight:   displayHeight,
-		DisplayFPS:      displayFPS,
-		ContainerName:   containerName,
-		VNCPort:         5901,
-		StreamURL:       fmt.Sprintf("moonlight://localhost:47989"), // Moonlight streaming
-		WolfSessionID:   "", // No longer used with lobbies
-	}
-
-	pde, err = w.store.CreatePersonalDevEnvironment(ctx, pde)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save personal dev environment to database: %w", err)
-	}
-
-	log.Info().
-		Str("instance_id", instanceID).
-		Str("wolf_lobby_id", lobbyResp.LobbyID).
-		Str("wolf_app_id", wolfAppID).
-		Msg("Personal development environment created successfully via Wolf lobbies")
-
-	// Convert to ZedInstanceInfo for backward compatibility
-	instance := &ZedInstanceInfo{
-		InstanceID:      pde.ID,
-		SpecTaskID:      "",
-		UserID:          pde.UserID,
-		AppID:           pde.WolfAppID,
-		InstanceType:    "personal_dev",
-		Status:          pde.Status,
-		CreatedAt:       pde.Created,
-		LastActivity:    pde.LastActivity,
-		ProjectPath:     fmt.Sprintf("/workspace/%s", environmentName),
-		ThreadCount:     1,
-		IsPersonalEnv:   true,
-		EnvironmentName: pde.EnvironmentName,
-		ConfiguredTools: []string{},
-		DataSources:     []string{},
-		StreamURL:       pde.StreamURL,
-		WolfSessionID:   pde.WolfSessionID,
-		DisplayWidth:    pde.DisplayWidth,
-		DisplayHeight:   pde.DisplayHeight,
-		DisplayFPS:      pde.DisplayFPS,
-		ContainerName:   pde.ContainerName,
-		VNCPort:         pde.VNCPort,
-	}
-
-	return instance, nil
-}
-
-// buildPersonalDevZedCommand constructs the Zed execution command for personal dev environments
-func (w *WolfExecutor) buildPersonalDevZedCommand(userID, appID, instanceID string) string {
-	// Build environment variables for personal dev Zed
-	envVars := []string{
-		fmt.Sprintf("HELIX_API_URL=%s", w.helixAPIURL),
-		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
-		fmt.Sprintf("ZED_INSTANCE_ID=%s", instanceID),
-		fmt.Sprintf("ZED_USER_ID=%s", userID),
-		fmt.Sprintf("ZED_APP_ID=%s", appID),
-		fmt.Sprintf("ZED_INSTANCE_TYPE=personal_dev"),
-		fmt.Sprintf("ZED_WORK_DIR=/workspace"),
-		"DISPLAY=:0",
-		"WAYLAND_DISPLAY=wayland-1",
-	}
-
-	// Construct the full command
-	cmd := fmt.Sprintf("env %s /usr/local/bin/zed --foreground",
-		joinEnvVars(envVars))
-
-	return cmd
-}
-
-// GetPersonalDevEnvironments returns all personal dev environments for a user
-func (w *WolfExecutor) GetPersonalDevEnvironments(ctx context.Context, userID string) ([]*ZedInstanceInfo, error) {
-	// Read from database
-	pdes, err := w.store.ListPersonalDevEnvironments(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list personal dev environments from database: %w", err)
-	}
-
-	// Convert to ZedInstanceInfo for backward compatibility
-	var personalEnvs []*ZedInstanceInfo
-	for _, pde := range pdes {
-		instance := &ZedInstanceInfo{
-			InstanceID:      pde.ID,
-			SpecTaskID:      "",
-			UserID:          pde.UserID,
-			AppID:           pde.WolfAppID,
-			InstanceType:    "personal_dev",
-			Status:          pde.Status,
-			CreatedAt:       pde.Created,
-			LastActivity:    pde.LastActivity,
-			ProjectPath:     fmt.Sprintf("/workspace/%s", pde.EnvironmentName),
-			ThreadCount:     1,
-			IsPersonalEnv:   true,
-			EnvironmentName: pde.EnvironmentName,
-			ConfiguredTools: []string{},
-			DataSources:     []string{},
-			StreamURL:       pde.StreamURL,
-			WolfSessionID:   pde.WolfSessionID,
-			DisplayWidth:    pde.DisplayWidth,
-			DisplayHeight:   pde.DisplayHeight,
-			DisplayFPS:      pde.DisplayFPS,
-			ContainerName:   pde.ContainerName,
-			VNCPort:         pde.VNCPort,
-		}
-		personalEnvs = append(personalEnvs, instance)
-	}
-
-	log.Info().
-		Str("user_id", userID).
-		Int("environment_count", len(personalEnvs)).
-		Msg("Retrieved personal dev environments from database")
-
-	return personalEnvs, nil
-}
-
-// StopPersonalDevEnvironment stops a personal development environment
-func (w *WolfExecutor) StopPersonalDevEnvironment(ctx context.Context, userID, instanceID string) error {
-	// Read from database
-	pde, err := w.store.GetPersonalDevEnvironment(ctx, instanceID)
-	if err != nil {
-		return fmt.Errorf("personal dev environment %s not found", instanceID)
-	}
-
-	// Check access
-	if pde.UserID != userID {
-		return fmt.Errorf("access denied: environment belongs to different user")
-	}
-
-	log.Info().Str("instance_id", instanceID).Msg("Stopping personal dev environment via Wolf")
-
-	// Stop the lobby (tears down container)
-	if pde.WolfLobbyID != "" {
-		stopReq := &wolf.StopLobbyRequest{
-			LobbyID: pde.WolfLobbyID,
-			// PIN not needed - Helix created the lobby, can stop it without PIN
-		}
-		err := w.wolfClient.StopLobby(ctx, stopReq)
-		if err != nil {
-			log.Error().Err(err).Str("lobby_id", pde.WolfLobbyID).Msg("Failed to stop Wolf lobby")
-			// Continue with cleanup even if stop fails
-		}
-		log.Info().
-			Str("lobby_id", pde.WolfLobbyID).
-			Str("instance_id", instanceID).
-			Msg("Wolf lobby stopped successfully")
-	} else {
-		// Fallback for old app-based PDEs (backward compatibility during migration)
-		wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
-
-		if pde.WolfSessionID != "" {
-			err := w.wolfClient.StopSession(ctx, pde.WolfSessionID)
-			if err != nil {
-				log.Error().Err(err).Str("wolf_session_id", pde.WolfSessionID).Msg("Failed to stop Wolf session")
-			}
-		}
-
-		err := w.wolfClient.RemoveApp(ctx, wolfAppID)
-		if err != nil {
-			log.Error().Err(err).Str("wolf_app_id", wolfAppID).Msg("Failed to remove Wolf app")
-		}
-	}
-
-	// Clean up Sway configuration file
-	swayConfigPath := fmt.Sprintf("/tmp/sway-config-%s", instanceID)
-	if err := os.Remove(swayConfigPath); err != nil {
-		log.Warn().Err(err).Str("config_path", swayConfigPath).Msg("Failed to remove Sway config file")
-	} else {
-		log.Info().Str("config_path", swayConfigPath).Msg("Removed Sway config file")
-	}
-
-	// Delete from database
-	err = w.store.DeletePersonalDevEnvironment(ctx, instanceID)
-	if err != nil {
-		log.Error().Err(err).Str("instance_id", instanceID).Msg("Failed to delete personal dev environment from database")
-		return fmt.Errorf("failed to delete environment from database: %w", err)
-	}
-
-	log.Info().Str("instance_id", instanceID).Msg("Personal dev environment stopped and cleaned up successfully")
-
-	return nil
-}
-
-// GetPersonalDevEnvironment returns a specific personal dev environment for a user
-func (w *WolfExecutor) GetPersonalDevEnvironment(ctx context.Context, userID, environmentID string) (*ZedInstanceInfo, error) {
-	// Read from database
-	pde, err := w.store.GetPersonalDevEnvironment(ctx, environmentID)
-	if err != nil {
-		return nil, fmt.Errorf("environment not found: %s", environmentID)
-	}
-
-	// Check access
-	if pde.UserID != userID {
-		return nil, fmt.Errorf("access denied: environment belongs to different user")
-	}
-
-	// Convert to ZedInstanceInfo for backward compatibility
-	instance := &ZedInstanceInfo{
-		InstanceID:      pde.ID,
-		SpecTaskID:      "",
-		UserID:          pde.UserID,
-		AppID:           pde.WolfAppID,
-		InstanceType:    "personal_dev",
-		Status:          pde.Status,
-		CreatedAt:       pde.Created,
-		LastActivity:    pde.LastActivity,
-		ProjectPath:     fmt.Sprintf("/workspace/%s", pde.EnvironmentName),
-		ThreadCount:     1,
-		IsPersonalEnv:   true,
-		EnvironmentName: pde.EnvironmentName,
-		ConfiguredTools: []string{},
-		DataSources:     []string{},
-		StreamURL:       pde.StreamURL,
-		WolfSessionID:   pde.WolfSessionID,
-		DisplayWidth:    pde.DisplayWidth,
-		DisplayHeight:   pde.DisplayHeight,
-		DisplayFPS:      pde.DisplayFPS,
-		ContainerName:   pde.ContainerName,
-		VNCPort:         pde.VNCPort,
-	}
-
-	return instance, nil
-}
-
-// ReconcilePersonalDevEnvironments cleans up orphaned configuration files
-func (w *WolfExecutor) ReconcilePersonalDevEnvironments(ctx context.Context) error {
-	w.mutex.Lock()
-	defer w.mutex.Unlock()
-
-	log.Info().Msg("Starting personal dev environment reconciliation (Wolf apps + config cleanup)")
-
-	// Step 1: Reconcile Wolf apps against Helix instances
-	err := w.reconcileWolfApps(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to reconcile Wolf apps")
-		// Continue with config cleanup even if Wolf reconciliation fails
-	}
-
-	// Clean up orphaned Sway config files
-	orphanedConfigs := 0
-	configPattern := "/tmp/sway-config-personal-dev-*"
-	configFiles, err := filepath.Glob(configPattern)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to find Sway config files for cleanup")
-	} else {
-		for _, configFile := range configFiles {
-			// Extract instance ID from config filename
-			basename := filepath.Base(configFile)
-			instanceID := strings.TrimPrefix(basename, "sway-config-")
-
-			// Check if this instance exists in database
-			_, dbErr := w.store.GetPersonalDevEnvironment(ctx, instanceID)
-			if dbErr != nil {
-				// Instance not found in database, config is orphaned
-				log.Info().
-					Str("config_file", configFile).
-					Str("instance_id", instanceID).
-					Msg("Found orphaned Sway config file, removing")
-
-				err = os.Remove(configFile)
-				if err != nil {
-					log.Error().Err(err).Str("config_file", configFile).Msg("Failed to remove orphaned Sway config")
-				} else {
-					orphanedConfigs++
-				}
-			}
-		}
-	}
-
-	log.Info().
-		Int("orphaned_configs", orphanedConfigs).
-		Msg("Personal dev environment reconciliation completed")
-
-	return nil
-}
-
-// createWorkspaceDirectory creates a persistent workspace directory for an instance
-func (w *WolfExecutor) createWorkspaceDirectory(instanceID string) (string, error) {
-	workspaceDir := filepath.Join(w.workspaceBasePath, instanceID)
-
-	// Create the workspace directory
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create workspace directory: %w", err)
-	}
-
-	// Create a startup script template
-	startupScriptPath := filepath.Join(workspaceDir, "startup.sh")
-	if _, err := os.Stat(startupScriptPath); os.IsNotExist(err) {
-		startupScript := `#!/bin/bash
-# Personal Development Environment Startup Script
-# This script runs when your dev environment starts up
-# You can add commands here to install packages, configure tools, etc.
-
-echo "Starting up personal dev environment: ` + instanceID + `"
-
-# Ensure workspace directory has correct permissions
-sudo chown -R retro:retro ~/work
-
-# Install JupyterLab and OnlyOffice
-echo "Installing JupyterLab and OnlyOffice..."
-sudo apt update
-sudo apt install -y python3-pip
-pip3 install jupyterlab
-
-# Install OnlyOffice
-sudo apt install -y snapd
-sudo snap install onlyoffice-desktopeditors
-
-# Example: Configure git
-# git config --global user.name "Your Name"
-# git config --global user.email "your.email@example.com"
-
-# Example: Install development tools
-# curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-# sudo apt install -y nodejs
-
-echo "Startup script completed!"
-echo "JupyterLab can be started with: jupyter lab --ip=0.0.0.0 --allow-root"
-echo "OnlyOffice is available in applications menu"
-`
-		if err := os.WriteFile(startupScriptPath, []byte(startupScript), 0755); err != nil {
-			return "", fmt.Errorf("failed to create startup script: %w", err)
-		}
-	}
-
-	// Copy the welcome README for users to see when they open Zed
-	welcomeReadmePath := filepath.Join(workspaceDir, "README.md")
-	log.Info().
-		Str("workspace_dir", workspaceDir).
-		Str("readme_path", welcomeReadmePath).
-		Msg("Checking if welcome README needs to be created")
-
-	if _, err := os.Stat(welcomeReadmePath); os.IsNotExist(err) {
-		log.Info().Msg("README does not exist, creating from template")
-		// Read the template README
-		templatePath := "/opt/helix/WORKDIR_README.md"
-		welcomeContent, err := os.ReadFile(templatePath)
-		if err != nil {
-			log.Error().Err(err).Str("template_path", templatePath).Msg("Failed to read README template")
-			return "", fmt.Errorf("failed to read README template at %s: %w", templatePath, err)
-		}
-		if err := os.WriteFile(welcomeReadmePath, welcomeContent, 0644); err != nil {
-			log.Error().Err(err).Str("path", welcomeReadmePath).Msg("Failed to write welcome README")
-			return "", fmt.Errorf("failed to create welcome README: %w", err)
-		}
-		log.Info().Str("path", welcomeReadmePath).Msg("Successfully created welcome README")
-	} else if err != nil {
-		log.Warn().Err(err).Str("path", welcomeReadmePath).Msg("Error checking if README exists")
-	} else {
-		log.Info().Str("path", welcomeReadmePath).Msg("README already exists, skipping creation")
-	}
-
-	return workspaceDir, nil
-}
-
-// createSwayConfig creates a Sway compositor configuration for the personal dev environment
 func (w *WolfExecutor) createSwayConfig(instanceID string) error {
 	swayConfigPath := fmt.Sprintf("/tmp/sway-config-%s", instanceID)
 
@@ -1261,300 +1214,12 @@ input * {
 
 // reconcileWolfApps ensures Wolf has lobbies for all running personal dev environments
 // and removes orphaned Wolf lobbies that no longer have corresponding Helix instances
-func (w *WolfExecutor) reconcileWolfApps(ctx context.Context) error {
-	log.Info().Msg("Reconciling Wolf lobbies against Helix personal dev environments")
-
-	// Step 1: Build a set of expected lobby IDs from database
-	// List ALL personal dev environments (across all users) for reconciliation
-	allPDEs, err := w.store.ListPersonalDevEnvironments(ctx, "") // Empty userID = all users
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to list personal dev environments from database for reconciliation")
-		return fmt.Errorf("failed to list personal dev environments: %w", err)
-	}
-
-	expectedLobbyIDs := make(map[string]bool)
-	pdeByLobbyID := make(map[string]*types.PersonalDevEnvironment)
-	for _, pde := range allPDEs {
-		if pde.Status != "running" && pde.Status != "starting" {
-			continue // Skip stopped environments
-		}
-		if pde.WolfLobbyID != "" {
-			expectedLobbyIDs[pde.WolfLobbyID] = true
-			pdeByLobbyID[pde.WolfLobbyID] = pde
-		}
-	}
-
-	// Step 2: Get all Wolf lobbies and delete orphaned ones
-	wolfLobbies, err := w.wolfClient.ListLobbies(ctx)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to list Wolf lobbies for reconciliation")
-		// Continue with creating missing lobbies even if we couldn't clean up orphaned ones
-	} else {
-		deletedCount := 0
-		for _, lobby := range wolfLobbies {
-			// Reconcile Personal Dev Environments (database-backed, long-lived)
-			if strings.HasPrefix(lobby.Name, "PDE:") {
-				// Check if this lobby ID is expected
-				if !expectedLobbyIDs[lobby.ID] {
-					log.Info().
-						Str("lobby_id", lobby.ID).
-						Str("lobby_name", lobby.Name).
-						Msg("Found orphaned PDE Wolf lobby, stopping")
-
-					stopReq := &wolf.StopLobbyRequest{
-						LobbyID: lobby.ID,
-						// No PIN needed - we created these lobbies
-					}
-					err := w.wolfClient.StopLobby(ctx, stopReq)
-					if err != nil {
-						log.Error().
-							Err(err).
-							Str("lobby_id", lobby.ID).
-							Msg("Failed to stop orphaned PDE Wolf lobby")
-					} else {
-						deletedCount++
-					}
-				}
-			}
-
-			// Reconcile External Agent sessions (ephemeral, in-memory tracked)
-			// These don't have database persistence, so check against in-memory sessions map
-			if strings.HasPrefix(lobby.Name, "Agent") {
-				// Check if this lobby ID is tracked in memory
-				lobbyTracked := false
-				for _, session := range w.sessions {
-					if session.WolfLobbyID == lobby.ID {
-						lobbyTracked = true
-						break
-					}
-				}
-
-				if !lobbyTracked {
-					log.Info().
-						Str("lobby_id", lobby.ID).
-						Str("lobby_name", lobby.Name).
-						Msg("Found orphaned external agent Wolf lobby, stopping")
-
-					// Extract session ID from lobby runner environment to look up PIN
-					var sessionID string
-					if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
-						if envList, ok := runnerMap["env"].([]interface{}); ok {
-							for _, envItem := range envList {
-								if envStr, ok := envItem.(string); ok {
-									if strings.HasPrefix(envStr, "HELIX_SESSION_ID=") {
-										sessionID = strings.TrimPrefix(envStr, "HELIX_SESSION_ID=")
-										break
-									}
-								}
-							}
-						}
-					}
-
-					// Look up session from database to get PIN
-					var lobbyPIN []int16
-					if sessionID != "" {
-						helixSession, err := w.store.GetSession(ctx, sessionID)
-						if err == nil && helixSession.Metadata.WolfLobbyPIN != "" {
-							// Convert PIN string to []int16
-							for _, r := range helixSession.Metadata.WolfLobbyPIN {
-								lobbyPIN = append(lobbyPIN, int16(r-'0'))
-							}
-							log.Info().
-								Str("lobby_id", lobby.ID).
-								Str("session_id", sessionID).
-								Msg("Retrieved lobby PIN from session metadata for cleanup")
-						} else {
-							log.Warn().
-								Str("lobby_id", lobby.ID).
-								Str("session_id", sessionID).
-								Msg("Could not retrieve PIN for orphaned lobby - cleanup may fail")
-						}
-					}
-
-					stopReq := &wolf.StopLobbyRequest{
-						LobbyID: lobby.ID,
-						PIN:     lobbyPIN,
-					}
-					err := w.wolfClient.StopLobby(ctx, stopReq)
-					if err != nil {
-						log.Error().
-							Err(err).
-							Str("lobby_id", lobby.ID).
-							Msg("Failed to stop orphaned external agent Wolf lobby")
-					} else {
-						deletedCount++
-					}
-				}
-			}
-		}
-		if deletedCount > 0 {
-			log.Info().Int("deleted_count", deletedCount).Msg("Deleted orphaned Wolf lobbies")
-		}
-	}
-
-	// Step 3: Check each PDE individually and try to recreate lobbies as needed
-	reconciledCount := 0
-	recreatedCount := 0
-
-	for _, pde := range allPDEs {
-		if pde.Status != "running" && pde.Status != "starting" {
-			continue // Skip stopped environments
-		}
-
-		// Check if lobby exists for this PDE
-		if pde.WolfLobbyID == "" {
-			// Old PDE without lobby ID - skip (migration complete, no upgrade path needed)
-			log.Debug().
-				Str("instance_id", pde.ID).
-				Msg("PDE has no lobby ID - skipping")
-			continue
-		}
-
-		log.Info().
-			Str("instance_id", pde.ID).
-			Str("wolf_lobby_id", pde.WolfLobbyID).
-			Str("status", pde.Status).
-			Msg("Checking if Wolf lobby exists for personal dev environment")
-
-		// Check if lobby exists
-		lobbyExists := false
-		for _, lobby := range wolfLobbies {
-			if lobby.ID == pde.WolfLobbyID {
-				lobbyExists = true
-				break
-			}
-		}
-
-		if lobbyExists {
-			log.Debug().
-				Str("instance_id", pde.ID).
-				Str("wolf_lobby_id", pde.WolfLobbyID).
-				Msg("Wolf lobby already exists, skipping recreation")
-			continue // Lobby exists, no need to recreate
-		}
-
-		log.Info().
-			Str("instance_id", pde.ID).
-			Str("wolf_lobby_id", pde.WolfLobbyID).
-			Msg("Wolf lobby missing, recreating")
-
-		// Recreate the lobby for this PDE
-		err := w.recreateLobbyForPDE(ctx, pde)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("instance_id", pde.ID).
-				Msg("Failed to recreate Wolf lobby for personal dev environment")
-			// Mark instance as stopped in database since lobby creation failed
-			pde.Status = "stopped"
-			w.store.UpdatePersonalDevEnvironment(ctx, pde)
-		} else {
-			log.Info().
-				Str("instance_id", pde.ID).
-				Msg("Successfully recreated Wolf lobby for personal dev environment")
-			recreatedCount++
-		}
-		reconciledCount++
-	}
-
-	log.Info().
-		Int("reconciled_count", reconciledCount).
-		Int("recreated_count", recreatedCount).
-		Msg("Completed Wolf lobby reconciliation")
-
-	return nil
-}
-
-// recreateLobbyForPDE recreates a Wolf lobby for a crashed/missing PDE
-func (w *WolfExecutor) recreateLobbyForPDE(ctx context.Context, pde *types.PersonalDevEnvironment) error {
-	log.Info().
-		Str("instance_id", pde.ID).
-		Str("environment_name", pde.EnvironmentName).
-		Msg("Recreating Wolf lobby for PDE")
-
-	// Get workspace directory
-	workspaceDir := filepath.Join(w.workspaceBasePath, pde.ID)
-
-	// Recreate Sway config
-	err := w.createSwayConfig(pde.ID)
-	if err != nil {
-		return fmt.Errorf("failed to create Sway config: %w", err)
-	}
-
-	// Generate wolf app ID and container name
-	wolfAppID := w.generateWolfAppID(pde.UserID, pde.EnvironmentName)
-	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
-
-	// Generate new PIN since we don't have the old one
-	lobbyPIN, lobbyPINString := generateLobbyPIN()
-
-	// Create lobby request
-	lobbyReq := &wolf.CreateLobbyRequest{
-		ProfileID:              "helix-sessions",
-		Name:                   fmt.Sprintf("PDE: %s", pde.EnvironmentName),
-		MultiUser:              true,
-		StopWhenEveryoneLeaves: false,
-		PIN:                    lobbyPIN,
-		VideoSettings: &wolf.LobbyVideoSettings{
-			Width:                   pde.DisplayWidth,
-			Height:                  pde.DisplayHeight,
-			RefreshRate:             pde.DisplayFPS,
-			WaylandRenderNode:       "/dev/dri/renderD128",
-			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw",
-		},
-		AudioSettings: &wolf.LobbyAudioSettings{
-			ChannelCount: 2,
-		},
-		RunnerStateFolder: filepath.Join("/wolf-state", pde.ID),
-		Runner: w.createSwayWolfApp(SwayWolfAppConfig{
-			WolfAppID:         wolfAppID,
-			Title:             fmt.Sprintf("Personal Dev Environment %s", pde.EnvironmentName),
-			ContainerHostname: containerHostname,
-			UserID:            pde.UserID,
-			SessionID:         pde.ID, // Use PDE ID as session ID for settings sync
-			WorkspaceDir:      workspaceDir,
-			ExtraEnv:          []string{"HELIX_STARTUP_SCRIPT=/home/retro/work/startup.sh"},
-			DisplayWidth:      pde.DisplayWidth,
-			DisplayHeight:     pde.DisplayHeight,
-			DisplayFPS:        pde.DisplayFPS,
-		}).Runner,
-	}
-
-	// Create the lobby
-	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
-	if err != nil {
-		return fmt.Errorf("failed to create lobby: %w", err)
-	}
-
-	// Update PDE with new lobby ID and PIN
-	pde.WolfLobbyID = lobbyResp.LobbyID
-	pde.WolfLobbyPIN = lobbyPINString
-	pde.Status = "running"
-
-	_, err = w.store.UpdatePersonalDevEnvironment(ctx, pde)
-	if err != nil {
-		// Lobby was created but we couldn't update database - log warning
-		log.Error().Err(err).Str("instance_id", pde.ID).Msg("Created lobby but failed to update PDE record")
-		return fmt.Errorf("failed to update PDE with new lobby ID: %w", err)
-	}
-
-	log.Info().
-		Str("instance_id", pde.ID).
-		Str("lobby_id", lobbyResp.LobbyID).
-		Str("lobby_pin", lobbyPINString).
-		Msg("Successfully recreated lobby for PDE")
-
-	return nil
-}
-
-// recreateWolfAppForInstance recreates a Wolf app for an existing personal dev environment instance
 func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance *ZedInstanceInfo) error {
 	// Use consistent ID generation
 	wolfAppID := w.generateWolfAppID(instance.UserID, instance.EnvironmentName)
 
 	// Get workspace directory (should already exist)
-	workspaceDir := filepath.Join(w.workspaceBasePath, instance.InstanceID)
+	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
 
 	// Create Wolf app using the same Sway configuration as the main creation function
 	env := []string{
@@ -1711,335 +1376,77 @@ func validateDisplayParams(width, height, fps int) error {
 // FindContainerBySessionID finds an external agent container by its Helix session ID
 // Returns the container hostname (DNS name) for connecting to screenshot server
 func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessionID string) (string, error) {
+	// Try in-memory cache first (fast path)
 	w.mutex.RLock()
-	defer w.mutex.RUnlock()
-
-	// External agent sessions are keyed by agent session ID, but we need to find by Helix session ID
-	// Search through all sessions to find the one with matching HelixSessionID
 	for agentSessionID, session := range w.sessions {
 		if session.HelixSessionID == helixSessionID {
-			log.Info().
+			log.Debug().
 				Str("helix_session_id", helixSessionID).
 				Str("agent_session_id", agentSessionID).
 				Str("container_hostname", session.ContainerName).
-				Msg("Found external agent container by Helix session ID")
+				Msg("Found external agent container by Helix session ID (in-memory cache)")
+			w.mutex.RUnlock()
 			return session.ContainerName, nil
+		}
+	}
+	w.mutex.RUnlock()
+
+	// In-memory cache miss - query Wolf lobbies to find container
+	// This handles API restarts where in-memory map is cleared but containers are still running
+	log.Trace().
+		Str("helix_session_id", helixSessionID).
+		Msg("Session not in memory, querying Wolf lobbies for container")
+
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
+	}
+
+	// Search for lobby with matching HELIX_SESSION_ID in env vars
+	for _, lobby := range lobbies {
+		if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+			if envList, ok := runnerMap["env"].([]interface{}); ok {
+				for _, envVar := range envList {
+					if envStr, ok := envVar.(string); ok {
+						// Check for HELIX_SESSION_ID=<session_id>
+						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", helixSessionID)
+						if envStr == expectedEnv {
+							// Found lobby - extract container hostname
+							// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+							sessionIDPart := strings.TrimPrefix(helixSessionID, "ses_")
+							containerHostname := fmt.Sprintf("zed-external-%s", sessionIDPart)
+
+							log.Trace().
+								Str("helix_session_id", helixSessionID).
+								Str("lobby_id", lobby.ID).
+								Str("container_hostname", containerHostname).
+								Msg("Found external agent container by querying Wolf lobbies")
+
+							return containerHostname, nil
+						}
+					}
+				}
+			}
 		}
 	}
 
 	log.Error().
 		Str("helix_session_id", helixSessionID).
-		Int("total_sessions", len(w.sessions)).
-		Msg("No external agent session found with this Helix session ID")
+		Int("lobbies_checked", len(lobbies)).
+		Msg("No external agent container found for this Helix session ID")
 
-	return "", fmt.Errorf("no external agent session found with Helix session ID: %s", helixSessionID)
+	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
 }
 
-// startKeepaliveSession starts a headless Moonlight session to keep the lobby alive
-// This prevents the stale buffer crash that occurs when all clients disconnect and someone rejoins
-func (w *WolfExecutor) startKeepaliveSession(ctx context.Context, sessionID, lobbyID, lobbyPIN string) {
-	log.Info().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Msg("Starting keepalive session for lobby")
-
-	// Update session status to starting
-	w.mutex.Lock()
-	session, exists := w.sessions[sessionID]
-	if !exists {
-		w.mutex.Unlock()
-		log.Error().Str("session_id", sessionID).Msg("Session not found when starting keepalive")
-		return
-	}
-	now := time.Now()
-	session.KeepaliveStatus = "starting"
-	session.KeepaliveStartTime = &now
-	w.mutex.Unlock()
-
-	// Retry configuration
-	maxRetries := 5
-	retryDelay := 5 * time.Second
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			log.Info().
-				Str("session_id", sessionID).
-				Int("attempt", attempt+1).
-				Int("max_retries", maxRetries).
-				Msg("Retrying keepalive connection")
-
-			w.mutex.Lock()
-			if session, exists := w.sessions[sessionID]; exists {
-				session.KeepaliveStatus = "reconnecting"
-			}
-			w.mutex.Unlock()
-
-			time.Sleep(retryDelay)
-		}
-
-		// Attempt connection
-		err := w.connectKeepaliveWebSocket(ctx, sessionID, lobbyID, lobbyPIN)
-		if err == nil {
-			// Success - WebSocket is running
-			return
-		}
-
-		log.Error().
-			Err(err).
-			Str("session_id", sessionID).
-			Int("attempt", attempt+1).
-			Msg("Keepalive connection failed")
-
-		// Store the error for the last attempt
-		if attempt == maxRetries-1 {
-			w.mutex.Lock()
-			if session, exists := w.sessions[sessionID]; exists {
-				session.KeepaliveError = err.Error()
-			}
-			w.mutex.Unlock()
-		}
-	}
-
-	// All retries exhausted
-	log.Error().
-		Str("session_id", sessionID).
-		Str("lobby_id", lobbyID).
-		Msg("Keepalive session failed after all retries")
-
-	w.mutex.Lock()
-	if session, exists := w.sessions[sessionID]; exists {
-		session.KeepaliveStatus = "failed"
-		checkTime := time.Now()
-		session.KeepaliveLastCheck = &checkTime
-		// KeepaliveError already set in the retry loop
-	}
-	w.mutex.Unlock()
-}
-
-// connectKeepaliveWebSocket establishes WebSocket connection to moonlight-web
-func (w *WolfExecutor) connectKeepaliveWebSocket(ctx context.Context, sessionID, lobbyID, lobbyPIN string) error {
-	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
-	if moonlightWebURL == "" {
-		moonlightWebURL = "http://moonlight-web:8080" // Default internal URL
-	}
-
-	// Build WebSocket URL (moonlight-web expects /api/host/stream endpoint)
-	wsURL := strings.Replace(moonlightWebURL, "http://", "ws://", 1) + "/api/host/stream"
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("ws_url", wsURL).
-		Str("lobby_id", lobbyID).
-		Msg("Connecting keepalive WebSocket to moonlight-web")
-
-	// Connect WebSocket
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
-	}
-
-	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to connect WebSocket: %w", err)
-	}
-	defer conn.Close()
-
-	// Set up ping/pong handler to keep connection alive and update timestamp
-	// This ensures KeepaliveLastCheck is updated even if no data messages are received
-	conn.SetPongHandler(func(appData string) error {
-		log.Debug().
-			Str("session_id", sessionID).
-			Msg("Keepalive received pong, updating timestamp")
-
-		w.mutex.Lock()
-		if session, exists := w.sessions[sessionID]; exists {
-			checkTime := time.Now()
-			session.KeepaliveLastCheck = &checkTime
-			log.Debug().
-				Str("session_id", sessionID).
-				Time("last_check", checkTime).
-				Msg("Updated KeepaliveLastCheck via pong handler")
-		}
-		w.mutex.Unlock()
-		return nil
-	})
-
-	// NEW: With moonlight-web session persistence, we no longer need Wolf UI app
-	// Just connect with keepalive mode and the session will persist without WebRTC peer
-
-	// Look up the Wolf app ID for this lobby by extracting from session
-	// For external agents created in lobby mode, they have a dedicated Wolf app per lobby
-	w.mutex.RLock()
-	_, sessionExists := w.sessions[sessionID]
-	w.mutex.RUnlock()
-
-	if !sessionExists {
-		return fmt.Errorf("session not found when starting keepalive")
-	}
-
-	// Get the Wolf apps to find the app for this lobby
-	apps, err := w.wolfClient.ListApps(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list Wolf apps: %w", err)
-	}
-
-	// Find app by matching container name prefix
-	var wolfAppID uint32
-	sessionIDSuffix := sessionID[len(sessionID)-4:] // Last 4 chars
-	for _, app := range apps {
-		if strings.Contains(app.Title, sessionIDSuffix) {
-			// Parse app ID as uint32
-			fmt.Sscanf(app.ID, "%d", &wolfAppID)
-			log.Info().
-				Str("wolf_app_id", app.ID).
-				Str("app_title", app.Title).
-				Msg("Found Wolf app for keepalive session")
-			break
-		}
-	}
-
-	if wolfAppID == 0 {
-		return fmt.Errorf("Wolf app not found for session %s", sessionID)
-	}
-
-	// Send AuthenticateAndInit message with session persistence
-	// mode=keepalive: creates session without WebRTC peer (headless)
-	authMsg := map[string]interface{}{
-		"AuthenticateAndInit": map[string]interface{}{
-			"credentials":                "helix",                          // From moonlight-web config
-			"session_id":                 fmt.Sprintf("agent-%s", sessionID), // NEW: persistent session ID
-			"mode":                       "keepalive",                      // NEW: keepalive mode (no WebRTC)
-			"host_id":                    0,                                // Local Wolf instance
-			"app_id":                     wolfAppID,                        // Connect to lobby's Wolf app
-			"bitrate":                    5000,                             // Minimal bitrate for keepalive
-			"packet_size":                1024,
-			"fps":                        30,
-			"width":                      1280,
-			"height":                     720,
-			"video_sample_queue_size":    10,
-			"play_audio_local":           false,
-			"audio_sample_queue_size":    10,
-			"video_supported_formats":    1,     // H264 only
-			"video_colorspace":           "Rec709", // String format for new API
-			"video_color_range_full":     false,
-		},
-	}
-
-	authJSON, err := json.Marshal(authMsg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal auth message: %w", err)
-	}
-
-	if err := conn.WriteMessage(websocket.TextMessage, authJSON); err != nil {
-		return fmt.Errorf("failed to send auth message: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Msg("Sent keepalive auth message to moonlight-web with session persistence")
-
-	// NEW: With session persistence, moonlight-web handles the streamer lifecycle
-	// In keepalive mode, it will:
-	// 1. Create streamer if session doesn't exist
-	// 2. Close WebSocket immediately (we don't need WebRTC for keepalive)
-	// 3. Keep streamer running to Wolf without any WebRTC peer
-	// 4. Discard frames without sending anywhere
-	// This is MUCH simpler than the old lobby join logic!
-
-	// Wait for stream initialization or error messages
-	maxWaitTime := 10 * time.Second
-	startTime := time.Now()
-	connected := false
-
-	for time.Since(startTime) < maxWaitTime {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			// Timeout is expected - moonlight-web closes WebSocket in keepalive mode
-			if err.Error() == "i/o timeout" {
-				// Check if enough time passed for session creation
-				if time.Since(startTime) > 3*time.Second {
-					log.Info().
-						Str("session_id", sessionID).
-						Msg("Keepalive WebSocket closed as expected - session running headless")
-					connected = true
-					break
-				}
-				continue
-			}
-			// WebSocket closed normally
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Info().
-					Str("session_id", sessionID).
-					Msg("Keepalive WebSocket closed normally - session persisting")
-				connected = true
-				break
-			}
-			return fmt.Errorf("WebSocket error: %w", err)
-		}
-
-		// Parse server message
-		var serverMsg map[string]interface{}
-		if err := json.Unmarshal(message, &serverMsg); err != nil {
-			log.Debug().
-				Str("session_id", sessionID).
-				Str("raw_message", string(message)).
-				Msg("Received non-JSON message")
-			continue
-		}
-
-		log.Debug().
-			Str("session_id", sessionID).
-			Interface("message", serverMsg).
-			Msg("Received initialization message")
-
-		// Check for error messages
-		if msgType, ok := serverMsg["type"].(string); ok {
-			if msgType == "HostNotFound" || msgType == "HostNotPaired" || msgType == "InternalServerError" {
-				return fmt.Errorf("moonlight-web error: %s", msgType)
-			}
-			if msgType == "ConnectionComplete" {
-				log.Info().
-					Str("session_id", sessionID).
-					Msg("Keepalive stream connected successfully")
-				connected = true
-				// Keep reading until WebSocket closes
-			}
-		}
-	}
-
-	if !connected {
-		return fmt.Errorf("keepalive session failed to initialize within timeout")
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Msg("Keepalive session established - running headless in moonlight-web")
-
-	// Update status to active
-	// NEW: With session persistence, we don't need to keep the WebSocket open!
-	// The session persists in moonlight-web and the streamer runs headless
-	w.mutex.Lock()
-	if session, exists := w.sessions[sessionID]; exists {
-		session.KeepaliveStatus = "active"
-		checkTime := time.Now()
-		session.KeepaliveLastCheck = &checkTime
-	}
-	w.mutex.Unlock()
-
-	log.Info().
-		Str("session_id", sessionID).
-		Msg("Keepalive session fully established - streamer running headless in moonlight-web")
-
-	return nil
-}
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
-// Terminates external agents after 30min of inactivity across ALL sessions
+// Terminates external agents after 1min of inactivity (for testing, will be 30min in production)
+// Timeout is database-based (checks LastInteraction timestamp), so it survives API restarts
 func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute) // Check every 5 minutes
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds for faster cleanup in dev mode
 	defer ticker.Stop()
 
-	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout)")
+	log.Info().Msg("Starting idle external agent cleanup loop (30min timeout, checks every 30s)")
 
 	for {
 		select {
@@ -2055,10 +1462,10 @@ func (w *WolfExecutor) idleExternalAgentCleanupLoop(ctx context.Context) {
 
 // cleanupIdleExternalAgents terminates external agents that have been idle for >30min
 func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
-	cutoff := time.Now().Add(-30 * time.Minute)
+	cutoff := time.Now().Add(-30 * time.Minute) // 30 minute idle threshold
 
-	// Get idle external agents (not individual sessions - entire agents)
-	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask"})
+	// Get idle external agents (SpecTask, exploratory, and regular agent sessions)
+	idleAgents, err := w.store.GetIdleExternalAgents(ctx, cutoff, []string{"spectask", "exploratory", "agent"})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get idle external agents")
 		return
@@ -2071,26 +1478,86 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("count", len(idleAgents)).
 		Time("cutoff", cutoff).
-		Msg("Found idle SpecTask external agents to terminate")
+		Msg("Found idle external agents to terminate (SpecTask + exploratory)")
 
 	for _, activity := range idleAgents {
+		// NOTE: We previously checked for active Wolf streaming sessions here,
+		// but Wolf sessions persist even without browser connections.
+		// If the agent has been idle for 5 minutes (no Helix interactions),
+		// it should be terminated regardless of Wolf session state.
+		// The Wolf session will be cleaned up when the lobby is stopped.
+
 		log.Info().
 			Str("external_agent_id", activity.ExternalAgentID).
-			Str("spectask_id", activity.SpecTaskID).
+			Str("agent_type", activity.AgentType).
+			Str("spectask_id_or_project_id", activity.SpecTaskID).
 			Str("wolf_app_id", activity.WolfAppID).
 			Time("last_interaction", activity.LastInteraction).
 			Dur("idle_duration", time.Since(activity.LastInteraction)).
-			Msg("Terminating idle SpecTask external agent")
+			Msg("Terminating idle external agent (no active streaming sessions)")
 
-		// Stop Wolf app (terminates Zed container, frees GPU)
-		err := w.wolfClient.RemoveApp(ctx, activity.WolfAppID)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("wolf_app_id", activity.WolfAppID).
+		// Map external_agent_id to session ID based on agent type:
+		// - exploratory/agent: external_agent_id IS the Helix session ID
+		// - spectask: Need to look up session from SpecTaskExternalAgent record
+		sessionIDToStop := ""
+		if activity.AgentType == "exploratory" || activity.AgentType == "agent" {
+			sessionIDToStop = activity.ExternalAgentID // Session ID is the agent ID
+		} else if activity.AgentType == "spectask" {
+			// SpecTask: Look up which Helix session is associated with this agent
+			agent, err := w.store.GetSpecTaskExternalAgentByID(ctx, activity.ExternalAgentID)
+			if err == nil && len(agent.HelixSessionIDs) > 0 {
+				sessionIDToStop = agent.HelixSessionIDs[0] // Use first session
+			}
+		}
+
+		// Try to stop via StopZedAgent first (uses session database record including soft-deleted)
+		var stopError error
+		if sessionIDToStop != "" {
+			stopError = w.StopZedAgent(ctx, sessionIDToStop)
+		}
+
+		// If session not found (even in soft-deleted), use lobby ID/PIN from activity record
+		// This handles cleanup when sessions are hard-deleted or missing
+		if stopError != nil && strings.Contains(stopError.Error(), "not found in database") && activity.WolfLobbyID != "" {
+			log.Info().
 				Str("external_agent_id", activity.ExternalAgentID).
-				Msg("Failed to remove idle Wolf app")
-			// Continue with cleanup even if Wolf removal fails
+				Str("lobby_id", activity.WolfLobbyID).
+				Msg("Session deleted from database, stopping lobby using activity record credentials")
+
+			// Convert PIN string to []int16
+			var lobbyPIN []int16
+			if activity.WolfLobbyPIN != "" && len(activity.WolfLobbyPIN) == 4 {
+				lobbyPIN = make([]int16, 4)
+				for i, ch := range activity.WolfLobbyPIN {
+					lobbyPIN[i] = int16(ch - '0')
+				}
+			}
+
+			// Stop lobby directly using Wolf API
+			stopReq := &wolf.StopLobbyRequest{
+				LobbyID: activity.WolfLobbyID,
+				PIN:     lobbyPIN,
+			}
+			err := w.wolfClient.StopLobby(ctx, stopReq)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("lobby_id", activity.WolfLobbyID).
+					Str("external_agent_id", activity.ExternalAgentID).
+					Msg("Failed to stop Wolf lobby using activity record")
+				// Continue with cleanup anyway - record the failure but clean up activity
+			} else {
+				log.Info().
+					Str("lobby_id", activity.WolfLobbyID).
+					Str("external_agent_id", activity.ExternalAgentID).
+					Msg("✅ Wolf lobby stopped successfully using activity record")
+			}
+		} else if stopError != nil {
+			log.Error().
+				Err(stopError).
+				Str("session_id", sessionIDToStop).
+				Str("external_agent_id", activity.ExternalAgentID).
+				Msg("Failed to stop idle Zed agent")
 		}
 
 		// Update external agent status to terminated
@@ -2138,4 +1605,609 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 	log.Info().
 		Int("terminated_count", len(idleAgents)).
 		Msg("Completed idle external agent cleanup")
+}
+
+// wolfResourceMonitoringLoop logs Wolf resource metrics every minute for observability
+func (w *WolfExecutor) wolfResourceMonitoringLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Minute) // Log every minute
+	defer ticker.Stop()
+
+	log.Info().Msg("Starting Wolf resource monitoring loop (logs metrics every 60s)")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Wolf resource monitoring loop stopped")
+			return
+
+		case <-ticker.C:
+			w.logWolfResourceMetrics(ctx)
+		}
+	}
+}
+
+// logWolfResourceMetrics logs detailed Wolf resource usage for trend analysis
+func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
+	memory, err := w.wolfClient.GetSystemMemory(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get Wolf memory stats for monitoring")
+		return
+	}
+
+	// Log overall Wolf metrics
+	log.Info().
+		Int64("wolf_process_rss_mb", memory.ProcessRSSBytes/(1024*1024)).
+		Int64("wolf_gstreamer_buffer_mb", memory.GStreamerBufferBytes/(1024*1024)).
+		Int64("wolf_total_memory_mb", memory.TotalMemoryBytes/(1024*1024)).
+		Int("active_apps", len(memory.Apps)).
+		Int("active_lobbies", len(memory.Lobbies)).
+		Int("active_clients", len(memory.Clients)).
+		Msg("📊 Wolf Resource Monitoring")
+
+	// Log GPU metrics if available
+	if memory.GPUStats != nil {
+		log.Info().
+			Str("gpu_name", memory.GPUStats.GPUName).
+			Int("encoder_sessions", memory.GPUStats.EncoderSessionCount).
+			Float64("encoder_avg_fps", memory.GPUStats.EncoderAverageFPS).
+			Int("encoder_latency_us", memory.GPUStats.EncoderAverageLatencyUs).
+			Int("encoder_utilization_pct", memory.GPUStats.EncoderUtilizationPercent).
+			Int("gpu_utilization_pct", memory.GPUStats.GPUUtilizationPercent).
+			Int("memory_utilization_pct", memory.GPUStats.MemoryUtilizationPercent).
+			Int("memory_used_mb", memory.GPUStats.MemoryUsedMB).
+			Int("memory_total_mb", memory.GPUStats.MemoryTotalMB).
+			Int("temperature_c", memory.GPUStats.TemperatureCelsius).
+			Msg("🎮 GPU Metrics")
+
+		// Track if we've ever seen valid GPU stats (to distinguish NVIDIA vs non-NVIDIA systems)
+		if memory.GPUStats.GPUName != "" && memory.GPUStats.MemoryTotalMB > 0 {
+			w.gpuStatsMutex.Lock()
+			w.hasSeenValidGPUStats = true
+			w.gpuStatsMutex.Unlock()
+		}
+
+		// CRITICAL: Detect when GPU monitoring is broken (nvidia-smi failure)
+		// Only log scary error if we've previously seen valid GPU stats (NVIDIA system)
+		// This avoids false alarms on AMD/Intel GPU or CPU-only systems
+		if memory.GPUStats.GPUName == "" || memory.GPUStats.MemoryTotalMB == 0 {
+			w.gpuStatsMutex.RLock()
+			hasSeenValid := w.hasSeenValidGPUStats
+			w.gpuStatsMutex.RUnlock()
+
+			if hasSeenValid {
+				// GPU monitoring was working before but now broken - CRITICAL ALERT!
+				log.Error().
+					Int("active_lobbies", len(memory.Lobbies)).
+					Msg("⚠️ GPU MONITORING FAILED - nvidia-smi stopped working! NVML may be exhausted. Approaching resource limits!")
+			} else {
+				// Never seen valid GPU stats - probably non-NVIDIA system, no alert needed
+				log.Debug().Msg("GPU stats not available (likely non-NVIDIA system)")
+			}
+		}
+	} else {
+		log.Debug().Msg("GPU stats not available from Wolf")
+	}
+
+	// Log GStreamer pipeline stats if available
+	if memory.GStreamerPipelines != nil {
+		log.Info().
+			Int("producer_pipelines", memory.GStreamerPipelines.ProducerPipelines).
+			Int("consumer_pipelines", memory.GStreamerPipelines.ConsumerPipelines).
+			Int("total_pipelines", memory.GStreamerPipelines.TotalPipelines).
+			Msg("🎬 GStreamer Pipelines")
+	}
+
+	// Log per-lobby breakdown if we have lobbies
+	if len(memory.Lobbies) > 0 {
+		for _, lobby := range memory.Lobbies {
+			log.Debug().
+				Str("lobby_id", lobby.LobbyID).
+				Str("lobby_name", lobby.LobbyName).
+				Int("client_count", lobby.ClientCount).
+				Int64("memory_bytes", lobby.MemoryBytes).
+				Msg("🏛️ Lobby details")
+		}
+	}
+}
+
+// cleanupOrphanedWolfUISessionsLoop runs periodically to cleanup Wolf-UI streaming sessions
+// that don't have a corresponding active Zed container (orphaned after crashes, etc.)
+func (w *WolfExecutor) cleanupOrphanedWolfUISessionsLoop(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Minute) // Check every 2 minutes
+	defer ticker.Stop()
+
+	log.Info().Msg("Starting orphaned Wolf-UI session cleanup loop (checks every 2 minutes)")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Orphaned Wolf-UI cleanup loop context canceled")
+			return
+		case <-ticker.C:
+			w.cleanupOrphanedWolfUISessions(ctx)
+		}
+	}
+}
+
+// FindExistingLobbyForSession checks if a lobby already exists for this Helix session
+// Returns lobby ID if found, empty string if not found
+// This prevents creating duplicate lobbies when resume endpoint is called multiple times
+// PUBLIC: Used by both StartZedAgent and getSessionWolfAppState
+func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionID string) (string, error) {
+	// Check cache first (prevents Wolf API spam from dashboard polling)
+	w.lobbyCacheMutex.RLock()
+	if entry, exists := w.lobbyCache[sessionID]; exists {
+		age := time.Since(entry.timestamp)
+		if age < w.lobbyCacheTTL {
+			w.lobbyCacheMutex.RUnlock()
+			// Cache hit - return cached lobby ID (no logging, too noisy)
+			return entry.lobbyID, nil
+		}
+	}
+	w.lobbyCacheMutex.RUnlock()
+
+	// Cache miss or expired - query Wolf (no logging, too noisy)
+
+	// Get all active lobbies from Wolf
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
+	}
+
+	var foundLobbyID string
+
+	// Search for lobby with matching HELIX_SESSION_ID in env vars
+	for _, lobby := range lobbies {
+		if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+			if envList, ok := runnerMap["env"].([]interface{}); ok {
+				for _, envVar := range envList {
+					if envStr, ok := envVar.(string); ok {
+						// Check for HELIX_SESSION_ID=<session_id>
+						expectedEnv := fmt.Sprintf("HELIX_SESSION_ID=%s", sessionID)
+						if envStr == expectedEnv {
+							log.Debug().
+								Str("lobby_id", lobby.ID).
+								Str("session_id", sessionID).
+								Msg("Found existing lobby for session")
+							foundLobbyID = lobby.ID
+							break
+						}
+					}
+				}
+			}
+		}
+		if foundLobbyID != "" {
+			break
+		}
+	}
+
+	// Cache the result (even if empty - prevents repeated queries for non-existent lobbies)
+	w.lobbyCacheMutex.Lock()
+	w.lobbyCache[sessionID] = &lobbyCacheEntry{
+		lobbyID:   foundLobbyID,
+		timestamp: time.Now(),
+	}
+	w.lobbyCacheMutex.Unlock()
+
+	return foundLobbyID, nil
+}
+
+// cleanupOrphanedWolfUISessions removes Wolf-UI streaming sessions without active Zed containers
+func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
+	// Get all Wolf-UI streaming sessions
+	sessions, err := w.wolfClient.ListSessions(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Wolf sessions for orphan cleanup")
+		return
+	}
+
+	if len(sessions) == 0 {
+		return // No sessions to check
+	}
+
+	// Get all active lobbies from Wolf to check for orphans
+	// CRITICAL: Use Wolf lobbies list, not in-memory map (survives API restarts)
+	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list Wolf lobbies for orphan cleanup")
+		return
+	}
+
+	// Build map of session IDs that have active lobbies
+	activeSessions := make(map[string]bool)
+	for _, lobby := range lobbies {
+		// Extract session ID from lobby name: "Agent {session_suffix}"
+		// Or check lobby's runner env vars for HELIX_SESSION_ID
+		// For now, build container name from lobby ID and check if it's in helix-agent pattern
+
+		// Lobbies are named like "Agent 4jqgmj" (last 6 chars of session ID)
+		// This is insufficient for exact matching, so we need a better approach
+
+		// Instead: Check if lobby's container is running by using lobby ID
+		// Container name format: zed-external-{session_id_without_ses_}_{lobby_id}
+		// We can't reverse-engineer session ID from this easily
+
+		// BETTER: Extract HELIX_SESSION_ID from lobby's runner env vars if available
+		if runnerMap, ok := lobby.Runner.(map[string]interface{}); ok {
+			if envList, ok := runnerMap["env"].([]interface{}); ok {
+				for _, envVar := range envList {
+					if envStr, ok := envVar.(string); ok {
+						if strings.HasPrefix(envStr, "HELIX_SESSION_ID=") {
+							sessionID := strings.TrimPrefix(envStr, "HELIX_SESSION_ID=")
+							activeSessions[sessionID] = true
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Int("total_sessions", len(sessions)).
+		Int("active_lobbies", len(lobbies)).
+		Int("tracked_sessions", len(activeSessions)).
+		Msg("Checking for orphaned Wolf-UI sessions")
+
+	stoppedCount := 0
+
+	for _, session := range sessions {
+		// Only check sessions with our helix-agent prefix
+		if !strings.HasPrefix(session.ClientUniqueID, "helix-agent-") {
+			continue
+		}
+
+		// Extract session ID from client_unique_id: helix-agent-{session_id}-{instance_id}
+		parts := strings.Split(session.ClientUniqueID, "-")
+		if len(parts) < 3 {
+			continue // Invalid format
+		}
+
+		// Session ID is part after "helix-agent-"
+		sessionID := strings.TrimPrefix(session.ClientUniqueID, "helix-agent-")
+		// Remove instance ID suffix (everything after last hyphen for long IDs)
+		if idx := strings.LastIndex(sessionID, "-"); idx > 20 { // Session IDs are ~30 chars
+			sessionID = sessionID[:idx]
+		}
+
+		// Check if lobby exists for this session (using Wolf API, not in-memory map)
+		if activeSessions[sessionID] {
+			// Session has an active lobby, keep it
+			continue
+		}
+
+		// No active lobby found - this is an orphaned session
+		log.Info().
+			Str("client_id", session.ClientID).
+			Str("client_unique_id", session.ClientUniqueID).
+			Str("session_id", sessionID).
+			Msg("🧹 Found orphaned Wolf-UI session (no lobby), stopping...")
+
+		err := w.wolfClient.StopSession(ctx, session.ClientID)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("client_id", session.ClientID).
+				Msg("Failed to stop orphaned Wolf-UI session")
+		} else {
+			stoppedCount++
+			log.Info().
+				Str("client_id", session.ClientID).
+				Str("session_id", sessionID).
+				Msg("✅ Stopped orphaned Wolf-UI session")
+		}
+	}
+
+	if stoppedCount > 0 {
+		log.Info().
+			Int("stopped_count", stoppedCount).
+			Msg("Completed orphaned Wolf-UI session cleanup")
+	}
+}
+
+// setupGitRepositories clones git repositories and sets up design docs worktree for SpecTask agents
+func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir string, repositoryIDs []string, primaryRepositoryID string, userAPIToken string) error {
+	log.Info().
+		Str("workspace_dir", workspaceDir).
+		Strs("repository_ids", repositoryIDs).
+		Str("primary_repository_id", primaryRepositoryID).
+		Msg("Setting up git repositories for external agent")
+
+	// Create debug log file in workspace for easier troubleshooting
+	debugLogPath := filepath.Join(workspaceDir, "repo-setup-debug.log")
+	debugLog, err := os.OpenFile(debugLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create debug log file (non-fatal)")
+	} else {
+		defer debugLog.Close()
+		debugLog.WriteString(fmt.Sprintf("\n=== Repository Setup Started: %s ===\n", time.Now().Format(time.RFC3339)))
+		debugLog.WriteString(fmt.Sprintf("Workspace Dir: %s\n", workspaceDir))
+		debugLog.WriteString(fmt.Sprintf("Repository IDs: %v\n", repositoryIDs))
+		debugLog.WriteString(fmt.Sprintf("Primary Repo ID: %s\n\n", primaryRepositoryID))
+	}
+
+	// Clone each repository
+	for _, repoID := range repositoryIDs {
+		if repoID == "" {
+			continue // Skip empty repository IDs
+		}
+
+		// Get repository details from database
+		repo, err := w.store.GetGitRepository(ctx, repoID)
+		if err != nil {
+			log.Error().Err(err).Str("repository_id", repoID).Msg("Failed to get repository details")
+			return fmt.Errorf("failed to get repository %s: %w", repoID, err)
+		}
+
+		// Determine clone directory
+		// Internal repos (project config) go to .helix-project for predictable access
+		// Regular code repos use their repository name
+		var cloneDir string
+		if repo.RepoType == "internal" {
+			cloneDir = filepath.Join(workspaceDir, ".helix-project")
+		} else {
+			cloneDir = filepath.Join(workspaceDir, repo.Name)
+		}
+
+		// Check if repository already exists
+		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Repository already cloned, skipping")
+
+			// Note: Design docs worktree will be created inside Wolf container during startup
+			// to ensure paths are correct for the container environment
+			continue
+		}
+
+		// For Helix-hosted repos (not external), clone from LocalPath
+		isExternal := false
+		if repo.Metadata != nil {
+			if val, ok := repo.Metadata["is_external"].(bool); ok {
+				isExternal = val
+			}
+		}
+
+		if !isExternal && repo.LocalPath != "" {
+			if debugLog != nil {
+				debugLog.WriteString(fmt.Sprintf("[%s] Cloning Helix-hosted repo: %s\n", repoID, repo.Name))
+				debugLog.WriteString(fmt.Sprintf("  Local Path: %s\n", repo.LocalPath))
+				debugLog.WriteString(fmt.Sprintf("  Clone Dir: %s\n", cloneDir))
+			}
+
+			log.Info().
+				Str("repository_id", repoID).
+				Str("local_path", repo.LocalPath).
+				Str("clone_dir", cloneDir).
+				Msg("Cloning Helix-hosted repository from local filesystem")
+
+			// Use HTTP git clone with user's API token for RBAC enforcement
+			// This allows agents to push changes AND respects user's repository permissions
+			httpCloneURL := fmt.Sprintf("http://api:%s@api:8080/git/%s", userAPIToken, repoID)
+			cloneCmd := fmt.Sprintf("git clone %q %q", httpCloneURL, cloneDir)
+			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
+			if err != nil {
+				if debugLog != nil {
+					debugLog.WriteString(fmt.Sprintf("  ❌ FAILED: %v\n", err))
+					debugLog.WriteString(fmt.Sprintf("  Output: %s\n\n", output))
+				}
+				log.Error().
+					Err(err).
+					Str("output", output).
+					Str("repository_id", repoID).
+					Str("local_path", repo.LocalPath).
+					Str("clone_dir", cloneDir).
+					Msg("Failed to clone Helix-hosted repository")
+				return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
+			}
+
+			if debugLog != nil {
+				debugLog.WriteString(fmt.Sprintf("  ✅ Successfully cloned\n\n"))
+			}
+
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Successfully cloned Helix-hosted repository")
+		} else {
+			// For external repos, use git clone with CloneURL
+			log.Info().
+				Str("repository_id", repoID).
+				Str("repository_url", repo.CloneURL).
+				Str("clone_dir", cloneDir).
+				Msg("Cloning external git repository")
+
+			if repo.CloneURL == "" {
+				// Create empty directory for unconfigured external repo
+				mkdirCmd := fmt.Sprintf("mkdir -p %q", cloneDir)
+				output, err := execCommand(ctx, workspaceDir, "bash", "-c", mkdirCmd)
+				if err != nil {
+					log.Error().
+						Err(err).
+						Str("output", output).
+						Str("repository_id", repoID).
+						Msg("Failed to create empty directory for repository")
+					return fmt.Errorf("failed to create directory for repository %s: %w", repo.Name, err)
+				}
+				log.Info().
+					Str("repository_id", repoID).
+					Str("clone_dir", cloneDir).
+					Msg("Created empty directory for unconfigured repository")
+				continue
+			}
+
+			cloneCmd := fmt.Sprintf("git clone %q %q", repo.CloneURL, cloneDir)
+			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("output", output).
+					Str("repository_id", repoID).
+					Msg("Failed to clone repository")
+				return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
+			}
+
+			log.Info().
+				Str("repository_id", repoID).
+				Str("clone_dir", cloneDir).
+				Msg("Successfully cloned git repository")
+		}
+
+		// For primary repository, ensure design docs branch exists
+		// (Worktree will be created inside Wolf container during startup)
+		if repoID == primaryRepositoryID {
+			err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to setup design docs branch")
+				// Continue - not fatal, branch can be created manually
+			}
+		}
+	}
+
+	return nil
+}
+
+// setupDesignDocsWorktree creates the helix-specs branch if it doesn't exist
+// Note: The actual worktree is created inside the Wolf container during startup
+// to ensure paths are correct for the container environment
+func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error {
+	log.Info().
+		Str("repo_path", repoPath).
+		Msg("Ensuring helix-specs branch exists")
+
+	ctx := context.Background()
+
+	// Check if helix-specs branch exists remotely
+	checkBranchCmd := "git ls-remote --heads origin helix-specs"
+	output, err := execCommand(ctx, repoPath, "bash", "-c", checkBranchCmd)
+	branchExists := err == nil && output != ""
+
+	if !branchExists {
+		// Create orphan branch for design docs (forward-only, no shared history)
+		log.Info().
+			Str("repo_name", repoName).
+			Msg("Creating new helix-specs orphan branch")
+
+		// Configure git user for commit operations (required for command-line git)
+		configGitCmd := `
+			git config user.name "Helix System" && \
+			git config user.email "system@helix.ml"
+		`
+		_, err := execCommand(ctx, repoPath, "bash", "-c", configGitCmd)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to configure git user")
+			return fmt.Errorf("failed to configure git user: %w", err)
+		}
+
+		// CRITICAL: Save current branch name to restore it after creating design docs branch
+		// This prevents destroying the code files when we checkout the orphan branch
+		getCurrentBranchCmd := "git rev-parse --abbrev-ref HEAD"
+		currentBranch, err := execCommand(ctx, repoPath, "bash", "-c", getCurrentBranchCmd)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get current branch")
+			return fmt.Errorf("failed to get current branch: %w", err)
+		}
+		currentBranch = strings.TrimSpace(currentBranch)
+
+		log.Info().
+			Str("current_branch", currentBranch).
+			Msg("Saved current branch name to restore after design docs setup")
+
+		// Check if repository has a remote configured
+		checkRemoteCmd := "git remote"
+		remoteOutput, err := execCommand(ctx, repoPath, "bash", "-c", checkRemoteCmd)
+		hasRemote := err == nil && strings.TrimSpace(remoteOutput) != ""
+
+		// Create branch commands (with or without push depending on remote)
+		var createBranchCmd string
+		if hasRemote {
+			createBranchCmd = fmt.Sprintf(`
+				git checkout --orphan helix-specs && \
+				git rm -rf . && \
+				echo "# Helix Design Documents" > README.md && \
+				echo "" >> README.md && \
+				echo "This branch contains design documents generated by Helix agents." >> README.md && \
+				echo "Documents are organized by task in tasks/ directory." >> README.md && \
+				mkdir -p tasks && \
+				git add README.md && \
+				git commit -m "Initialize helix-specs branch" && \
+				git push -u origin helix-specs && \
+				git checkout %s
+			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
+		} else {
+			// No remote - create branch locally only (for Helix-hosted repos)
+			createBranchCmd = fmt.Sprintf(`
+				git checkout --orphan helix-specs && \
+				git rm -rf . && \
+				echo "# Helix Design Documents" > README.md && \
+				echo "" >> README.md && \
+				echo "This branch contains design documents generated by Helix agents." >> README.md && \
+				echo "Documents are organized by task in tasks/ directory." >> README.md && \
+				mkdir -p tasks && \
+				git add README.md && \
+				git commit -m "Initialize helix-specs branch" && \
+				git checkout %s
+			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
+			log.Info().Msg("Repository has no remote - creating design docs branch locally only")
+		}
+
+		_, err = execCommand(ctx, repoPath, "bash", "-c", createBranchCmd)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create helix-specs branch")
+			return fmt.Errorf("failed to create helix-specs branch: %w", err)
+		}
+
+		log.Info().
+			Bool("has_remote", hasRemote).
+			Str("restored_branch", currentBranch).
+			Msg("Successfully created helix-specs branch and restored original branch")
+	}
+
+	// Worktree will be created inside Wolf container during startup
+	log.Info().
+		Str("repo_name", repoName).
+		Msg("helix-specs branch ready (worktree will be created in container)")
+
+	return nil
+}
+
+// execCommand executes a command in the specified directory and returns output
+func execCommand(ctx context.Context, dir string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+// getContainerScreenshot fetches a screenshot from the container's screenshot server
+func (w *WolfExecutor) getContainerScreenshot(ctx context.Context, containerName string) ([]byte, error) {
+	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
+
+	screenshotReq, err := http.NewRequestWithContext(ctx, "GET", screenshotURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create screenshot request: %w", err)
+	}
+
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	screenshotResp, err := httpClient.Do(screenshotReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get screenshot from container: %w", err)
+	}
+	defer screenshotResp.Body.Close()
+
+	if screenshotResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("screenshot server returned status %d", screenshotResp.StatusCode)
+	}
+
+	// Read screenshot bytes
+	screenshotBytes, err := io.ReadAll(screenshotResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read screenshot data: %w", err)
+	}
+
+	return screenshotBytes, nil
 }

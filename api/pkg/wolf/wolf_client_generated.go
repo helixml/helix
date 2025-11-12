@@ -70,6 +70,7 @@ type WolfStreamSession struct {
 	AppID             string             `json:"app_id"`
 	ClientID          string             `json:"client_id"`
 	ClientIP          string             `json:"client_ip"`
+	ClientUniqueID    string             `json:"client_unique_id"` // Moonlight client unique ID
 	AESKey            string             `json:"aes_key"`
 	AESIV             string             `json:"aes_iv"`
 	RTSPFakeIP        string             `json:"rtsp_fake_ip"`
