@@ -604,18 +604,24 @@ install_docker_compose_only() {
             . /etc/os-release
             case $ID in
                 ubuntu|debian)
-                    # Ensure Docker's official repo is configured (same as fresh Docker install)
-                    if ! [ -f /etc/apt/sources.list.d/docker.list ]; then
-                        echo "Setting up Docker official repository..."
-                        sudo apt-get update
-                        sudo apt-get install -y ca-certificates curl gnupg
-                        sudo install -m 0755 -d /etc/apt/keyrings
-                        curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-                        sudo chmod a+r /etc/apt/keyrings/docker.gpg
-                        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-                    fi
+                    # Always ensure Docker's official repo is configured
+                    echo "Setting up Docker official repository..."
                     sudo apt-get update
-                    sudo apt-get install -y docker-compose-plugin
+                    sudo apt-get install -y ca-certificates curl gnupg
+                    sudo install -m 0755 -d /etc/apt/keyrings
+                    curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    sudo apt-get update
+
+                    # Install docker-compose-plugin
+                    if ! sudo apt-get install -y docker-compose-plugin; then
+                        echo "Failed to install docker-compose-plugin from Docker official repository."
+                        echo "Please try installing manually:"
+                        echo "  sudo apt-get update"
+                        echo "  sudo apt-get install -y docker-compose-plugin"
+                        exit 1
+                    fi
                     ;;
                 fedora)
                     # Ensure Docker's official repo is configured
