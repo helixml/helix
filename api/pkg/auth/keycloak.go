@@ -583,7 +583,19 @@ func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, accessTok
 	return k.oidcClient.ValidateUserToken(ctx, accessToken)
 }
 
-func addr[T any](t T) *T { return &t }
+func (k *KeycloakAuthenticator) UpdatePassword(ctx context.Context, userID, newPassword string) error {
+	// Not implemented
+	return fmt.Errorf("updatePassword: not implemented")
+}
 
-// Compile-time interface check:
-var _ Authenticator = (*KeycloakAuthenticator)(nil)
+func (k *KeycloakAuthenticator) RequestPasswordReset(ctx context.Context, email string) error {
+	// Not implemented
+	return fmt.Errorf("requestPasswordReset: not implemented")
+}
+
+func (k *KeycloakAuthenticator) PasswordResetComplete(ctx context.Context, token, newPassword string) error {
+	// Not implemented
+	return fmt.Errorf("passwordReset: not implemented")
+}
+
+func addr[T any](t T) *T { return &t }

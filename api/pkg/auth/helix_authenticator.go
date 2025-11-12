@@ -10,6 +10,7 @@ import (
 	"gopkg.in/go-jose/go-jose.v2"
 	"gopkg.in/go-jose/go-jose.v2/jwt"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -24,6 +25,7 @@ type Notifier interface {
 }
 
 type HelixAuthenticator struct {
+	cfg       *config.ServerConfig
 	store     store.Store
 	jwtSecret []byte
 	signer    jose.Signer
@@ -39,7 +41,7 @@ type helixTokenClaims struct {
 
 var _ Authenticator = &HelixAuthenticator{}
 
-func NewHelixAuthenticator(store store.Store, jwtSecret string, notifier Notifier) (*HelixAuthenticator, error) {
+func NewHelixAuthenticator(cfg *config.ServerConfig, store store.Store, jwtSecret string, notifier Notifier) (*HelixAuthenticator, error) {
 	secret := []byte(jwtSecret)
 	if jwtSecret == "" {
 		secret = []byte("helix-default-secret-change-in-production")
@@ -56,6 +58,7 @@ func NewHelixAuthenticator(store store.Store, jwtSecret string, notifier Notifie
 	}
 
 	return &HelixAuthenticator{
+		cfg:       cfg,
 		store:     store,
 		jwtSecret: secret,
 		signer:    signer,
@@ -117,12 +120,19 @@ func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email str
 	}
 
 	// Generate a JWT token for the password reset
+	accessToken, err := h.GenerateUserToken(ctx, user)
+	if err != nil {
+		return fmt.Errorf("failed to generate user token: %w", err)
+	}
+
+	callbackURL := fmt.Sprintf("%s/password-reset?token=%s", h.cfg.WebServer.URL, accessToken)
 
 	// Send the email for password reset
 	notification := &types.Notification{
-		Email:   user.Email,
-		Event:   types.EventPasswordResetRequest,
-		Message: "Password reset request",
+		Email:          user.Email,
+		Event:          types.EventPasswordResetRequest,
+		Message:        fmt.Sprintf("Click on this [link](%s) to reset your password.", callbackURL),
+		RenderMarkdown: true,
 	}
 	err = h.notifier.Notify(ctx, notification)
 	if err != nil {
