@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -265,27 +264,38 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Send implementation instruction to agent (reuse existing session)
+		// Send implementation instruction to agent via websocket (reuse planning session)
 		sessionID := specTask.PlanningSessionID
-		if sessionID == "" {
-			sessionID = specTask.SpecSessionID // Legacy fallback
-		}
 
 		if sessionID != "" {
-			agentInstructionService := services.NewAgentInstructionService(s.Store)
+			// Build the approval message
+			message := fmt.Sprintf(`# Design Approved! 🎉
+
+Your design has been approved. Please begin implementation:
+
+**Steps:**
+1. Create and checkout feature branch: %[1]sgit checkout -b %[2]s%[1]s
+2. Implement the features according to the approved design
+3. Write tests for all new functionality
+4. Commit your work with clear, descriptive messages
+5. When ready for review, push your branch: %[1]sgit push origin %[2]s%[1]s
+
+I'll be watching for your push and will notify you when it's time for review.
+
+**Design Documents:**
+The approved design documents are in your repository under the design/ directory.
+`, "```", branchName)
+
+			// Send via websocket to external agent
+			requestID := "req_" + system.GenerateUUID()
 			go func() {
-				err := agentInstructionService.SendApprovalInstruction(
-					context.Background(),
-					sessionID,
-					branchName,
-					baseBranch,
-				)
+				err := s.sendChatMessageToExternalAgent(sessionID, message, requestID)
 				if err != nil {
 					log.Error().
 						Err(err).
 						Str("task_id", specTask.ID).
 						Str("session_id", sessionID).
-						Msg("Failed to send approval instruction to agent")
+						Msg("Failed to send approval instruction to agent via websocket")
 				}
 			}()
 
@@ -293,7 +303,7 @@ func (s *HelixAPIServer) submitDesignReview(w http.ResponseWriter, r *http.Reque
 				Str("task_id", specTask.ID).
 				Str("session_id", sessionID).
 				Str("branch_name", branchName).
-				Msg("Design approved - sent implementation instruction to existing agent")
+				Msg("Design approved - sent implementation instruction to existing agent via websocket")
 		} else {
 			log.Warn().
 				Str("task_id", specTask.ID).
@@ -552,10 +562,10 @@ func (s *HelixAPIServer) sendCommentToAgent(
 	specTask *types.SpecTask,
 	comment *types.SpecTaskDesignReviewComment,
 ) error {
-	if specTask.SpecSessionID == "" {
+	if specTask.PlanningSessionID == "" {
 		log.Debug().
 			Str("spec_task_id", specTask.ID).
-			Msg("No spec session ID, skipping agent notification for comment")
+			Msg("No planning session ID, skipping agent notification for comment")
 		return nil
 	}
 
@@ -586,47 +596,24 @@ Your response will be shown to the reviewer in the design review interface.`,
 		comment.QuotedText,
 		comment.CommentText)
 
-	// Create interaction in agent's session
-	interaction := &types.Interaction{
-		ID:        system.GenerateInteractionID(),
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		SessionID: specTask.SpecSessionID,
-		UserID:    comment.CommentedBy,
-		// This is a text-only interaction (no files/images)
-		PromptMessage: promptText,
-		// Mode is inference (agent responds to prompt)
-		Mode:  types.SessionModeInference,
-		State: types.InteractionStateWaiting,
-	}
-
-	_, err := s.Store.CreateInteraction(ctx, interaction)
+	// Send comment to agent via websocket
+	requestID := "req_" + system.GenerateUUID()
+	err := s.sendChatMessageToExternalAgent(specTask.PlanningSessionID, promptText, requestID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("spec_task_id", specTask.ID).
 			Str("comment_id", comment.ID).
-			Msg("Failed to create interaction for design review comment")
-		return fmt.Errorf("failed to create interaction for comment: %w", err)
-	}
-
-	// Store interaction ID in comment for linking responses
-	comment.InteractionID = interaction.ID
-	if err := s.Store.UpdateSpecTaskDesignReviewComment(ctx, comment); err != nil {
-		log.Error().
-			Err(err).
-			Str("comment_id", comment.ID).
-			Str("interaction_id", interaction.ID).
-			Msg("Failed to link interaction ID to comment")
-		// Don't return error - interaction was created successfully
+			Msg("Failed to send comment to agent via websocket")
+		return fmt.Errorf("failed to send comment to agent: %w", err)
 	}
 
 	log.Info().
 		Str("spec_task_id", specTask.ID).
 		Str("comment_id", comment.ID).
-		Str("interaction_id", interaction.ID).
-		Str("session_id", specTask.SpecSessionID).
-		Msg("Sent design review comment to agent session")
+		Str("request_id", requestID).
+		Str("session_id", specTask.PlanningSessionID).
+		Msg("Sent design review comment to agent via websocket")
 
 	return nil
 }

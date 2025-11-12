@@ -297,16 +297,16 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 		UpdatedAt: task.UpdatedAt,
 		Specification: PhaseProgress{
 			Status:        getSpecificationStatus(task.Status),
-			Agent:         task.SpecAgent,
-			SessionID:     task.SpecSessionID,
+			Agent:         "", // No separate agent field needed
+			SessionID:     task.PlanningSessionID,
 			StartedAt:     &task.CreatedAt, // Spec generation starts when task is created
 			CompletedAt:   task.SpecApprovedAt,
 			RevisionCount: task.SpecRevisionCount,
 		},
 		Implementation: PhaseProgress{
 			Status:    getImplementationStatus(task.Status),
-			Agent:     task.ImplementationAgent,
-			SessionID: task.ImplementationSessionID,
+			Agent:     "", // No separate agent - reuses planning agent
+			SessionID: task.PlanningSessionID, // Same session continues into implementation
 			StartedAt: task.SpecApprovedAt,
 			// CompletedAt will be set when implementation is done
 		},
@@ -490,22 +490,22 @@ func (s *HelixAPIServer) archiveSpecTask(w http.ResponseWriter, r *http.Request)
 
 	// When archiving, stop any running external agents
 	if req.Archived {
-		// Stop the planning session external agent if it's running
-		if task.SpecSessionID != "" {
-			session, sessionErr := s.Store.GetSession(r.Context(), task.SpecSessionID)
+		// Stop the external agent if it's running
+		if task.PlanningSessionID != "" {
+			session, sessionErr := s.Store.GetSession(r.Context(), task.PlanningSessionID)
 			if sessionErr == nil && session.Metadata.AgentType == "zed_external" {
-				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.SpecSessionID)
+				stopErr := s.externalAgentExecutor.StopZedAgent(r.Context(), task.PlanningSessionID)
 				if stopErr != nil {
 					log.Warn().
 						Err(stopErr).
 						Str("task_id", taskID).
-						Str("session_id", task.SpecSessionID).
-						Msg("Failed to stop planning session agent when archiving (continuing anyway)")
+						Str("session_id", task.PlanningSessionID).
+						Msg("Failed to stop agent session when archiving (continuing anyway)")
 				} else {
 					log.Info().
 						Str("task_id", taskID).
-						Str("session_id", task.SpecSessionID).
-						Msg("Stopped planning session agent before archiving")
+						Str("session_id", task.PlanningSessionID).
+						Msg("Stopped agent session before archiving")
 				}
 			}
 		}

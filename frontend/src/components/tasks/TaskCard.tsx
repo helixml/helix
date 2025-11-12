@@ -31,7 +31,6 @@ interface SpecTaskWithExtras {
   name: string
   status: string
   phase: SpecTaskPhase
-  spec_session_id?: string
   planning_session_id?: string
   archived?: boolean
   metadata?: { error?: string }
@@ -252,7 +251,7 @@ export default function TaskCard({
         </Box>
 
         {/* Live screenshot for active sessions */}
-        {task.spec_session_id && <LiveAgentScreenshot sessionId={task.spec_session_id} projectId={projectId} />}
+        {task.planning_session_id && <LiveAgentScreenshot sessionId={task.planning_session_id} projectId={projectId} />}
 
         {/* Backlog phase */}
         {task.phase === 'backlog' && (

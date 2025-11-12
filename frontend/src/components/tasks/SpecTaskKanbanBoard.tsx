@@ -428,10 +428,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (task.status === 'spec_review') {
             phase = 'review';
             planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'implementing') {
+          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
           } else if (task.status === 'completed') {
@@ -493,10 +490,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           } else if (task.status === 'spec_review') {
             phase = 'review';
             planningStatus = 'pending_review';
-          } else if (task.status === 'spec_approved') {
-            phase = 'implementation';
-            planningStatus = 'completed';
-          } else if (task.status === 'implementing') {
+          } else if (task.status === 'spec_approved' || task.status === 'implementation_queued' || task.status === 'implementation' || task.status === 'implementing') {
             phase = 'implementation';
             planningStatus = 'completed';
           } else if (task.status === 'completed') {
@@ -888,7 +882,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
       // Call the start-planning endpoint which actually starts spec generation
       await api.getApiClient().v1SpecTasksStartPlanningCreate(task.id!);
 
-      // Aggressive polling after starting planning to catch spec_session_id update
+      // Aggressive polling after starting planning to catch planning_session_id update
       // Poll at 1s, 2s, 4s, 6s intervals to catch the async session creation
       const pollForSessionId = async (retryCount = 0, maxRetries = 6) => {
         const response = await api.getApiClient().v1SpecTasksList({
@@ -931,7 +925,7 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
         setTasks(enhancedTasks);
 
-        // Check if the task has spec_session_id now
+        // Check if the task has planning_session_id now
         const updatedTask = specTasks.find(t => t.id === task.id);
 
         // Check if task failed during async agent launch (error stored in metadata)
@@ -941,8 +935,8 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
           return;
         }
 
-        if (updatedTask?.spec_session_id) {
-          console.log('✅ Session ID populated:', updatedTask.spec_session_id);
+        if (updatedTask?.planning_session_id) {
+          console.log('✅ Planning session ID populated:', updatedTask.planning_session_id);
           return; // Session ID found, stop polling
         }
 

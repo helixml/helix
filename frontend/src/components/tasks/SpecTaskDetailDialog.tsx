@@ -107,6 +107,12 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
       try {
         const response = await api.getApiClient().v1SpecTasksDetail(task.id!)
         if (response.data) {
+          console.log('[SpecTaskDetailDialog] Polled task:', {
+            id: response.data.id,
+            status: response.data.status,
+            planning_session_id: response.data.planning_session_id,
+            has_session: !!response.data.planning_session_id
+          })
           setRefreshedTask(response.data)
         }
       } catch (err) {
@@ -125,13 +131,27 @@ const SpecTaskDetailDialog: FC<SpecTaskDetailDialogProps> = ({
   // Use refreshed task data for rendering
   const displayTask = refreshedTask || task
 
+  // Get the active session ID (single session used for entire workflow)
+  const activeSessionId = displayTask?.planning_session_id
+
+  // Debug logging
+  useEffect(() => {
+    console.log('[SpecTaskDetailDialog] Active session state:', {
+      taskId: displayTask?.id,
+      status: displayTask?.status,
+      planning_session_id: displayTask?.planning_session_id,
+      activeSessionId,
+      hasActiveSession: !!activeSessionId
+    })
+  }, [displayTask?.id, displayTask?.status, displayTask?.planning_session_id, activeSessionId])
+
   // Auto-send review request message when dialog opens for implementation_review
   useEffect(() => {
     if (
       open &&
       !implementationReviewMessageSent &&
       displayTask?.status === 'implementation_review' &&
-      displayTask?.spec_session_id
+      activeSessionId
     ) {
       const reviewMessage = `I'm here to review your implementation.
 
@@ -142,7 +162,7 @@ I'll give you feedback and we can iterate on any changes needed.`
       streaming.NewInference({
         type: SESSION_TYPE_TEXT,
         message: reviewMessage,
-        sessionId: displayTask.spec_session_id,
+        sessionId: activeSessionId,
       }).then(() => {
         setImplementationReviewMessageSent(true)
       }).catch((err) => {
@@ -154,7 +174,7 @@ I'll give you feedback and we can iterate on any changes needed.`
     if (!open) {
       setImplementationReviewMessageSent(false)
     }
-  }, [open, implementationReviewMessageSent, displayTask?.status, displayTask?.spec_session_id, streaming])
+  }, [open, implementationReviewMessageSent, displayTask?.status, activeSessionId, streaming])
 
   const getPriorityColor = (priority: string) => {
     switch (priority?.toLowerCase()) {
@@ -273,13 +293,13 @@ I'll give you feedback and we can iterate on any changes needed.`
   }
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !displayTask.spec_session_id) return
+    if (!message.trim() || !activeSessionId) return
 
     try {
       await streaming.NewInference({
         type: SESSION_TYPE_TEXT,
         message: message.trim(),
-        sessionId: displayTask.spec_session_id,
+        sessionId: activeSessionId,
       })
       setMessage('')
     } catch (err) {
@@ -503,7 +523,7 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
-            {displayTask.spec_session_id && <Tab label="Active Session" />}
+            {activeSessionId && <Tab label="Active Session" />}
             <Tab label="Details" />
           </Tabs>
         </Box>
@@ -511,12 +531,12 @@ I'll give you feedback and we can iterate on any changes needed.`
         {/* Tab Content */}
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {/* Tab 0: Active Session (only if session exists) */}
-          {displayTask.spec_session_id && currentTab === 0 && (
+          {activeSessionId && currentTab === 0 && (
             <>
               {/* ExternalAgentDesktopViewer */}
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <ExternalAgentDesktopViewer
-                  sessionId={displayTask.spec_session_id}
+                  sessionId={activeSessionId}
                   height="100%"
                   mode="stream"
                   onClientIdCalculated={setClientUniqueId}
@@ -554,7 +574,7 @@ I'll give you feedback and we can iterate on any changes needed.`
           )}
 
           {/* Details Tab */}
-          {((displayTask.spec_session_id && currentTab === 1) || (!displayTask.spec_session_id && currentTab === 0)) && (
+          {((activeSessionId && currentTab === 1) || (!activeSessionId && currentTab === 0)) && (
             <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
               {/* Action Buttons */}
               <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -693,11 +713,16 @@ I'll give you feedback and we can iterate on any changes needed.`
                 <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                   Task ID: {displayTask.id || 'N/A'}
                 </Typography>
-                {displayTask.spec_session_id && (
+                {activeSessionId && (
                   <>
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
-                      Session ID: {displayTask.spec_session_id}
+                      Active Session ID: {activeSessionId}
                     </Typography>
+                    {displayTask.planning_session_id && displayTask.spec_session_id && (
+                      <Typography variant="caption" color="grey.400" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', display: 'block', fontStyle: 'italic' }}>
+                        (using planning_session_id, spec_session_id also available)
+                      </Typography>
+                    )}
                     <Typography variant="caption" color="grey.300" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', display: 'block' }}>
                       Moonlight Client ID: {clientUniqueId || 'calculating...'}
                     </Typography>

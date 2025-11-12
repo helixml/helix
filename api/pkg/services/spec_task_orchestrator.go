@@ -363,102 +363,17 @@ func (o *SpecTaskOrchestrator) handleSpecRevision(ctx context.Context, task *typ
 }
 
 // handleImplementationQueued handles tasks ready for implementation - reuses external agent
+// This is a legacy state - new flow (design review approval) bypasses this entirely
 func (o *SpecTaskOrchestrator) handleImplementationQueued(ctx context.Context, task *types.SpecTask) error {
 	log.Info().
 		Str("task_id", task.ID).
-		Str("external_agent_id", task.ExternalAgentID).
-		Msg("Starting implementation phase with existing external agent")
+		Msg("Task in implementation_queued - moving directly to implementation")
 
-	// Get Helix Agent configuration (same agent used for planning)
-	app, err := o.store.GetApp(ctx, task.HelixAppID)
-	if err != nil {
-		return fmt.Errorf("failed to get Helix agent: %w", err)
-	}
-
-	// Get EXISTING external agent (already running from planning phase!)
-	externalAgent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get external agent: %w", err)
-	}
-
-	// Check if agent needs resurrection (was terminated due to idle)
-	if externalAgent.Status != "running" {
-		log.Info().
-			Str("agent_id", externalAgent.ID).
-			Msg("External agent was terminated, resurrecting with same workspace")
-
-		// Resurrect agent with SAME workspace
-		agentReq := &types.ZedAgent{
-			SessionID:          externalAgent.ID,
-			UserID:             task.CreatedBy,
-			WorkDir:            externalAgent.WorkspaceDir, // SAME workspace!
-			ProjectPath:        "backend",
-			DisplayWidth:       2560,
-			DisplayHeight:      1600,
-			DisplayRefreshRate: 60,
-		}
-
-		agentResp, err := o.wolfExecutor.StartZedAgent(ctx, agentReq)
-		if err != nil {
-			return fmt.Errorf("failed to resurrect external agent: %w", err)
-		}
-
-		externalAgent.WolfAppID = agentResp.WolfAppID
-		externalAgent.Status = "running"
-		externalAgent.LastActivity = time.Now()
-
-		err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
-		if err != nil {
-			return fmt.Errorf("failed to update resurrected agent: %w", err)
-		}
-	}
-
-	// Create NEW Helix session for implementation (creates new Zed thread in existing instance)
-	implSession, err := o.createImplementationSession(ctx, task, app, externalAgent)
-	if err != nil {
-		return fmt.Errorf("failed to create implementation session: %w", err)
-	}
-
-	// Update task with session reference
-	task.ImplementationSessionID = implSession.ID
+	// Just move to implementation status - agent is already running from planning
 	task.Status = types.TaskStatusImplementation
 	task.UpdatedAt = time.Now()
 
-	err = o.store.UpdateSpecTask(ctx, task)
-	if err != nil {
-		return fmt.Errorf("failed to update spec task: %w", err)
-	}
-
-	// Update external agent with new session
-	externalAgent.HelixSessionIDs = append(externalAgent.HelixSessionIDs, implSession.ID)
-	externalAgent.LastActivity = time.Now()
-	err = o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update external agent with implementation session")
-	}
-
-	// Update activity tracking
-	err = o.store.UpsertExternalAgentActivity(ctx, &types.ExternalAgentActivity{
-		ExternalAgentID: externalAgent.ID,
-		SpecTaskID:      task.ID,
-		LastInteraction: time.Now(),
-		AgentType:       "spectask",
-		WolfAppID:       externalAgent.WolfAppID,
-		WorkspaceDir:    externalAgent.WorkspaceDir,
-		UserID:          task.CreatedBy,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to update external agent activity")
-	}
-
-	log.Info().
-		Str("task_id", task.ID).
-		Str("session_id", implSession.ID).
-		Str("external_agent_id", externalAgent.ID).
-		Int("total_sessions", len(externalAgent.HelixSessionIDs)).
-		Msg("Implementation phase started successfully")
-
-	return nil
+	return o.store.UpdateSpecTask(ctx, task)
 }
 
 // createImplementationSession creates a Helix session for the implementation phase
@@ -572,14 +487,31 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 
 // handleImplementation handles tasks in implementation
 func (o *SpecTaskOrchestrator) handleImplementation(ctx context.Context, task *types.SpecTask) error {
+	// Since we reuse the planning agent, external agents are already running
+	// No need to queue or create new agents - just verify agent is still active
+
+	// Check if external agent exists and is running
+	if task.ExternalAgentID != "" {
+		externalAgent, err := o.store.GetSpecTaskExternalAgent(ctx, task.ID)
+		if err == nil && externalAgent.Status == "running" {
+			// Agent is running, update activity timestamp
+			externalAgent.LastActivity = time.Now()
+			o.store.UpdateSpecTaskExternalAgent(ctx, externalAgent)
+			return nil
+		}
+	}
+
+	// If no external agent or not running, check old orchestration pattern
 	o.mutex.RLock()
 	orchestratedTask, exists := o.runningTasks[task.ID]
 	o.mutex.RUnlock()
 
 	if !exists {
-		// Task not yet tracked, queue it
-		task.Status = types.TaskStatusImplementationQueued
-		return o.store.UpdateSpecTask(ctx, task)
+		// Task not tracked in old orchestration system - this is OK for new reuse-agent pattern
+		log.Debug().
+			Str("task_id", task.ID).
+			Msg("Task in implementation but not in orchestrator tracking (using reused agent pattern)")
+		return nil
 	}
 
 	// Check current task progress via git commits

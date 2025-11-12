@@ -3509,6 +3509,7 @@ export interface TypesSpecApprovalResponse {
 export interface TypesSpecTask {
   /** Archive to hide from main view */
   archived?: boolean;
+  /** Git tracking */
   branch_name?: string;
   completed_at?: string;
   created_at?: string;
@@ -3519,18 +3520,16 @@ export interface TypesSpecTask {
   design_docs_pushed_at?: string;
   /** Simple tracking */
   estimated_hours?: number;
-  /** External agent tracking (single agent per SpecTask, spans multiple sessions) */
+  /** External agent tracking (single agent per SpecTask, spans entire workflow) */
   external_agent_id?: string;
   /** NEW: Single Helix Agent for entire workflow (App type in code) */
   helix_app_id?: string;
   id?: string;
-  implementation_agent?: string;
   implementation_approved_at?: string;
   /** Implementation tracking */
   implementation_approved_by?: string;
   /** Discrete tasks breakdown (markdown) */
   implementation_plan?: string;
-  implementation_session_id?: string;
   labels?: string[];
   /** When branch was last pushed */
   last_push_at?: string;
@@ -3546,7 +3545,10 @@ export interface TypesSpecTask {
   name?: string;
   /** Kiro's actual approach: simple, human-readable artifacts */
   original_prompt?: string;
-  /** Session tracking (same agent, different Helix sessions per phase) */
+  /**
+   * Session tracking (single Helix session for entire workflow - planning + implementation)
+   * The same external agent/session is reused throughout the entire SpecTask lifecycle
+   */
   planning_session_id?: string;
   /** "low", "medium", "high", "critical" */
   priority?: string;
@@ -3554,14 +3556,11 @@ export interface TypesSpecTask {
   project_path?: string;
   /** User stories + EARS acceptance criteria (markdown) */
   requirements_spec?: string;
-  /** Legacy fields (deprecated, keeping for backward compatibility) */
-  spec_agent?: string;
   spec_approved_at?: string;
   /** Approval tracking */
   spec_approved_by?: string;
   /** Number of spec revisions requested */
   spec_revision_count?: number;
-  spec_session_id?: string;
   started_at?: string;
   /** Spec-driven workflow statuses - see constants below */
   status?: string;
@@ -4186,11 +4185,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {

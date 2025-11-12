@@ -569,38 +569,39 @@ func (s *GitHTTPServer) handlePostPushHook(ctx context.Context, repoID, repoPath
 		s.handleMainBranchPush(ctx, repo, latestCommitHash, repoPath)
 	}
 
-	// Check if this is a design repo (contains design docs in the latest commit)
-	hasDesignDocs, err := s.checkForDesignDocs(repoPath)
+	// Check if design docs were pushed and extract which task IDs
+	pushedTaskIDs, err := s.getTaskIDsFromPushedDesignDocs(repoPath, latestCommitHash)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to check for design docs")
 		return
 	}
 
-	if !hasDesignDocs {
+	if len(pushedTaskIDs) == 0 {
 		log.Debug().Str("repo_id", repoID).Msg("No design docs found in push, skipping spec task transition")
 		return
 	}
 
 	log.Info().
 		Str("repo_id", repoID).
-		Msg("Design docs detected in push, checking for associated SpecTasks")
+		Strs("task_ids", pushedTaskIDs).
+		Msg("Design docs detected in push for specific tasks")
 
-	// Find SpecTasks using this repository (via ProjectID)
-	// Projects have a default repo, and SpecTasks are associated with projects
-	specTasks, err := s.store.ListSpecTasks(ctx, &types.SpecTaskFilters{
-		ProjectID: repo.ProjectID,
-	})
-	if err != nil {
-		log.Error().Err(err).Str("project_id", repo.ProjectID).Msg("Failed to get spec tasks for project")
-		return
-	}
-
-	// Process each spec task that's in spec_generation status
-	for _, task := range specTasks {
-		if task == nil {
+	// Process only the specific tasks that pushed design docs
+	for _, taskID := range pushedTaskIDs {
+		task, err := s.store.GetSpecTask(ctx, taskID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("task_id", taskID).
+				Msg("Failed to get spec task")
 			continue
 		}
+
 		if task.Status != types.TaskStatusSpecGeneration {
+			log.Debug().
+				Str("task_id", taskID).
+				Str("current_status", task.Status).
+				Msg("Task not in spec_generation status, skipping")
 			continue
 		}
 
@@ -901,11 +902,8 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *GitRe
 			continue
 		}
 
-		// Send notification to agent that push was detected
+		// Send notification to agent that push was detected (reuse planning session)
 		sessionID := task.PlanningSessionID
-		if sessionID == "" {
-			sessionID = task.SpecSessionID
-		}
 
 		if sessionID != "" {
 			agentInstructionService := NewAgentInstructionService(s.store)
@@ -913,6 +911,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *GitRe
 				err := agentInstructionService.SendImplementationReviewRequest(
 					context.Background(),
 					sessionID,
+					task.CreatedBy, // User who created the task
 					branchName,
 				)
 				if err != nil {
@@ -1007,7 +1006,70 @@ func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *GitRepos
 	}
 }
 
+// getTaskIDsFromPushedDesignDocs extracts task IDs from design docs that were pushed in this commit
+// Returns only the task IDs that actually had design docs pushed, not all tasks in the project
+func (s *GitHTTPServer) getTaskIDsFromPushedDesignDocs(repoPath, commitHash string) ([]string, error) {
+	// Get the changed files in this commit on helix-specs branch
+	// Use diff-tree to see what files changed in the latest commit to helix-specs
+	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "helix-specs")
+	cmd.Dir = repoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If helix-specs branch doesn't exist or has no commits, no design docs
+		return nil, nil
+	}
+
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	taskIDSet := make(map[string]bool)
+
+	// Parse task IDs from file paths
+	// Expected format: design/tasks/2025-11-12_task-name_<taskid>/requirements.md
+	// Task ID is the last component before the slash, typically 8-4-4-4-12 UUID format
+	for _, file := range files {
+		if !strings.Contains(file, "design/tasks/") && !strings.Contains(file, "tasks/") {
+			continue
+		}
+
+		// Extract task ID from path (last component of directory name)
+		// Example: design/tasks/2025-11-12_add-feature_014930c9-3031-4bd0-b0cc-19741947665c/requirements.md
+		parts := strings.Split(file, "/")
+		if len(parts) < 3 {
+			continue
+		}
+
+		// The directory name is the second-to-last part (before the filename)
+		dirName := parts[len(parts)-2]
+
+		// Task ID is after the last underscore
+		lastUnderscore := strings.LastIndex(dirName, "_")
+		if lastUnderscore == -1 {
+			continue
+		}
+
+		taskID := dirName[lastUnderscore+1:]
+
+		// Validate it looks like a UUID (8-4-4-4-12 format)
+		if len(taskID) >= 32 && strings.Contains(taskID, "-") {
+			taskIDSet[taskID] = true
+			log.Debug().
+				Str("file", file).
+				Str("task_id", taskID).
+				Msg("Extracted task ID from design doc path")
+		}
+	}
+
+	// Convert set to slice
+	taskIDs := make([]string, 0, len(taskIDSet))
+	for taskID := range taskIDSet {
+		taskIDs = append(taskIDs, taskID)
+	}
+
+	return taskIDs, nil
+}
+
 // checkForDesignDocs checks if the helix-specs branch contains design documentation files
+// DEPRECATED: Use getTaskIDsFromPushedDesignDocs instead
 func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
 	// Check for design doc files in helix-specs branch (not HEAD)
 	// Design docs are committed to a separate branch, not the main code branch

@@ -145,10 +145,10 @@ func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
 func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *CreateTaskRequest) (*types.SpecTask, error) {
-	// Determine which agent to use for spec generation
-	specAgent := s.helixAgentID
+	// Determine which agent to use (single agent for entire workflow)
+	helixAppID := s.helixAgentID
 	if req.AppID != "" {
-		specAgent = req.AppID
+		helixAppID = req.AppID
 	}
 
 	task := &types.SpecTask{
@@ -161,7 +161,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		SpecAgent:      specAgent, // Set the spec agent from request or default
+		HelixAppID:     helixAppID, // Helix agent used for entire workflow
 		YoloMode:       req.YoloMode, // Set YOLO mode from request
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
@@ -184,15 +184,15 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 // StartSpecGeneration kicks off spec generation with a Helix agent
 // This is now a public method that can be called explicitly to start planning
 func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *types.SpecTask) {
-	// Ensure SpecAgent is set (fallback for tasks created before this field existed)
-	if task.SpecAgent == "" {
-		task.SpecAgent = s.helixAgentID
+	// Ensure HelixAppID is set (fallback for tasks created before this field existed)
+	if task.HelixAppID == "" {
+		task.HelixAppID = s.helixAgentID
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
 		Str("original_prompt", task.OriginalPrompt).
-		Str("spec_agent", task.SpecAgent).
+		Str("helix_app_id", task.HelixAppID).
 		Msg("Starting spec generation")
 
 	// Clear any previous error from metadata (in case this is a retry)
@@ -232,7 +232,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Provider:       "anthropic",          // Use Claude for spec generation
 		ModelName:      "external_agent",     // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      task.SpecAgent,       // Use the spec agent (now guaranteed to be set)
+		ParentApp:      task.HelixAppID,      // Use the Helix agent for entire workflow
 		OrganizationID: "",
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
@@ -253,7 +253,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Update task with session ID
-	task.SpecSessionID = session.ID
+	task.PlanningSessionID = session.ID
 	err = s.store.UpdateSpecTask(ctx, task)
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
@@ -366,6 +366,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	log.Info().
 		Str("task_id", task.ID).
 		Str("session_id", session.ID).
+		Str("planning_session_id", task.PlanningSessionID).
 		Str("wolf_lobby_id", agentResp.WolfLobbyID).
 		Str("container_name", agentResp.ContainerName).
 		Msg("Spec generation agent session created and Zed agent launched via Wolf executor")
@@ -398,7 +399,7 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 	if s.controller != nil && s.controller.Options.Notifier != nil {
 		// Note: The notification system expects a session, but for task notifications we'll create a minimal one
 		session := &types.Session{
-			ID:    task.SpecSessionID,
+			ID:    task.PlanningSessionID,
 			Owner: task.CreatedBy,
 		}
 
@@ -459,12 +460,8 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
-		// Send instruction to existing agent session
-		// Use PlanningSessionID if available, otherwise SpecSessionID (legacy)
+		// Send instruction to existing agent session (reuse planning session)
 		sessionID := task.PlanningSessionID
-		if sessionID == "" {
-			sessionID = task.SpecSessionID
-		}
 
 		if sessionID != "" && !s.testMode {
 			// Create agent instruction service
@@ -475,6 +472,7 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 				err := agentInstructionService.SendApprovalInstruction(
 					context.Background(),
 					sessionID,
+					task.CreatedBy, // User who created the task
 					branchName,
 					baseBranch,
 				)
@@ -546,8 +544,7 @@ func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Cont
 		return
 	}
 
-	// Update task with implementation agent
-	task.ImplementationAgent = zedAgent
+	// No need to update task - we're reusing the planning agent and session
 	task.UpdatedAt = time.Now()
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -597,9 +594,8 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 		return
 	}
 
-	// Update task status
+	// Update task status (reuse planning agent, no separate implementation agent)
 	task.Status = types.TaskStatusImplementationQueued
-	task.ImplementationAgent = zedAgent
 	task.UpdatedAt = time.Now()
 
 	err := s.store.UpdateSpecTask(ctx, task)
@@ -679,10 +675,13 @@ func (s *SpecDrivenTaskService) buildSpecGenerationPrompt(task *types.SpecTask) 
 - SpecTask ID: %s
 
 **CRITICAL: Specification Documents Location (Spec-Driven Development)**
-You have access to a git worktree for specification documents at:
+The helix-specs git branch is ALREADY CHECKED OUT at:
 ~/work/helix-specs/
 
-This is a forward-only branch (helix-specs) specifically for spec-driven development. All your specification work MUST be saved there.
+⚠️  IMPORTANT:
+- This directory ALREADY EXISTS - DO NOT create a "helix-specs" directory
+- You are ALREADY in the helix-specs git worktree when you cd to ~/work/helix-specs/
+- DO NOT run "mkdir helix-specs" or create nested helix-specs folders
 
 **DIRECTORY STRUCTURE - FOLLOW THIS EXACTLY:**
 Your documents go in a task-specific directory:
@@ -691,7 +690,8 @@ Your documents go in a task-specific directory:
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 (Date first for sorting, branch name for readability)
 
-The design/ directory might not exist yet - create it if needed.
+The design/ and design/tasks/ directories might not exist yet - create them if needed.
+But ~/work/helix-specs/ itself ALREADY EXISTS - never create it.
 
 **Required Files in This Directory (spec-driven development format):**
 1. requirements.md - User stories + EARS acceptance criteria
@@ -701,11 +701,14 @@ The design/ directory might not exist yet - create it if needed.
 
 **Git Workflow You Must Follow:**
 ` + "```bash" + `
-# Navigate to helix-specs worktree
+# The helix-specs worktree is ALREADY checked out at ~/work/helix-specs/
+# DO NOT create a helix-specs directory - it already exists!
+
+# Navigate to helix-specs worktree (this directory ALREADY EXISTS)
 cd ~/work/helix-specs
 
-# Create the design/tasks directory structure (if it doesn't exist)
-# Your documents go in: design/tasks/{date}_{name}_{taskid}/
+# Create your task directory structure (if it doesn't exist)
+# IMPORTANT: design/tasks is relative to ~/work/helix-specs/, NOT nested inside another helix-specs folder
 mkdir -p design/tasks/%s_%s_%s
 
 # Work in your task directory
@@ -717,17 +720,22 @@ cd design/tasks/%s_%s_%s
 # 3. tasks.md with discrete, trackable implementation tasks in [ ] format
 
 # CRITICAL: Commit and push IMMEDIATELY after creating docs
-git add .
+# Go back to worktree root to commit
+cd ~/work/helix-specs
+git add design/tasks/%s_%s_%s/
 git commit -m "Generated design documents for SpecTask %s"
 
-# MUST PUSH NOW - This triggers the backend to move your task to review
+# ⚠️  ABSOLUTELY REQUIRED: PUSH NOW
+# This push triggers the backend to move your task to review
+# Without this push, your task will be STUCK in planning forever
 git push origin helix-specs
 ` + "```" + `
 
-**⚠️  CRITICAL: You MUST push design docs immediately after creating them**
-- The backend detects your push and automatically moves the task to the review column
-- Without pushing, the task stays stuck in planning and review cannot begin
-- If you make ANY changes to design docs, commit and push them immediately
+**⚠️  CRITICAL: You ABSOLUTELY MUST push design docs immediately after creating them**
+- The backend watches for pushes to helix-specs and moves your task to review
+- WITHOUT pushing, the task stays STUCK in planning and review CANNOT begin
+- If you make ANY changes to design docs, commit and push immediately
+- PUSH IS MANDATORY - not optional
 
 **tasks.md Format (spec-driven development approach):**
 ` + "```markdown" + `
@@ -767,11 +775,12 @@ git push origin helix-specs
 - tasks.md: Discrete, implementable tasks (could be 3 tasks or 20+ depending on scope)
 
 Start by analyzing the user's request complexity, then create SHORT, SIMPLE spec documents in the worktree.`,
-		task.ProjectID, task.Type, task.Priority, task.ID,             // Project context
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 689)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 709)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 712)
-		task.ID)                                                                       // Commit message
+		task.ProjectID, task.Type, task.Priority, task.ID,                            // Project context (lines 677-680)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 693)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 717)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 720)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // git add command (line 730)
+		task.ID)                                                                       // Commit message (line 731)
 }
 
 // buildImplementationPrompt creates the prompt for implementation Zed agent
@@ -782,14 +791,22 @@ func (s *SpecDrivenTaskService) buildImplementationPrompt(task *types.SpecTask) 
 **SpecTask ID: %s**
 
 **CRITICAL: Design Documents Location**
-The approved design documents are in a task-specific directory in the helix-specs worktree:
+The helix-specs git branch is ALREADY CHECKED OUT at:
+~/work/helix-specs/
+
+⚠️  IMPORTANT:
+- This directory ALREADY EXISTS - DO NOT create a "helix-specs" directory
+- You are ALREADY in the helix-specs git worktree when you cd to ~/work/helix-specs/
+- DO NOT run "mkdir helix-specs" or create nested helix-specs folders
+
+The approved design documents are at:
 ~/work/helix-specs/design/tasks/%s_%s_%s/
 
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE (spec-driven development format):**
 ` + "```" + `
-~/work/helix-specs/
+~/work/helix-specs/           ← ALREADY EXISTS, already checked out
 └── design/
     └── tasks/
         └── %s_%s_%s/
@@ -807,8 +824,11 @@ The tasks.md file contains discrete, trackable tasks in this format:
 
 **Your Workflow:**
 ` + "```bash" + `
+# The helix-specs worktree is ALREADY checked out at ~/work/helix-specs/
+# DO NOT create a helix-specs directory!
+
 # Navigate to your task directory
-cd %s/tasks/%s_%s_%s
+cd ~/work/helix-specs/design/tasks/%s_%s_%s
 
 # Read your design documents (spec-driven development format)
 cat requirements.md    # User stories + EARS criteria
@@ -820,6 +840,8 @@ cat tasks.md          # Your task checklist
 sed -i 's/- \[ \] Task name/- \[~\] Task name/' tasks.md
 git add tasks.md
 git commit -m "🤖 Started: Task name"
+
+# ⚠️  REQUIRED: Push immediately after marking progress
 git push origin helix-specs
 
 # Implement that specific task in the main codebase (cd back to repo root)
@@ -827,10 +849,12 @@ cd /workspace/repos/{repo}
 # ... do the coding work ...
 
 # When done, mark complete
-cd %s/tasks/%s_%s_%s
+cd ~/work/helix-specs/design/tasks/%s_%s_%s
 sed -i 's/- \[~\] Task name/- \[x\] Task name/' tasks.md
 git add tasks.md
 git commit -m "🤖 Completed: Task name"
+
+# ⚠️  REQUIRED: Push immediately after marking progress
 git push origin helix-specs
 
 # Move to next [ ] task
@@ -867,12 +891,12 @@ git push origin helix-specs
 - The orchestrator monitors these pushes to track your progress
 
 Start by reading the spec documents from the worktree, then work through the task list systematically.`,
-		task.Name, task.ID,                                                           // Task context (lines 781-782)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 786 - hardcoded base path)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 795 - tree structure)
-		SpecsWorktreeRelPath, time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 811)
-		SpecsWorktreeRelPath, time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 830)
-		task.OriginalPrompt)                                                          // Original request (line 841)
+		task.Name, task.ID,                                                           // Task context (line 794-795)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 807)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Tree structure (line 816)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 835)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 856)
+		task.OriginalPrompt)                                                          // Original request (line 868)
 }
 
 // Helper functions

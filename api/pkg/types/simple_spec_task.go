@@ -29,18 +29,15 @@ type SpecTask struct {
 	// Git repository attachments: REMOVED - now inherited from parent Project
 	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
-	// Session tracking (same agent, different Helix sessions per phase)
-	PlanningSessionID        string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
-	ImplementationSessionID  string `json:"implementation_session_id,omitempty" gorm:"size:255;index"`
+	// Session tracking (single Helix session for entire workflow - planning + implementation)
+	// The same external agent/session is reused throughout the entire SpecTask lifecycle
+	PlanningSessionID string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
 
-	// External agent tracking (single agent per SpecTask, spans multiple sessions)
+	// External agent tracking (single agent per SpecTask, spans entire workflow)
 	ExternalAgentID string `json:"external_agent_id,omitempty" gorm:"size:255;index"`
 
-	// Legacy fields (deprecated, keeping for backward compatibility)
-	SpecAgent           string `json:"spec_agent,omitempty"`
-	ImplementationAgent string `json:"implementation_agent,omitempty"`
-	SpecSessionID       string `json:"spec_session_id,omitempty"`
-	BranchName          string `json:"branch_name,omitempty"`
+	// Git tracking
+	BranchName string `json:"branch_name,omitempty"`
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
