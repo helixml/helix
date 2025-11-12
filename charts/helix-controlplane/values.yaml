@@ -97,7 +97,10 @@ controlplane:
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""
+  # Can be regular (inbuilt auth), keycloak (external auth) or oidc (external auth)
+  authProvider: "regular"
   keycloak:
+    enabled: false
     url: ""
     frontendUrl: ""
     user: ""
