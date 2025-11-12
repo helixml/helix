@@ -12,6 +12,7 @@ import {
 import DarkDialog from '../dialog/DarkDialog';
 import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
+import useRouter from '../../hooks/useRouter';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
 
 interface LoginRegisterDialogProps {
@@ -29,6 +30,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
   const api = useApi();
   const snackbar = useSnackbar();
+  const router = useRouter();
   const apiClient = api.getApiClient();
 
   const handleClose = () => {
@@ -203,6 +205,41 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               },
             }}
           />
+
+          {mode === 'login' && (
+            <Box sx={{ width: '100%', textAlign: 'right', mt: 1, mb: 1 }}>
+              <Typography
+                component="span"
+                sx={{
+                  color: '#A0AEC0',
+                  fontSize: '0.875rem',
+                }}
+              >               
+                <Button
+                  variant="text"
+                  size="small"
+                  onClick={() => {
+                    handleClose();
+                    router.navigate('password-reset');
+                  }}
+                  sx={{
+                    color: '#00E5FF',
+                    textTransform: 'none',
+                    fontSize: '0.875rem',
+                    minWidth: 'auto',
+                    padding: '0 4px',
+                    marginBottom: '2px',
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                      textDecoration: 'underline',
+                    },
+                  }}
+                >
+                  Password Reset
+                </Button>
+              </Typography>
+            </Box>
+          )}
 
           {mode === 'register' && (
             <TextField
