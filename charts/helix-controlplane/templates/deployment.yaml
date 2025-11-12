@@ -64,6 +64,8 @@ spec:
             - name: RUNNER_TOKEN
               value: {{ .Values.controlplane.runnerToken | quote }}
             {{- end }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.controlplane.authProvider | quote }}
             {{- if .Values.controlplane.licenseKeyExistingSecret }}
             - name: LICENSE_KEY
               valueFrom:
@@ -74,6 +76,8 @@ spec:
             - name: LICENSE_KEY
               value: {{ .Values.controlplane.licenseKey | quote }}
             {{- end }}
+            ### Keycloak specific configuration
+            {{- if .Values.controlplane.keycloak.enabled }}
             - name: KEYCLOAK_URL
               value: {{ .Values.controlplane.keycloak.url | quote }}
             - name: KEYCLOAK_FRONTEND_URL
@@ -95,6 +99,8 @@ spec:
             - name: KEYCLOAK_PASSWORD
               value: {{ .Values.controlplane.keycloak.password | quote }}
             {{- end }}
+            {{- end }}
+            ### Ened keycloak config
             - name: ADMIN_USER_SOURCE
               value: {{ .Values.controlplane.admin.userSource | quote }}
             - name: ADMIN_USER_IDS
