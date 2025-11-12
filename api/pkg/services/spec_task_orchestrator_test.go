@@ -19,10 +19,6 @@ func TestBuildPlanningPrompt_MultiRepo(t *testing.T) {
 	task := &types.SpecTask{
 		ID:             "spec_multi_repo",
 		OriginalPrompt: "Add authentication feature with microservices architecture",
-		AttachedRepositories: []byte(`[
-			{"repository_id": "repo_backend", "clone_url": "http://api:8080/git/repo_backend", "local_path": "backend", "is_primary": true},
-			{"repository_id": "repo_frontend", "clone_url": "http://api:8080/git/repo_frontend", "local_path": "frontend", "is_primary": false}
-		]`),
 	}
 
 	app := &types.App{
@@ -56,7 +52,6 @@ func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
 	task := &types.SpecTask{
 		ID:             "spec_no_repo",
 		OriginalPrompt: "Add dark mode toggle",
-		AttachedRepositories: []byte(`[]`), // No repos
 	}
 
 	app := &types.App{
@@ -90,7 +85,6 @@ func TestBuildImplementationPrompt_IncludesSpecs(t *testing.T) {
 		RequirementsSpec: "User story: As a user, I want to login securely",
 		TechnicalDesign: "Architecture: Use JWT tokens with refresh mechanism",
 		ImplementationPlan: "- [ ] Create user model\n- [ ] Add login endpoint\n- [ ] Implement JWT generation",
-		AttachedRepositories: []byte(`[{"repository_id": "repo", "clone_url": "http://api:8080/git/repo", "local_path": "backend", "is_primary": true}]`),
 	}
 
 	app := &types.App{

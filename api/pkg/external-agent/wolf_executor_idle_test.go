@@ -60,6 +60,69 @@ func (m *MockStoreForWolf) DeleteExternalAgentActivity(ctx context.Context, agen
 	return args.Error(0)
 }
 
+func (m *MockStoreForWolf) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	args := m.Called(ctx, projectID, repoID)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateGitRepository(ctx context.Context, repo *store.GitRepository) error {
+	args := m.Called(ctx, repo)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	args := m.Called(ctx, sample)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.SampleProject), args.Error(1)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error {
+	args := m.Called(ctx, review)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error {
+	args := m.Called(ctx, comment)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error {
+	args := m.Called(ctx, reply)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error {
+	args := m.Called(ctx, event)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
+	args := m.Called(ctx, task)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error {
+	args := m.Called(ctx, workSession)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
+	args := m.Called(ctx, zedThread)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
+	args := m.Called(ctx, implTask)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
+	args := m.Called(ctx, agent)
+	return args.Error(0)
+}
+
 // Stub methods to satisfy store.Store interface (auto-generated from store_mocks.go)
 // These are not used in the cleanup tests, but needed to satisfy the interface
 
@@ -115,6 +178,27 @@ func (m *MockWolfClient) ListLobbies(ctx context.Context) ([]wolf.Lobby, error) 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]wolf.Lobby), args.Error(1)
+}
+
+func (m *MockWolfClient) GetSystemMemory(ctx context.Context) (*wolf.SystemMemoryResponse, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*wolf.SystemMemoryResponse), args.Error(1)
+}
+
+func (m *MockWolfClient) JoinLobby(ctx context.Context, req *wolf.JoinLobbyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockWolfClient) ListSessions(ctx context.Context) ([]wolf.WolfStreamSession, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]wolf.WolfStreamSession), args.Error(1)
 }
 
 func TestCleanupIdleExternalAgents_NoIdleAgents(t *testing.T) {
