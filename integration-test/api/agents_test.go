@@ -49,7 +49,8 @@ func (suite *AgentTestSuite) SetupTest() {
 	suite.NoError(err)
 
 	if suite.agentConfig.TestUserCreate {
-		keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
+		cfg := &config.ServerConfig{}
+		cfg.Auth.Keycloak = config.Keycloak{
 			KeycloakURL:         keycloakCfg.KeycloakURL,
 			KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
 			ServerURL:           keycloakCfg.ServerURL,
@@ -58,7 +59,8 @@ func (suite *AgentTestSuite) SetupTest() {
 			Realm:               keycloakCfg.Realm,
 			Username:            keycloakCfg.Username,
 			Password:            keycloakCfg.Password,
-		}, suite.db)
+		}
+		keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, suite.db)
 		suite.Require().NoError(err)
 
 		// Create a user

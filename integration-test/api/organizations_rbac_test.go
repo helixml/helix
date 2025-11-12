@@ -56,7 +56,8 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 	err = envconfig.Process("", &keycloakCfg)
 	suite.NoError(err)
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
+	cfg := &config.ServerConfig{}
+	cfg.Auth.Keycloak = config.Keycloak{
 		KeycloakURL:         keycloakCfg.KeycloakURL,
 		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
 		ServerURL:           keycloakCfg.ServerURL,
@@ -65,7 +66,8 @@ func (suite *OrganizationsRBACTestSuite) SetupTest() {
 		Realm:               keycloakCfg.Realm,
 		Username:            keycloakCfg.Username,
 		Password:            keycloakCfg.Password,
-	}, suite.db)
+	}
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, suite.db)
 	suite.Require().NoError(err)
 
 	suite.keycloak = keycloakAuthenticator
