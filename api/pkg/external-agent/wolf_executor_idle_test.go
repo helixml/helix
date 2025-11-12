@@ -147,7 +147,7 @@ func (m *MockStoreForWolf) GetSpecTaskGitPushEvent(ctx context.Context, id strin
 func (m *MockStoreForWolf) GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error) { return nil, nil }
 func (m *MockStoreForWolf) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
 func (m *MockStoreForWolf) Includes(m2 map[string]bool, s string) bool { return false }
-func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context) ([]*store.GitRepository, error) { return nil, nil }
+func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context, ownerID string) ([]*store.GitRepository, error) { return nil, nil }
 func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) { return nil, nil }
 func (m *MockStoreForWolf) ListSessionsQuery(ctx context.Context, query *store.ListSessionsQuery) ([]*types.Session, error) { return nil, nil }

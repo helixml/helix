@@ -64,8 +64,8 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 
 		// Transition to spec generation
 		specTask.Status = types.TaskStatusSpecGeneration
-		specTask.SpecAgent = "helix-planning-agent"
-		specTask.SpecSessionID = "planning_session_123"
+		specTask.ExternalAgentID = "helix-planning-agent"
+		specTask.PlanningSessionID = "planning_session_123"
 
 		// Simulate planning agent output
 		generatedSpecs := &SpecGeneration{
@@ -123,7 +123,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 		// Simulate multi-session implementation creation
 		specTask := createTestSpecTaskWithSpecs(userID, projectID)
 		specTask.Status = types.TaskStatusSpecApproved
-		specTask.ImplementationAgent = "zed-implementation-agent"
+		specTask.ExternalAgentID = "zed-implementation-agent"
 
 		// Parse implementation plan into discrete tasks
 		implementationTasks := parseTestImplementationPlan(specTask.ImplementationPlan)
