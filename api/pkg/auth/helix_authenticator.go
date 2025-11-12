@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -78,6 +79,10 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 		}
 		user.PasswordHash = hash
 		user.Password = ""
+	}
+
+	if h.cfg.WebServer.AdminIDs != nil && slices.Contains(h.cfg.WebServer.AdminIDs, types.AdminAllUsers) {
+		user.Admin = true
 	}
 
 	return h.store.CreateUser(ctx, user)
@@ -225,6 +230,12 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
+	// Check if the user is an admin
+	if h.cfg.WebServer.AdminIDs != nil && slices.Contains(h.cfg.WebServer.AdminIDs, user.ID) ||
+		slices.Contains(h.cfg.WebServer.AdminIDs, types.AdminAllUsers) {
+		user.Admin = true
+	}
+
 	return &types.User{
 		ID:          user.ID,
 		Username:    user.Username,
@@ -233,7 +244,7 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 		Token:       accessToken,
 		TokenType:   types.TokenTypeNone,
 		Type:        types.OwnerTypeUser,
-		Admin:       claims.Admin,
+		Admin:       user.Admin,
 		SB:          user.SB,
 		Deactivated: user.Deactivated,
 	}, nil
