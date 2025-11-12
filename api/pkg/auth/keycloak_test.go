@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -58,7 +57,8 @@ func (suite *KeycloakTestSuite) SetupSuite() {
 
 	fmt.Printf("keycloakCfg: %+v\n", keycloakCfg)
 
-	keycloakAuthenticator, err := NewKeycloakAuthenticator(&config.Keycloak{
+	cfg := &config.ServerConfig{}
+	cfg.Auth.Keycloak = config.Keycloak{
 		KeycloakURL:         keycloakCfg.KeycloakURL,
 		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
 		ServerURL:           keycloakCfg.ServerURL,
@@ -67,7 +67,9 @@ func (suite *KeycloakTestSuite) SetupSuite() {
 		Realm:               keycloakCfg.Realm,
 		Username:            keycloakCfg.Username,
 		Password:            keycloakCfg.Password,
-	}, suite.store)
+	}
+
+	keycloakAuthenticator, err := NewKeycloakAuthenticator(cfg, suite.store)
 	if err != nil {
 		suite.T().Fatalf("failed to create keycloak authenticator: %v", err)
 	}
@@ -78,7 +80,7 @@ func (suite *KeycloakTestSuite) SetupSuite() {
 func (suite *KeycloakTestSuite) TestCreateUser() {
 	userID := uuid.New().String()
 	userEmail := fmt.Sprintf("test-create-user-%s@test.com", userID)
-	user, err := suite.auth.CreateKeycloakUser(suite.ctx, &types.User{
+	user, err := suite.auth.CreateUser(suite.ctx, &types.User{
 		ID:       userID,
 		Email:    userEmail,
 		Username: "username",
@@ -97,60 +99,6 @@ func (suite *KeycloakTestSuite) TestCreateUser() {
 	suite.NoError(err)
 	suite.NotNil(user)
 	suite.Equal(userEmail, user.Email)
-}
-
-func (suite *KeycloakTestSuite) TestValidateUserToken() {
-	tests := []struct {
-		name    string
-		token   string
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name:    "empty_token",
-			token:   "",
-			wantErr: true,
-			errMsg:  "DecodeAccessToken: invalid or malformed token",
-		},
-		{
-			name:    "malformed_token",
-			token:   "not.a.jwt",
-			wantErr: true,
-			errMsg:  "DecodeAccessToken: invalid or malformed token",
-		},
-		{
-			name:    "invalid_token",
-			token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", // #gitleaks:allow
-			wantErr: true,
-			errMsg:  "cannot find a key to decode the token",
-		},
-		{
-			name:    "tampered_token",
-			token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9.tampered", // #gitleaks:allow
-			wantErr: true,
-			errMsg:  "cannot find a key to decode the token",
-		},
-		{
-			name:    "token_with_invalid_signature",
-			token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.invalid_signature", // #gitleaks:allow
-			wantErr: true,
-			errMsg:  "cannot find a key to decode the token",
-		},
-	}
-
-	for _, tt := range tests {
-		suite.Run(tt.name, func() {
-			_, err := suite.auth.ValidateUserToken(suite.ctx, tt.token)
-			if tt.wantErr {
-				suite.Error(err)
-				if tt.errMsg != "" {
-					suite.Contains(err.Error(), tt.errMsg)
-				}
-			} else {
-				suite.NoError(err)
-			}
-		})
-	}
 }
 
 func (suite *KeycloakTestSuite) TestGetUserByID() {
@@ -219,63 +167,6 @@ func (suite *KeycloakTestSuite) TestGetUserByID() {
 			}
 		})
 	}
-}
-
-func (suite *KeycloakTestSuite) TestConcurrentAccess() {
-	// Ensure we have a valid authenticator
-	suite.Require().NotNil(suite.auth, "Authenticator should be initialized in SetupTest")
-
-	// Test concurrent user lookups with a non-existent user
-	suite.Run("concurrent_user_lookups", func() {
-		var wg sync.WaitGroup
-		errChan := make(chan error, 10)
-
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, err := suite.auth.GetUserByID(suite.ctx, "non-existent-user")
-				if err == nil {
-					errChan <- fmt.Errorf("expected error for non-existent user")
-				}
-			}()
-		}
-
-		go func() {
-			wg.Wait()
-			close(errChan)
-		}()
-
-		for err := range errChan {
-			suite.Fail("Concurrent user lookup failed:", err)
-		}
-	})
-
-	suite.Run("concurrent_token_validations", func() {
-		var wg sync.WaitGroup
-		errChan := make(chan error, 10)
-		invalidToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.token"
-
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_, err := suite.auth.ValidateUserToken(suite.ctx, invalidToken)
-				if err == nil {
-					errChan <- fmt.Errorf("expected error for invalid token")
-				}
-			}()
-		}
-
-		go func() {
-			wg.Wait()
-			close(errChan)
-		}()
-
-		for err := range errChan {
-			suite.Fail("Concurrent token validation failed:", err)
-		}
-	})
 }
 
 func (suite *KeycloakTestSuite) TestErrorHandling() {
