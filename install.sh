@@ -756,16 +756,14 @@ check_nvidia_runtime_needed() {
     fi
 
     # Check if NVIDIA runtime is already configured in Docker
-    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+    # This is the definitive check - docker info will show "Runtimes: ... nvidia ..." if configured
+    if timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null; then
         return 1  # Already configured
     fi
 
-    # Check if nvidia-container-toolkit command exists
-    if command -v nvidia-container-toolkit &> /dev/null; then
-        return 1  # Already installed
-    fi
-
-    return 0  # NVIDIA GPU present but runtime not installed
+    # NVIDIA GPU is present but runtime is not configured in Docker
+    # (The toolkit package may or may not be installed, but it needs to be configured)
+    return 0
 }
 
 # Function to install NVIDIA Docker runtime
