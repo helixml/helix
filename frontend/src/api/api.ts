@@ -1712,8 +1712,8 @@ export interface TypesAssistantZapier {
 }
 
 export enum TypesAuthProvider {
-  AuthProviderKeycloak = "keycloak",
   AuthProviderRegular = "regular",
+  AuthProviderKeycloak = "keycloak",
   AuthProviderOIDC = "oidc",
 }
 
@@ -2713,6 +2713,15 @@ export interface TypesPaginatedUsersList {
   totalCount?: number;
   totalPages?: number;
   users?: TypesUser[];
+}
+
+export interface TypesPasswordResetCompleteRequest {
+  access_token?: string;
+  new_password?: string;
+}
+
+export interface TypesPasswordResetRequest {
+  email?: string;
 }
 
 export interface TypesPricing {
@@ -5100,6 +5109,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<void, any>({
         path: `/api/v1/auth/logout`,
         method: "POST",
+        ...params,
+      }),
+
+    /**
+     * @description Reset the password for a user
+     *
+     * @tags auth
+     * @name V1AuthPasswordResetCreate
+     * @summary Password Reset
+     * @request POST:/api/v1/auth/password-reset
+     */
+    v1AuthPasswordResetCreate: (request: TypesPasswordResetRequest, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/password-reset`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Complete the password reset process using the access token from the reset email
+     *
+     * @tags auth
+     * @name V1AuthPasswordResetCompleteCreate
+     * @summary Complete Password Reset
+     * @request POST:/api/v1/auth/password-reset-complete
+     */
+    v1AuthPasswordResetCompleteCreate: (request: TypesPasswordResetCompleteRequest, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/auth/password-reset-complete`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
         ...params,
       }),
 
