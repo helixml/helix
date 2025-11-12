@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -17,35 +17,7 @@ const (
 	ProviderEmail Provider = "email"
 )
 
-type Event int
-
-const (
-	EventCronTriggerComplete Event = 1
-	EventCronTriggerFailed   Event = 2
-)
-
-func (e Event) String() string {
-	switch e {
-	case EventCronTriggerComplete:
-		return "cron_trigger_complete"
-	case EventCronTriggerFailed:
-		return "cron_trigger_failed"
-	default:
-		return "unknown_event"
-	}
-}
-
-type Notification struct {
-	Event   Event
-	Session *types.Session
-	Message string
-
-	RenderMarkdown bool // Set to true to render markdown to HTML when sending email
-
-	// Populated by the provider
-	Email     string
-	FirstName string
-}
+type Notification = types.Notification
 
 //go:generate mockgen -source $GOFILE -destination notification_mocks.go -package $GOPACKAGE
 
@@ -54,25 +26,25 @@ type Notifier interface {
 }
 
 type NotificationsProvider struct {
-	authenticator auth.Authenticator
+	store store.Store
 
 	email *Email
 }
 
-func New(cfg *config.Notifications, authenticator auth.Authenticator) (Notifier, error) {
+func New(cfg *config.Notifications, store store.Store) (Notifier, error) {
 	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	return &NotificationsProvider{
-		authenticator: authenticator,
-		email:         email,
+		store: store,
+		email: email,
 	}, nil
 }
 
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
-	if n.authenticator == nil {
+	if n.store == nil {
 		return nil
 	}
 
@@ -81,7 +53,7 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
-	user, err := n.authenticator.GetUserByID(ctx, notification.Session.Owner)
+	user, err := n.store.GetUser(ctx, &store.GetUserQuery{ID: notification.Session.Owner})
 	if err != nil {
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
 	}

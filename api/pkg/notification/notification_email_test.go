@@ -19,7 +19,7 @@ func Test_getEmailMessage_CronTriggerComplete(t *testing.T) {
 	}
 
 	title, message, err := notifier.getEmailMessage(&Notification{
-		Event: EventCronTriggerComplete,
+		Event: types.EventCronTriggerComplete,
 		Session: &types.Session{
 			ID:   "123",
 			Name: "Test Session",
@@ -56,7 +56,7 @@ func Test_getEmailMessage_UnknownEvent(t *testing.T) {
 
 	// Create a notification with an unknown event type
 	notification := &Notification{
-		Event: Event(999), // Use an unknown event value
+		Event: types.Event(999), // Use an unknown event value
 		Session: &types.Session{
 			ID:   "789",
 			Name: "Test Session",
@@ -115,7 +115,7 @@ func Test_getEmailMessage_CronTriggerFailed(t *testing.T) {
 	}
 
 	title, message, err := notifier.getEmailMessage(&Notification{
-		Event: EventCronTriggerFailed,
+		Event: types.EventCronTriggerFailed,
 		Session: &types.Session{
 			ID:   "456",
 			Name: "Failed Session",
