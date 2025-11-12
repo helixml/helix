@@ -410,30 +410,7 @@ export HELIX_API_KEY=${apiKey}
                   )}
                 </Box>
               </Grid>
-            </Grid>
-
-            {/* Moonlight Streaming Section */}
-            <Grid item xs={12}>
-              <Box sx={{ p: 3, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>Moonlight Streaming</Typography>
-
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Pair your Moonlight client to access agent sessions and personal dev environments via streaming.
-                </Typography>
-
-                <Button
-                  variant="contained"
-                  onClick={() => setPairingDialogOpen(true)}
-                  sx={{ mb: 2 }}
-                >
-                  Pair New Moonlight Client
-                </Button>
-
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                  This is a one-time setup. After pairing, use lobby PINs from session pages to connect.
-                </Typography>
-              </Box>
-            </Grid>
+            </Grid>                    
 
           </Box>
         </Box>
