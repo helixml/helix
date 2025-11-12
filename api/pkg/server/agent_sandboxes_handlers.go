@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/external-agent"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/wolf"
 	"github.com/rs/zerolog/log"
 )
@@ -19,13 +19,13 @@ import (
 // AgentSandboxesDebugResponse combines data from multiple Wolf endpoints
 // for comprehensive debugging of the agent streaming infrastructure
 type AgentSandboxesDebugResponse struct {
-	Memory            *WolfSystemMemory        `json:"memory"`
-	Apps              []WolfAppInfo            `json:"apps,omitempty"`    // Apps mode
-	Lobbies           []WolfLobbyInfo          `json:"lobbies,omitempty"` // Lobbies mode
-	Sessions          []WolfSessionInfo        `json:"sessions"`
-	MoonlightClients  []MoonlightClientInfo    `json:"moonlight_clients"`           // moonlight-web client connections
-	WolfMode          string                   `json:"wolf_mode"`                   // Current Wolf mode ("apps" or "lobbies")
-	GPUStats          *GPUStats                `json:"gpu_stats,omitempty"`         // GPU encoder stats from Wolf (via nvidia-smi)
+	Memory             *WolfSystemMemory       `json:"memory"`
+	Apps               []WolfAppInfo           `json:"apps,omitempty"`    // Apps mode
+	Lobbies            []WolfLobbyInfo         `json:"lobbies,omitempty"` // Lobbies mode
+	Sessions           []WolfSessionInfo       `json:"sessions"`
+	MoonlightClients   []MoonlightClientInfo   `json:"moonlight_clients"`             // moonlight-web client connections
+	WolfMode           string                  `json:"wolf_mode"`                     // Current Wolf mode ("apps" or "lobbies")
+	GPUStats           *GPUStats               `json:"gpu_stats,omitempty"`           // GPU encoder stats from Wolf (via nvidia-smi)
 	GStreamerPipelines *GStreamerPipelineStats `json:"gstreamer_pipelines,omitempty"` // Actual pipeline count from Wolf
 }
 
@@ -55,10 +55,10 @@ type GStreamerPipelineStats struct {
 
 // MoonlightClientInfo represents a moonlight-web client connection
 type MoonlightClientInfo struct {
-	SessionID       string  `json:"session_id"`
-	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Unique Moonlight client ID (null for browser clients)
-	Mode            string  `json:"mode"`                       // "create", "keepalive", "join"
-	HasWebsocket    bool    `json:"has_websocket"`              // Is a WebRTC client currently connected?
+	SessionID      string  `json:"session_id"`
+	ClientUniqueID *string `json:"client_unique_id,omitempty"` // Unique Moonlight client ID (null for browser clients)
+	Mode           string  `json:"mode"`                       // "create", "keepalive", "join"
+	HasWebsocket   bool    `json:"has_websocket"`              // Is a WebRTC client currently connected?
 }
 
 // WolfAppInfo represents a Wolf app (apps mode)
@@ -69,15 +69,15 @@ type WolfAppInfo struct {
 
 // WolfSystemMemory represents Wolf's system memory usage (supports both apps and lobbies modes)
 type WolfSystemMemory struct {
-	Success              bool                     `json:"success"`
-	ProcessRSSBytes      int64                    `json:"process_rss_bytes"`
-	GStreamerBufferBytes int64                    `json:"gstreamer_buffer_bytes"`
-	TotalMemoryBytes     int64                    `json:"total_memory_bytes"`
-	Apps                 []WolfAppMemory          `json:"apps,omitempty"`              // Apps mode
-	Lobbies              []WolfLobbyMemory        `json:"lobbies,omitempty"`           // Lobbies mode
-	Clients              []WolfClientConnection   `json:"clients"`
-	GPUStats             *GPUStats                `json:"gpu_stats,omitempty"`         // From Wolf's nvidia-smi query
-	GStreamerPipelines   *GStreamerPipelineStats  `json:"gstreamer_pipelines,omitempty"` // From Wolf's state
+	Success              bool                    `json:"success"`
+	ProcessRSSBytes      int64                   `json:"process_rss_bytes"`
+	GStreamerBufferBytes int64                   `json:"gstreamer_buffer_bytes"`
+	TotalMemoryBytes     int64                   `json:"total_memory_bytes"`
+	Apps                 []WolfAppMemory         `json:"apps,omitempty"`    // Apps mode
+	Lobbies              []WolfLobbyMemory       `json:"lobbies,omitempty"` // Lobbies mode
+	Clients              []WolfClientConnection  `json:"clients"`
+	GPUStats             *GPUStats               `json:"gpu_stats,omitempty"`           // From Wolf's nvidia-smi query
+	GStreamerPipelines   *GStreamerPipelineStats `json:"gstreamer_pipelines,omitempty"` // From Wolf's state
 }
 
 // WolfAppMemory represents per-app memory usage (apps mode)
@@ -121,15 +121,15 @@ type WolfLobbyInfo struct {
 // WolfSessionInfo represents a Wolf streaming session
 // Note: Wolf returns flat structure, we transform it for frontend
 type WolfSessionInfo struct {
-	SessionID       string  `json:"session_id"` // Exposed as session_id for frontend (Wolf's client_id)
-	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Helix client ID (helix-agent-{session_id}-{instance_id})
-	ClientIP        string  `json:"client_ip"`
-	AppID           string  `json:"app_id"` // Wolf UI app ID in lobbies mode
-	LobbyID         *string `json:"lobby_id,omitempty"` // Which lobby this session is connected to (lobbies mode)
-	VideoWidth      int     `json:"-"` // Internal field from Wolf
-	VideoHeight     int     `json:"-"` // Internal field from Wolf
-	VideoRefreshRate int    `json:"-"` // Internal field from Wolf
-	DisplayMode     struct {
+	SessionID        string  `json:"session_id"`                 // Exposed as session_id for frontend (Wolf's client_id)
+	ClientUniqueID   *string `json:"client_unique_id,omitempty"` // Helix client ID (helix-agent-{session_id}-{instance_id})
+	ClientIP         string  `json:"client_ip"`
+	AppID            string  `json:"app_id"`             // Wolf UI app ID in lobbies mode
+	LobbyID          *string `json:"lobby_id,omitempty"` // Which lobby this session is connected to (lobbies mode)
+	VideoWidth       int     `json:"-"`                  // Internal field from Wolf
+	VideoHeight      int     `json:"-"`                  // Internal field from Wolf
+	VideoRefreshRate int     `json:"-"`                  // Internal field from Wolf
+	DisplayMode      struct {
 		Width         int  `json:"width"`
 		Height        int  `json:"height"`
 		RefreshRate   int  `json:"refresh_rate"`
@@ -140,13 +140,13 @@ type WolfSessionInfo struct {
 
 // wolfSessionRaw matches Wolf's actual API response format
 type wolfSessionRaw struct {
-	ClientID        string  `json:"client_id"`
-	ClientUniqueID  *string `json:"client_unique_id,omitempty"` // Helix session ID
-	ClientIP        string  `json:"client_ip"`
-	AppID           string  `json:"app_id"`
-	VideoWidth      int     `json:"video_width"`
-	VideoHeight     int     `json:"video_height"`
-	VideoRefreshRate int    `json:"video_refresh_rate"`
+	ClientID         string  `json:"client_id"`
+	ClientUniqueID   *string `json:"client_unique_id,omitempty"` // Helix session ID
+	ClientIP         string  `json:"client_ip"`
+	AppID            string  `json:"app_id"`
+	VideoWidth       int     `json:"video_width"`
+	VideoHeight      int     `json:"video_height"`
+	VideoRefreshRate int     `json:"video_refresh_rate"`
 }
 
 // @Summary Get Wolf debugging data
@@ -540,8 +540,8 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 		for i, streamer := range streamersResponse.Streamers {
 			clients[i] = MoonlightClientInfo{
 				SessionID:      streamer.StreamerID,
-				ClientUniqueID: nil, // Streamers don't expose client_unique_id directly
-				Mode:           "streamer",                  // New architecture uses persistent streamers
+				ClientUniqueID: nil,        // Streamers don't expose client_unique_id directly
+				Mode:           "streamer", // New architecture uses persistent streamers
 				HasWebsocket:   streamer.ConnectedPeers > 0,
 			}
 		}
@@ -549,10 +549,10 @@ func fetchMoonlightWebSessions(ctx context.Context) ([]MoonlightClientInfo, erro
 		// Single mode format: sessions API
 		var sessionsResponse struct {
 			Sessions []struct {
-				SessionID       string  `json:"session_id"`
-				ClientUniqueID  *string `json:"client_unique_id"` // Unique Moonlight client ID
-				Mode            string  `json:"mode"`
-				HasWebsocket    bool    `json:"has_websocket"`
+				SessionID      string  `json:"session_id"`
+				ClientUniqueID *string `json:"client_unique_id"` // Unique Moonlight client ID
+				Mode           string  `json:"mode"`
+				HasWebsocket   bool    `json:"has_websocket"`
 			} `json:"sessions"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&sessionsResponse); err != nil {
@@ -656,8 +656,8 @@ func (apiServer *HelixAPIServer) getAgentSandboxesEvents(rw http.ResponseWriter,
 type SessionWolfAppStateResponse struct {
 	SessionID      string `json:"session_id"`
 	WolfAppID      string `json:"wolf_app_id"`
-	State          string `json:"state"`           // "absent", "running", "resumable"
-	HasWebsocket   bool   `json:"has_websocket"`   // Is a browser client currently connected?
+	State          string `json:"state"`            // "absent", "running", "resumable"
+	HasWebsocket   bool   `json:"has_websocket"`    // Is a browser client currently connected?
 	ClientUniqueID string `json:"client_unique_id"` // Unique Moonlight client ID for this agent
 }
 
@@ -979,4 +979,3 @@ func (apiServer *HelixAPIServer) deleteWolfSession(rw http.ResponseWriter, req *
 
 	rw.WriteHeader(http.StatusOK)
 }
-
