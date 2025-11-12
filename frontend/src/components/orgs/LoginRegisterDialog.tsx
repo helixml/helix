@@ -57,13 +57,13 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
       await apiClient.v1AuthLoginCreate(loginRequest);
       
-      snackbar.setSnackbar('Login successful', 'success');
+      snackbar.success('Login successful');
       handleClose();
       window.location.reload();
     } catch (err: any) {
       const errorMessage = err?.response?.data?.error || err?.message || 'Login failed';
       setError(errorMessage);
-      snackbar.setSnackbar(errorMessage, 'error');
+      snackbar.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -97,13 +97,13 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
       await apiClient.v1AuthRegisterCreate(registerRequest);
       
-      snackbar.setSnackbar('Registration successful', 'success');
+      snackbar.success('Registration successful');
       handleClose();
       window.location.reload();
     } catch (err: any) {
       const errorMessage = err?.response?.data?.error || err?.message || 'Registration failed';
       setError(errorMessage);
-      snackbar.setSnackbar(errorMessage, 'error');
+      snackbar.error(errorMessage);
     } finally {
       setLoading(false);
     }
