@@ -1,11 +1,9 @@
 package types
 
 import (
-	"encoding/json"
 	"time"
 
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 // SpecTask represents a task following Kiro's actual spec-driven approach
@@ -28,22 +26,18 @@ type SpecTask struct {
 	// NEW: Single Helix Agent for entire workflow (App type in code)
 	HelixAppID string `json:"helix_app_id,omitempty" gorm:"size:255;index"`
 
-	// Git repository attachments (multiple repos can be attached)
-	AttachedRepositories datatypes.JSON `json:"attached_repositories,omitempty" gorm:"type:jsonb"`
-	PrimaryRepositoryID  string         `json:"primary_repository_id,omitempty" gorm:"size:255;index"`
+	// Git repository attachments: REMOVED - now inherited from parent Project
+	// Repos are managed at the project level. Access via project.DefaultRepoID and GetProjectRepositories(project_id)
 
-	// Session tracking (same agent, different Helix sessions per phase)
-	PlanningSessionID        string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
-	ImplementationSessionID  string `json:"implementation_session_id,omitempty" gorm:"size:255;index"`
+	// Session tracking (single Helix session for entire workflow - planning + implementation)
+	// The same external agent/session is reused throughout the entire SpecTask lifecycle
+	PlanningSessionID string `json:"planning_session_id,omitempty" gorm:"size:255;index"`
 
-	// External agent tracking (single agent per SpecTask, spans multiple sessions)
+	// External agent tracking (single agent per SpecTask, spans entire workflow)
 	ExternalAgentID string `json:"external_agent_id,omitempty" gorm:"size:255;index"`
 
-	// Legacy fields (deprecated, keeping for backward compatibility)
-	SpecAgent           string `json:"spec_agent,omitempty"`
-	ImplementationAgent string `json:"implementation_agent,omitempty"`
-	SpecSessionID       string `json:"spec_session_id,omitempty"`
-	BranchName          string `json:"branch_name,omitempty"`
+	// Git tracking
+	BranchName string `json:"branch_name,omitempty"`
 
 	// Multi-session support
 	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
@@ -54,6 +48,19 @@ type SpecTask struct {
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
 	SpecRevisionCount int        `json:"spec_revision_count"` // Number of spec revisions requested
+	YoloMode          bool       `json:"yolo_mode" gorm:"default:false"` // Skip human review, auto-approve specs
+
+	// Implementation tracking
+	ImplementationApprovedBy string     `json:"implementation_approved_by,omitempty"` // User who approved implementation
+	ImplementationApprovedAt *time.Time `json:"implementation_approved_at,omitempty"`
+
+	// Git tracking
+	LastPushCommitHash string     `json:"last_push_commit_hash,omitempty"`    // Last commit hash pushed to feature branch
+	LastPushAt         *time.Time `json:"last_push_at,omitempty"`             // When branch was last pushed
+	DesignDocsPushedAt *time.Time `json:"design_docs_pushed_at,omitempty"`    // When design docs were pushed to helix-specs branch
+	MergedToMain       bool       `json:"merged_to_main" gorm:"default:false"` // Whether branch was merged to main
+	MergedAt           *time.Time `json:"merged_at,omitempty"`                // When merge happened
+	MergeCommitHash    string     `json:"merge_commit_hash,omitempty"`        // Merge commit hash
 
 	// Simple tracking
 	EstimatedHours int        `json:"estimated_hours,omitempty"`
@@ -61,12 +68,12 @@ type SpecTask struct {
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 
 	// Metadata
-	CreatedBy string         `json:"created_by"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	Labels    []string       `json:"labels" gorm:"-"`
-	LabelsDB  datatypes.JSON `json:"-" gorm:"column:labels;type:jsonb"`
-	Metadata  datatypes.JSON `json:"metadata,omitempty" gorm:"type:jsonb"`
+	CreatedBy string                 `json:"created_by"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Archived  bool                   `json:"archived" gorm:"default:false;index"` // Archive to hide from main view
+	Labels    []string               `json:"labels" gorm:"type:jsonb;serializer:json"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// Relationships (loaded via joins, not stored in database)
 	// NOTE: Use GORM preloading to load these when needed:
@@ -113,13 +120,15 @@ type SpecGeneration struct {
 
 // SpecTaskFilters for filtering spec tasks in queries
 type SpecTaskFilters struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Status    string `json:"status,omitempty"`
-	UserID    string `json:"user_id,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Priority  string `json:"priority,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	ProjectID       string `json:"project_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	UserID          string `json:"user_id,omitempty"`
+	Type            string `json:"type,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Offset          int    `json:"offset,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"` // If true, include both archived and non-archived
+	ArchivedOnly    bool   `json:"archived_only,omitempty"`    // If true, show only archived tasks
 }
 
 // SpecTaskUpdateRequest represents a request to update a SpecTask
@@ -128,6 +137,7 @@ type SpecTaskUpdateRequest struct {
 	Priority    string `json:"priority,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+	YoloMode    *bool  `json:"yolo_mode,omitempty"` // Pointer to allow explicit false
 }
 
 // Two-phase workflow status constants
@@ -177,14 +187,6 @@ type SpecApprovalResponse struct {
 	ApprovedAt time.Time `json:"approved_at"`
 }
 
-// AttachedRepository represents a git repository attached to a SpecTask
-type AttachedRepository struct {
-	RepositoryID string `json:"repository_id"`
-	CloneURL     string `json:"clone_url"`
-	LocalPath    string `json:"local_path"` // Where to clone in workspace (e.g., "backend", "frontend")
-	IsPrimary    bool   `json:"is_primary"` // Primary repo hosts helix-design-docs branch
-}
-
 // SpecTaskExternalAgent represents the external agent (Wolf container) for a SpecTask
 // Single agent per SpecTask that spans multiple Helix sessions via Zed threads
 type SpecTaskExternalAgent struct {
@@ -192,10 +194,8 @@ type SpecTaskExternalAgent struct {
 	SpecTaskID      string    `json:"spec_task_id" gorm:"not null;size:255;index"`   // Parent SpecTask
 	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"`                   // Wolf app managing this agent
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"`                 // /workspaces/spectasks/{id}/work/
-	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"-"`                    // All sessions using this agent
-	HelixSessionsDB datatypes.JSON `json:"-" gorm:"column:helix_session_ids;type:jsonb"` // DB storage
-	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"-"`                       // Zed threads (1:1 with sessions)
-	ZedThreadsDB    datatypes.JSON `json:"-" gorm:"column:zed_thread_ids;type:jsonb"`    // DB storage
+	HelixSessionIDs []string  `json:"helix_session_ids" gorm:"type:jsonb;serializer:json"` // All sessions using this agent
+	ZedThreadIDs    []string  `json:"zed_thread_ids" gorm:"type:jsonb;serializer:json"`    // Zed threads (1:1 with sessions)
 	Status          string    `json:"status" gorm:"size:50;default:creating;index"`  // creating, running, terminated
 	Created         time.Time `json:"created" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	LastActivity    time.Time `json:"last_activity" gorm:"not null;default:CURRENT_TIMESTAMP;index"`
@@ -209,6 +209,8 @@ type ExternalAgentActivity struct {
 	LastInteraction time.Time `json:"last_interaction" gorm:"not null;index"`
 	AgentType       string    `json:"agent_type" gorm:"size:50"`  // "spectask", "pde", "adhoc"
 	WolfAppID       string    `json:"wolf_app_id" gorm:"size:255"` // Wolf app ID for termination
+	WolfLobbyID     string    `json:"wolf_lobby_id" gorm:"size:255"` // Wolf lobby ID for cleanup even after session deleted
+	WolfLobbyPIN    string    `json:"wolf_lobby_pin" gorm:"size:4"` // Wolf lobby PIN for cleanup
 	WorkspaceDir    string    `json:"workspace_dir" gorm:"size:500"` // Persistent workspace path
 	UserID          string    `json:"user_id" gorm:"size:255;index"`
 }
@@ -220,58 +222,4 @@ func (SpecTaskExternalAgent) TableName() string {
 
 func (ExternalAgentActivity) TableName() string {
 	return "external_agent_activity"
-}
-
-// GORM hooks for SpecTaskExternalAgent
-func (s *SpecTaskExternalAgent) BeforeCreate(tx *gorm.DB) error {
-	// Marshal slice fields to JSON for database storage
-	if len(s.HelixSessionIDs) > 0 {
-		data, err := json.Marshal(s.HelixSessionIDs)
-		if err != nil {
-			return err
-		}
-		s.HelixSessionsDB = data
-	}
-	if len(s.ZedThreadIDs) > 0 {
-		data, err := json.Marshal(s.ZedThreadIDs)
-		if err != nil {
-			return err
-		}
-		s.ZedThreadsDB = data
-	}
-	return nil
-}
-
-func (s *SpecTaskExternalAgent) AfterFind(tx *gorm.DB) error {
-	// Unmarshal JSON fields back to slices
-	if len(s.HelixSessionsDB) > 0 {
-		if err := json.Unmarshal(s.HelixSessionsDB, &s.HelixSessionIDs); err != nil {
-			return err
-		}
-	}
-	if len(s.ZedThreadsDB) > 0 {
-		if err := json.Unmarshal(s.ZedThreadsDB, &s.ZedThreadIDs); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *SpecTaskExternalAgent) BeforeUpdate(tx *gorm.DB) error {
-	// Marshal slice fields to JSON for database storage
-	if len(s.HelixSessionIDs) > 0 {
-		data, err := json.Marshal(s.HelixSessionIDs)
-		if err != nil {
-			return err
-		}
-		s.HelixSessionsDB = data
-	}
-	if len(s.ZedThreadIDs) > 0 {
-		data, err := json.Marshal(s.ZedThreadIDs)
-		if err != nil {
-			return err
-		}
-		s.ZedThreadsDB = data
-	}
-	return nil
 }

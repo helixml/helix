@@ -33,9 +33,10 @@ function trySendChannel(channel: RTCDataChannel | null, buffer: ByteBuffer) {
 }
 
 export type MouseScrollMode = "highres" | "normal"
+export type MouseMode = "relative" | "follow" | "pointAndDrag"
 
 export type StreamInputConfig = {
-    mouseMode: "relative" | "follow" | "pointAndDrag"
+    mouseMode: MouseMode
     mouseScrollMode: MouseScrollMode
     touchMode: "touch" | "mouseRelative" | "pointAndDrag"
     controllerConfig: ControllerConfig
@@ -70,7 +71,9 @@ export class StreamInput {
     private streamerSize: [number, number] = [0, 0]
 
     private keyboard: RTCDataChannel | null = null
-    private mouse: RTCDataChannel | null = null
+    private mouseClicks: RTCDataChannel | null = null
+    private mouseAbsolute: RTCDataChannel | null = null
+    private mouseRelative: RTCDataChannel | null = null
     private touch: RTCDataChannel | null = null
     private controllers: RTCDataChannel | null = null
     private controllerInputs: Array<RTCDataChannel | null> = []
@@ -91,7 +94,9 @@ export class StreamInput {
     setPeer(peer: RTCPeerConnection) {
         if (this.peer) {
             this.keyboard?.close()
-            this.mouse?.close()
+            this.mouseClicks?.close()
+            this.mouseAbsolute?.close()
+            this.mouseRelative?.close()
             this.touch?.close()
             this.controllers?.close()
             for (const controller of this.controllerInputs.splice(this.controllerInputs.length)) {
@@ -102,7 +107,16 @@ export class StreamInput {
 
         this.keyboard = peer.createDataChannel("keyboard")
 
-        this.mouse = peer.createDataChannel("mouse")
+        this.mouseClicks = peer.createDataChannel("mouseClicks", {
+            ordered: false
+        })
+        this.mouseAbsolute = peer.createDataChannel("mouseAbsolute", {
+            ordered: true,
+            maxRetransmits: 0
+        })
+        this.mouseRelative = peer.createDataChannel("mouseRelative", {
+            ordered: false
+        })
 
         this.touch = peer.createDataChannel("touch")
         this.touch.onmessage = this.onTouchMessage.bind(this)
@@ -226,7 +240,7 @@ export class StreamInput {
         this.buffer.putI16(movementX)
         this.buffer.putI16(movementY)
 
-        trySendChannel(this.mouse, this.buffer)
+        trySendChannel(this.mouseRelative, this.buffer)
     }
     sendMouseMoveClientCoordinates(movementX: number, movementY: number, rect: DOMRect) {
         const scaledMovementX = movementX / rect.width * this.streamerSize[0];
@@ -243,7 +257,7 @@ export class StreamInput {
         this.buffer.putI16(referenceWidth)
         this.buffer.putI16(referenceHeight)
 
-        trySendChannel(this.mouse, this.buffer)
+        trySendChannel(this.mouseAbsolute, this.buffer)
     }
     sendMousePositionClientCoordinates(clientX: number, clientY: number, rect: DOMRect, mouseButton?: number) {
         const position = this.calcNormalizedPosition(clientX, clientY, rect)
@@ -264,7 +278,7 @@ export class StreamInput {
         this.buffer.putBool(isDown)
         this.buffer.putU8(button)
 
-        trySendChannel(this.mouse, this.buffer)
+        trySendChannel(this.mouseClicks, this.buffer)
     }
     sendMouseWheelHighRes(deltaX: number, deltaY: number) {
         this.buffer.reset()
@@ -273,7 +287,7 @@ export class StreamInput {
         this.buffer.putI16(deltaX)
         this.buffer.putI16(deltaY)
 
-        trySendChannel(this.mouse, this.buffer)
+        trySendChannel(this.mouseClicks, this.buffer)
     }
     sendMouseWheel(deltaX: number, deltaY: number) {
         this.buffer.reset()
@@ -282,7 +296,7 @@ export class StreamInput {
         this.buffer.putI8(deltaX)
         this.buffer.putI8(deltaY)
 
-        trySendChannel(this.mouse, this.buffer)
+        trySendChannel(this.mouseClicks, this.buffer)
     }
 
     // -- Touch

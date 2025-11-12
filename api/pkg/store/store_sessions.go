@@ -107,6 +107,25 @@ func (s *PostgresStore) GetSession(ctx context.Context, sessionID string) (*type
 	return &session, nil
 }
 
+// GetSessionIncludingDeleted retrieves a session including soft-deleted ones
+// Used by cleanup code to get lobby credentials even after session deletion
+func (s *PostgresStore) GetSessionIncludingDeleted(ctx context.Context, sessionID string) (*types.Session, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID cannot be empty")
+	}
+
+	var session types.Session
+	err := s.gdb.WithContext(ctx).Unscoped().Where("id = ?", sessionID).First(&session).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}
+
 func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session) (*types.Session, error) {
 	if session.ID == "" {
 		return nil, fmt.Errorf("id not specified")
@@ -187,4 +206,27 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 	}
 
 	return existing, nil
+}
+
+// GetProjectExploratorySession gets the active exploratory session for a project
+// Returns the session if found and active, nil if not found or inactive
+func (s *PostgresStore) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) {
+	var session types.Session
+
+	// Query for sessions with matching project_id in config (metadata) and role=exploratory
+	// Note: column is named 'config' for backward compatibility but contains SessionMetadata
+	err := s.gdb.WithContext(ctx).
+		Where("config->>'project_id' = ?", projectID).
+		Where("config->>'session_role' = ?", "exploratory").
+		Order("created DESC").
+		First(&session).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // No exploratory session found (not an error)
+		}
+		return nil, err
+	}
+
+	return &session, nil
 }

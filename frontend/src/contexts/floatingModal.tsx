@@ -2,10 +2,10 @@ import React, { createContext, useContext, useState, ReactNode } from 'react'
 import { TypesDashboardRunner } from '../api/api'
 
 interface FloatingModalConfig {
-  type: 'logs' | 'rdp'
+  type: 'logs' | 'rdp' | 'exploratory_session'
   runner?: TypesDashboardRunner
-  runnerUrl?: string
   sessionId?: string
+  wolfLobbyId?: string
 }
 
 interface FloatingModalContextType {

@@ -83,11 +83,11 @@ func (m *SpecTaskMultiSessionManager) CreateImplementationSessions(
 
 	// Create Zed instance if needed
 	zedInstanceID := ""
-	if specTask.ImplementationAgent != "" && m.zedIntegrationService != nil {
-		// Check if this is a Zed-based implementation agent
-		app, err := m.store.GetApp(ctx, specTask.ImplementationAgent)
+	if specTask.HelixAppID != "" && m.zedIntegrationService != nil {
+		// Check if this is a Zed-based agent
+		app, err := m.store.GetApp(ctx, specTask.HelixAppID)
 		if err != nil {
-			log.Warn().Err(err).Str("app_id", specTask.ImplementationAgent).Msg("Failed to get implementation app")
+			log.Warn().Err(err).Str("app_id", specTask.HelixAppID).Msg("Failed to get helix app")
 		} else if m.isZedBasedApp(app) {
 			zedInstanceID, err = m.zedIntegrationService.CreateZedInstanceForSpecTask(ctx, specTask, config.WorkspaceConfig)
 			if err != nil {
@@ -371,7 +371,7 @@ func (m *SpecTaskMultiSessionManager) startWorkSession(
 
 	// Update session metadata
 	session.Metadata.SystemPrompt = systemPrompt
-	session.Metadata.AgentType = specTask.ImplementationAgent
+	session.Metadata.AgentType = "zed_external" // Single agent type for entire workflow
 
 	_, err = m.store.UpdateSession(ctx, *session)
 	if err != nil {

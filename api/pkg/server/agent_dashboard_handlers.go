@@ -430,19 +430,10 @@ func (s *HelixAPIServer) createAgentWorkItem(_ http.ResponseWriter, r *http.Requ
 		workItem.MaxRetries = 3 // Default
 	}
 
-	// Set work data and config if provided
-	if req.WorkData != nil {
-		workDataJSON, _ := json.Marshal(req.WorkData)
-		workItem.WorkData = workDataJSON
-	}
-	if req.Config != nil {
-		configJSON, _ := json.Marshal(req.Config)
-		workItem.Config = configJSON
-	}
-	if req.Labels != nil {
-		labelsJSON, _ := json.Marshal(req.Labels)
-		workItem.Labels = labelsJSON
-	}
+	// Set work data, config, and labels (GORM serializer handles JSON conversion)
+	workItem.WorkData = req.WorkData
+	workItem.Config = req.Config
+	workItem.Labels = req.Labels
 
 	err := s.Store.CreateAgentWorkItem(ctx, workItem)
 	if err != nil {
@@ -539,17 +530,15 @@ func (s *HelixAPIServer) updateAgentWorkItem(_ http.ResponseWriter, r *http.Requ
 	if req.Status != nil {
 		workItem.Status = *req.Status
 	}
+	// GORM serializer handles JSON conversion
 	if req.WorkData != nil {
-		workDataJSON, _ := json.Marshal(req.WorkData)
-		workItem.WorkData = workDataJSON
+		workItem.WorkData = req.WorkData
 	}
 	if req.Config != nil {
-		configJSON, _ := json.Marshal(req.Config)
-		workItem.Config = configJSON
+		workItem.Config = req.Config
 	}
 	if req.Labels != nil {
-		labelsJSON, _ := json.Marshal(req.Labels)
-		workItem.Labels = labelsJSON
+		workItem.Labels = req.Labels
 	}
 
 	err = s.Store.UpdateAgentWorkItem(ctx, workItem)

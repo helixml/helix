@@ -268,6 +268,8 @@ const (
 	ResourceUser                  Resource = "User"
 	ResourceAny                   Resource = "*"
 	ResourceTypeDataset           Resource = "Dataset"
+	ResourceProject               Resource = "Project"
+	ResourceGitRepository         Resource = "GitRepository"
 )
 
 type Action string

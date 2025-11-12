@@ -85,7 +85,7 @@ export const useResize = ({
   }, [isResizing, resizeDirection, startSize, startMouse, minSize, maxSize, onResize])
 
   const getResizeHandles = useCallback((): ResizeHandle[] => {
-    const handleSize = 8
+    const handleSize = 12
     const handles: ResizeHandle[] = [
       {
         direction: 'n',
