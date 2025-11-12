@@ -308,21 +308,10 @@ export default function DesignReviewViewer({
         overall_comment: overallComment || undefined,
       })
 
-      // If approved, also call approve-specs to start implementation automatically
       if (submitDecision === 'approve') {
-        await api.getApiClient().v1SpecTasksApproveSpecsCreate(specTaskId, {
-          approved: true,
-          comments: overallComment || 'Design approved',
-        })
-
-        snackbar.success('Design approved! Agent starting implementation...')
+        snackbar.success('Design approved! Ready to start implementation.')
         setShowSubmitDialog(false)
-
-        if (onImplementationStarted) {
-          onImplementationStarted()
-        }
-
-        onClose()
+        // Don't close - keep review open so user can click "Start Implementation"
       } else {
         snackbar.success('Changes requested. Agent will be notified.')
         setShowSubmitDialog(false)
@@ -336,7 +325,8 @@ export default function DesignReviewViewer({
   const handleStartImplementation = async () => {
     setStartingImplementation(true)
     try {
-      const response = await api.post(`/api/v1/spec-tasks/${specTaskId}/start-implementation`, {})
+      const apiClient = api.getApiClient()
+      const response = await apiClient.v1SpecTasksStartImplementationCreate(specTaskId)
       const data = response.data
 
       snackbar.success(
@@ -991,6 +981,7 @@ export default function DesignReviewViewer({
                   </Box>
                 </Paper>
               )}
+              </Box>
 
             </Box>
           </Box>
@@ -1098,59 +1089,54 @@ export default function DesignReviewViewer({
                   ))
                 )}
               </Box>
+            </Box>
+          )}
+        </Box>
 
-              {/* Review submit controls */}
-              {review.status === 'approved' ? (
-              <Box p={3} borderTop={1} borderColor="divider" bgcolor="success.light">
-                <Alert severity="success" sx={{ mb: 2 }}>
+        {/* Global Review Actions Footer */}
+        {review && (
+          <Box
+            sx={{
+              borderTop: 1,
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+              p: 2,
+              display: 'flex',
+              gap: 2,
+              justifyContent: 'flex-end',
+            }}
+          >
+            {review.status === 'approved' ? (
+              <Box display="flex" gap={2} flex={1}>
+                <Alert severity="success" sx={{ flex: 1 }}>
                   Design approved! Ready to start implementation.
                 </Alert>
-
                 <Button
-                  fullWidth
                   variant="contained"
                   color="primary"
                   size="large"
                   startIcon={<CodeIcon />}
                   onClick={handleStartImplementation}
                   disabled={startingImplementation}
-                  sx={{
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    fontWeight: 600,
-                  }}
                 >
                   {startingImplementation ? 'Starting Implementation...' : 'Start Implementation'}
                 </Button>
-
-                <Typography variant="caption" color="text.secondary" display="block" mt={1} textAlign="center">
-                  This will create a feature branch and initialize the implementation workspace
-                </Typography>
               </Box>
             ) : review.status !== 'superseded' ? (
-              <Box p={2} borderTop={1} borderColor="divider">
+              <>
                 {unresolvedCount > 0 && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Alert severity="warning" sx={{ flex: 1 }}>
                     {unresolvedCount} unresolved comment{unresolvedCount !== 1 ? 's' : ''}
                   </Alert>
                 )}
-
                 <Button
-                  fullWidth
-                  variant="contained"
-                  color="success"
-                  onClick={() => {
-                    setSubmitDecision('approve')
-                    setShowSubmitDialog(true)
-                  }}
-                  sx={{ mb: 1 }}
-                  disabled={unresolvedCount > 0}
+                  variant="outlined"
+                  color="error"
+                  onClick={() => setShowRejectDialog(true)}
                 >
-                  Approve Design
+                  Reject Design
                 </Button>
-
                 <Button
-                  fullWidth
                   variant="outlined"
                   color="warning"
                   onClick={() => {
@@ -1160,17 +1146,25 @@ export default function DesignReviewViewer({
                 >
                   Request Changes
                 </Button>
-              </Box>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={() => {
+                    setSubmitDecision('approve')
+                    setShowSubmitDialog(true)
+                  }}
+                  disabled={unresolvedCount > 0}
+                >
+                  Approve Design
+                </Button>
+              </>
             ) : (
-              <Box p={2} borderTop={1} borderColor="divider">
-                <Alert severity="info">
-                  This review has been superseded by a newer version
-                </Alert>
-              </Box>
+              <Alert severity="info" sx={{ flex: 1 }}>
+                This review has been superseded by a newer version
+              </Alert>
             )}
-            </Box>
-          )}
-        </Box>
+          </Box>
+        )}
       </Paper>
 
       {/* Tiling Menu */}
