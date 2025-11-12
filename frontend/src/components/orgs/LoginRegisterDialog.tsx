@@ -7,6 +7,7 @@ import {
   TextField,
   Box,
   Alert,
+  Typography,
 } from '@mui/material';
 import DarkDialog from '../dialog/DarkDialog';
 import useApi from '../../hooks/useApi';
@@ -136,22 +137,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             </Alert>
           )}
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-            <Button
-              variant="text"
-              size="small"
-              onClick={() => {
-                setMode(mode === 'login' ? 'register' : 'login');
-                setError(null);
-                setPassword('');
-                setPasswordConfirm('');
-              }}
-              sx={{ color: '#00E5FF' }}
-            >
-              {mode === 'login' ? 'Register' : 'Login'}
-            </Button>
-          </Box>
-
           <TextField
             autoFocus
             margin="dense"
@@ -254,7 +239,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           )}
         </DialogContent>
 
-        <DialogActions sx={{ p: 2, pt: 0 }}>
+        <DialogActions sx={{ p: 2, pt: 0, flexDirection: 'column', gap: 2 }}>
           <Button
             type="submit"
             variant="contained"
@@ -271,6 +256,41 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
           >
             {loading ? 'Please wait...' : mode === 'login' ? 'Login' : 'Register'}
           </Button>
+          <Box sx={{ width: '100%', textAlign: 'center' }}>
+            <Typography
+              component="span"
+              sx={{
+                color: '#A0AEC0',
+                fontSize: '0.875rem',
+              }}
+            >
+              {mode === 'login' ? "Don't have an account yet? " : 'Already have an account? '}
+              <Button
+                variant="text"
+                size="small"
+                onClick={() => {
+                  setMode(mode === 'login' ? 'register' : 'login');
+                  setError(null);
+                  setPassword('');
+                  setPasswordConfirm('');
+                }}
+                sx={{
+                  color: '#00E5FF',
+                  textTransform: 'none',
+                  fontSize: '0.875rem',
+                  minWidth: 'auto',
+                  padding: '0 4px',
+                  marginBottom: '2px',
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    textDecoration: 'underline',
+                  },
+                }}
+              >
+                {mode === 'login' ? 'Register here' : 'Login here'}
+              </Button>
+            </Typography>
+          </Box>
         </DialogActions>
       </form>
     </DarkDialog>
