@@ -1068,6 +1068,38 @@ func (apiServer *HelixAPIServer) handleContextTitleChanged(sessionID string, syn
 	return nil
 }
 
+// sendChatMessageToExternalAgent sends a chat message to an external agent session
+// This is the proper way to send messages that trigger agent responses
+func (apiServer *HelixAPIServer) sendChatMessageToExternalAgent(sessionID, message, requestID string) error {
+	// Get the WebSocket connection for this session
+	wsConn, exists := apiServer.externalAgentWSManager.getConnection(sessionID)
+	if !exists || wsConn == nil {
+		return fmt.Errorf("no WebSocket connection found for session %s", sessionID)
+	}
+
+	command := types.ExternalAgentCommand{
+		Type: "chat_message",
+		Data: map[string]interface{}{
+			"message":       message,
+			"request_id":    requestID,
+			"acp_thread_id": nil, // nil = continue in existing thread
+			"session_id":    sessionID,
+		},
+	}
+
+	// Send command to the external agent
+	select {
+	case wsConn.SendChan <- command:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("✅ Sent chat message to external agent")
+		return nil
+	default:
+		return fmt.Errorf("external agent send channel full for session %s", sessionID)
+	}
+}
+
 // sendCommandToExternalAgent sends a command to the external agent
 func (apiServer *HelixAPIServer) sendCommandToExternalAgent(sessionID string, command types.ExternalAgentCommand) error {
 	// Add session_id to the command data for context

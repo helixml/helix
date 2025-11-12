@@ -27,6 +27,7 @@ func NewAgentInstructionService(store store.Store) *AgentInstructionService {
 func (s *AgentInstructionService) SendApprovalInstruction(
 	ctx context.Context,
 	sessionID string,
+	userID string,
 	branchName string,
 	baseBranch string,
 ) error {
@@ -52,13 +53,14 @@ The approved design documents are in your repository under the design/ directory
 		Str("branch_name", branchName).
 		Msg("Sending approval instruction to agent")
 
-	return s.sendMessage(ctx, sessionID, message)
+	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
 // SendImplementationReviewRequest notifies agent that implementation is ready for review
 func (s *AgentInstructionService) SendImplementationReviewRequest(
 	ctx context.Context,
 	sessionID string,
+	userID string,
 	branchName string,
 ) error {
 	message := fmt.Sprintf(`# Implementation Review 🔍
@@ -81,13 +83,14 @@ I'm here to help with any feedback or iterations needed.
 		Str("branch_name", branchName).
 		Msg("Sending implementation review request to agent")
 
-	return s.sendMessage(ctx, sessionID, message)
+	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
 // SendMergeInstruction tells agent to merge their branch to main
 func (s *AgentInstructionService) SendMergeInstruction(
 	ctx context.Context,
 	sessionID string,
+	userID string,
 	branchName string,
 	baseBranch string,
 ) error {
@@ -110,12 +113,14 @@ Let me know once the merge is complete!
 		Str("base_branch", baseBranch).
 		Msg("Sending merge instruction to agent")
 
-	return s.sendMessage(ctx, sessionID, message)
+	return s.sendMessage(ctx, sessionID, userID, message)
 }
 
-// sendMessage sends a system message to an agent session
-func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, message string) error {
-	// Create a system interaction
+// sendMessage sends a user message to an agent session (triggers agent response)
+// Uses the same pattern as normal session message handling
+func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID string, userID string, message string) error {
+	// Create a user interaction that will trigger the agent to respond
+	// This matches how normal user messages are created in spec_driven_task_service.go
 	now := time.Now()
 	interaction := &types.Interaction{
 		ID:            system.GenerateInteractionID(),
@@ -123,15 +128,14 @@ func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID str
 		Created:       now,
 		Updated:       now,
 		Scheduled:     now,
-		Completed:     now,
 		SessionID:     sessionID,
-		UserID:        "system",
+		UserID:        userID, // User who created/owns the task
 		Mode:          types.SessionModeInference,
 		PromptMessage: message,
-		State:         types.InteractionStateComplete,
+		State:         types.InteractionStateWaiting, // Waiting state triggers agent response
 	}
 
-	// Store the interaction
+	// Store the interaction - this will queue it for the agent to process
 	_, err := s.store.CreateInteraction(ctx, interaction)
 	if err != nil {
 		return fmt.Errorf("failed to create instruction interaction: %w", err)
@@ -139,8 +143,10 @@ func (s *AgentInstructionService) sendMessage(ctx context.Context, sessionID str
 
 	log.Info().
 		Str("session_id", sessionID).
+		Str("user_id", userID).
 		Str("interaction_id", interaction.ID).
-		Msg("Successfully sent instruction to agent")
+		Str("state", string(interaction.State)).
+		Msg("Successfully sent instruction to agent (waiting for response)")
 
 	return nil
 }

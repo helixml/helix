@@ -81,11 +81,8 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 		baseBranch = "main"
 	}
 
-	// Send merge instruction to agent
+	// Send merge instruction to agent (reuse planning session)
 	sessionID := specTask.PlanningSessionID
-	if sessionID == "" {
-		sessionID = specTask.SpecSessionID
-	}
 
 	if sessionID != "" {
 		agentInstructionService := services.NewAgentInstructionService(s.Store)
@@ -95,6 +92,7 @@ func (s *HelixAPIServer) approveImplementation(w http.ResponseWriter, r *http.Re
 			err := agentInstructionService.SendMergeInstruction(
 				context.Background(),
 				sessionID,
+				specTask.CreatedBy, // User who created the task
 				specTask.BranchName,
 				baseBranch,
 			)

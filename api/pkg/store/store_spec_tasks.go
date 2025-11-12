@@ -2,12 +2,13 @@ package store
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/gorm"
 )
 
 // CreateSpecTask creates a new spec-driven task
@@ -30,20 +31,9 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error) {
 	task := &types.SpecTask{}
 
-	query := `
-		SELECT
-			id, project_id, name, description, type, priority, status,
-			original_prompt, requirements_spec, technical_design, implementation_plan,
-			spec_agent, implementation_agent, spec_session_id, implementation_session_id,
-			branch_name, spec_approved_by, spec_approved_at, spec_revision_count,
-			estimated_hours, started_at, completed_at,
-			created_by, created_at, updated_at, labels, metadata
-		FROM spec_tasks
-		WHERE id = $1`
-
-	err := s.gdb.WithContext(ctx).Raw(query, id).Scan(&task).Error
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&task).Error
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("spec task not found: %s", id)
 		}
 		return nil, fmt.Errorf("failed to get spec task: %w", err)
@@ -69,6 +59,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 	log.Info().
 		Str("task_id", task.ID).
 		Str("status", task.Status).
+		Str("planning_session_id", task.PlanningSessionID).
 		Msg("Updated spec task")
 
 	return nil

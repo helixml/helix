@@ -19902,6 +19902,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "branch_name": {
+                    "description": "Git tracking",
                     "type": "string"
                 },
                 "completed_at": {
@@ -19926,7 +19927,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "external_agent_id": {
-                    "description": "External agent tracking (single agent per SpecTask, spans multiple sessions)",
+                    "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
                 },
                 "helix_app_id": {
@@ -19934,9 +19935,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
-                    "type": "string"
-                },
-                "implementation_agent": {
                     "type": "string"
                 },
                 "implementation_approved_at": {
@@ -19948,9 +19946,6 @@ const docTemplate = `{
                 },
                 "implementation_plan": {
                     "description": "Discrete tasks breakdown (markdown)",
-                    "type": "string"
-                },
-                "implementation_session_id": {
                     "type": "string"
                 },
                 "labels": {
@@ -19991,7 +19986,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "planning_session_id": {
-                    "description": "Session tracking (same agent, different Helix sessions per phase)",
+                    "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
                 },
                 "priority": {
@@ -20008,10 +20003,6 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
-                "spec_agent": {
-                    "description": "Legacy fields (deprecated, keeping for backward compatibility)",
-                    "type": "string"
-                },
                 "spec_approved_at": {
                     "type": "string"
                 },
@@ -20022,9 +20013,6 @@ const docTemplate = `{
                 "spec_revision_count": {
                     "description": "Number of spec revisions requested",
                     "type": "integer"
-                },
-                "spec_session_id": {
-                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -21618,18 +21606,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
