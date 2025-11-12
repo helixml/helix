@@ -299,7 +299,32 @@ func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	user, err := s.authenticator.ValidateUserToken(ctx, passwordResetCompleteRequest.AccessToken)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to validate user token")
+		http.Error(w, "Failed to validate user token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Generate new token as well
+	token, err := s.authenticator.GenerateUserToken(ctx, user)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to generate user token")
+		http.Error(w, "Failed to generate user token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cookieManager := NewCookieManager(s.Cfg)
+	cookieManager.Set(w, accessTokenCookie, token)
+	cookieManager.Set(w, refreshTokenCookie, token)
+
+	response := types.UserResponse{
+		ID:    user.ID,
+		Email: user.Email,
+		Token: token,
+		Name:  user.FullName,
+	}
+	writeResponse(w, response, http.StatusOK)
 }
 
 func (s *HelixAPIServer) passwordUpdate(w http.ResponseWriter, r *http.Request) {
