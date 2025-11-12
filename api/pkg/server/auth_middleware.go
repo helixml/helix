@@ -37,23 +37,20 @@ type authMiddlewareConfig struct {
 }
 
 type authMiddleware struct {
-	authenticator         authpkg.AuthenticatorOIDC
-	keycloakAuthenticator authpkg.Authenticator
-	store                 store.Store
-	cfg                   authMiddlewareConfig
+	authenticator authpkg.Authenticator
+	store         store.Store
+	cfg           authMiddlewareConfig
 }
 
 func newAuthMiddleware(
-	authenticator authpkg.AuthenticatorOIDC,
-	keycloakAuthenticator authpkg.Authenticator,
+	authenticator authpkg.Authenticator,
 	store store.Store,
 	cfg authMiddlewareConfig,
 ) *authMiddleware {
 	return &authMiddleware{
-		authenticator:         authenticator,
-		keycloakAuthenticator: keycloakAuthenticator,
-		store:                 store,
-		cfg:                   cfg,
+		authenticator: authenticator,
+		store:         store,
+		cfg:           cfg,
 	}
 }
 
@@ -139,7 +136,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	if token == auth.cfg.runnerToken {
 		// if the api key is our runner token then we are in runner mode
 		return &types.User{
-			ID:        "runner-system",  // Add a system user ID for runner tokens
+			ID:        "runner-system", // Add a system user ID for runner tokens
 			Type:      types.OwnerTypeUser,
 			Token:     token,
 			TokenType: types.TokenTypeRunner,
@@ -147,7 +144,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 	}
 
 	if strings.HasPrefix(token, types.APIKeyPrefix) {
-		if auth.keycloakAuthenticator == nil {
+		if auth.authenticator == nil {
 			return nil, fmt.Errorf("keycloak is required for Helix API key authentication")
 		}
 		// we have an API key - we should load it from the database and construct our user that way
@@ -159,7 +156,7 @@ func (auth *authMiddleware) getUserFromToken(ctx context.Context, token string) 
 			return nil, fmt.Errorf("error getting API key: %w", ErrNoAPIKeyFound)
 		}
 
-		user, err := auth.keycloakAuthenticator.GetUserByID(ctx, apiKey.Owner)
+		user, err := auth.authenticator.GetUserByID(ctx, apiKey.Owner)
 		if err != nil {
 			return user, fmt.Errorf("error loading user from keycloak: %s", err.Error())
 		}
