@@ -9,6 +9,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+//go:generate mockgen -source auth.go -destination mock.go -package auth
+
 type Authenticator interface {
 	GetUserByID(ctx context.Context, userID string) (*types.User, error)
 	CreateUser(ctx context.Context, user *types.User) (*types.User, error)
