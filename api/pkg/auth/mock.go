@@ -14,7 +14,6 @@ import (
 	reflect "reflect"
 
 	oidc "github.com/coreos/go-oidc"
-	jwt "github.com/golang-jwt/jwt/v5"
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 	oauth2 "golang.org/x/oauth2"
@@ -24,6 +23,7 @@ import (
 type MockAuthenticator struct {
 	ctrl     *gomock.Controller
 	recorder *MockAuthenticatorMockRecorder
+	isgomock struct{}
 }
 
 // MockAuthenticatorMockRecorder is the mock recorder for MockAuthenticator.
@@ -43,6 +43,36 @@ func (m *MockAuthenticator) EXPECT() *MockAuthenticatorMockRecorder {
 	return m.recorder
 }
 
+// CreateUser mocks base method.
+func (m *MockAuthenticator) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateUser", ctx, user)
+	ret0, _ := ret[0].(*types.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateUser indicates an expected call of CreateUser.
+func (mr *MockAuthenticatorMockRecorder) CreateUser(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockAuthenticator)(nil).CreateUser), ctx, user)
+}
+
+// GenerateUserToken mocks base method.
+func (m *MockAuthenticator) GenerateUserToken(ctx context.Context, user *types.User) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GenerateUserToken", ctx, user)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GenerateUserToken indicates an expected call of GenerateUserToken.
+func (mr *MockAuthenticatorMockRecorder) GenerateUserToken(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GenerateUserToken", reflect.TypeOf((*MockAuthenticator)(nil).GenerateUserToken), ctx, user)
+}
+
 // GetUserByID mocks base method.
 func (m *MockAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.User, error) {
 	m.ctrl.T.Helper()
@@ -58,46 +88,64 @@ func (mr *MockAuthenticatorMockRecorder) GetUserByID(ctx, userID any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByID", reflect.TypeOf((*MockAuthenticator)(nil).GetUserByID), ctx, userID)
 }
 
-// ValidateUserToken mocks base method.
-func (m *MockAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
+// PasswordResetComplete mocks base method.
+func (m *MockAuthenticator) PasswordResetComplete(ctx context.Context, token, newPassword string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateUserToken", ctx, token)
-	ret0, _ := ret[0].(*jwt.Token)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret := m.ctrl.Call(m, "PasswordResetComplete", ctx, token, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// ValidateUserToken indicates an expected call of ValidateUserToken.
-func (mr *MockAuthenticatorMockRecorder) ValidateUserToken(ctx, token any) *gomock.Call {
+// PasswordResetComplete indicates an expected call of PasswordResetComplete.
+func (mr *MockAuthenticatorMockRecorder) PasswordResetComplete(ctx, token, newPassword any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateUserToken", reflect.TypeOf((*MockAuthenticator)(nil).ValidateUserToken), ctx, token)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PasswordResetComplete", reflect.TypeOf((*MockAuthenticator)(nil).PasswordResetComplete), ctx, token, newPassword)
 }
 
-// MockAuthenticatorOIDC is a mock of AuthenticatorOIDC interface.
-type MockAuthenticatorOIDC struct {
-	ctrl     *gomock.Controller
-	recorder *MockAuthenticatorOIDCMockRecorder
+// RequestPasswordReset mocks base method.
+func (m *MockAuthenticator) RequestPasswordReset(ctx context.Context, email string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestPasswordReset", ctx, email)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// MockAuthenticatorOIDCMockRecorder is the mock recorder for MockAuthenticatorOIDC.
-type MockAuthenticatorOIDCMockRecorder struct {
-	mock *MockAuthenticatorOIDC
+// RequestPasswordReset indicates an expected call of RequestPasswordReset.
+func (mr *MockAuthenticatorMockRecorder) RequestPasswordReset(ctx, email any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPasswordReset", reflect.TypeOf((*MockAuthenticator)(nil).RequestPasswordReset), ctx, email)
 }
 
-// NewMockAuthenticatorOIDC creates a new mock instance.
-func NewMockAuthenticatorOIDC(ctrl *gomock.Controller) *MockAuthenticatorOIDC {
-	mock := &MockAuthenticatorOIDC{ctrl: ctrl}
-	mock.recorder = &MockAuthenticatorOIDCMockRecorder{mock}
-	return mock
+// UpdatePassword mocks base method.
+func (m *MockAuthenticator) UpdatePassword(ctx context.Context, userID, newPassword string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePassword", ctx, userID, newPassword)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockAuthenticatorOIDC) EXPECT() *MockAuthenticatorOIDCMockRecorder {
-	return m.recorder
+// UpdatePassword indicates an expected call of UpdatePassword.
+func (mr *MockAuthenticatorMockRecorder) UpdatePassword(ctx, userID, newPassword any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePassword", reflect.TypeOf((*MockAuthenticator)(nil).UpdatePassword), ctx, userID, newPassword)
+}
+
+// ValidatePassword mocks base method.
+func (m *MockAuthenticator) ValidatePassword(ctx context.Context, user *types.User, password string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ValidatePassword", ctx, user, password)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ValidatePassword indicates an expected call of ValidatePassword.
+func (mr *MockAuthenticatorMockRecorder) ValidatePassword(ctx, user, password any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidatePassword", reflect.TypeOf((*MockAuthenticator)(nil).ValidatePassword), ctx, user, password)
 }
 
 // ValidateUserToken mocks base method.
-func (m *MockAuthenticatorOIDC) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
+func (m *MockAuthenticator) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ValidateUserToken", ctx, accessToken)
 	ret0, _ := ret[0].(*types.User)
@@ -106,15 +154,16 @@ func (m *MockAuthenticatorOIDC) ValidateUserToken(ctx context.Context, accessTok
 }
 
 // ValidateUserToken indicates an expected call of ValidateUserToken.
-func (mr *MockAuthenticatorOIDCMockRecorder) ValidateUserToken(ctx, accessToken any) *gomock.Call {
+func (mr *MockAuthenticatorMockRecorder) ValidateUserToken(ctx, accessToken any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateUserToken", reflect.TypeOf((*MockAuthenticatorOIDC)(nil).ValidateUserToken), ctx, accessToken)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateUserToken", reflect.TypeOf((*MockAuthenticator)(nil).ValidateUserToken), ctx, accessToken)
 }
 
 // MockOIDC is a mock of OIDC interface.
 type MockOIDC struct {
 	ctrl     *gomock.Controller
 	recorder *MockOIDCMockRecorder
+	isgomock struct{}
 }
 
 // MockOIDCMockRecorder is the mock recorder for MockOIDC.

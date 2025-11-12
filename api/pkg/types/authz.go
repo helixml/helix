@@ -110,6 +110,15 @@ type TeamMembership struct {
 	Team Team `json:"team,omitempty" yaml:"team,omitempty"`
 }
 
+type AuthProvider string
+
+const (
+	AuthProviderRegular  AuthProvider = "regular" // Embedded in Helix, no external dependencies
+	AuthProviderKeycloak AuthProvider = "keycloak"
+	AuthProviderOIDC     AuthProvider = "oidc"
+	// TODO: oauth github, google, etc
+)
+
 type User struct {
 	ID        string         `json:"id" gorm:"primaryKey"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -131,6 +140,12 @@ type User struct {
 	Email    string    `json:"email"`
 	Username string    `json:"username"`
 	FullName string    `json:"full_name"`
+
+	AuthProvider AuthProvider `json:"auth_provider"`
+
+	Password           string `json:"-" gorm:"-"`           // Temporary field for password input, not persisted
+	PasswordHash       []byte `json:"password_hash"`        // bcrypt hash of the password
+	MustChangePassword bool   `json:"must_change_password"` // if the user must change their password
 
 	SB          bool `json:"sb"`
 	Deactivated bool `json:"deactivated"`

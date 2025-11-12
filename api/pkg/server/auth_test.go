@@ -36,11 +36,12 @@ const (
 
 type AuthSuite struct {
 	suite.Suite
-	ctrl       *gomock.Controller
-	authCtx    context.Context
-	server     *HelixAPIServer
-	oidcClient *auth.MockOIDC
-	store      *store.MockStore
+	ctrl          *gomock.Controller
+	authCtx       context.Context
+	server        *HelixAPIServer
+	oidcClient    *auth.MockOIDC
+	authenticator *auth.MockAuthenticator
+	store         *store.MockStore
 }
 
 func TestAuthSuite(t *testing.T) {
@@ -54,11 +55,14 @@ func (suite *AuthSuite) SetupTest() {
 	suite.store = store.NewMockStore(ctrl)
 	cfg := &config.ServerConfig{}
 	cfg.WebServer.URL = testServerURL
+	cfg.Auth.Provider = types.AuthProviderKeycloak
 	suite.oidcClient = auth.NewMockOIDC(ctrl)
+	suite.authenticator = auth.NewMockAuthenticator(ctrl)
 	suite.server = &HelixAPIServer{
-		Cfg:        cfg,
-		oidcClient: suite.oidcClient,
-		Store:      suite.store,
+		Cfg:           cfg,
+		oidcClient:    suite.oidcClient,
+		authenticator: suite.authenticator,
+		Store:         suite.store,
 	}
 }
 
@@ -103,6 +107,7 @@ func (suite *AuthSuite) createMockUser() *types.User {
 
 func (suite *AuthSuite) createMockUserInfo() *auth.UserInfo {
 	return &auth.UserInfo{
+		Subject:    "user123",
 		Email:      testEmail,
 		Name:       testName,
 		GivenName:  "Test",
@@ -112,6 +117,7 @@ func (suite *AuthSuite) createMockUserInfo() *auth.UserInfo {
 
 func (suite *AuthSuite) createMockUserUpdate() *auth.UserInfo {
 	return &auth.UserInfo{
+		Subject:    "user123",
 		Email:      newEmail,
 		Name:       newName,
 		GivenName:  "Test",
@@ -655,9 +661,9 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
-				suite.oidcClient.EXPECT().
-					VerifyAccessToken(gomock.Any(), "valid-token").
-					Return(nil)
+				suite.authenticator.EXPECT().
+					ValidateUserToken(gomock.Any(), "valid-token").
+					Return(&types.User{ID: "user123"}, nil)
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {
@@ -675,9 +681,9 @@ func (suite *AuthSuite) TestAuthenticated() {
 				return req
 			},
 			setupMocks: func() {
-				suite.oidcClient.EXPECT().
-					VerifyAccessToken(gomock.Any(), "invalid-token").
-					Return(errors.New("invalid token"))
+				suite.authenticator.EXPECT().
+					ValidateUserToken(gomock.Any(), "invalid-token").
+					Return(nil, errors.New("invalid token"))
 			},
 			expectedStatus: http.StatusOK,
 			checkResponse: func(rec *httptest.ResponseRecorder) {

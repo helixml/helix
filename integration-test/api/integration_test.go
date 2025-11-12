@@ -156,7 +156,7 @@ func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenti
 		Username: email,
 		FullName: "test user " + time.Now().Format("20060102150405"),
 	}
-	createdUser, err := kc.CreateKeycloakUser(context.Background(), user)
+	createdUser, err := kc.CreateUser(context.Background(), user)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create user in Keycloak: %w", err)
 	}
@@ -224,7 +224,8 @@ func TestExternalAgentModelParameter(t *testing.T) {
 		t.Fatalf("Failed to load Keycloak config: %v", err)
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
+	cfg := &config.ServerConfig{}
+	cfg.Auth.Keycloak = config.Keycloak{
 		KeycloakURL:         keycloakCfg.KeycloakURL,
 		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
 		ServerURL:           keycloakCfg.ServerURL,
@@ -233,7 +234,9 @@ func TestExternalAgentModelParameter(t *testing.T) {
 		Realm:               keycloakCfg.Realm,
 		Username:            keycloakCfg.Username,
 		Password:            keycloakCfg.Password,
-	}, db)
+	}
+
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(cfg, db)
 	if err != nil {
 		t.Fatalf("Failed to create Keycloak authenticator: %v", err)
 	}
