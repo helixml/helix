@@ -765,3 +765,17 @@ func (s *HelixAPIServer) backfillDesignReviewFromGit(ctx context.Context, specTa
 		Str("spec_task_id", specTaskID).
 		Msg("✅ Design review backfilled successfully from git")
 }
+
+// sanitizeBranchName sanitizes a string to be used as a git branch name
+func sanitizeBranchName(name string) string {
+	// Replace spaces with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+	// Remove special characters except hyphens and underscores
+	result := strings.Builder{}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
