@@ -452,7 +452,14 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		// OK, set authentication cookies and redirect
 		cookieManager.Set(w, accessTokenCookie, token)
 		cookieManager.Set(w, refreshTokenCookie, token)
-		http.Redirect(w, r, loginRequest.RedirectURI, http.StatusFound)
+
+		response := types.UserResponse{
+			ID:    user.ID,
+			Email: user.Email,
+			Token: token,
+			Name:  user.FullName,
+		}
+		writeResponse(w, response, http.StatusOK)
 
 		return
 	}
@@ -465,10 +472,6 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Trace().Str("auth_url", redirectURL).Msg("Redirecting to auth URL")
 	http.Redirect(w, r, redirectURL, http.StatusFound)
-}
-
-func (s *HelixAPIServer) loginRegular(req *types.LoginRequest, w http.ResponseWriter) {
-
 }
 
 // callback godoc
