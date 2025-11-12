@@ -2286,6 +2286,11 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
+type PasswordResetCompleteRequest struct {
+	AccessToken string `json:"access_token"`
+	NewPassword string `json:"new_password"`
+}
+
 type UserResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
@@ -2651,4 +2656,37 @@ type QuestionSetExecution struct {
 	Status        QuestionSetExecutionStatus `json:"status"`
 	Error         string                     `json:"error"`
 	Results       []QuestionResponse         `json:"results" gorm:"type:jsonb;serializer:json"`
+}
+
+type Event int
+
+const (
+	EventCronTriggerComplete  Event = 1
+	EventCronTriggerFailed    Event = 2
+	EventPasswordResetRequest Event = 3
+)
+
+func (e Event) String() string {
+	switch e {
+	case EventCronTriggerComplete:
+		return "cron_trigger_complete"
+	case EventCronTriggerFailed:
+		return "cron_trigger_failed"
+	case EventPasswordResetRequest:
+		return "password_reset_request"
+	default:
+		return "unknown_event"
+	}
+}
+
+type Notification struct {
+	Event   Event
+	Session *Session
+	Message string
+
+	RenderMarkdown bool // Set to true to render markdown to HTML when sending email
+
+	// Populated by the provider
+	Email     string
+	FirstName string
 }

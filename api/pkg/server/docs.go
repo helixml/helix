@@ -1543,6 +1543,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/password-reset": {
+            "post": {
+                "description": "Reset the password for a user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Password Reset",
+                "parameters": [
+                    {
+                        "description": "Request body with email.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PasswordResetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/password-reset-complete": {
+            "post": {
+                "description": "Complete the password reset process using the access token from the reset email",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Complete Password Reset",
+                "parameters": [
+                    {
+                        "description": "Request body with access token and new password.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PasswordResetCompleteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/refresh": {
             "post": {
                 "description": "Refresh the access token",
@@ -13649,13 +13699,16 @@ const docTemplate = `{
         "types.AuthProvider": {
             "type": "string",
             "enum": [
-                "keycloak",
                 "regular",
+                "keycloak",
                 "oidc"
             ],
+            "x-enum-comments": {
+                "AuthProviderRegular": "Embedded in Helix, no external dependencies"
+            },
             "x-enum-varnames": [
-                "AuthProviderKeycloak",
                 "AuthProviderRegular",
+                "AuthProviderKeycloak",
                 "AuthProviderOIDC"
             ]
         },
@@ -16129,6 +16182,25 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.User"
                     }
+                }
+            }
+        },
+        "types.PasswordResetCompleteRequest": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PasswordResetRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
                 }
             }
         },

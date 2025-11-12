@@ -251,9 +251,53 @@ func (s *HelixAPIServer) passwordReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO:
-	// 1. send JWT email with link to confirm password reset
-	// 2. user clicks link, and is redirected to the password reset page
+	err = s.authenticator.RequestPasswordReset(r.Context(), user.Email)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to request password reset")
+		http.Error(w, "Failed to request password reset: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// passwordResetComplete godoc
+// @Summary Complete Password Reset
+// @Description Complete the password reset process using the access token from the reset email
+// @Tags    auth
+// @Success 200
+// @Param request    body types.PasswordResetCompleteRequest true "Request body with access token and new password."
+// @Router /api/v1/auth/password-reset-complete [post]
+func (s *HelixAPIServer) passwordResetComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	ctx := r.Context()
+
+	var passwordResetCompleteRequest types.PasswordResetCompleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&passwordResetCompleteRequest); err != nil {
+		log.Error().Err(err).Msg("Failed to decode password reset complete request")
+		http.Error(w, "Failed to decode password reset complete request", http.StatusBadRequest)
+		return
+	}
+
+	if passwordResetCompleteRequest.AccessToken == "" {
+		http.Error(w, "Access token is required", http.StatusBadRequest)
+		return
+	}
+
+	if passwordResetCompleteRequest.NewPassword == "" {
+		http.Error(w, "New password is required", http.StatusBadRequest)
+		return
+	}
+
+	err := s.authenticator.PasswordResetComplete(ctx, passwordResetCompleteRequest.AccessToken, passwordResetCompleteRequest.NewPassword)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to complete password reset")
+		http.Error(w, "Failed to complete password reset: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 }
