@@ -26,6 +26,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const api = useApi();
@@ -39,6 +40,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
     setPassword('');
     setPasswordConfirm('');
     setError(null);
+    setPasswordError(null);
     onClose();
   };
 
@@ -50,6 +52,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     setLoading(true);
     setError(null);
+    setPasswordError(null);
 
     try {
       const loginRequest: TypesLoginRequest = {
@@ -63,9 +66,14 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       handleClose();
       window.location.reload();
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.error || err?.message || 'Login failed';
-      setError(errorMessage);
-      snackbar.error(errorMessage);
+      if (err?.response?.status === 401) {
+        setPasswordError('email or password doesn\'t match');
+        setError(null);
+      } else {
+        const errorMessage = err?.response?.data?.error || err?.message || 'Login failed';
+        setError(errorMessage);
+        snackbar.error(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -180,7 +188,12 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             fullWidth
             variant="outlined"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setPasswordError(null);
+            }}
+            error={!!passwordError}
+            helperText={passwordError}
             sx={{
               mb: mode === 'register' ? 2 : 0,
               '& .MuiOutlinedInput-root': {
@@ -202,6 +215,9 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               },
               '& .MuiOutlinedInput-input': {
                 color: '#F1F1F1',
+              },
+              '& .MuiFormHelperText-root': {
+                color: '#f44336',
               },
             }}
           />
@@ -308,6 +324,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
                 onClick={() => {
                   setMode(mode === 'login' ? 'register' : 'login');
                   setError(null);
+                  setPasswordError(null);
                   setPassword('');
                   setPasswordConfirm('');
                 }}
