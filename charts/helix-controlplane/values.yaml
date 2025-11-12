@@ -97,7 +97,19 @@ controlplane:
   licenseKey: ""
   licenseKeyExistingSecret: ""
   licenseKeyExistingSecretKey: ""
+  # Used for sending emails like password reset, agent notifications, etc.
+  smtp:
+    enabled: false
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+    to: ""
+  # Can be regular (inbuilt auth), keycloak (external auth) or oidc (external auth)
+  authProvider: "regular"  
   keycloak:
+    enabled: false
     url: ""
     frontendUrl: ""
     user: ""
