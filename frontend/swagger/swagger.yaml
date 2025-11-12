@@ -2963,13 +2963,15 @@ definitions:
     type: object
   types.AuthProvider:
     enum:
-    - keycloak
     - regular
+    - keycloak
     - oidc
     type: string
+    x-enum-comments:
+      AuthProviderRegular: Embedded in Helix, no external dependencies
     x-enum-varnames:
-    - AuthProviderKeycloak
     - AuthProviderRegular
+    - AuthProviderKeycloak
     - AuthProviderOIDC
   types.AuthenticatedResponse:
     properties:
@@ -4679,6 +4681,18 @@ definitions:
         items:
           $ref: '#/definitions/types.User'
         type: array
+    type: object
+  types.PasswordResetCompleteRequest:
+    properties:
+      access_token:
+        type: string
+      new_password:
+        type: string
+    type: object
+  types.PasswordResetRequest:
+    properties:
+      email:
+        type: string
     type: object
   types.Pricing:
     properties:
@@ -8023,6 +8037,39 @@ paths:
         "200":
           description: OK
       summary: Logout
+      tags:
+      - auth
+  /api/v1/auth/password-reset:
+    post:
+      description: Reset the password for a user
+      parameters:
+      - description: Request body with email.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PasswordResetRequest'
+      responses:
+        "200":
+          description: OK
+      summary: Password Reset
+      tags:
+      - auth
+  /api/v1/auth/password-reset-complete:
+    post:
+      description: Complete the password reset process using the access token from
+        the reset email
+      parameters:
+      - description: Request body with access token and new password.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.PasswordResetCompleteRequest'
+      responses:
+        "200":
+          description: OK
+      summary: Complete Password Reset
       tags:
       - auth
   /api/v1/auth/refresh:
