@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -32,16 +31,20 @@ type KeycloakAuthenticator struct {
 	adminToken        *gocloak.JWT
 	adminTokenExpires time.Time
 
+	oidcClient OIDC
+
 	store store.Store
 }
 
-func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*KeycloakAuthenticator, error) {
-	gck := gocloak.NewClient(cfg.KeycloakURL)
+var _ Authenticator = &KeycloakAuthenticator{}
 
-	log.Info().Str("keycloak_url", cfg.KeycloakURL).Msg("connecting to keycloak...")
+func NewKeycloakAuthenticator(cfg *config.ServerConfig, store store.Store) (*KeycloakAuthenticator, error) {
+	gck := gocloak.NewClient(cfg.Auth.Keycloak.KeycloakURL)
+
+	log.Info().Str("keycloak_url", cfg.Auth.Keycloak.KeycloakURL).Msg("connecting to keycloak...")
 
 	// Retryable connect that waits for keycloak
-	token, err := connect(context.Background(), cfg)
+	token, err := connect(context.Background(), &cfg.Auth.Keycloak)
 	if err != nil {
 		return nil, err
 	}
@@ -51,14 +54,42 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 		return nil, err
 	}
 
-	err = ensureConfiguration(gck, token.AccessToken, cfg)
+	err = ensureConfiguration(gck, token.AccessToken, &cfg.Auth.Keycloak)
 	if err != nil {
 		return nil, err
 	}
 
+	keycloakURL, err := url.Parse(cfg.Auth.Keycloak.KeycloakFrontEndURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
+
+	// Strip any trailing slashes from the path
+	keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
+	keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Auth.Keycloak.Realm)
+	client, err := NewOIDCClient(ctx, OIDCConfig{
+		ProviderURL:  keycloakURL.String(),
+		ClientID:     cfg.Auth.Keycloak.APIClientID,
+		ClientSecret: cfg.Auth.Keycloak.ClientSecret,
+		RedirectURL:  helixRedirectURL,
+		AdminUserIDs: cfg.WebServer.AdminIDs,
+		AdminUserSrc: cfg.WebServer.AdminSrc,
+		Audience:     "account",
+		Scopes:       []string{"openid", "profile", "email"},
+		Store:        store,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create keycloak client: %w", err)
+	}
+
 	return &KeycloakAuthenticator{
-		cfg:          cfg,
+		cfg:          &cfg.Auth.Keycloak,
 		gocloak:      gck,
+		oidcClient:   client,
 		adminTokenMu: &sync.Mutex{},
 		store:        store,
 	}, nil
@@ -425,6 +456,11 @@ func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT
 	return token, nil
 }
 
+func (k *KeycloakAuthenticator) GenerateUserToken(_ context.Context, _ *types.User) (string, error) {
+	// No-op for Keycloak
+	return "", nil
+}
+
 func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.User, error) {
 	adminToken, err := k.getAdminToken(ctx)
 	if err != nil {
@@ -505,7 +541,7 @@ func (k *KeycloakAuthenticator) ensureStoreUser(user *types.User) error {
 }
 
 // CreateKeycloakUser creates a user in Keycloak, used in API integration tests
-func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *types.User) (*types.User, error) {
+func (k *KeycloakAuthenticator) CreateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	adminToken, err := k.getAdminToken(ctx)
 	if err != nil {
 		return nil, err
@@ -534,31 +570,32 @@ func (k *KeycloakAuthenticator) CreateKeycloakUser(ctx context.Context, user *ty
 	return user, nil
 }
 
-func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
-	j, _, err := k.gocloak.DecodeAccessToken(ctx, token, k.cfg.Realm)
+func (k *KeycloakAuthenticator) ValidatePassword(ctx context.Context, user *types.User, password string) error {
+	_, err := k.gocloak.Login(ctx, k.cfg.Realm, user.Username, password, k.cfg.APIClientID, k.cfg.ClientSecret)
 	if err != nil {
-		return nil, fmt.Errorf("DecodeAccessToken: invalid or malformed token: %s", err.Error())
+		return fmt.Errorf("validatePassword: error validating password: %w", err)
 	}
 
-	result, err := k.gocloak.RetrospectToken(ctx, token, k.cfg.APIClientID, k.cfg.ClientSecret, k.cfg.Realm)
-	if err != nil {
-		log.Warn().
-			Err(err).
-			Str("token", token).
-			Str("client_id", k.cfg.APIClientID).
-			Str("realm", k.cfg.Realm).
-			Msg("failed getting admin token")
-		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %w", err)
-	}
+	return nil
+}
 
-	if !*result.Active {
-		return nil, fmt.Errorf("invalid or expired token")
-	}
+func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, accessToken string) (*types.User, error) {
+	return k.oidcClient.ValidateUserToken(ctx, accessToken)
+}
 
-	return j, nil
+func (k *KeycloakAuthenticator) UpdatePassword(ctx context.Context, userID, newPassword string) error {
+	// Not implemented
+	return fmt.Errorf("updatePassword: not implemented")
+}
+
+func (k *KeycloakAuthenticator) RequestPasswordReset(ctx context.Context, email string) error {
+	// Not implemented
+	return fmt.Errorf("requestPasswordReset: not implemented")
+}
+
+func (k *KeycloakAuthenticator) PasswordResetComplete(ctx context.Context, token, newPassword string) error {
+	// Not implemented
+	return fmt.Errorf("passwordReset: not implemented")
 }
 
 func addr[T any](t T) *T { return &t }
-
-// Compile-time interface check:
-var _ Authenticator = (*KeycloakAuthenticator)(nil)

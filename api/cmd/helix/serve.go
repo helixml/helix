@@ -270,18 +270,25 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("runner token is required")
 	}
 
-	var keycloakAuthenticator auth.Authenticator
-	if cfg.Keycloak.KeycloakEnabled {
-		authenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak, postgresStore)
+	notifier, err := notification.New(&cfg.Notifications, postgresStore)
+	if err != nil {
+		return fmt.Errorf("failed to create notifier: %v", err)
+	}
+
+	var authenticator auth.Authenticator
+
+	switch cfg.Auth.Provider {
+	case types.AuthProviderKeycloak:
+		authenticator, err = auth.NewKeycloakAuthenticator(cfg, postgresStore)
 		if err != nil {
 			return fmt.Errorf("failed to create keycloak authenticator: %v", err)
 		}
-		keycloakAuthenticator = authenticator
-	}
-
-	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
-	if err != nil {
-		return fmt.Errorf("failed to create notifier: %v", err)
+	default:
+		// Default authenticator, using regular authentication
+		authenticator, err = auth.NewHelixAuthenticator(cfg, postgresStore, cfg.Auth.Regular.JWTSecret, notifier)
+		if err != nil {
+			return fmt.Errorf("failed to create helix authenticator: %v", err)
+		}
 	}
 
 	janitor := janitor.NewJanitor(cfg.Janitor)
@@ -534,7 +541,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		providerManager,
 		dynamicInfoProvider,
 		helixInference,
-		keycloakAuthenticator,
+		authenticator,
 		stripe,
 		appController,
 		janitor,

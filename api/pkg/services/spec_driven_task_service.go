@@ -9,7 +9,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -20,9 +19,9 @@ import (
 
 // Spec-driven development: Specs worktree paths (relative to repository root)
 const (
-	SpecsWorktreeRelPath = "design"                   // Relative path from repo root
-	SpecsBranchName      = "helix-specs"              // Git branch name for spec-driven development
-	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s"    // Format: tasks/DATE_NAME_ID
+	SpecsWorktreeRelPath = "design"                // Relative path from repo root
+	SpecsBranchName      = "helix-specs"           // Git branch name for spec-driven development
+	SpecsTaskDirFormat   = "design/tasks/%s_%s_%s" // Format: tasks/DATE_NAME_ID
 )
 
 // RequestMappingRegistrar is a function type for registering request-to-session mappings
@@ -161,7 +160,7 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		Status:         types.TaskStatusBacklog,
 		OriginalPrompt: req.Prompt,
 		CreatedBy:      req.UserID,
-		HelixAppID:     helixAppID, // Helix agent used for entire workflow
+		HelixAppID:     helixAppID,   // Helix agent used for entire workflow
 		YoloMode:       req.YoloMode, // Set YOLO mode from request
 		// Repositories inherited from parent project - no task-level repo configuration
 		CreatedAt: time.Now(),
@@ -217,7 +216,7 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	planningPrompt := s.buildSpecGenerationPrompt(task)
 
 	sessionMetadata := types.SessionMetadata{
-		SystemPrompt: "", // Don't override agent's system prompt
+		SystemPrompt: "",             // Don't override agent's system prompt
 		AgentType:    "zed_external", // Use Zed agent for git access
 		Stream:       false,
 	}
@@ -229,10 +228,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
 		Type:           types.SessionTypeText,
-		Provider:       "anthropic",          // Use Claude for spec generation
-		ModelName:      "external_agent",     // Model name for external agents
+		Provider:       "anthropic",      // Use Claude for spec generation
+		ModelName:      "external_agent", // Model name for external agents
 		Owner:          task.CreatedBy,
-		ParentApp:      task.HelixAppID,      // Use the Helix agent for entire workflow
+		ParentApp:      task.HelixAppID, // Use the Helix agent for entire workflow
 		OrganizationID: "",
 		Metadata:       sessionMetadata,
 		OwnerType:      types.OwnerTypeUser,
@@ -346,10 +345,10 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 		SessionID:           session.ID,
 		UserID:              task.CreatedBy,
 		Input:               "Initialize Zed development environment for spec generation",
-		ProjectPath:         "workspace", // Use relative path
-		SpecTaskID:          task.ID,                      // For task-scoped workspace
-		PrimaryRepositoryID: primaryRepoID,                // Primary repo to open in Zed
-		RepositoryIDs:       repositoryIDs,                // ALL project repos to checkout
+		ProjectPath:         "workspace",   // Use relative path
+		SpecTaskID:          task.ID,       // For task-scoped workspace
+		PrimaryRepositoryID: primaryRepoID, // Primary repo to open in Zed
+		RepositoryIDs:       repositoryIDs, // ALL project repos to checkout
 		Env: []string{
 			fmt.Sprintf("USER_API_TOKEN=%s", userAPIKeys[0].Key),
 		},
@@ -403,9 +402,9 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 			Owner: task.CreatedBy,
 		}
 
-		notificationPayload := &notification.Notification{
+		notificationPayload := &types.Notification{
 			Session: session,
-			Event:   notification.EventCronTriggerComplete,
+			Event:   types.EventCronTriggerComplete,
 		}
 
 		if err := s.controller.Options.Notifier.Notify(ctx, notificationPayload); err != nil {
@@ -700,7 +699,7 @@ But ~/work/helix-specs/ itself ALREADY EXISTS - never create it.
 4. sessions/ - Directory for session notes (optional)
 
 **Git Workflow You Must Follow:**
-` + "```bash" + `
+`+"```bash"+`
 # The helix-specs worktree is ALREADY checked out at ~/work/helix-specs/
 # DO NOT create a helix-specs directory - it already exists!
 
@@ -729,7 +728,7 @@ git commit -m "Generated design documents for SpecTask %s"
 # This push triggers the backend to move your task to review
 # Without this push, your task will be STUCK in planning forever
 git push origin helix-specs
-` + "```" + `
+`+"```"+`
 
 **⚠️  CRITICAL: You ABSOLUTELY MUST push design docs immediately after creating them**
 - The backend watches for pushes to helix-specs and moves your task to review
@@ -738,7 +737,7 @@ git push origin helix-specs
 - PUSH IS MANDATORY - not optional
 
 **tasks.md Format (spec-driven development approach):**
-` + "```markdown" + `
+`+"```markdown"+`
 # Implementation Tasks
 
 ## Discrete, Trackable Tasks
@@ -748,7 +747,7 @@ git push origin helix-specs
 - [ ] Implement authentication
 - [ ] Add unit tests
 - [ ] Update documentation
-` + "```" + `
+`+"```"+`
 
 **After Pushing:**
 - Inform the user that design docs are ready for review
@@ -775,12 +774,12 @@ git push origin helix-specs
 - tasks.md: Discrete, implementable tasks (could be 3 tasks or 20+ depending on scope)
 
 Start by analyzing the user's request complexity, then create SHORT, SIMPLE spec documents in the worktree.`,
-		task.ProjectID, task.Type, task.Priority, task.ID,                            // Project context (lines 677-680)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Directory name (line 693)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // mkdir command (line 717)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 720)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // git add command (line 730)
-		task.ID)                                                                       // Commit message (line 731)
+		task.ProjectID, task.Type, task.Priority, task.ID, // Project context (lines 677-680)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Directory name (line 693)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // mkdir command (line 717)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command (line 720)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // git add command (line 730)
+		task.ID) // Commit message (line 731)
 }
 
 // buildImplementationPrompt creates the prompt for implementation Zed agent
@@ -805,7 +804,7 @@ The approved design documents are at:
 Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
 
 **DIRECTORY STRUCTURE (spec-driven development format):**
-` + "```" + `
+`+"```"+`
 ~/work/helix-specs/           ← ALREADY EXISTS, already checked out
 └── design/
     └── tasks/
@@ -814,7 +813,7 @@ Where the directory name is: {YYYY-MM-DD}_{branch-name}_{task_id}
             ├── design.md           (architecture + sequence diagrams + considerations)
             ├── tasks.md            (YOUR TASK CHECKLIST - track here!)
             └── sessions/           (session notes)
-` + "```" + `
+`+"```"+`
 
 **CRITICAL: Task Progress Tracking**
 The tasks.md file contains discrete, trackable tasks in this format:
@@ -823,7 +822,7 @@ The tasks.md file contains discrete, trackable tasks in this format:
 - [x] Task description (completed - YOU mark this)
 
 **Your Workflow:**
-` + "```bash" + `
+`+"```bash"+`
 # The helix-specs worktree is ALREADY checked out at ~/work/helix-specs/
 # DO NOT create a helix-specs directory!
 
@@ -859,7 +858,7 @@ git push origin helix-specs
 
 # Move to next [ ] task
 # Repeat until all tasks are [x]
-` + "```" + `
+`+"```"+`
 
 **Original User Request:**
 %s
@@ -891,12 +890,12 @@ git push origin helix-specs
 - The orchestrator monitors these pushes to track your progress
 
 Start by reading the spec documents from the worktree, then work through the task list systematically.`,
-		task.Name, task.ID,                                                           // Task context (line 794-795)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Task dir (line 807)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // Tree structure (line 816)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 835)
-		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID,  // cd command (line 856)
-		task.OriginalPrompt)                                                          // Original request (line 868)
+		task.Name, task.ID, // Task context (line 794-795)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Task dir (line 807)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // Tree structure (line 816)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command (line 835)
+		time.Now().Format("2006-01-02"), sanitizeForBranchName(task.Name), task.ID, // cd command (line 856)
+		task.OriginalPrompt) // Original request (line 868)
 }
 
 // Helper functions
@@ -969,7 +968,7 @@ type CreateTaskRequest struct {
 	Type      string `json:"type"`
 	Priority  string `json:"priority"`
 	UserID    string `json:"user_id"`
-	AppID     string `json:"app_id"`   // Optional: Helix agent to use for spec generation
+	AppID     string `json:"app_id"`    // Optional: Helix agent to use for spec generation
 	YoloMode  bool   `json:"yolo_mode"` // Optional: Skip human review and auto-approve specs
 	// Git repositories are now managed at the project level - no task-level repo selection needed
 }

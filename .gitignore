@@ -53,3 +53,5 @@ simple-moonlight-server
 test-websocket-sync.sh
 test-screenshot.png
 screencopy-frames/
+
+design/*

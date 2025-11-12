@@ -27,6 +27,8 @@ type OIDCClient struct {
 	store        store.Store
 }
 
+var _ OIDC = &OIDCClient{}
+
 type OIDCConfig struct {
 	ProviderURL  string
 	ClientID     string
