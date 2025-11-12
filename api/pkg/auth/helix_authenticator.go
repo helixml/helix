@@ -125,10 +125,11 @@ func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email str
 		return fmt.Errorf("failed to generate user token: %w", err)
 	}
 
-	callbackURL := fmt.Sprintf("%s/password-reset?token=%s", h.cfg.WebServer.URL, accessToken)
+	callbackURL := fmt.Sprintf("%s/password-reset-complete?token=%s", h.cfg.WebServer.URL, accessToken)
 
 	// Send the email for password reset
 	notification := &types.Notification{
+		Session:        &types.Session{Owner: user.ID}, // TODO: switch fully to user IDs, remove session
 		Email:          user.Email,
 		Event:          types.EventPasswordResetRequest,
 		Message:        fmt.Sprintf("Click on this [link](%s) to reset your password.", callbackURL),
