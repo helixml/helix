@@ -43,7 +43,6 @@ const PasswordReset: React.FC = () => {
       await apiClient.v1AuthPasswordResetCreate(request);
       
       setSuccess(true);
-      snackbar.success('Password reset email sent');
     } catch (err: any) {
       const errorMessage = err?.response?.data?.error || err?.message || 'Failed to send password reset email';
       setError(errorMessage);
