@@ -14,10 +14,20 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+const (
+	minimumPasswordLength = 8
+	maximumPasswordLength = 128
+)
+
+type Notifier interface {
+	Notify(ctx context.Context, n *types.Notification) error
+}
+
 type HelixAuthenticator struct {
 	store     store.Store
 	jwtSecret []byte
 	signer    jose.Signer
+	notifier  Notifier // Used to send verification/password reset emails
 }
 
 type helixTokenClaims struct {
@@ -29,7 +39,7 @@ type helixTokenClaims struct {
 
 var _ Authenticator = &HelixAuthenticator{}
 
-func NewHelixAuthenticator(store store.Store, jwtSecret string) (*HelixAuthenticator, error) {
+func NewHelixAuthenticator(store store.Store, jwtSecret string, notifier Notifier) (*HelixAuthenticator, error) {
 	secret := []byte(jwtSecret)
 	if jwtSecret == "" {
 		secret = []byte("helix-default-secret-change-in-production")
@@ -49,6 +59,7 @@ func NewHelixAuthenticator(store store.Store, jwtSecret string) (*HelixAuthentic
 		store:     store,
 		jwtSecret: secret,
 		signer:    signer,
+		notifier:  notifier,
 	}, nil
 }
 
@@ -67,6 +78,106 @@ func (h *HelixAuthenticator) CreateUser(ctx context.Context, user *types.User) (
 	}
 
 	return h.store.CreateUser(ctx, user)
+}
+
+func (h *HelixAuthenticator) UpdatePassword(ctx context.Context, userID, newPassword string) error {
+	if len(newPassword) < minimumPasswordLength || len(newPassword) > maximumPasswordLength {
+		return fmt.Errorf("password must be between %d and %d characters", minimumPasswordLength, maximumPasswordLength)
+	}
+
+	user, err := h.store.GetUser(ctx, &store.GetUserQuery{ID: userID})
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = hash
+	user.Password = ""
+
+	_, err = h.store.UpdateUser(ctx, user)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return nil
+}
+
+func (h *HelixAuthenticator) RequestPasswordReset(ctx context.Context, email string) error {
+	user, err := h.store.GetUser(ctx, &store.GetUserQuery{Email: email})
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user == nil {
+		return fmt.Errorf("user not found")
+	}
+
+	// Generate a JWT token for the password reset
+
+	// Send the email for password reset
+	notification := &types.Notification{
+		Email:   user.Email,
+		Event:   types.EventPasswordResetRequest,
+		Message: "Password reset request",
+	}
+	err = h.notifier.Notify(ctx, notification)
+	if err != nil {
+		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+
+	return nil
+}
+
+// PasswordResetComplete - called together with the email token which was sent to the user
+func (h *HelixAuthenticator) PasswordResetComplete(ctx context.Context, accessToken, newPassword string) error {
+	if len(newPassword) < minimumPasswordLength || len(newPassword) > maximumPasswordLength {
+		return fmt.Errorf("password must be between %d and %d characters", minimumPasswordLength, maximumPasswordLength)
+	}
+
+	token, err := jwt.ParseSigned(accessToken)
+	if err != nil {
+		return fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	var claims helixTokenClaims
+	if err := token.Claims(h.jwtSecret, &claims); err != nil {
+		return fmt.Errorf("failed to verify token: %w", err)
+	}
+
+	if err := claims.Validate(jwt.Expected{
+		Time: time.Now(),
+	}); err != nil {
+		return fmt.Errorf("token validation failed: %w", err)
+	}
+
+	if claims.UserID == "" {
+		return errors.New("invalid token: user_id claim missing or invalid")
+	}
+
+	user, err := h.store.GetUser(ctx, &store.GetUserQuery{ID: claims.UserID})
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Create a new password hash
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to generate password hash: %w", err)
+	}
+
+	user.PasswordHash = hash
+	user.Password = ""
+
+	_, err = h.store.UpdateUser(ctx, user)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return nil
 }
 
 func (h *HelixAuthenticator) ValidatePassword(_ context.Context, user *types.User, password string) error {
@@ -117,7 +228,7 @@ func (h *HelixAuthenticator) ValidateUserToken(ctx context.Context, accessToken 
 	}, nil
 }
 
-func (h *HelixAuthenticator) GenerateUserToken(ctx context.Context, user *types.User) (string, error) {
+func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.User) (string, error) {
 	if user == nil {
 		return "", errors.New("user is required")
 	}
