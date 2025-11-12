@@ -100,7 +100,23 @@ spec:
               value: {{ .Values.controlplane.keycloak.password | quote }}
             {{- end }}
             {{- end }}
-            ### Ened keycloak config
+            ### End keycloak config
+            ### SMTP configuration
+            {{- if .Values.controlplane.smtp.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.controlplane.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.controlplane.smtp.port | quote }}
+            - name: SMTP_USERNAME
+              value: {{ .Values.controlplane.smtp.username | quote }}
+            - name: SMTP_PASSWORD
+              value: {{ .Values.controlplane.smtp.password | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.controlplane.smtp.from | quote }}
+            - name: SMTP_TO
+              value: {{ .Values.controlplane.smtp.to | quote }}
+            {{- end }}
+            ### End SMTP configuration
             - name: ADMIN_USER_SOURCE
               value: {{ .Values.controlplane.admin.userSource | quote }}
             - name: ADMIN_USER_IDS
