@@ -810,14 +810,33 @@ install_nvidia_docker() {
             . /etc/os-release
             case $ID in
                 ubuntu|debian)
-                    # Use nvidia-container-toolkit (modern method)
+                    # Use nvidia-container-toolkit
                     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
                     curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
                         sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
                         sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
                     sudo apt-get update
-                    sudo apt-get install -y nvidia-container-toolkit
-                    sudo nvidia-ctk runtime configure --runtime=docker
+                    sudo apt-get install -y nvidia-container-toolkit nvidia-container-runtime
+
+                    # Configure Docker to use NVIDIA runtime
+                    if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
+                        echo "Configured NVIDIA runtime using nvidia-ctk"
+                    else
+                        # Fallback: manually configure daemon.json if nvidia-ctk doesn't support runtime configure
+                        echo "Configuring NVIDIA runtime via /etc/docker/daemon.json..."
+                        sudo mkdir -p /etc/docker
+                        sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
+{
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+EOF
+                    fi
+
                     echo "Restarting Docker to load NVIDIA runtime..."
                     sudo systemctl restart docker
                     # Wait for Docker to fully restart and verify NVIDIA runtime is available
@@ -838,8 +857,27 @@ install_nvidia_docker() {
                     # Use nvidia-container-toolkit for Fedora
                     curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
                         sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
-                    sudo dnf install -y nvidia-container-toolkit
-                    sudo nvidia-ctk runtime configure --runtime=docker
+                    sudo dnf install -y nvidia-container-toolkit nvidia-container-runtime
+
+                    # Configure Docker to use NVIDIA runtime
+                    if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
+                        echo "Configured NVIDIA runtime using nvidia-ctk"
+                    else
+                        # Fallback: manually configure daemon.json if nvidia-ctk doesn't support runtime configure
+                        echo "Configuring NVIDIA runtime via /etc/docker/daemon.json..."
+                        sudo mkdir -p /etc/docker
+                        sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
+{
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+EOF
+                    fi
+
                     echo "Restarting Docker to load NVIDIA runtime..."
                     sudo systemctl restart docker
                     # Wait for Docker to fully restart and verify NVIDIA runtime is available
