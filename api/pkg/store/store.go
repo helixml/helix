@@ -180,6 +180,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
+	GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) // Includes soft-deleted sessions
 	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
@@ -405,6 +406,44 @@ type Store interface {
 	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
 	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
 
+	// spec-driven task design reviews
+	CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error)
+	UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error
+	DeleteSpecTaskDesignReview(ctx context.Context, id string) error
+	ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error)
+	GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error)
+
+	// design review comments
+	CreateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	GetSpecTaskDesignReviewComment(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error)
+	UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error
+	DeleteSpecTaskDesignReviewComment(ctx context.Context, id string) error
+	ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+	ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error)
+	GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error)
+	GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error)
+
+	// design review comment replies
+	CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error
+	GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error)
+	ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error)
+
+	// git push events
+	CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	GetSpecTaskGitPushEvent(ctx context.Context, id string) (*types.SpecTaskGitPushEvent, error)
+	GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error)
+	UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error
+	ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]types.SpecTaskGitPushEvent, error)
+	ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error)
+
+	// git repositories
+	CreateGitRepository(ctx context.Context, repo *GitRepository) error
+	GetGitRepository(ctx context.Context, id string) (*GitRepository, error)
+	UpdateGitRepository(ctx context.Context, repo *GitRepository) error
+	DeleteGitRepository(ctx context.Context, id string) error
+	ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error)
+
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
 	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)
@@ -423,6 +462,7 @@ type Store interface {
 	// External Agent Activity methods (idle detection)
 	UpsertExternalAgentActivity(ctx context.Context, activity *types.ExternalAgentActivity) error
 	GetExternalAgentActivity(ctx context.Context, agentID string) (*types.ExternalAgentActivity, error)
+	GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error)
 	GetIdleExternalAgents(ctx context.Context, cutoff time.Time, agentTypes []string) ([]*types.ExternalAgentActivity, error)
 	DeleteExternalAgentActivity(ctx context.Context, agentID string) error
 
@@ -487,13 +527,28 @@ type Store interface {
 
 	// Project methods
 	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
+	GetProject(ctx context.Context, projectID string) (*types.Project, error)
+	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
+	UpdateProject(ctx context.Context, project *types.Project) error
+	DeleteProject(ctx context.Context, projectID string) error
+	GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error)
+	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
+	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
+	DetachRepositoryFromProject(ctx context.Context, repoID string) error
+	GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error)
 
-	// Personal Dev Environment methods
+	// Sample Project methods
+	CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error)
+	GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error)
+	ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error)
+	DeleteSampleProject(ctx context.Context, id string) error
+
+	// Personal Dev Environment methods (DEPRECATED - these are stubs for backward compatibility)
+	// TODO: Remove these after cleaning up wolf_executor.go
 	CreatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	GetPersonalDevEnvironment(ctx context.Context, id string) (*types.PersonalDevEnvironment, error)
-	GetPersonalDevEnvironmentByWolfAppID(ctx context.Context, wolfAppID string) (*types.PersonalDevEnvironment, error)
-	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	ListPersonalDevEnvironments(ctx context.Context, userID string) ([]*types.PersonalDevEnvironment, error)
+	UpdatePersonalDevEnvironment(ctx context.Context, pde *types.PersonalDevEnvironment) (*types.PersonalDevEnvironment, error)
 	DeletePersonalDevEnvironment(ctx context.Context, id string) error
 
 	// SSH Key methods

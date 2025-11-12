@@ -51,6 +51,7 @@ import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useApps from '../../hooks/useApps'
 import { getAppName } from '../../utils/apps'
+import { useGetProject } from '../../services'
 
 import {
   TOOLBAR_HEIGHT,
@@ -82,6 +83,7 @@ export const SessionToolbar: FC<{
   const {
     navigate,
     setParams,
+    params,
   } = useRouter()
   const snackbar = useSnackbar()
   const loading = useLoading()
@@ -92,6 +94,10 @@ export const SessionToolbar: FC<{
   const { apps } = useApps()
   const { mutate: deleteSession } = useDeleteSession(session.id || '')
   const { mutate: updateSession } = useUpdateSession(session.id || '')
+
+  // Check if we're in a project context and fetch project data
+  const projectId = params.id as string | undefined
+  const { data: project } = useGetProject(projectId || '', !!projectId)
 
   const isOwner = account.user?.id === session.owner
 
@@ -132,6 +138,7 @@ export const SessionToolbar: FC<{
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const [showPin, setShowPin] = useState(false)
   const [clientMenuAnchor, setClientMenuAnchor] = useState<null | HTMLElement>(null)
+  const [showMoonlightControls, setShowMoonlightControls] = useState(false)
 
   useEffect(() => {
     setSessionName(session.name)
@@ -224,6 +231,31 @@ export const SessionToolbar: FC<{
               </Box>
             ) : (
               <>
+                {project && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 1 }}>
+                    <Link
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        account.orgNavigate('project-specs', { id: projectId })
+                      }}
+                      sx={{
+                        fontSize: { xs: 'small', sm: 'medium', md: 'large' },
+                        color: 'text.secondary',
+                        textDecoration: 'none',
+                        '&:hover': {
+                          color: theme.palette.primary.main,
+                          textDecoration: 'underline',
+                        },
+                      }}
+                    >
+                      {project.name}
+                    </Link>
+                    <Typography sx={{ fontSize: { xs: 'small', sm: 'medium', md: 'large' }, color: 'text.secondary' }}>
+                      /
+                    </Typography>
+                  </Box>
+                )}
                 <Typography
                   component="h1"
                   sx={{
@@ -294,7 +326,7 @@ export const SessionToolbar: FC<{
                   ml: 1
                 }}
               >
-                {showRDPViewer ? 'Hide' : 'Show'} Zed
+                {showRDPViewer ? 'Hide' : 'Show'} Desktop
               </Button>
             )}
 
@@ -302,17 +334,19 @@ export const SessionToolbar: FC<{
             {(isOwner || account.admin) && isExternalAgent && showRDPViewer && onRdpViewerHeightChange && (
               <Box sx={{ display: 'flex', alignItems: 'center',  gap: 0.5, ml: 1 }}>
                 <Tooltip title="Zoom Out">
-                  <IconButton
-                    size="small"
-                    onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
-                    disabled={rdpViewerHeight <= 300}
-                    sx={{
-                      p: 0.25,
-                      opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
-                    }}
-                  >
-                    <ZoomOut size={16} />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => onRdpViewerHeightChange(Math.max(300, rdpViewerHeight - 100))}
+                      disabled={rdpViewerHeight <= 300}
+                      sx={{
+                        p: 0.25,
+                        opacity: rdpViewerHeight <= 300 ? 0.4 : 1,
+                      }}
+                    >
+                      <ZoomOut size={16} />
+                    </IconButton>
+                  </span>
                 </Tooltip>
                 <Tooltip title="Zoom In">
                   <IconButton
@@ -344,7 +378,7 @@ export const SessionToolbar: FC<{
             )}
 
             {/* Streaming Setup Process - Right aligned */}
-            {(isOwner || account.admin) && isExternalAgent && (
+            {(isOwner || account.admin) && isExternalAgent && showMoonlightControls && (
               <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -524,6 +558,24 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
+              {(isOwner || account.admin) && isExternalAgent && (
+                <Cell>
+                  <Tooltip title={showMoonlightControls ? "Hide Moonlight Setup" : "Show Moonlight Setup"}>
+                    <IconButton
+                      onClick={() => setShowMoonlightControls(!showMoonlightControls)}
+                      size="small"
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        },
+                      }}
+                    >
+                      <ConnectedTv sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Cell>
+              )}
               <Cell>
                 <Tooltip title="New Session">
                   <IconButton

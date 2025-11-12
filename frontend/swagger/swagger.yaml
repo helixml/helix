@@ -741,6 +741,14 @@ definitions:
         items:
           $ref: '#/definitions/server.WolfAppInfo'
         type: array
+      gpu_stats:
+        allOf:
+        - $ref: '#/definitions/server.GPUStats'
+        description: GPU encoder stats from Wolf (via nvidia-smi)
+      gstreamer_pipelines:
+        allOf:
+        - $ref: '#/definitions/server.GStreamerPipelineStats'
+        description: Actual pipeline count from Wolf
       lobbies:
         description: Lobbies mode
         items:
@@ -749,7 +757,7 @@ definitions:
       memory:
         $ref: '#/definitions/server.WolfSystemMemory'
       moonlight_clients:
-        description: 'NEW: moonlight-web client connections'
+        description: moonlight-web client connections
         items:
           $ref: '#/definitions/server.MoonlightClientInfo'
         type: array
@@ -859,24 +867,6 @@ definitions:
       total_events:
         type: integer
     type: object
-  server.CreatePersonalDevEnvironmentRequest:
-    properties:
-      app_id:
-        type: string
-      description:
-        type: string
-      display_fps:
-        description: 'Default: 120'
-        type: integer
-      display_height:
-        description: 'Default: 1640 (iPad Pro)'
-        type: integer
-      display_width:
-        description: Display configuration for the streaming session
-        type: integer
-      environment_name:
-        type: string
-    type: object
   server.CreateSampleRepositoryRequest:
     properties:
       description:
@@ -905,23 +895,6 @@ definitions:
     - demo_repo
     - prompt
     type: object
-  server.CreateSpecTaskRepositoryRequest:
-    properties:
-      description:
-        type: string
-      name:
-        type: string
-      owner_id:
-        type: string
-      project_id:
-        type: string
-      spec_task_id:
-        type: string
-      template_files:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
   server.CreateTopUpRequest:
     properties:
       amount:
@@ -931,12 +904,10 @@ definitions:
     type: object
   server.DesignDocsResponse:
     properties:
-      current_task_index:
-        type: integer
-      design_markdown:
-        type: string
-      progress_markdown:
-        type: string
+      documents:
+        items:
+          $ref: '#/definitions/server.DesignDocument'
+        type: array
       task_id:
         type: string
     type: object
@@ -947,6 +918,15 @@ definitions:
       share_url:
         type: string
       token:
+        type: string
+    type: object
+  server.DesignDocument:
+    properties:
+      content:
+        type: string
+      filename:
+        type: string
+      path:
         type: string
     type: object
   server.ForkSampleProjectRequest:
@@ -987,6 +967,49 @@ definitions:
       project_id:
         type: string
       tasks_created:
+        type: integer
+    type: object
+  server.GPUStats:
+    properties:
+      available:
+        description: false if nvidia-smi failed
+        type: boolean
+      encoder_average_fps:
+        type: number
+      encoder_average_latency_us:
+        type: integer
+      encoder_session_count:
+        type: integer
+      encoder_utilization_percent:
+        type: integer
+      error:
+        type: string
+      gpu_name:
+        type: string
+      gpu_utilization_percent:
+        type: integer
+      memory_total_mb:
+        type: integer
+      memory_used_mb:
+        type: integer
+      memory_utilization_percent:
+        type: integer
+      query_duration_ms:
+        description: How long nvidia-smi took in Wolf
+        type: integer
+      temperature_celsius:
+        type: integer
+    type: object
+  server.GStreamerPipelineStats:
+    properties:
+      consumer_pipelines:
+        description: Video + audio consumers (2 per session)
+        type: integer
+      producer_pipelines:
+        description: Video + audio producers (2 per lobby)
+        type: integer
+      total_pipelines:
+        description: Sum of producers + consumers
         type: integer
     type: object
   server.InitializeSampleRepositoriesRequest:
@@ -1072,71 +1095,6 @@ definitions:
         description: '"create", "keepalive", "join"'
         type: string
       session_id:
-        type: string
-    type: object
-  server.PersonalDevEnvironmentResponse:
-    properties:
-      appID:
-        description: Helix App ID for configuration (MCP servers, tools, etc.)
-        type: string
-      configured_tools:
-        description: MCP servers enabled
-        items:
-          type: string
-        type: array
-      container_name:
-        description: Container information for direct network access
-        type: string
-      createdAt:
-        type: string
-      data_sources:
-        description: Connected data sources
-        items:
-          type: string
-        type: array
-      description:
-        type: string
-      display_fps:
-        description: Streaming framerate
-        type: integer
-      display_height:
-        description: Streaming resolution height
-        type: integer
-      display_width:
-        description: Display configuration for streaming
-        type: integer
-      environment_name:
-        description: User-friendly name
-        type: string
-      instanceID:
-        type: string
-      instanceType:
-        description: '"spec_task", "personal_dev", "shared_workspace"'
-        type: string
-      is_personal_env:
-        description: Personal dev environment specific
-        type: boolean
-      lastActivity:
-        type: string
-      projectPath:
-        type: string
-      specTaskID:
-        description: Optional - null for personal dev environments
-        type: string
-      status:
-        type: string
-      stream_url:
-        type: string
-      threadCount:
-        type: integer
-      userID:
-        description: Always required
-        type: string
-      vnc_port:
-        description: VNC port inside container (5901)
-        type: integer
-      wolf_session_id:
-        description: Wolf's numeric session ID for API calls
         type: string
     type: object
   server.PhaseProgress:
@@ -1507,8 +1465,12 @@ definitions:
   server.WolfSessionInfo:
     properties:
       app_id:
+        description: Wolf UI app ID in lobbies mode
         type: string
       client_ip:
+        type: string
+      client_unique_id:
+        description: Helix client ID (helix-agent-{session_id}-{instance_id})
         type: string
       display_mode:
         properties:
@@ -1523,8 +1485,11 @@ definitions:
           width:
             type: integer
         type: object
+      lobby_id:
+        description: Which lobby this session is connected to (lobbies mode)
+        type: string
       session_id:
-        description: Exposed as session_id for frontend
+        description: Exposed as session_id for frontend (Wolf's client_id)
         type: string
     type: object
   server.WolfSystemMemory:
@@ -1538,8 +1503,16 @@ definitions:
         items:
           $ref: '#/definitions/server.WolfClientConnection'
         type: array
+      gpu_stats:
+        allOf:
+        - $ref: '#/definitions/server.GPUStats'
+        description: From Wolf's nvidia-smi query
       gstreamer_buffer_bytes:
         type: integer
+      gstreamer_pipelines:
+        allOf:
+        - $ref: '#/definitions/server.GStreamerPipelineStats'
+        description: From Wolf's state
       lobbies:
         description: Lobbies mode
         items:
@@ -1599,6 +1572,9 @@ definitions:
     - CoordinationEventTypeSpawn
   services.CreateTaskRequest:
     properties:
+      app_id:
+        description: 'Optional: Helix agent to use for spec generation'
+        type: string
       priority:
         type: string
       project_id:
@@ -1609,6 +1585,9 @@ definitions:
         type: string
       user_id:
         type: string
+      yolo_mode:
+        description: 'Optional: Skip human review and auto-approve specs'
+        type: boolean
     type: object
   services.DocumentHandoffConfig:
     properties:
@@ -1679,6 +1658,8 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        type: string
       owner_id:
         type: string
       project_id:
@@ -1707,6 +1688,9 @@ definitions:
         type: object
       name:
         type: string
+      organization_id:
+        description: Organization ID - required for access control
+        type: string
       owner_id:
         type: string
       project_id:
@@ -1714,6 +1698,13 @@ definitions:
       repo_type:
         $ref: '#/definitions/services.GitRepositoryType'
       spec_task_id:
+        type: string
+    type: object
+  services.GitRepositoryFileResponse:
+    properties:
+      content:
+        type: string
+      path:
         type: string
     type: object
   services.GitRepositoryStatus:
@@ -1726,23 +1717,36 @@ definitions:
     - GitRepositoryStatusActive
     - GitRepositoryStatusArchived
     - GitRepositoryStatusDeleted
+  services.GitRepositoryTreeResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/services.TreeEntry'
+        type: array
+      path:
+        type: string
+    type: object
   services.GitRepositoryType:
     enum:
-    - project
-    - spec_task
-    - sample
-    - template
+    - internal
+    - code
     type: string
     x-enum-comments:
-      GitRepositoryTypeProject: User project repository
-      GitRepositoryTypeSample: Sample/demo repository
-      GitRepositoryTypeSpecTask: SpecTask-specific repository
-      GitRepositoryTypeTemplate: Template repository
+      GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
+      GitRepositoryTypeInternal: Internal project config repository
     x-enum-varnames:
-    - GitRepositoryTypeProject
-    - GitRepositoryTypeSpecTask
-    - GitRepositoryTypeSample
-    - GitRepositoryTypeTemplate
+    - GitRepositoryTypeInternal
+    - GitRepositoryTypeCode
+  services.GitRepositoryUpdateRequest:
+    properties:
+      description:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+    type: object
   services.HandoffResult:
     properties:
       branch_name:
@@ -1790,6 +1794,35 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  services.KoditEnrichmentAttributes:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      subtype:
+        type: string
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  services.KoditEnrichmentData:
+    properties:
+      attributes:
+        $ref: '#/definitions/services.KoditEnrichmentAttributes'
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  services.KoditEnrichmentListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/services.KoditEnrichmentData'
+        type: array
+    type: object
   services.SampleProjectCode:
     properties:
       description:
@@ -1810,6 +1843,9 @@ definitions:
       name:
         type: string
       readme_url:
+        type: string
+      startup_script:
+        description: Custom startup script for this project
         type: string
       technologies:
         items:
@@ -1903,6 +1939,30 @@ definitions:
           type: string
         type: array
     type: object
+  services.StartupScriptVersion:
+    properties:
+      author:
+        type: string
+      commit_hash:
+        type: string
+      content:
+        type: string
+      message:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  services.TreeEntry:
+    properties:
+      is_dir:
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
   services.ZedSessionCreationResult:
     properties:
       creation_method:
@@ -1970,6 +2030,67 @@ definitions:
       valid:
         description: Valid is true if String is not NULL
         type: boolean
+    type: object
+  store.GitRepository:
+    properties:
+      clone_url:
+        description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
+        type: string
+      created_at:
+        type: string
+      credential_ref:
+        description: Reference to stored credentials (SSH key, OAuth token, etc.)
+        type: string
+      default_branch:
+        type: string
+      description:
+        type: string
+      external_repo_id:
+        description: External platform's repository ID
+        type: string
+      external_type:
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
+        type: string
+      external_url:
+        description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      id:
+        type: string
+      is_external:
+        description: External repository fields
+        type: boolean
+      kodit_indexing:
+        description: Code intelligence fields
+        type: boolean
+      last_activity:
+        type: string
+      local_path:
+        description: Local filesystem path for Helix-hosted repos (empty for external)
+        type: string
+      metadata:
+        additionalProperties: true
+        description: Transient field, not persisted (used by services)
+        type: object
+      metadata_json:
+        description: Stores Metadata as JSON
+        type: string
+      name:
+        type: string
+      organization_id:
+        description: Organization ID - will be backfilled for existing repos
+        type: string
+      owner_id:
+        type: string
+      project_id:
+        type: string
+      repo_type:
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
     type: object
   stripe.SubscriptionStatus:
     enum:
@@ -2295,10 +2416,9 @@ definitions:
       completed_at:
         type: string
       config:
+        additionalProperties: true
         description: Agent configuration
-        items:
-          type: integer
-        type: array
+        type: object
       created_at:
         type: string
       deadline_at:
@@ -2310,16 +2430,15 @@ definitions:
       labels:
         description: Labels/tags for filtering
         items:
-          type: integer
+          type: string
         type: array
       last_error:
         type: string
       max_retries:
         type: integer
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       organization_id:
@@ -2355,10 +2474,9 @@ definitions:
       user_id:
         type: string
       work_data:
+        additionalProperties: true
         description: Work-specific data
-        items:
-          type: integer
-        type: array
+        type: object
     type: object
   types.AgentWorkItemCreateRequest:
     properties:
@@ -2983,6 +3101,13 @@ definitions:
       enabled:
         type: boolean
     type: object
+  types.BoardSettings:
+    properties:
+      wip_limits:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
   types.ChatCompletionMessage:
     properties:
       content:
@@ -3041,6 +3166,15 @@ definitions:
       message:
         $ref: '#/definitions/types.OpenAIMessage'
       text:
+        type: string
+    type: object
+  types.ClipboardData:
+    properties:
+      data:
+        description: text content or base64-encoded image
+        type: string
+      type:
+        description: '"text" or "image"'
         type: string
     type: object
   types.ContextMenuAction:
@@ -3690,9 +3824,6 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.MessageContent'
         description: User prompt (multi-part)
-      question_set_id:
-        description: The question set this session belongs to, if any
-        type: string
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -4716,6 +4847,99 @@ definitions:
       web_search:
         type: string
     type: object
+  types.Project:
+    properties:
+      auto_start_backlog_tasks:
+        description: Automation settings
+        type: boolean
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      default_repo_id:
+        description: Project-level repository management
+        type: string
+      deleted_at:
+        allOf:
+        - $ref: '#/definitions/gorm.DeletedAt'
+        description: Soft delete timestamp
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      id:
+        type: string
+      internal_repo_path:
+        description: |-
+          Internal project Git repository (stores project config, tasks, design docs)
+          IMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo
+          It is NEVER stored in the database - Git is the single source of truth
+        type: string
+      metadata:
+        items:
+          type: integer
+        type: array
+      name:
+        type: string
+      organization_id:
+        type: string
+      startup_script:
+        description: Transient field - loaded from Git, never persisted to database
+        type: string
+      status:
+        description: '"active", "archived", "completed"'
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.ProjectCreateRequest:
+    properties:
+      default_branch:
+        type: string
+      default_repo_id:
+        type: string
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      name:
+        type: string
+      startup_script:
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
+  types.ProjectUpdateRequest:
+    properties:
+      auto_start_backlog_tasks:
+        type: boolean
+      default_branch:
+        type: string
+      default_repo_id:
+        type: string
+      description:
+        type: string
+      github_repo_url:
+        type: string
+      name:
+        type: string
+      startup_script:
+        type: string
+      status:
+        type: string
+      technologies:
+        items:
+          type: string
+        type: array
+    type: object
   types.Provider:
     enum:
     - openai
@@ -4980,6 +5204,8 @@ definitions:
     - User
     - '*'
     - Dataset
+    - Project
+    - GitRepository
     type: string
     x-enum-varnames:
     - ResourceTeam
@@ -4993,6 +5219,8 @@ definitions:
     - ResourceUser
     - ResourceAny
     - ResourceTypeDataset
+    - ResourceProject
+    - ResourceGitRepository
   types.ResponseFormat:
     properties:
       schema:
@@ -5351,12 +5579,18 @@ definitions:
         type: string
       organizations_create_enabled_for_non_admins:
         type: boolean
+      providers_management_enabled:
+        description: Controls if users can add their own AI provider API keys
+        type: boolean
       rudderstack_data_plane_url:
         type: string
       rudderstack_write_key:
         type: string
       sentry_dsn_frontend:
         type: string
+      streaming_bitrate_mbps:
+        description: 'Requested video streaming bitrate in Mbps (default: 40)'
+        type: integer
       stripe_enabled:
         description: Stripe top-ups enabled
         type: boolean
@@ -5373,6 +5607,10 @@ definitions:
         description: named config for backward compat
       created:
         type: string
+      deleted_at:
+        allOf:
+        - $ref: '#/definitions/gorm.DeletedAt'
+        description: Soft delete support - allows cleanup of orphaned lobbies
       generation_id:
         description: Current generation ID
         type: integer
@@ -5425,6 +5663,7 @@ definitions:
           stabilityai/stable-diffusion-xl-base-1.0
         type: string
       question_set_execution_id:
+        description: The question set execution this session belongs to, if any
         type: string
       question_set_id:
         description: The question set this session belongs to, if any
@@ -5494,6 +5733,17 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
+    type: object
+  types.SessionIdleStatus:
+    properties:
+      has_external_agent:
+        type: boolean
+      idle_minutes:
+        type: integer
+      warning_threshold:
+        type: boolean
+      will_terminate_in:
+        type: integer
     type: object
   types.SessionMetadata:
     properties:
@@ -5567,11 +5817,17 @@ definitions:
         type: integer
       manually_review_questions:
         type: boolean
+      paused_screenshot_path:
+        description: Path to saved screenshot when agent is paused
+        type: string
       phase:
         description: 'NEW: SpecTask phase (planning, implementation)'
         type: string
       priority:
         type: boolean
+      project_id:
+        description: ID of associated Project (for exploratory sessions)
+        type: string
       rag_enabled:
         description: |-
           these settings control which features of a session we want to use
@@ -5587,7 +5843,7 @@ definitions:
           $ref: '#/definitions/types.SessionRAGResult'
         type: array
       session_role:
-        description: '"planning", "implementation", "coordination"'
+        description: '"planning", "implementation", "coordination", "exploratory"'
         type: string
       spec_task_id:
         description: Multi-session SpecTask context
@@ -5821,12 +6077,11 @@ definitions:
     type: object
   types.SpecTask:
     properties:
-      attached_repositories:
-        description: Git repository attachments (multiple repos can be attached)
-        items:
-          type: integer
-        type: array
+      archived:
+        description: Archive to hide from main view
+        type: boolean
       branch_name:
+        description: Git tracking
         type: string
       completed_at:
         type: string
@@ -5837,42 +6092,60 @@ definitions:
         type: string
       description:
         type: string
+      design_docs_pushed_at:
+        description: When design docs were pushed to helix-specs branch
+        type: string
       estimated_hours:
         description: Simple tracking
         type: integer
       external_agent_id:
-        description: External agent tracking (single agent per SpecTask, spans multiple
-          sessions)
+        description: External agent tracking (single agent per SpecTask, spans entire
+          workflow)
         type: string
       helix_app_id:
         description: 'NEW: Single Helix Agent for entire workflow (App type in code)'
         type: string
       id:
         type: string
-      implementation_agent:
+      implementation_approved_at:
+        type: string
+      implementation_approved_by:
+        description: Implementation tracking
         type: string
       implementation_plan:
         description: Discrete tasks breakdown (markdown)
-        type: string
-      implementation_session_id:
         type: string
       labels:
         items:
           type: string
         type: array
+      last_push_at:
+        description: When branch was last pushed
+        type: string
+      last_push_commit_hash:
+        description: Git tracking
+        type: string
+      merge_commit_hash:
+        description: Merge commit hash
+        type: string
+      merged_at:
+        description: When merge happened
+        type: string
+      merged_to_main:
+        description: Whether branch was merged to main
+        type: boolean
       metadata:
-        items:
-          type: integer
-        type: array
+        additionalProperties: true
+        type: object
       name:
         type: string
       original_prompt:
         description: 'Kiro''s actual approach: simple, human-readable artifacts'
         type: string
       planning_session_id:
-        description: Session tracking (same agent, different Helix sessions per phase)
-        type: string
-      primary_repository_id:
+        description: |-
+          Session tracking (single Helix session for entire workflow - planning + implementation)
+          The same external agent/session is reused throughout the entire SpecTask lifecycle
         type: string
       priority:
         description: '"low", "medium", "high", "critical"'
@@ -5884,9 +6157,6 @@ definitions:
       requirements_spec:
         description: User stories + EARS acceptance criteria (markdown)
         type: string
-      spec_agent:
-        description: Legacy fields (deprecated, keeping for backward compatibility)
-        type: string
       spec_approved_at:
         type: string
       spec_approved_by:
@@ -5895,8 +6165,6 @@ definitions:
       spec_revision_count:
         description: Number of spec revisions requested
         type: integer
-      spec_session_id:
-        type: string
       started_at:
         type: string
       status:
@@ -5914,6 +6182,9 @@ definitions:
         items:
           type: integer
         type: array
+      yolo_mode:
+        description: Skip human review, auto-approve specs
+        type: boolean
       zed_instance_id:
         description: Multi-session support
         type: string
@@ -5954,6 +6225,217 @@ definitions:
     - SpecTaskActivityZedConnected
     - SpecTaskActivityZedDisconnected
     - SpecTaskActivityPhaseTransition
+  types.SpecTaskDesignReview:
+    properties:
+      approved_at:
+        type: string
+      created_at:
+        description: Timestamps
+        type: string
+      git_branch:
+        type: string
+      git_commit_hash:
+        description: Git information
+        type: string
+      git_pushed_at:
+        type: string
+      id:
+        type: string
+      implementation_plan:
+        type: string
+      overall_comment:
+        description: Review decision
+        type: string
+      rejected_at:
+        type: string
+      requirements_spec:
+        description: Design document snapshots at time of review
+        type: string
+      reviewer_id:
+        description: Review metadata
+        type: string
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.SpecTaskDesignReviewStatus'
+      technical_design:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskDesignReviewComment:
+    properties:
+      agent_response:
+        description: Agent integration (NEW FIELDS)
+        type: string
+      agent_response_at:
+        description: When agent responded
+        type: string
+      comment_text:
+        description: The actual comment
+        type: string
+      comment_type:
+        allOf:
+        - $ref: '#/definitions/types.SpecTaskDesignReviewCommentType'
+        description: Made optional - simplified to single type
+      commented_by:
+        description: Comment metadata
+        type: string
+      created_at:
+        description: Timestamps
+        type: string
+      document_type:
+        description: Location in document
+        type: string
+      end_offset:
+        description: Character offset in document
+        type: integer
+      id:
+        type: string
+      interaction_id:
+        description: Link to Helix interaction
+        type: string
+      line_number:
+        description: Optional line number
+        type: integer
+      quoted_text:
+        description: For inline comments - store the context around the comment
+        type: string
+      resolution_reason:
+        description: '"manual", "auto_text_removed", "agent_updated"'
+        type: string
+      resolved:
+        description: Status tracking
+        type: boolean
+      resolved_at:
+        type: string
+      resolved_by:
+        type: string
+      review_id:
+        type: string
+      section_path:
+        description: e.g., "## Architecture/### Database Schema"
+        type: string
+      start_offset:
+        description: Character offset in document
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  types.SpecTaskDesignReviewCommentCreateRequest:
+    properties:
+      comment_text:
+        type: string
+      comment_type:
+        $ref: '#/definitions/types.SpecTaskDesignReviewCommentType'
+      document_type:
+        enum:
+        - requirements
+        - technical_design
+        - implementation_plan
+        type: string
+      end_offset:
+        type: integer
+      line_number:
+        type: integer
+      quoted_text:
+        type: string
+      review_id:
+        type: string
+      section_path:
+        type: string
+      start_offset:
+        type: integer
+    required:
+    - comment_text
+    - document_type
+    - review_id
+    type: object
+  types.SpecTaskDesignReviewCommentListResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.SpecTaskDesignReviewCommentType:
+    enum:
+    - general
+    - question
+    - suggestion
+    - critical
+    - praise
+    type: string
+    x-enum-comments:
+      SpecTaskDesignReviewCommentTypeCritical: Critical issue must be fixed
+      SpecTaskDesignReviewCommentTypeGeneral: General comment
+      SpecTaskDesignReviewCommentTypePraise: Positive feedback
+      SpecTaskDesignReviewCommentTypeQuestion: Question needing clarification
+      SpecTaskDesignReviewCommentTypeSuggestion: Suggested improvement
+    x-enum-varnames:
+    - SpecTaskDesignReviewCommentTypeGeneral
+    - SpecTaskDesignReviewCommentTypeQuestion
+    - SpecTaskDesignReviewCommentTypeSuggestion
+    - SpecTaskDesignReviewCommentTypeCritical
+    - SpecTaskDesignReviewCommentTypePraise
+  types.SpecTaskDesignReviewDetailResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        type: array
+      review:
+        $ref: '#/definitions/types.SpecTaskDesignReview'
+      spec_task:
+        $ref: '#/definitions/types.SpecTask'
+    type: object
+  types.SpecTaskDesignReviewListResponse:
+    properties:
+      reviews:
+        items:
+          $ref: '#/definitions/types.SpecTaskDesignReview'
+        type: array
+      total:
+        type: integer
+    type: object
+  types.SpecTaskDesignReviewStatus:
+    enum:
+    - pending
+    - in_review
+    - changes_requested
+    - approved
+    - superseded
+    type: string
+    x-enum-comments:
+      SpecTaskDesignReviewStatusApproved: Approved, ready for implementation
+      SpecTaskDesignReviewStatusChangesRequested: Reviewer requested changes
+      SpecTaskDesignReviewStatusInReview: Reviewer is actively reviewing
+      SpecTaskDesignReviewStatusPending: Waiting for reviewer
+      SpecTaskDesignReviewStatusSuperseded: Newer review exists (agent pushed updates)
+    x-enum-varnames:
+    - SpecTaskDesignReviewStatusPending
+    - SpecTaskDesignReviewStatusInReview
+    - SpecTaskDesignReviewStatusChangesRequested
+    - SpecTaskDesignReviewStatusApproved
+    - SpecTaskDesignReviewStatusSuperseded
+  types.SpecTaskDesignReviewSubmitRequest:
+    properties:
+      decision:
+        description: '"approve" or "request_changes"'
+        enum:
+        - approve
+        - request_changes
+        type: string
+      overall_comment:
+        type: string
+      review_id:
+        type: string
+    required:
+    - decision
+    - review_id
+    type: object
   types.SpecTaskImplementationSessionsCreateRequest:
     properties:
       auto_create_sessions:
@@ -5968,6 +6450,27 @@ definitions:
         type: object
     required:
     - spec_task_id
+    type: object
+  types.SpecTaskImplementationStartResponse:
+    properties:
+      agent_instructions:
+        type: string
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+      created_at:
+        type: string
+      local_path:
+        type: string
+      pr_template_url:
+        type: string
+      repository_id:
+        type: string
+      repository_name:
+        type: string
+      status:
+        type: string
     type: object
   types.SpecTaskImplementationStatus:
     enum:
@@ -6105,6 +6608,9 @@ definitions:
         type: string
       status:
         type: string
+      yolo_mode:
+        description: Pointer to allow explicit false
+        type: boolean
     type: object
   types.SpecTaskWorkSession:
     properties:
@@ -7132,6 +7638,64 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: Get Wolf real-time events (SSE)
+      tags:
+      - Admin
+  /api/v1/admin/wolf/lobbies/{lobbyId}:
+    delete:
+      description: Stop a Wolf lobby (terminates container and releases GPU resources)
+      parameters:
+      - description: Lobby ID
+        in: path
+        name: lobbyId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Stop Wolf lobby
+      tags:
+      - Admin
+  /api/v1/admin/wolf/sessions/{sessionId}:
+    delete:
+      description: Stop a Wolf-UI streaming session (releases GPU memory)
+      parameters:
+      - description: Session ID (client_id from Wolf)
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Stop Wolf streaming session
       tags:
       - Admin
   /api/v1/agents/fleet:
@@ -8234,11 +8798,9 @@ paths:
       summary: Auto-join Wolf lobby after connection
       tags:
       - ExternalAgents
-  /api/v1/external-agents/{sessionID}/keepalive:
+  /api/v1/external-agents/{sessionID}/clipboard:
     get:
-      consumes:
-      - application/json
-      description: Get keepalive session health status for an external agent
+      description: Fetch current clipboard content from remote desktop
       parameters:
       - description: Session ID
         in: path
@@ -8251,8 +8813,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/types.ClipboardData'
         "401":
           description: Unauthorized
           schema:
@@ -8261,13 +8822,41 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
+      security:
+      - BearerAuth: []
+      summary: Get session clipboard content
+      tags:
+      - ExternalAgents
+    post:
+      consumes:
+      - application/json
+      description: Send clipboard content to remote desktop
+      parameters:
+      - description: Session ID
+        in: path
+        name: sessionID
+        required: true
+        type: string
+      - description: Clipboard data to set
+        in: body
+        name: clipboard
+        required: true
+        schema:
+          $ref: '#/definitions/types.ClipboardData'
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Get keepalive session status
+      - BearerAuth: []
+      summary: Set session clipboard content
       tags:
       - ExternalAgents
   /api/v1/filestore/config:
@@ -8544,6 +9133,30 @@ paths:
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}:
+    delete:
+      description: Delete a git repository and its metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Delete git repository
+      tags:
+      - git-repositories
     get:
       description: Get information about a specific git repository
       parameters:
@@ -8570,6 +9183,114 @@ paths:
       security:
       - BearerAuth: []
       summary: Get git repository
+      tags:
+      - git-repositories
+    put:
+      consumes:
+      - application/json
+      description: Update an existing git repository's metadata
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository update request
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/services.GitRepositoryUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update git repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/access-grants:
+    get:
+      description: List access grants for a git repository (repository owners can
+        list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List repository access grants
+      tags:
+      - gitrepositories
+    post:
+      description: Grant access to a repository to a user (repository owners can grant
+        access)
+      parameters:
+      - description: Request body with user reference and roles
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to a repository to a user
+      tags:
+      - gitrepositories
+  /api/v1/git/repositories/{id}/branches:
+    get:
+      description: Get list of all branches in a repository
+      operationId: listGitRepositoryBranches
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository branches
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/clone-command:
@@ -8603,6 +9324,142 @@ paths:
       security:
       - BearerAuth: []
       summary: Get clone command
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/enrichments:
+    get:
+      description: Get code intelligence enrichments for a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository enrichments
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/file:
+    get:
+      description: Get the contents of a file at a specific path in a repository
+      operationId: getGitRepositoryFile
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Branch name (defaults to HEAD if not specified)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepositoryFileResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get file contents
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/kodit-status:
+    get:
+      description: Get indexing status for a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository indexing status
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/tree:
+    get:
+      description: Get list of files and directories at a specific path in a repository
+      operationId: browseGitRepositoryTree
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Path to browse (default: root)'
+        in: query
+        name: path
+        type: string
+      - description: 'Branch to browse (default: HEAD)'
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepositoryTreeResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Browse repository tree
       tags:
       - git-repositories
   /api/v1/helix-models:
@@ -9178,6 +10035,21 @@ paths:
       summary: Update an existing dynamic model info
       tags:
       - model-info
+  /api/v1/moonlight/status:
+    get:
+      description: Returns active streaming sessions, client certificates, and WebSocket
+        connection state from moonlight-web
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get moonlight-web internal state
+      tags:
+      - Moonlight
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.
@@ -9558,11 +10430,11 @@ paths:
       summary: Add a new member to a team
       tags:
       - organizations
-  /api/v1/personal-dev-environments:
+  /api/v1/projects:
     get:
       consumes:
       - application/json
-      description: Get all personal development environments for the current user
+      description: Get all projects for the current user
       produces:
       - application/json
       responses:
@@ -9570,7 +10442,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+              $ref: '#/definitions/types.Project'
             type: array
         "401":
           description: Unauthorized
@@ -9581,29 +10453,28 @@ paths:
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: List personal development environments
+      - BearerAuth: []
+      summary: List projects
       tags:
-      - PersonalDevEnvironments
+      - Projects
     post:
       consumes:
       - application/json
-      description: Create a new personal development environment with the specified
-        configuration
+      description: Create a new project
       parameters:
-      - description: Personal dev environment configuration
+      - description: Project creation request
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.CreatePersonalDevEnvironmentRequest'
+          $ref: '#/definitions/types.ProjectCreateRequest'
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "200":
+          description: OK
           schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+            $ref: '#/definitions/types.Project'
         "400":
           description: Bad Request
           schema:
@@ -9617,26 +10488,215 @@ paths:
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Create a personal development environment
+      - BearerAuth: []
+      summary: Create project
       tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}:
+      - Projects
+  /api/v1/projects/{id}:
     delete:
       consumes:
       - application/json
-      description: Delete a personal development environment by ID
+      description: Delete a project by ID
       parameters:
-      - description: Environment ID
+      - description: Project ID
         in: path
-        name: environmentID
+        name: id
         required: true
         type: string
       produces:
       - application/json
       responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete project
+      tags:
+      - Projects
+    get:
+      consumes:
+      - application/json
+      description: Get a project by ID
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get project
+      tags:
+      - Projects
+    put:
+      consumes:
+      - application/json
+      description: Update an existing project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Project update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProjectUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Update project
+      tags:
+      - Projects
+  /api/v1/projects/{id}/access-grants:
+    get:
+      description: List access grants for a project (project owners and org owners
+        can list access grants)
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AccessGrant'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List project access grants
+      tags:
+      - projects
+    post:
+      description: Grant access to a project to a team or organization member (project
+        owners and org owners can grant access)
+      parameters:
+      - description: Request body with team or organization member ID and roles
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateAccessGrantRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AccessGrant'
+      security:
+      - BearerAuth: []
+      summary: Grant access to a project to a team or organization member
+      tags:
+      - projects
+  /api/v1/projects/{id}/exploratory-session:
+    delete:
+      description: Stop the running exploratory session for a project (stops Wolf
+        container, keeps session record)
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Stop project exploratory session
+      tags:
+      - Projects
+    get:
+      description: Get the active exploratory session for a project (returns null
+        if none exists)
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
         "204":
-          description: No Content
+          description: No exploratory session exists
         "401":
           description: Unauthorized
           schema:
@@ -9650,19 +10710,16 @@ paths:
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Delete a personal development environment
+      - BearerAuth: []
+      summary: Get project exploratory session
       tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}/start:
+      - Projects
     post:
-      consumes:
-      - application/json
-      description: Start a personal development environment by ID
+      description: Start or return existing exploratory session for a project
       parameters:
-      - description: Environment ID
+      - description: Project ID
         in: path
-        name: environmentID
+        name: id
         required: true
         type: string
       produces:
@@ -9671,7 +10728,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+            $ref: '#/definitions/types.Session'
         "401":
           description: Unauthorized
           schema:
@@ -9685,19 +10742,20 @@ paths:
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Start a personal development environment
+      - BearerAuth: []
+      summary: Start project exploratory session
       tags:
-      - PersonalDevEnvironments
-  /api/v1/personal-dev-environments/{environmentID}/stop:
-    post:
+      - Projects
+  /api/v1/projects/{id}/repositories:
+    get:
       consumes:
       - application/json
-      description: Stop a personal development environment by ID
+      description: Get all repositories attached to a project
+      operationId: getProjectRepositories
       parameters:
-      - description: Environment ID
+      - description: Project ID
         in: path
-        name: environmentID
+        name: id
         required: true
         type: string
       produces:
@@ -9706,7 +10764,9 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/server.PersonalDevEnvironmentResponse'
+            items:
+              $ref: '#/definitions/store.GitRepository'
+            type: array
         "401":
           description: Unauthorized
           schema:
@@ -9720,10 +10780,157 @@ paths:
           schema:
             $ref: '#/definitions/system.HTTPError'
       security:
-      - ApiKeyAuth: []
-      summary: Stop a personal development environment
+      - BearerAuth: []
+      summary: Get project repositories
       tags:
-      - PersonalDevEnvironments
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/attach:
+    put:
+      consumes:
+      - application/json
+      description: Attach an existing repository to a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Attach repository to project
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/detach:
+    put:
+      consumes:
+      - application/json
+      description: Detach a repository from its project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Detach repository from project
+      tags:
+      - Projects
+  /api/v1/projects/{id}/repositories/{repo_id}/primary:
+    put:
+      consumes:
+      - application/json
+      description: Set the primary repository for a project
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Set project primary repository
+      tags:
+      - Projects
+  /api/v1/projects/{id}/startup-script/history:
+    get:
+      description: Get git commit history for project startup script
+      parameters:
+      - description: Project ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.StartupScriptVersion'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get startup script version history
+      tags:
+      - Projects
   /api/v1/provider-endpoints:
     get:
       parameters:
@@ -10579,6 +11786,38 @@ paths:
       summary: Update a session by ID
       tags:
       - sessions
+  /api/v1/sessions/{id}/idle-status:
+    get:
+      description: Returns idle timeout information for a session with an external
+        agent
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionIdleStatus'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get idle status for external agent session
+      tags:
+      - sessions
   /api/v1/sessions/{id}/interactions:
     get:
       description: List interactions for a session
@@ -10689,6 +11928,27 @@ paths:
       summary: Get Wolf connection info for a session
       tags:
       - sessions
+  /api/v1/sessions/{id}/resume:
+    post:
+      description: Restarts the external agent container for a session that has been
+        stopped
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused external agent session
+      tags:
+      - sessions
   /api/v1/sessions/{id}/step-info:
     get:
       responses:
@@ -10700,6 +11960,42 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/sessions/{id}/stop-external-agent:
+    delete:
+      description: Stop the external Zed agent for any session (stops container, keeps
+        session record)
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Stop external Zed agent session
+      tags:
+      - Sessions
   /api/v1/sessions/{id}/wolf-app-state:
     get:
       consumes:
@@ -10989,6 +12285,11 @@ paths:
         in: query
         name: user_id
         type: string
+      - default: false
+        description: Include archived tasks
+        in: query
+        name: include_archived
+        type: boolean
       - default: 50
         description: Limit number of results
         in: query
@@ -11017,7 +12318,7 @@ paths:
       - spec-driven-tasks
   /api/v1/spec-tasks/{id}/design-docs:
     get:
-      description: Get the design documents from helix-design-docs worktree
+      description: Get the design documents from helix-specs worktree
       parameters:
       - description: SpecTask ID
         in: path
@@ -11165,6 +12466,283 @@ paths:
       summary: Stop SpecTask external agent
       tags:
       - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/approve-implementation:
+    post:
+      description: Approve the implementation and instruct agent to merge to main
+        branch
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Approve implementation and merge to main
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews:
+    get:
+      description: List all design reviews for a spec task
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List design reviews
+      tags:
+      - spec-tasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a specific design review for a spec task with comments and
+        spec task details
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewDetailResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get design review details
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments:
+    get:
+      consumes:
+      - application/json
+      description: Get all comments for a specific design review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewCommentListResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: List design review comments
+      tags:
+      - SpecTasks
+    post:
+      consumes:
+      - application/json
+      description: Create a new comment on a design review document
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Comment data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewCommentCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Create design review comment
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve:
+    post:
+      consumes:
+      - application/json
+      description: Mark a design review comment as resolved
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Comment ID
+        in: path
+        name: comment_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReviewComment'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Resolve design review comment
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit:
+    post:
+      consumes:
+      - application/json
+      description: Approve or request changes for a design review
+      parameters:
+      - description: Spec Task ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      - description: Design Review ID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Review decision
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskDesignReviewSubmitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskDesignReview'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Submit design review decision
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{spec_task_id}/stop-agent:
+    post:
+      description: Stop the running agent session for a spec task
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: spec_task_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+      security:
+      - BearerAuth: []
+      summary: Stop agent session
+      tags:
+      - spec-tasks
   /api/v1/spec-tasks/{taskId}:
     get:
       description: Get detailed information about a specific spec-driven task
@@ -11311,6 +12889,48 @@ paths:
       security:
       - BearerAuth: []
       summary: Approve specs and execute document handoff
+      tags:
+      - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/archive:
+    patch:
+      consumes:
+      - application/json
+      description: Archive a spec task to hide it from the main view, or unarchive
+        to restore it
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Archive status (true to archive, false to unarchive)
+        in: body
+        name: archived
+        required: true
+        schema:
+          type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Archive or unarchive a spec task
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/commit-progress:
@@ -11745,6 +13365,77 @@ paths:
       summary: Get task specifications for review
       tags:
       - spec-driven-tasks
+  /api/v1/spec-tasks/{taskId}/start-implementation:
+    post:
+      description: Transition an approved spec task to implementation, creating a
+        feature branch
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTaskImplementationStartResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - ApiKeyAuth: []
+      summary: Start implementation phase
+      tags:
+      - SpecTasks
+  /api/v1/spec-tasks/{taskId}/start-planning:
+    post:
+      consumes:
+      - application/json
+      description: Explicitly start spec generation (planning phase) for a backlog
+        task. This transitions the task to planning status and starts a spec generation
+        session.
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Start planning for a SpecTask
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/work-sessions:
     get:
       description: Get all work sessions associated with a specific SpecTask
@@ -11872,6 +13563,56 @@ paths:
       summary: List Zed threads for a SpecTask
       tags:
       - zed-integration
+  /api/v1/spec-tasks/board-settings:
+    get:
+      description: Get the Kanban board settings (WIP limits) for the default project
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.BoardSettings'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get board settings for spec tasks
+      tags:
+      - spec-driven-tasks
+    put:
+      consumes:
+      - application/json
+      description: Update the Kanban board settings (WIP limits) for the default project
+      parameters:
+      - description: Board settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.BoardSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.BoardSettings'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update board settings for spec tasks
+      tags:
+      - spec-driven-tasks
   /api/v1/spec-tasks/from-demo:
     post:
       consumes:
@@ -11934,42 +13675,6 @@ paths:
       summary: Create spec-driven task from simple prompt
       tags:
       - spec-driven-tasks
-  /api/v1/specs/repositories:
-    post:
-      consumes:
-      - application/json
-      description: Create a git repository specifically for a SpecTask
-      parameters:
-      - description: SpecTask repository creation request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSpecTaskRepositoryRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/services.GitRepository'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Create SpecTask repository
-      tags:
-      - specs
   /api/v1/specs/sample-types:
     get:
       description: Get list of available sample repository types and templates

@@ -40,6 +40,7 @@ import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecision
 import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
+import MoonlightMonitor from "../components/admin/MoonlightMonitor";
 import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -631,6 +632,9 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <AgentSandboxes />
+                        <Box sx={{ mt: 4 }}>
+                            <MoonlightMonitor />
+                        </Box>
                     </Box>
                 )}
 

@@ -14,8 +14,8 @@ export type VideoCodecSupport = {
 } & Record<string, boolean>
 
 const CAPABILITIES_CODECS: Array<{ key: string, mimeType: string, fmtpLine: Array<string> }> = [
-    // H264
-    { key: "H264", mimeType: "video/H264", fmtpLine: ["packetization-mode=1", "profile-level-id=42e01f"] },
+    // H264 - Main Profile to match Wolf encoder (was Constrained Baseline 42e01f)
+    { key: "H264", mimeType: "video/H264", fmtpLine: ["packetization-mode=1", "profile-level-id=4d0033"] },
     { key: "H264_HIGH8_444", mimeType: "video/H264", fmtpLine: ["packetization-mode=1", "profile-level-id=640032"] },
     // H265
     // TODO: check level id in check function
@@ -29,6 +29,8 @@ const CAPABILITIES_CODECS: Array<{ key: string, mimeType: string, fmtpLine: Arra
     { key: "AV1_HIGH8", mimeType: "video/AV1", fmtpLine: ["profile=1"] },
     { key: "AV1_HIGH10", mimeType: "video/AV1", fmtpLine: ["profile=1"] },
 ]
+
+console.log('[VideoCodecs] CAPABILITIES_CODECS loaded with H.264 Main profile:', CAPABILITIES_CODECS[0]);
 
 const VIDEO_DECODER_CODECS: Array<{ key: string } & VideoDecoderConfig> = [
     { key: "H264_HIGH8_444", codec: "avc1.4d400c", colorSpace: { primaries: "bt709", matrix: "bt709", transfer: "bt709", fullRange: true } },

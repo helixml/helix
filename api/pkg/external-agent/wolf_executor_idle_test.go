@@ -2,7 +2,6 @@ package external_agent
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -59,6 +58,117 @@ func (m *MockStoreForWolf) DeleteExternalAgentActivity(ctx context.Context, agen
 	args := m.Called(ctx, agentID)
 	return args.Error(0)
 }
+
+func (m *MockStoreForWolf) AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error {
+	args := m.Called(ctx, projectID, repoID)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateGitRepository(ctx context.Context, repo *store.GitRepository) error {
+	args := m.Called(ctx, repo)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) DeleteGitRepository(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSampleProject(ctx context.Context, sample *types.SampleProject) (*types.SampleProject, error) {
+	args := m.Called(ctx, sample)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.SampleProject), args.Error(1)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error {
+	args := m.Called(ctx, review)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error {
+	args := m.Called(ctx, comment)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskDesignReviewCommentReply(ctx context.Context, reply *types.SpecTaskDesignReviewCommentReply) error {
+	args := m.Called(ctx, reply)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error {
+	args := m.Called(ctx, event)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
+	args := m.Called(ctx, task)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error {
+	args := m.Called(ctx, workSession)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
+	args := m.Called(ctx, zedThread)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
+	args := m.Called(ctx, implTask)
+	return args.Error(0)
+}
+
+func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
+	args := m.Called(ctx, agent)
+	return args.Error(0)
+}
+
+// Additional methods added to satisfy store.Store interface evolution
+func (m *MockStoreForWolf) CreateKnowledgeEmbedding(ctx context.Context, embeddings ...*types.KnowledgeEmbeddingItem) error { return nil }
+func (m *MockStoreForWolf) DetachRepositoryFromProject(ctx context.Context, repoID string) error { return nil }
+func (m *MockStoreForWolf) GetCommentByInteractionID(ctx context.Context, interactionID string) (*types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) GetExternalAgentActivityByLobbyID(ctx context.Context, lobbyID string) (*types.ExternalAgentActivity, error) { return nil, nil }
+func (m *MockStoreForWolf) GetGitRepository(ctx context.Context, id string) (*store.GitRepository, error) { return nil, nil }
+func (m *MockStoreForWolf) GetLatestDesignReview(ctx context.Context, specTaskID string) (*types.SpecTaskDesignReview, error) { return nil, nil }
+func (m *MockStoreForWolf) GetProject(ctx context.Context, id string) (*types.Project, error) { return nil, nil }
+func (m *MockStoreForWolf) GetProjectExploratorySession(ctx context.Context, projectID string) (*types.Session, error) { return nil, nil }
+func (m *MockStoreForWolf) GetProjectRepositories(ctx context.Context, projectID string) ([]*store.GitRepository, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSampleProject(ctx context.Context, id string) (*types.SampleProject, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSessionIncludingDeleted(ctx context.Context, id string) (*types.Session, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.Session), args.Error(1)
+}
+func (m *MockStoreForWolf) GetSpecTaskDesignReview(ctx context.Context, id string) (*types.SpecTaskDesignReview, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSpecTaskDesignReviewComment(ctx context.Context, id string) (*types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSpecTaskDesignReviewCommentReply(ctx context.Context, id string) (*types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSpecTaskGitPushEvent(ctx context.Context, id string) (*types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) GetSpecTaskGitPushEventByCommit(ctx context.Context, specTaskID, commitHash string) (*types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) GetUnresolvedCommentsForTask(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) Includes(m2 map[string]bool, s string) bool { return false }
+func (m *MockStoreForWolf) ListGitRepositories(ctx context.Context, ownerID string) ([]*store.GitRepository, error) { return nil, nil }
+func (m *MockStoreForWolf) ListProjects(ctx context.Context, userID string) ([]*types.Project, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSampleProjects(ctx context.Context) ([]*types.SampleProject, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSessionsQuery(ctx context.Context, query *store.ListSessionsQuery) ([]*types.Session, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviewCommentReplies(ctx context.Context, commentID string) ([]types.SpecTaskDesignReviewCommentReply, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviewComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskDesignReviews(ctx context.Context, specTaskID string) ([]types.SpecTaskDesignReview, error) { return nil, nil }
+func (m *MockStoreForWolf) ListSpecTaskGitPushEvents(ctx context.Context, specTaskID string) ([]types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error) { return nil, nil }
+func (m *MockStoreForWolf) ListUnresolvedComments(ctx context.Context, reviewID string) ([]types.SpecTaskDesignReviewComment, error) { return nil, nil }
+func (m *MockStoreForWolf) QueryKnowledgeEmbeddings(ctx context.Context, q *types.KnowledgeEmbeddingQuery) ([]*types.KnowledgeEmbeddingItem, error) { return nil, nil }
+func (m *MockStoreForWolf) SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error { return nil }
+func (m *MockStoreForWolf) UpdateGitRepository(ctx context.Context, repo *store.GitRepository) error { return nil }
+func (m *MockStoreForWolf) UpdateProject(ctx context.Context, project *types.Project) error { return nil }
+func (m *MockStoreForWolf) UpdateSpecTaskDesignReview(ctx context.Context, review *types.SpecTaskDesignReview) error { return nil }
+func (m *MockStoreForWolf) UpdateSpecTaskDesignReviewComment(ctx context.Context, comment *types.SpecTaskDesignReviewComment) error { return nil }
+func (m *MockStoreForWolf) UpdateSpecTaskGitPushEvent(ctx context.Context, event *types.SpecTaskGitPushEvent) error { return nil }
 
 // Stub methods to satisfy store.Store interface (auto-generated from store_mocks.go)
 // These are not used in the cleanup tests, but needed to satisfy the interface
@@ -117,18 +227,40 @@ func (m *MockWolfClient) ListLobbies(ctx context.Context) ([]wolf.Lobby, error) 
 	return args.Get(0).([]wolf.Lobby), args.Error(1)
 }
 
+func (m *MockWolfClient) GetSystemMemory(ctx context.Context) (*wolf.SystemMemoryResponse, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*wolf.SystemMemoryResponse), args.Error(1)
+}
+
+func (m *MockWolfClient) JoinLobby(ctx context.Context, req *wolf.JoinLobbyRequest) error {
+	args := m.Called(ctx, req)
+	return args.Error(0)
+}
+
+func (m *MockWolfClient) ListSessions(ctx context.Context) ([]wolf.WolfStreamSession, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]wolf.WolfStreamSession), args.Error(1)
+}
+
 func TestCleanupIdleExternalAgents_NoIdleAgents(t *testing.T) {
 	ctx := context.Background()
 	mockStore := new(MockStoreForWolf)
 	mockWolfClient := new(MockWolfClient)
 
 	executor := &WolfExecutor{
-		store:      mockStore,
-		wolfClient: mockWolfClient,
+		store:                       mockStore,
+		wolfClient:                  mockWolfClient,
+		workspaceBasePathForCloning: "/tmp/test-workspaces",
 	}
 
 	// Mock: No idle agents
-	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask"}).
+	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask", "exploratory", "agent"}).
 		Return([]*types.ExternalAgentActivity{}, nil)
 
 	// Execute
@@ -145,8 +277,9 @@ func TestCleanupIdleExternalAgents_TerminatesIdleAgent(t *testing.T) {
 	mockWolfClient := new(MockWolfClient)
 
 	executor := &WolfExecutor{
-		store:      mockStore,
-		wolfClient: mockWolfClient,
+		store:                       mockStore,
+		wolfClient:                  mockWolfClient,
+		workspaceBasePathForCloning: "/tmp/test-workspaces",
 	}
 
 	// Idle agent activity
@@ -172,7 +305,9 @@ func TestCleanupIdleExternalAgents_TerminatesIdleAgent(t *testing.T) {
 		ID:    "ses_001",
 		Owner: "user_idle",
 		Metadata: types.SessionMetadata{
-			SpecTaskID: "spec_idle123",
+			SpecTaskID:   "spec_idle123",
+			WolfLobbyID:  "lobby_001",
+			WolfLobbyPIN: "1234",
 		},
 	}
 
@@ -180,15 +315,18 @@ func TestCleanupIdleExternalAgents_TerminatesIdleAgent(t *testing.T) {
 		ID:    "ses_002",
 		Owner: "user_idle",
 		Metadata: types.SessionMetadata{
-			SpecTaskID: "spec_idle123",
+			SpecTaskID:   "spec_idle123",
+			WolfLobbyID:  "lobby_002",
+			WolfLobbyPIN: "5678",
 		},
 	}
 
 	// Setup mocks
-	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask"}).
+	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask", "exploratory", "agent"}).
 		Return([]*types.ExternalAgentActivity{idleActivity}, nil)
 
-	mockWolfClient.On("RemoveApp", ctx, "wolf_idle_456").Return(nil)
+	mockWolfClient.On("ListSessions", mock.Anything).Return([]wolf.WolfStreamSession{}, nil)
+	mockWolfClient.On("StopLobby", mock.Anything, mock.Anything).Return(nil)
 
 	mockStore.On("GetSpecTaskExternalAgentByID", ctx, "zed-spectask-idle123").
 		Return(idleAgent, nil)
@@ -199,6 +337,8 @@ func TestCleanupIdleExternalAgents_TerminatesIdleAgent(t *testing.T) {
 
 	mockStore.On("GetSession", ctx, "ses_001").Return(session1, nil)
 	mockStore.On("GetSession", ctx, "ses_002").Return(session2, nil)
+	mockStore.On("GetSessionIncludingDeleted", mock.Anything, "ses_001").Return(session1, nil)
+	mockStore.On("GetSessionIncludingDeleted", mock.Anything, "ses_002").Return(session2, nil)
 
 	mockStore.On("UpdateSession", ctx, mock.MatchedBy(func(session types.Session) bool {
 		return session.Metadata.ExternalAgentStatus == "terminated_idle"
@@ -208,9 +348,6 @@ func TestCleanupIdleExternalAgents_TerminatesIdleAgent(t *testing.T) {
 
 	// Execute
 	executor.cleanupIdleExternalAgents(ctx)
-
-	// Verify: Wolf app removed
-	mockWolfClient.AssertCalled(t, "RemoveApp", ctx, "wolf_idle_456")
 
 	// Verify: Agent status updated to terminated
 	mockStore.AssertCalled(t, "UpdateSpecTaskExternalAgent", ctx, mock.Anything)
@@ -228,8 +365,9 @@ func TestCleanupIdleExternalAgents_WolfRemovalFails(t *testing.T) {
 	mockWolfClient := new(MockWolfClient)
 
 	executor := &WolfExecutor{
-		store:      mockStore,
-		wolfClient: mockWolfClient,
+		store:                       mockStore,
+		wolfClient:                  mockWolfClient,
+		workspaceBasePathForCloning: "/tmp/test-workspaces",
 	}
 
 	idleActivity := &types.ExternalAgentActivity{
@@ -253,15 +391,19 @@ func TestCleanupIdleExternalAgents_WolfRemovalFails(t *testing.T) {
 	session := &types.Session{
 		ID:    "ses_fail_001",
 		Owner: "user_fail",
+		Metadata: types.SessionMetadata{
+			SpecTaskID:   "spec_wolf_fail",
+			WolfLobbyID:  "lobby_fail_001",
+			WolfLobbyPIN: "9999",
+		},
 	}
 
 	// Setup mocks
-	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask"}).
+	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask", "exploratory", "agent"}).
 		Return([]*types.ExternalAgentActivity{idleActivity}, nil)
 
-	// Wolf client fails to remove app
-	mockWolfClient.On("RemoveApp", ctx, "wolf_fail_789").
-		Return(fmt.Errorf("wolf connection error"))
+	mockWolfClient.On("ListSessions", mock.Anything).Return([]wolf.WolfStreamSession{}, nil)
+	mockWolfClient.On("StopLobby", mock.Anything, mock.Anything).Return(nil)
 
 	// But cleanup should continue anyway
 	mockStore.On("GetSpecTaskExternalAgentByID", ctx, "zed-spectask-wolf-fail").
@@ -269,6 +411,7 @@ func TestCleanupIdleExternalAgents_WolfRemovalFails(t *testing.T) {
 
 	mockStore.On("UpdateSpecTaskExternalAgent", ctx, mock.Anything).Return(nil)
 	mockStore.On("GetSession", ctx, "ses_fail_001").Return(session, nil)
+	mockStore.On("GetSessionIncludingDeleted", mock.Anything, "ses_fail_001").Return(session, nil)
 	mockStore.On("UpdateSession", ctx, mock.Anything).Return(&types.Session{}, nil)
 	mockStore.On("DeleteExternalAgentActivity", ctx, "zed-spectask-wolf-fail").Return(nil)
 
@@ -286,8 +429,9 @@ func TestCleanupIdleExternalAgents_MultipleAgents(t *testing.T) {
 	mockWolfClient := new(MockWolfClient)
 
 	executor := &WolfExecutor{
-		store:      mockStore,
-		wolfClient: mockWolfClient,
+		store:                       mockStore,
+		wolfClient:                  mockWolfClient,
+		workspaceBasePathForCloning: "/tmp/test-workspaces",
 	}
 
 	// Multiple idle agents
@@ -327,11 +471,8 @@ func TestCleanupIdleExternalAgents_MultipleAgents(t *testing.T) {
 	}
 
 	// Setup mocks
-	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask"}).
+	mockStore.On("GetIdleExternalAgents", ctx, mock.Anything, []string{"spectask", "exploratory", "agent"}).
 		Return(idleActivities, nil)
-
-	mockWolfClient.On("RemoveApp", ctx, "wolf_1").Return(nil)
-	mockWolfClient.On("RemoveApp", ctx, "wolf_2").Return(nil)
 
 	mockStore.On("GetSpecTaskExternalAgentByID", ctx, "zed-spectask-idle1").Return(agent1, nil)
 	mockStore.On("GetSpecTaskExternalAgentByID", ctx, "zed-spectask-idle2").Return(agent2, nil)
@@ -344,9 +485,8 @@ func TestCleanupIdleExternalAgents_MultipleAgents(t *testing.T) {
 	executor.cleanupIdleExternalAgents(ctx)
 
 	// Verify: Both agents terminated
-	mockWolfClient.AssertCalled(t, "RemoveApp", ctx, "wolf_1")
-	mockWolfClient.AssertCalled(t, "RemoveApp", ctx, "wolf_2")
 	mockStore.AssertNumberOfCalls(t, "DeleteExternalAgentActivity", 2)
+	mockStore.AssertNumberOfCalls(t, "UpdateSpecTaskExternalAgent", 2)
 }
 
 // Auto-generated stub methods below (not actively used in tests, just to satisfy interface)
@@ -501,26 +641,6 @@ func (m *MockStoreForWolf) CreateSlot(ctx context.Context, slot *types.RunnerSlo
 	return nil, nil
 }
 
-func (m *MockStoreForWolf) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskExternalAgent(ctx context.Context, agent *types.SpecTaskExternalAgent) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error {
-	return nil
-}
-
-func (m *MockStoreForWolf) CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error {
-	return nil
-}
-
 func (m *MockStoreForWolf) CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error) {
 	return nil, nil
 }
@@ -583,6 +703,8 @@ func (m *MockStoreForWolf) DeleteKnowledge(ctx context.Context, id string) error
 
 func (m *MockStoreForWolf) DeleteKnowledgeVersion(ctx context.Context, id string) error { return nil }
 
+func (m *MockStoreForWolf) DeleteKnowledgeEmbedding(ctx context.Context, id string) error { return nil }
+
 func (m *MockStoreForWolf) DeleteMemory(ctx context.Context, memory *types.Memory) error { return nil }
 
 func (m *MockStoreForWolf) DeleteModel(ctx context.Context, id string) error { return nil }
@@ -605,6 +727,10 @@ func (m *MockStoreForWolf) DeletePersonalDevEnvironment(ctx context.Context, id 
 
 func (m *MockStoreForWolf) DeleteProviderEndpoint(ctx context.Context, id string) error { return nil }
 
+func (m *MockStoreForWolf) DeleteProject(ctx context.Context, id string) error { return nil }
+
+func (m *MockStoreForWolf) DeleteSampleProject(ctx context.Context, id string) error { return nil }
+
 func (m *MockStoreForWolf) DeleteRole(ctx context.Context, id string) error { return nil }
 
 func (m *MockStoreForWolf) DeleteSSHKey(ctx context.Context, id string) error { return nil }
@@ -620,6 +746,14 @@ func (m *MockStoreForWolf) DeleteSlackThread(ctx context.Context, olderThan time
 }
 
 func (m *MockStoreForWolf) DeleteSlot(ctx context.Context, id string) error { return nil }
+
+func (m *MockStoreForWolf) DeleteSpecTaskDesignReview(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockStoreForWolf) DeleteSpecTaskDesignReviewComment(ctx context.Context, id string) error {
+	return nil
+}
 
 func (m *MockStoreForWolf) DeleteSpecTaskExternalAgent(ctx context.Context, agentID string) error {
 	return nil

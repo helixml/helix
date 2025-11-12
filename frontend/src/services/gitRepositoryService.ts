@@ -25,13 +25,15 @@ const QUERY_KEYS = {
   cloneCommand: (id: string) => ['git-repositories', id, 'clone-command'] as const,
   userRepositories: (userId: string) => ['git-repositories', 'user', userId] as const,
   specTaskRepositories: (specTaskId: string) => ['git-repositories', 'spec-task', specTaskId] as const,
+  repositoryTree: (id: string, path: string, branch?: string) => ['git-repositories', id, 'tree', path, branch || ''] as const,
+  repositoryFile: (id: string, path: string, branch?: string) => ['git-repositories', id, 'file', path, branch || ''] as const,
 };
 
 // Custom hooks for git repository operations
 
 export function useGitRepositories(ownerId?: string, repoType?: string) {
   const api = useApi();
-  
+
   return useQuery({
     queryKey: [...QUERY_KEYS.gitRepositories, ownerId, repoType],
     queryFn: async () => {
@@ -39,7 +41,13 @@ export function useGitRepositories(ownerId?: string, repoType?: string) {
         owner_id: ownerId,
         repo_type: repoType,
       });
-      return response.data;
+      // Sort repositories by created_at descending (newest first)
+      const repos = response.data || [];
+      return repos.sort((a: any, b: any) => {
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateB - dateA; // Descending order
+      });
     },
   });
 }
@@ -87,7 +95,7 @@ export function useCloneCommand(repositoryId: string, targetDir?: string) {
 
 export function useUserGitRepositories(userId: string) {
   const api = useApi();
-  
+
   return useQuery({
     queryKey: QUERY_KEYS.userRepositories(userId),
     queryFn: async () => {
@@ -100,12 +108,59 @@ export function useUserGitRepositories(userId: string) {
   });
 }
 
+export function useListRepositoryBranches(repositoryId: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: ['git-repositories', repositoryId, 'branches'] as const,
+    queryFn: async () => {
+      const response = await api.getApiClient().listGitRepositoryBranches(repositoryId);
+      return response.data;
+    },
+    enabled: !!repositoryId,
+  });
+}
+
+export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, branch),
+    queryFn: async () => {
+      const params: any = { path };
+      if (branch) {
+        params.branch = branch;
+      }
+      const response = await api.getApiClient().browseGitRepositoryTree(repositoryId, params);
+      return response.data;
+    },
+    enabled: !!repositoryId,
+  });
+}
+
+export function useGetRepositoryFile(repositoryId: string, path: string, branch: string = '', enabled: boolean = false) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, branch),
+    queryFn: async () => {
+      const params: any = { path };
+      if (branch) {
+        params.branch = branch;
+      }
+      const response = await api.getApiClient().getGitRepositoryFile(repositoryId, params);
+      return response.data;
+    },
+    enabled: enabled && !!repositoryId && !!path,
+  });
+}
+
 // Mutation hooks
 
 export function useCreateGitRepository() {
   const api = useApi();
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (request: any) => { // ServicesGitRepositoryCreateRequest
       const response = await api.getApiClient().v1GitRepositoriesCreate(request);
@@ -117,6 +172,21 @@ export function useCreateGitRepository() {
       if (variables.owner_id) {
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.userRepositories(variables.owner_id) });
       }
+    },
+  });
+}
+
+export function useDeleteGitRepository() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (repositoryId: string) => {
+      await api.getApiClient().v1GitRepositoriesDelete(repositoryId);
+    },
+    onSuccess: () => {
+      // Invalidate all repository queries
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories });
     },
   });
 }
@@ -139,23 +209,6 @@ export function useCreateSampleRepository() {
   });
 }
 
-export function useCreateSpecTaskRepository() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (request: any) => { // ServerCreateSpecTaskRepositoryRequest
-      const response = await api.getApiClient().v1SpecsRepositoriesCreate(request);
-      return response.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories });
-      if (variables.spec_task_id) {
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTaskRepositories(variables.spec_task_id) });
-      }
-    },
-  });
-}
 
 export function useInitializeSampleRepositories() {
   const api = useApi();
@@ -318,13 +371,14 @@ const gitRepositoryService = {
   useSampleTypes,
   useCloneCommand,
   useUserGitRepositories,
-  
+  useBrowseRepositoryTree,
+  useGetRepositoryFile,
+
   // Mutation functions
   useCreateGitRepository,
   useCreateSampleRepository,
-  useCreateSpecTaskRepository,
   useInitializeSampleRepositories,
-  
+
   // Helper functions
   getRepositoryTypeColor,
   getRepositoryStatusColor,
@@ -335,7 +389,7 @@ const gitRepositoryService = {
   isBusinessTask,
   getBusinessTaskDescription,
   getCloneInstructionsForZedAgent,
-  
+
   // Query keys for external use
   QUERY_KEYS,
 };

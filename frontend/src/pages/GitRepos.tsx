@@ -32,8 +32,9 @@ import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
-import { useGitRepositories, getSampleTypeIcon } from '../services/gitRepositoryService'
+import { useGitRepositories } from '../services/gitRepositoryService'
 import { useSampleTypes } from '../hooks/useSampleTypes'
+import { getSampleProjectIcon } from '../utils/sampleProjectIcons'
 import type { ServicesGitRepository, ServerSampleType } from '../api/api'
 
 const GitRepos: FC = () => {
@@ -71,6 +72,7 @@ const GitRepos: FC = () => {
   const [externalKoditIndexing, setExternalKoditIndexing] = useState(true)
 
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string>('')
 
   // Auto-fill name when sample type is selected
   const handleSampleTypeChange = (sampleTypeId: string) => {
@@ -121,13 +123,14 @@ const GitRepos: FC = () => {
     if (!repoName.trim() || !ownerId) return
 
     setCreating(true)
+    setCreateError('')
     try {
       const apiClient = api.getApiClient()
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: repoDescription,
         owner_id: ownerId,
-        repo_type: 'project' as any,
+        repo_type: 'code' as any, // Helix-hosted code repository
         default_branch: 'main',
         metadata: {
           kodit_indexing: koditIndexing,
@@ -141,8 +144,10 @@ const GitRepos: FC = () => {
       setRepoName('')
       setRepoDescription('')
       setKoditIndexing(true)
+      setCreateError('')
     } catch (error) {
       console.error('Failed to create repository:', error)
+      setCreateError(error instanceof Error ? error.message : 'Failed to create repository')
     } finally {
       setCreating(false)
     }
@@ -232,8 +237,8 @@ const GitRepos: FC = () => {
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <Typography variant="h4" component="h1" sx={{ fontWeight: 400, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span style={{ color: '#0969da', cursor: 'pointer' }}>{ownerSlug}</span>
-                  <span style={{ color: '#656d76', fontWeight: 300 }}>/</span>
+                  <span style={{ color: '#3b82f6', cursor: 'pointer' }}>{ownerSlug}</span>
+                  <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
                   <span style={{ fontWeight: 600 }}>repositories</span>
                 </Typography>
               </Box>
@@ -259,14 +264,10 @@ const GitRepos: FC = () => {
               </Button>
               <Button
                 variant="contained"
+                color="secondary"
                 size="small"
                 startIcon={<Plus size={16} />}
                 onClick={() => setCreateDialogOpen(true)}
-                sx={{
-                  bgcolor: '#1a7f37',
-                  '&:hover': { bgcolor: '#1a7f37dd' },
-                  textTransform: 'none'
-                }}
               >
                 New
               </Button>
@@ -312,7 +313,7 @@ const GitRepos: FC = () => {
                         sx={{
                           fontSize: '1.25rem',
                           fontWeight: 600,
-                          color: '#0969da',
+                          color: '#3b82f6',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 0.5,
@@ -322,7 +323,7 @@ const GitRepos: FC = () => {
                         }}
                       >
                         {ownerSlug}
-                        <span style={{ color: '#656d76', fontWeight: 400 }}>/</span>
+                        <span style={{ color: 'text.secondary', fontWeight: 400 }}>/</span>
                         {repo.name || repo.id}
                       </Typography>
 
@@ -369,29 +370,6 @@ const GitRepos: FC = () => {
                     </Box>
                   </Box>
 
-                  {/* Action button */}
-                  <Box onClick={(e) => e.stopPropagation()}>
-                    {repo.metadata?.is_external && repo.metadata?.external_url ? (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<ExternalLink size={14} />}
-                        onClick={() => window.open(repo.metadata.external_url, '_blank')}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        View
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => navigate('git-repo-detail', { repoId: repo.id })}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        Clone
-                      </Button>
-                    )}
-                  </Box>
                 </Box>
               </Box>
             ))}
@@ -404,15 +382,8 @@ const GitRepos: FC = () => {
                 No repositories yet
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Create your first git repository to start collaborating with AI agents.
+                Create your first git repository to start collaborating with AI agents and your team.
               </Typography>
-              <Button
-                variant="contained"
-                startIcon={<Plus size={18} />}
-                onClick={() => setCreateDialogOpen(true)}
-              >
-                Create Repository
-              </Button>
             </CardContent>
           </Card>
         )}
@@ -438,7 +409,10 @@ const GitRepos: FC = () => {
                   </MenuItem>
                   {sampleTypes.map((type: ServerSampleType) => (
                     <MenuItem key={type.id} value={type.id}>
-                      {getSampleTypeIcon(type.id || '')} {type.name}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {getSampleProjectIcon(type.id, type.category, 18)}
+                        <span>{type.name}</span>
+                      </Box>
                     </MenuItem>
                   ))}
                 </Select>
@@ -501,16 +475,26 @@ const GitRepos: FC = () => {
         </Dialog>
 
         {/* Custom Repository Dialog */}
-        <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <Dialog open={createDialogOpen} onClose={() => {
+          setCreateDialogOpen(false)
+          setCreateError('')
+        }} maxWidth="sm" fullWidth>
           <DialogTitle>Create New Repository</DialogTitle>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
+              {createError && (
+                <Alert severity="error" onClose={() => setCreateError('')}>
+                  {createError}
+                </Alert>
+              )}
+
               <TextField
                 label="Repository Name"
                 fullWidth
                 value={repoName}
                 onChange={(e) => setRepoName(e.target.value)}
                 helperText="Enter a name for your repository"
+                autoFocus
               />
 
               <TextField
@@ -555,6 +539,7 @@ const GitRepos: FC = () => {
               setRepoName('')
               setRepoDescription('')
               setKoditIndexing(true)
+              setCreateError('')
             }}>Cancel</Button>
             <Button
               onClick={handleCreateCustomRepo}

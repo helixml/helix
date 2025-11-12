@@ -103,6 +103,98 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/wolf/lobbies/{lobbyId}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a Wolf lobby (terminates container and releases GPU resources)",
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Stop Wolf lobby",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Lobby ID",
+                        "name": "lobbyId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/wolf/sessions/{sessionId}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stop a Wolf-UI streaming session (releases GPU memory)",
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Stop Wolf streaming session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (client_id from Wolf)",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents/fleet": {
             "get": {
                 "security": [
@@ -1840,24 +1932,21 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/external-agents/{sessionID}/keepalive": {
+        "/api/v1/external-agents/{sessionID}/clipboard": {
             "get": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Get keepalive session health status for an external agent",
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Fetch current clipboard content from remote desktop",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "ExternalAgents"
                 ],
-                "summary": "Get keepalive session status",
+                "summary": "Get session clipboard content",
                 "parameters": [
                     {
                         "type": "string",
@@ -1871,8 +1960,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/types.ClipboardData"
                         }
                     },
                     "401": {
@@ -1886,9 +1974,53 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send clipboard content to remote desktop",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ExternalAgents"
+                ],
+                "summary": "Set session clipboard content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sessionID",
+                        "in": "path",
+                        "required": true
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    {
+                        "description": "Clipboard data to set",
+                        "name": "clipboard",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ClipboardData"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
                         }
@@ -2369,6 +2501,212 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing git repository's metadata",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Update git repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Repository update request",
+                        "name": "repository",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a git repository and its metadata",
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Delete git repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a git repository (repository owners can list access grants)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "List repository access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to a repository to a user (repository owners can grant access)",
+                "tags": [
+                    "gitrepositories"
+                ],
+                "summary": "Grant access to a repository to a user",
+                "parameters": [
+                    {
+                        "description": "Request body with user reference and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/branches": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of all branches in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List repository branches",
+                "operationId": "listGitRepositoryBranches",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/git/repositories/{id}/clone-command": {
@@ -2406,6 +2744,218 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.CloneCommandResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/enrichments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get code intelligence enrichments for a repository from Kodit",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get repository enrichments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.KoditEnrichmentListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the contents of a file at a specific path in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get file contents",
+                "operationId": "getGitRepositoryFile",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "File path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name (defaults to HEAD if not specified)",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryFileResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/kodit-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get indexing status for a repository from Kodit",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get repository indexing status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/tree": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of files and directories at a specific path in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Browse repository tree",
+                "operationId": "browseGitRepositoryTree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Path to browse (default: root)",
+                        "name": "path",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch to browse (default: HEAD)",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepositoryTreeResponse"
                         }
                     },
                     "404": {
@@ -3332,6 +3882,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/moonlight/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web",
+                "tags": [
+                    "Moonlight"
+                ],
+                "summary": "Get moonlight-web internal state",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/connections": {
             "get": {
                 "security": [
@@ -3949,14 +4522,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/personal-dev-environments": {
+        "/api/v1/projects": {
             "get": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Get all personal development environments for the current user",
+                "description": "Get all projects for the current user",
                 "consumes": [
                     "application/json"
                 ],
@@ -3964,16 +4537,16 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PersonalDevEnvironments"
+                    "Projects"
                 ],
-                "summary": "List personal development environments",
+                "summary": "List projects",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                                "$ref": "#/definitions/types.Project"
                             }
                         }
                     },
@@ -3994,10 +4567,10 @@ const docTemplate = `{
             "post": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Create a new personal development environment with the specified configuration",
+                "description": "Create a new project",
                 "consumes": [
                     "application/json"
                 ],
@@ -4005,25 +4578,25 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PersonalDevEnvironments"
+                    "Projects"
                 ],
-                "summary": "Create a personal development environment",
+                "summary": "Create project",
                 "parameters": [
                     {
-                        "description": "Personal dev environment configuration",
+                        "description": "Project creation request",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.CreatePersonalDevEnvironmentRequest"
+                            "$ref": "#/definitions/types.ProjectCreateRequest"
                         }
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                            "$ref": "#/definitions/types.Project"
                         }
                     },
                     "400": {
@@ -4047,14 +4620,135 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/personal-dev-environments/{environmentID}": {
+        "/api/v1/projects/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a project by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Update project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Project update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ProjectUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Project"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Delete a personal development environment by ID",
+                "description": "Delete a project by ID",
                 "consumes": [
                     "application/json"
                 ],
@@ -4062,21 +4756,241 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PersonalDevEnvironments"
+                    "Projects"
                 ],
-                "summary": "Delete a personal development environment",
+                "summary": "Delete project",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
+                        "description": "Project ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/access-grants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List access grants for a project (project owners and org owners can list access grants)",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project access grants",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AccessGrant"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Grant access to a project to a team or organization member (project owners and org owners can grant access)",
+                "tags": [
+                    "projects"
+                ],
+                "summary": "Grant access to a project to a team or organization member",
+                "parameters": [
+                    {
+                        "description": "Request body with team or organization member ID and roles",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateAccessGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AccessGrant"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/exploratory-session": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the active exploratory session for a project (returns null if none exists)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get project exploratory session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
                     "204": {
-                        "description": "No Content"
+                        "description": "No exploratory session exists"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Start or return existing exploratory session for a project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Start project exploratory session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop the running exploratory session for a project (stops Wolf container, keeps session record)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Stop project exploratory session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     },
                     "401": {
                         "description": "Unauthorized",
@@ -4099,14 +5013,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/personal-dev-environments/{environmentID}/start": {
-            "post": {
+        "/api/v1/projects/{id}/repositories": {
+            "get": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Start a personal development environment by ID",
+                "description": "Get all repositories attached to a project",
                 "consumes": [
                     "application/json"
                 ],
@@ -4114,14 +5028,15 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PersonalDevEnvironments"
+                    "Projects"
                 ],
-                "summary": "Start a personal development environment",
+                "summary": "Get project repositories",
+                "operationId": "getProjectRepositories",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
+                        "description": "Project ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
@@ -4130,7 +5045,10 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/store.GitRepository"
+                            }
                         }
                     },
                     "401": {
@@ -4154,14 +5072,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/personal-dev-environments/{environmentID}/stop": {
-            "post": {
+        "/api/v1/projects/{id}/repositories/{repo_id}/attach": {
+            "put": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "BearerAuth": []
                     }
                 ],
-                "description": "Stop a personal development environment by ID",
+                "description": "Attach an existing repository to a project",
                 "consumes": [
                     "application/json"
                 ],
@@ -4169,14 +5087,21 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "PersonalDevEnvironments"
+                    "Projects"
                 ],
-                "summary": "Stop a personal development environment",
+                "summary": "Attach repository to project",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Environment ID",
-                        "name": "environmentID",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
                         "in": "path",
                         "required": true
                     }
@@ -4185,7 +5110,10 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/server.PersonalDevEnvironmentResponse"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "401": {
@@ -4204,6 +5132,170 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/detach": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Detach a repository from its project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Detach repository from project",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/repositories/{repo_id}/primary": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Set the primary repository for a project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Set project primary repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "repo_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/startup-script/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get git commit history for project startup script",
+                "tags": [
+                    "Projects"
+                ],
+                "summary": "Get startup script version history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/services.StartupScriptVersion"
+                            }
                         }
                     }
                 }
@@ -5598,6 +6690,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/idle-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns idle timeout information for a session with an external agent",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get idle status for external agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionIdleStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/interactions": {
             "get": {
                 "security": [
@@ -5770,6 +6911,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Restarts the external agent container for a session that has been stopped",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Resume a paused external agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/{id}/step-info": {
             "get": {
                 "security": [
@@ -5785,6 +6958,61 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.StepInfo"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/stop-external-agent": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop the external Zed agent for any session (stops container, keeps session record)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Stop external Zed agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
                         }
                     }
                 }
@@ -6223,6 +7451,13 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include archived tasks",
+                        "name": "include_archived",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "default": 50,
                         "description": "Limit number of results",
@@ -6245,6 +7480,86 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.SpecTask"
                             }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/board-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the Kanban board settings (WIP limits) for the default project",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Get board settings for spec tasks",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the Kanban board settings (WIP limits) for the default project",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update board settings for spec tasks",
+                "parameters": [
+                    {
+                        "description": "Board settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.BoardSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "500": {
@@ -6360,7 +7675,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Get the design documents from helix-design-docs worktree",
+                "description": "Get the design documents from helix-specs worktree",
                 "produces": [
                     "application/json"
                 ],
@@ -6589,6 +7904,435 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{spec_task_id}/approve-implementation": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approve the implementation and instruct agent to merge to main branch",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Approve implementation and merge to main",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all design reviews for a spec task",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "List design reviews",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific design review for a spec task with comments and spec task details",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Get design review details",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewDetailResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all comments for a specific design review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "List design review comments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentListResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new comment on a design review document",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Create design review comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Comment data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/comments/{comment_id}/resolve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Mark a design review comment as resolved",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Resolve design review comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/design-reviews/{review_id}/submit": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approve or request changes for a design review",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Submit design review decision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Spec Task ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Design Review ID",
+                        "name": "review_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Review decision",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskDesignReview"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{spec_task_id}/stop-agent": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stop the running agent session for a spec task",
+                "tags": [
+                    "spec-tasks"
+                ],
+                "summary": "Stop agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "spec_task_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}": {
             "get": {
                 "description": "Get detailed information about a specific spec-driven task",
@@ -6792,6 +8536,70 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/server.CombinedApprovalHandoffResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/archive": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Archive a spec task to hide it from the main view, or unarchive to restore it",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Archive or unarchive a spec task",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Archive status (true to archive, false to unarchive)",
+                        "name": "archived",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
                         }
                     },
                     "400": {
@@ -7472,6 +9280,113 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/spec-tasks/{taskId}/start-implementation": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Transition an approved spec task to implementation, creating a feature branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SpecTasks"
+                ],
+                "summary": "Start implementation phase",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskImplementationStartResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/spec-tasks/{taskId}/start-planning": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Explicitly start spec generation (planning phase) for a backlog task. This transitions the task to planning status and starts a spec generation session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Start planning for a SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/spec-tasks/{taskId}/work-sessions": {
             "get": {
                 "security": [
@@ -7656,63 +9571,6 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/specs/repositories": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a git repository specifically for a SpecTask",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "specs"
-                ],
-                "summary": "Create SpecTask repository",
-                "parameters": [
-                    {
-                        "description": "SpecTask repository creation request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreateSpecTaskRepositoryRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -10487,6 +12345,22 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.WolfAppInfo"
                     }
                 },
+                "gpu_stats": {
+                    "description": "GPU encoder stats from Wolf (via nvidia-smi)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GPUStats"
+                        }
+                    ]
+                },
+                "gstreamer_pipelines": {
+                    "description": "Actual pipeline count from Wolf",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GStreamerPipelineStats"
+                        }
+                    ]
+                },
                 "lobbies": {
                     "description": "Lobbies mode",
                     "type": "array",
@@ -10498,7 +12372,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/server.WolfSystemMemory"
                 },
                 "moonlight_clients": {
-                    "description": "NEW: moonlight-web client connections",
+                    "description": "moonlight-web client connections",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/server.MoonlightClientInfo"
@@ -10669,32 +12543,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.CreatePersonalDevEnvironmentRequest": {
-            "type": "object",
-            "properties": {
-                "app_id": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Default: 120",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Default: 1640 (iPad Pro)",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for the streaming session",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "type": "string"
-                }
-            }
-        },
         "server.CreateSampleRepositoryRequest": {
             "type": "object",
             "properties": {
@@ -10737,32 +12585,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.CreateSpecTaskRepositoryRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "template_files": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "server.CreateTopUpRequest": {
             "type": "object",
             "properties": {
@@ -10777,14 +12599,11 @@ const docTemplate = `{
         "server.DesignDocsResponse": {
             "type": "object",
             "properties": {
-                "current_task_index": {
-                    "type": "integer"
-                },
-                "design_markdown": {
-                    "type": "string"
-                },
-                "progress_markdown": {
-                    "type": "string"
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.DesignDocument"
+                    }
                 },
                 "task_id": {
                     "type": "string"
@@ -10801,6 +12620,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.DesignDocument": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }
@@ -10863,6 +12696,69 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "tasks_created": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.GPUStats": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "false if nvidia-smi failed",
+                    "type": "boolean"
+                },
+                "encoder_average_fps": {
+                    "type": "number"
+                },
+                "encoder_average_latency_us": {
+                    "type": "integer"
+                },
+                "encoder_session_count": {
+                    "type": "integer"
+                },
+                "encoder_utilization_percent": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "gpu_name": {
+                    "type": "string"
+                },
+                "gpu_utilization_percent": {
+                    "type": "integer"
+                },
+                "memory_total_mb": {
+                    "type": "integer"
+                },
+                "memory_used_mb": {
+                    "type": "integer"
+                },
+                "memory_utilization_percent": {
+                    "type": "integer"
+                },
+                "query_duration_ms": {
+                    "description": "How long nvidia-smi took in Wolf",
+                    "type": "integer"
+                },
+                "temperature_celsius": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.GStreamerPipelineStats": {
+            "type": "object",
+            "properties": {
+                "consumer_pipelines": {
+                    "description": "Video + audio consumers (2 per session)",
+                    "type": "integer"
+                },
+                "producer_pipelines": {
+                    "description": "Video + audio producers (2 per lobby)",
+                    "type": "integer"
+                },
+                "total_pipelines": {
+                    "description": "Sum of producers + consumers",
                     "type": "integer"
                 }
             }
@@ -10992,97 +12888,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "server.PersonalDevEnvironmentResponse": {
-            "type": "object",
-            "properties": {
-                "appID": {
-                    "description": "Helix App ID for configuration (MCP servers, tools, etc.)",
-                    "type": "string"
-                },
-                "configured_tools": {
-                    "description": "MCP servers enabled",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "container_name": {
-                    "description": "Container information for direct network access",
-                    "type": "string"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "data_sources": {
-                    "description": "Connected data sources",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_fps": {
-                    "description": "Streaming framerate",
-                    "type": "integer"
-                },
-                "display_height": {
-                    "description": "Streaming resolution height",
-                    "type": "integer"
-                },
-                "display_width": {
-                    "description": "Display configuration for streaming",
-                    "type": "integer"
-                },
-                "environment_name": {
-                    "description": "User-friendly name",
-                    "type": "string"
-                },
-                "instanceID": {
-                    "type": "string"
-                },
-                "instanceType": {
-                    "description": "\"spec_task\", \"personal_dev\", \"shared_workspace\"",
-                    "type": "string"
-                },
-                "is_personal_env": {
-                    "description": "Personal dev environment specific",
-                    "type": "boolean"
-                },
-                "lastActivity": {
-                    "type": "string"
-                },
-                "projectPath": {
-                    "type": "string"
-                },
-                "specTaskID": {
-                    "description": "Optional - null for personal dev environments",
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "stream_url": {
-                    "type": "string"
-                },
-                "threadCount": {
-                    "type": "integer"
-                },
-                "userID": {
-                    "description": "Always required",
-                    "type": "string"
-                },
-                "vnc_port": {
-                    "description": "VNC port inside container (5901)",
-                    "type": "integer"
-                },
-                "wolf_session_id": {
-                    "description": "Wolf's numeric session ID for API calls",
                     "type": "string"
                 }
             }
@@ -11641,9 +13446,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "app_id": {
+                    "description": "Wolf UI app ID in lobbies mode",
                     "type": "string"
                 },
                 "client_ip": {
+                    "type": "string"
+                },
+                "client_unique_id": {
+                    "description": "Helix client ID (helix-agent-{session_id}-{instance_id})",
                     "type": "string"
                 },
                 "display_mode": {
@@ -11666,8 +13476,12 @@ const docTemplate = `{
                         }
                     }
                 },
+                "lobby_id": {
+                    "description": "Which lobby this session is connected to (lobbies mode)",
+                    "type": "string"
+                },
                 "session_id": {
-                    "description": "Exposed as session_id for frontend",
+                    "description": "Exposed as session_id for frontend (Wolf's client_id)",
                     "type": "string"
                 }
             }
@@ -11688,8 +13502,24 @@ const docTemplate = `{
                         "$ref": "#/definitions/server.WolfClientConnection"
                     }
                 },
+                "gpu_stats": {
+                    "description": "From Wolf's nvidia-smi query",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GPUStats"
+                        }
+                    ]
+                },
                 "gstreamer_buffer_bytes": {
                     "type": "integer"
+                },
+                "gstreamer_pipelines": {
+                    "description": "From Wolf's state",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.GStreamerPipelineStats"
+                        }
+                    ]
                 },
                 "lobbies": {
                     "description": "Lobbies mode",
@@ -11772,6 +13602,10 @@ const docTemplate = `{
         "services.CreateTaskRequest": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "description": "Optional: Helix agent to use for spec generation",
+                    "type": "string"
+                },
                 "priority": {
                     "type": "string"
                 },
@@ -11786,6 +13620,10 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
+                },
+                "yolo_mode": {
+                    "description": "Optional: Skip human review and auto-approve specs",
+                    "type": "boolean"
                 }
             }
         },
@@ -11893,6 +13731,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "owner_id": {
                     "type": "string"
                 },
@@ -11935,6 +13776,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "description": "Organization ID - required for access control",
+                    "type": "string"
+                },
                 "owner_id": {
                     "type": "string"
                 },
@@ -11945,6 +13790,17 @@ const docTemplate = `{
                     "$ref": "#/definitions/services.GitRepositoryType"
                 },
                 "spec_task_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.GitRepositoryFileResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "path": {
                     "type": "string"
                 }
             }
@@ -11962,26 +13818,49 @@ const docTemplate = `{
                 "GitRepositoryStatusDeleted"
             ]
         },
+        "services.GitRepositoryTreeResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.TreeEntry"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
         "services.GitRepositoryType": {
             "type": "string",
             "enum": [
-                "project",
-                "spec_task",
-                "sample",
-                "template"
+                "internal",
+                "code"
             ],
             "x-enum-comments": {
-                "GitRepositoryTypeProject": "User project repository",
-                "GitRepositoryTypeSample": "Sample/demo repository",
-                "GitRepositoryTypeSpecTask": "SpecTask-specific repository",
-                "GitRepositoryTypeTemplate": "Template repository"
+                "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
+                "GitRepositoryTypeInternal": "Internal project config repository"
             },
             "x-enum-varnames": [
-                "GitRepositoryTypeProject",
-                "GitRepositoryTypeSpecTask",
-                "GitRepositoryTypeSample",
-                "GitRepositoryTypeTemplate"
+                "GitRepositoryTypeInternal",
+                "GitRepositoryTypeCode"
             ]
+        },
+        "services.GitRepositoryUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
         },
         "services.HandoffResult": {
             "type": "object",
@@ -12053,6 +13932,51 @@ const docTemplate = `{
                 }
             }
         },
+        "services.KoditEnrichmentAttributes": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "subtype": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.KoditEnrichmentData": {
+            "type": "object",
+            "properties": {
+                "attributes": {
+                    "$ref": "#/definitions/services.KoditEnrichmentAttributes"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.KoditEnrichmentListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/services.KoditEnrichmentData"
+                    }
+                }
+            }
+        },
         "services.SampleProjectCode": {
             "type": "object",
             "properties": {
@@ -12082,6 +14006,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "readme_url": {
+                    "type": "string"
+                },
+                "startup_script": {
+                    "description": "Custom startup script for this project",
                     "type": "string"
                 },
                 "technologies": {
@@ -12221,6 +14149,43 @@ const docTemplate = `{
                 }
             }
         },
+        "services.StartupScriptVersion": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "commit_hash": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "services.TreeEntry": {
+            "type": "object",
+            "properties": {
+                "is_dir": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "services.ZedSessionCreationResult": {
             "type": "object",
             "properties": {
@@ -12320,6 +14285,92 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if String is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "store.GitRepository": {
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "credential_ref": {
+                    "description": "Reference to stored credentials (SSH key, OAuth token, etc.)",
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_repo_id": {
+                    "description": "External platform's repository ID",
+                    "type": "string"
+                },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "type": "string"
+                },
+                "external_url": {
+                    "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_external": {
+                    "description": "External repository fields",
+                    "type": "boolean"
+                },
+                "kodit_indexing": {
+                    "description": "Code intelligence fields",
+                    "type": "boolean"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "local_path": {
+                    "description": "Local filesystem path for Helix-hosted repos (empty for external)",
+                    "type": "string"
+                },
+                "metadata": {
+                    "description": "Transient field, not persisted (used by services)",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "metadata_json": {
+                    "description": "Stores Metadata as JSON",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID - will be backfilled for existing repos",
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_type": {
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -12793,10 +14844,8 @@ const docTemplate = `{
                 },
                 "config": {
                     "description": "Agent configuration",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "created_at": {
                     "type": "string"
@@ -12814,7 +14863,7 @@ const docTemplate = `{
                     "description": "Labels/tags for filtering",
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "string"
                     }
                 },
                 "last_error": {
@@ -12824,10 +14873,8 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "name": {
                     "type": "string"
@@ -12877,10 +14924,8 @@ const docTemplate = `{
                 },
                 "work_data": {
                     "description": "Work-specific data",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },
@@ -13758,6 +15803,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.BoardSettings": {
+            "type": "object",
+            "properties": {
+                "wip_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -13841,6 +15897,19 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.OpenAIMessage"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ClipboardData": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "text content or base64-encoded image",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"text\" or \"image\"",
                     "type": "string"
                 }
             }
@@ -14793,10 +16862,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
-                },
-                "question_set_id": {
-                    "description": "The question set this session belongs to, if any",
-                    "type": "string"
                 },
                 "rag_results": {
                     "type": "array",
@@ -16268,6 +18333,142 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Project": {
+            "type": "object",
+            "properties": {
+                "auto_start_backlog_tasks": {
+                    "description": "Automation settings",
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "default_repo_id": {
+                    "description": "Project-level repository management",
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft delete timestamp",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/gorm.DeletedAt"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "internal_repo_path": {
+                    "description": "Internal project Git repository (stores project config, tasks, design docs)\nIMPORTANT: Startup script is stored in .helix/startup.sh in the internal Git repo\nIt is NEVER stored in the database - Git is the single source of truth",
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "startup_script": {
+                    "description": "Transient field - loaded from Git, never persisted to database",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"active\", \"archived\", \"completed\"",
+                    "type": "string"
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ProjectCreateRequest": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "default_repo_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "startup_script": {
+                    "type": "string"
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.ProjectUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "auto_start_backlog_tasks": {
+                    "type": "boolean"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "default_repo_id": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "github_repo_url": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "startup_script": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "technologies": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.Provider": {
             "type": "string",
             "enum": [
@@ -16634,7 +18835,9 @@ const docTemplate = `{
                 "Knowledge",
                 "User",
                 "*",
-                "Dataset"
+                "Dataset",
+                "Project",
+                "GitRepository"
             ],
             "x-enum-varnames": [
                 "ResourceTeam",
@@ -16647,7 +18850,9 @@ const docTemplate = `{
                 "ResourceKnowledge",
                 "ResourceUser",
                 "ResourceAny",
-                "ResourceTypeDataset"
+                "ResourceTypeDataset",
+                "ResourceProject",
+                "ResourceGitRepository"
             ]
         },
         "types.ResponseFormat": {
@@ -17165,6 +19370,10 @@ const docTemplate = `{
                 "organizations_create_enabled_for_non_admins": {
                     "type": "boolean"
                 },
+                "providers_management_enabled": {
+                    "description": "Controls if users can add their own AI provider API keys",
+                    "type": "boolean"
+                },
                 "rudderstack_data_plane_url": {
                     "type": "string"
                 },
@@ -17173,6 +19382,10 @@ const docTemplate = `{
                 },
                 "sentry_dsn_frontend": {
                     "type": "string"
+                },
+                "streaming_bitrate_mbps": {
+                    "description": "Requested video streaming bitrate in Mbps (default: 40)",
+                    "type": "integer"
                 },
                 "stripe_enabled": {
                     "description": "Stripe top-ups enabled",
@@ -17199,6 +19412,14 @@ const docTemplate = `{
                 },
                 "created": {
                     "type": "string"
+                },
+                "deleted_at": {
+                    "description": "Soft delete support - allows cleanup of orphaned lobbies",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/gorm.DeletedAt"
+                        }
+                    ]
                 },
                 "generation_id": {
                     "description": "Current generation ID",
@@ -17261,6 +19482,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "question_set_execution_id": {
+                    "description": "The question set execution this session belongs to, if any",
                     "type": "string"
                 },
                 "question_set_id": {
@@ -17369,6 +19591,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionIdleStatus": {
+            "type": "object",
+            "properties": {
+                "has_external_agent": {
+                    "type": "boolean"
+                },
+                "idle_minutes": {
+                    "type": "integer"
+                },
+                "warning_threshold": {
+                    "type": "boolean"
+                },
+                "will_terminate_in": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.SessionMetadata": {
             "type": "object",
             "properties": {
@@ -17471,12 +19710,20 @@ const docTemplate = `{
                 "manually_review_questions": {
                     "type": "boolean"
                 },
+                "paused_screenshot_path": {
+                    "description": "Path to saved screenshot when agent is paused",
+                    "type": "string"
+                },
                 "phase": {
                     "description": "NEW: SpecTask phase (planning, implementation)",
                     "type": "string"
                 },
                 "priority": {
                     "type": "boolean"
+                },
+                "project_id": {
+                    "description": "ID of associated Project (for exploratory sessions)",
+                    "type": "string"
                 },
                 "rag_enabled": {
                     "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
@@ -17492,7 +19739,7 @@ const docTemplate = `{
                     }
                 },
                 "session_role": {
-                    "description": "\"planning\", \"implementation\", \"coordination\"",
+                    "description": "\"planning\", \"implementation\", \"coordination\", \"exploratory\"",
                     "type": "string"
                 },
                 "spec_task_id": {
@@ -17825,14 +20072,12 @@ const docTemplate = `{
         "types.SpecTask": {
             "type": "object",
             "properties": {
-                "attached_repositories": {
-                    "description": "Git repository attachments (multiple repos can be attached)",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                "archived": {
+                    "description": "Archive to hide from main view",
+                    "type": "boolean"
                 },
                 "branch_name": {
+                    "description": "Git tracking",
                     "type": "string"
                 },
                 "completed_at": {
@@ -17848,12 +20093,16 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "design_docs_pushed_at": {
+                    "description": "When design docs were pushed to helix-specs branch",
+                    "type": "string"
+                },
                 "estimated_hours": {
                     "description": "Simple tracking",
                     "type": "integer"
                 },
                 "external_agent_id": {
-                    "description": "External agent tracking (single agent per SpecTask, spans multiple sessions)",
+                    "description": "External agent tracking (single agent per SpecTask, spans entire workflow)",
                     "type": "string"
                 },
                 "helix_app_id": {
@@ -17863,14 +20112,15 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "implementation_agent": {
+                "implementation_approved_at": {
+                    "type": "string"
+                },
+                "implementation_approved_by": {
+                    "description": "Implementation tracking",
                     "type": "string"
                 },
                 "implementation_plan": {
                     "description": "Discrete tasks breakdown (markdown)",
-                    "type": "string"
-                },
-                "implementation_session_id": {
                     "type": "string"
                 },
                 "labels": {
@@ -17879,11 +20129,29 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "last_push_at": {
+                    "description": "When branch was last pushed",
+                    "type": "string"
+                },
+                "last_push_commit_hash": {
+                    "description": "Git tracking",
+                    "type": "string"
+                },
+                "merge_commit_hash": {
+                    "description": "Merge commit hash",
+                    "type": "string"
+                },
+                "merged_at": {
+                    "description": "When merge happened",
+                    "type": "string"
+                },
+                "merged_to_main": {
+                    "description": "Whether branch was merged to main",
+                    "type": "boolean"
+                },
                 "metadata": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "name": {
                     "type": "string"
@@ -17893,10 +20161,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "planning_session_id": {
-                    "description": "Session tracking (same agent, different Helix sessions per phase)",
-                    "type": "string"
-                },
-                "primary_repository_id": {
+                    "description": "Session tracking (single Helix session for entire workflow - planning + implementation)\nThe same external agent/session is reused throughout the entire SpecTask lifecycle",
                     "type": "string"
                 },
                 "priority": {
@@ -17913,10 +20178,6 @@ const docTemplate = `{
                     "description": "User stories + EARS acceptance criteria (markdown)",
                     "type": "string"
                 },
-                "spec_agent": {
-                    "description": "Legacy fields (deprecated, keeping for backward compatibility)",
-                    "type": "string"
-                },
                 "spec_approved_at": {
                     "type": "string"
                 },
@@ -17927,9 +20188,6 @@ const docTemplate = `{
                 "spec_revision_count": {
                     "description": "Number of spec revisions requested",
                     "type": "integer"
-                },
-                "spec_session_id": {
-                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -17954,6 +20212,10 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "yolo_mode": {
+                    "description": "Skip human review, auto-approve specs",
+                    "type": "boolean"
                 },
                 "zed_instance_id": {
                     "description": "Multi-session support",
@@ -18009,6 +20271,303 @@ const docTemplate = `{
                 "SpecTaskActivityPhaseTransition"
             ]
         },
+        "types.SpecTaskDesignReview": {
+            "type": "object",
+            "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "git_branch": {
+                    "type": "string"
+                },
+                "git_commit_hash": {
+                    "description": "Git information",
+                    "type": "string"
+                },
+                "git_pushed_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "implementation_plan": {
+                    "type": "string"
+                },
+                "overall_comment": {
+                    "description": "Review decision",
+                    "type": "string"
+                },
+                "rejected_at": {
+                    "type": "string"
+                },
+                "requirements_spec": {
+                    "description": "Design document snapshots at time of review",
+                    "type": "string"
+                },
+                "reviewer_id": {
+                    "description": "Review metadata",
+                    "type": "string"
+                },
+                "spec_task_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReviewStatus"
+                },
+                "technical_design": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewComment": {
+            "type": "object",
+            "properties": {
+                "agent_response": {
+                    "description": "Agent integration (NEW FIELDS)",
+                    "type": "string"
+                },
+                "agent_response_at": {
+                    "description": "When agent responded",
+                    "type": "string"
+                },
+                "comment_text": {
+                    "description": "The actual comment",
+                    "type": "string"
+                },
+                "comment_type": {
+                    "description": "Made optional - simplified to single type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SpecTaskDesignReviewCommentType"
+                        }
+                    ]
+                },
+                "commented_by": {
+                    "description": "Comment metadata",
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "Timestamps",
+                    "type": "string"
+                },
+                "document_type": {
+                    "description": "Location in document",
+                    "type": "string"
+                },
+                "end_offset": {
+                    "description": "Character offset in document",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "description": "Link to Helix interaction",
+                    "type": "string"
+                },
+                "line_number": {
+                    "description": "Optional line number",
+                    "type": "integer"
+                },
+                "quoted_text": {
+                    "description": "For inline comments - store the context around the comment",
+                    "type": "string"
+                },
+                "resolution_reason": {
+                    "description": "\"manual\", \"auto_text_removed\", \"agent_updated\"",
+                    "type": "string"
+                },
+                "resolved": {
+                    "description": "Status tracking",
+                    "type": "boolean"
+                },
+                "resolved_at": {
+                    "type": "string"
+                },
+                "resolved_by": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                },
+                "section_path": {
+                    "description": "e.g., \"## Architecture/### Database Schema\"",
+                    "type": "string"
+                },
+                "start_offset": {
+                    "description": "Character offset in document",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentCreateRequest": {
+            "type": "object",
+            "required": [
+                "comment_text",
+                "document_type",
+                "review_id"
+            ],
+            "properties": {
+                "comment_text": {
+                    "type": "string"
+                },
+                "comment_type": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReviewCommentType"
+                },
+                "document_type": {
+                    "type": "string",
+                    "enum": [
+                        "requirements",
+                        "technical_design",
+                        "implementation_plan"
+                    ]
+                },
+                "end_offset": {
+                    "type": "integer"
+                },
+                "line_number": {
+                    "type": "integer"
+                },
+                "quoted_text": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                },
+                "section_path": {
+                    "type": "string"
+                },
+                "start_offset": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentListResponse": {
+            "type": "object",
+            "properties": {
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewCommentType": {
+            "type": "string",
+            "enum": [
+                "general",
+                "question",
+                "suggestion",
+                "critical",
+                "praise"
+            ],
+            "x-enum-comments": {
+                "SpecTaskDesignReviewCommentTypeCritical": "Critical issue must be fixed",
+                "SpecTaskDesignReviewCommentTypeGeneral": "General comment",
+                "SpecTaskDesignReviewCommentTypePraise": "Positive feedback",
+                "SpecTaskDesignReviewCommentTypeQuestion": "Question needing clarification",
+                "SpecTaskDesignReviewCommentTypeSuggestion": "Suggested improvement"
+            },
+            "x-enum-varnames": [
+                "SpecTaskDesignReviewCommentTypeGeneral",
+                "SpecTaskDesignReviewCommentTypeQuestion",
+                "SpecTaskDesignReviewCommentTypeSuggestion",
+                "SpecTaskDesignReviewCommentTypeCritical",
+                "SpecTaskDesignReviewCommentTypePraise"
+            ]
+        },
+        "types.SpecTaskDesignReviewDetailResponse": {
+            "type": "object",
+            "properties": {
+                "comments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReviewComment"
+                    }
+                },
+                "review": {
+                    "$ref": "#/definitions/types.SpecTaskDesignReview"
+                },
+                "spec_task": {
+                    "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewListResponse": {
+            "type": "object",
+            "properties": {
+                "reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SpecTaskDesignReview"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.SpecTaskDesignReviewStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "in_review",
+                "changes_requested",
+                "approved",
+                "superseded"
+            ],
+            "x-enum-comments": {
+                "SpecTaskDesignReviewStatusApproved": "Approved, ready for implementation",
+                "SpecTaskDesignReviewStatusChangesRequested": "Reviewer requested changes",
+                "SpecTaskDesignReviewStatusInReview": "Reviewer is actively reviewing",
+                "SpecTaskDesignReviewStatusPending": "Waiting for reviewer",
+                "SpecTaskDesignReviewStatusSuperseded": "Newer review exists (agent pushed updates)"
+            },
+            "x-enum-varnames": [
+                "SpecTaskDesignReviewStatusPending",
+                "SpecTaskDesignReviewStatusInReview",
+                "SpecTaskDesignReviewStatusChangesRequested",
+                "SpecTaskDesignReviewStatusApproved",
+                "SpecTaskDesignReviewStatusSuperseded"
+            ]
+        },
+        "types.SpecTaskDesignReviewSubmitRequest": {
+            "type": "object",
+            "required": [
+                "decision",
+                "review_id"
+            ],
+            "properties": {
+                "decision": {
+                    "description": "\"approve\" or \"request_changes\"",
+                    "type": "string",
+                    "enum": [
+                        "approve",
+                        "request_changes"
+                    ]
+                },
+                "overall_comment": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SpecTaskImplementationSessionsCreateRequest": {
             "type": "object",
             "required": [
@@ -18028,6 +20587,38 @@ const docTemplate = `{
                 "workspace_config": {
                     "type": "object",
                     "additionalProperties": true
+                }
+            }
+        },
+        "types.SpecTaskImplementationStartResponse": {
+            "type": "object",
+            "properties": {
+                "agent_instructions": {
+                    "type": "string"
+                },
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "local_path": {
+                    "type": "string"
+                },
+                "pr_template_url": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -18231,6 +20822,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "yolo_mode": {
+                    "description": "Pointer to allow explicit false",
+                    "type": "boolean"
                 }
             }
         },

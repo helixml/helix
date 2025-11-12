@@ -31,6 +31,7 @@ type ServerConfig struct {
 	Apps               Apps
 	Triggers           Triggers
 	Search             Search
+	Kodit              Kodit
 	SSL                SSL
 	Organizations      Organizations
 	TURN               TURN
@@ -38,6 +39,9 @@ type ServerConfig struct {
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
 	DisableVersionPing    bool `envconfig:"DISABLE_VERSION_PING" default:"false"`
+
+	// AI Providers management - controls if users can add their own AI provider API keys
+	ProvidersManagementEnabled bool `envconfig:"PROVIDERS_MANAGEMENT_ENABLED" default:"true"`
 
 	// License key for deployment identification
 	LicenseKey string `envconfig:"LICENSE_KEY"`
@@ -64,6 +68,12 @@ type Inference struct {
 
 type Search struct {
 	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
+}
+
+type Kodit struct {
+	BaseURL string `envconfig:"KODIT_BASE_URL" default:"http://kodit:8632"`
+	APIKey  string `envconfig:"KODIT_API_KEY" default:"dev-key"`
+	Enabled bool   `envconfig:"KODIT_ENABLED" default:"true"`
 }
 
 // Providers is used to configure the various AI providers that we use

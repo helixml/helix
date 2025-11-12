@@ -53,19 +53,13 @@ export const useSampleTypes = () => {
     return []
   }, []) // No dependencies to avoid infinite loops
 
-  const createSampleRepository = useCallback(async (request: ServerCreateSampleRepositoryRequest): Promise<ServicesGitRepository | null> => {
-    try {
-      const result = await api.getApiClient().v1SamplesRepositoriesCreate(request)
-      if (result.data) {
-        snackbar.success('Sample repository created successfully')
-        return result.data
-      }
-    } catch (error) {
-      snackbar.error('Failed to create sample repository')
-      console.error('Error creating sample repository:', error)
+  const createSampleRepository = useCallback(async (request: ServerCreateSampleRepositoryRequest): Promise<ServicesGitRepository> => {
+    const result = await api.getApiClient().v1SamplesRepositoriesCreate(request)
+    if (!result.data) {
+      throw new Error('No data returned from API')
     }
-    return null
-  }, [])
+    return result.data
+  }, [api])
 
   const initializeSampleRepositories = useCallback(async (request: ServerInitializeSampleRepositoriesRequest): Promise<ServerInitializeSampleRepositoriesResponse | null> => {
     try {

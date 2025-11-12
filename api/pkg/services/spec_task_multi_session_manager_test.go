@@ -43,13 +43,13 @@ func TestSpecTaskMultiSessionManager_CreateImplementationSessions(t *testing.T) 
 
 	// Create test spec task
 	specTask := &types.SpecTask{
-		ID:                  specTaskID,
-		Name:                "Test Authentication System",
-		Description:         "Implement user authentication",
-		Status:              types.TaskStatusSpecApproved,
-		ImplementationPlan:  createTestImplementationPlan(),
-		CreatedBy:           "test-user",
-		ImplementationAgent: "test-zed-agent",
+		ID:                 specTaskID,
+		Name:               "Test Authentication System",
+		Description:        "Implement user authentication",
+		Status:             types.TaskStatusSpecApproved,
+		ImplementationPlan: createTestImplementationPlan(),
+		CreatedBy:          "test-user",
+		ExternalAgentID:    "test-zed-agent",
 	}
 
 	config := &types.SpecTaskImplementationSessionsCreateRequest{

@@ -164,7 +164,6 @@ func (s *SpecDocumentService) generateRequirementsMarkdown(
 > **Generated from SpecTask**: %s
 > **Created**: %s
 > **Status**: %s
-> **Planning Agent**: %s
 
 ## Overview
 
@@ -179,7 +178,6 @@ The following requirements are written in EARS (Easy Approach to Requirements Sy
 		specTask.ID,
 		specTask.CreatedAt.Format("2006-01-02 15:04:05"),
 		specTask.Status,
-		specTask.SpecAgent,
 		specTask.Description,
 	))
 
@@ -237,7 +235,6 @@ func (s *SpecDocumentService) generateDesignMarkdown(
 
 > **Generated from SpecTask**: %s
 > **Created**: %s
-> **Implementation Agent**: %s
 
 ## Architecture Overview
 
@@ -249,7 +246,6 @@ func (s *SpecDocumentService) generateDesignMarkdown(
 		specTask.Name,
 		specTask.ID,
 		specTask.CreatedAt.Format("2006-01-02 15:04:05"),
-		specTask.ImplementationAgent,
 		specTask.Description,
 	))
 
@@ -334,7 +330,6 @@ func (s *SpecDocumentService) generateTasksMarkdown(
 
 > **Generated from SpecTask**: %s
 > **Created**: %s
-> **Implementation Agent**: %s
 
 ## Task Overview
 
@@ -344,7 +339,6 @@ This implementation plan breaks down the work into discrete, trackable tasks tha
 		specTask.Name,
 		specTask.ID,
 		specTask.CreatedAt.Format("2006-01-02 15:04:05"),
-		specTask.ImplementationAgent,
 	))
 
 	// Get implementation tasks
@@ -466,8 +460,8 @@ func (s *SpecDocumentService) GenerateSpecMetadata(
 		"updated_at":           specTask.UpdatedAt,
 		"spec_approved_by":     specTask.SpecApprovedBy,
 		"spec_approved_at":     specTask.SpecApprovedAt,
-		"planning_agent":       specTask.SpecAgent,
-		"implementation_agent": specTask.ImplementationAgent,
+		"helix_app_id":         specTask.HelixAppID,        // Single agent for entire workflow
+		"planning_session_id":  specTask.PlanningSessionID, // Single session for entire workflow
 		"project_path":         specTask.ProjectPath,
 		"zed_instance_id":      specTask.ZedInstanceID,
 		"version":              "1.0",

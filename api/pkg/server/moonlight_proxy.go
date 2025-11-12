@@ -363,3 +363,60 @@ func (apiServer *HelixAPIServer) canUserStreamSession(ctx context.Context, user 
 	// No access found
 	return false
 }
+
+// getMoonlightStatus returns the internal state of moonlight-web for observability
+// Exposes moonlight-web's internal session state, client certificates, and streamer process health
+// @Summary Get moonlight-web internal state
+// @Description Returns active streaming sessions, client certificates, and WebSocket connection state from moonlight-web
+// @Tags Moonlight
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/moonlight/status [get]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) getMoonlightStatus(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	if user == nil {
+		http.Error(res, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Fetch moonlight-web admin status (includes all clients + sessions)
+	moonlightURL := "http://moonlight-web:8080/api/admin/status"
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", moonlightURL, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create request to moonlight-web")
+		http.Error(res, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Add moonlight-web credentials
+	moonlightCreds := apiServer.getMoonlightCredentials()
+	httpReq.Header.Set("Authorization", "Bearer "+moonlightCreds)
+
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to fetch moonlight-web status")
+		http.Error(res, "Failed to fetch moonlight-web status", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Forward the response
+	res.Header().Set("Content-Type", "application/json")
+	res.WriteHeader(resp.StatusCode)
+	_, _ = res.Write([]byte{}) // Will be filled by copying response body
+
+	// Copy response body
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			res.Write(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+}
