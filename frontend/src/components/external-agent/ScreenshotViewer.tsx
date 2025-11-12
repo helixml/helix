@@ -60,8 +60,16 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
 
   // Fetch screenshot (useRef to prevent recreation on every render)
   const fetchScreenshotRef = useRef<() => Promise<void>>();
+  const fetchingRef = useRef<boolean>(false); // Track if request is in flight
 
   fetchScreenshotRef.current = async () => {
+    // CRITICAL: Prevent concurrent requests from same viewer
+    // If previous request is still in flight, skip this poll
+    if (fetchingRef.current) {
+      return;
+    }
+
+    fetchingRef.current = true;
     const endpoint = getScreenshotEndpoint();
 
     try {
@@ -100,10 +108,12 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         setIsLoading(false);
         setIsInitialLoading(false);
         setError(null);
+        fetchingRef.current = false; // Allow next request
       };
       img.onerror = () => {
         // Failed to load image, clean up the blob URL
         URL.revokeObjectURL(newUrl);
+        fetchingRef.current = false; // Allow next request
       };
       img.src = newUrl;
     } catch (err: any) {
@@ -120,6 +130,8 @@ const ScreenshotViewer: React.FC<ScreenshotViewerProps> = ({
         onError?.(errorMsg);
         setIsLoading(false);
       }
+
+      fetchingRef.current = false; // Allow next request
     }
   };
 
