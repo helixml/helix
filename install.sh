@@ -583,10 +583,61 @@ install_docker() {
             echo "Unable to determine OS distribution. Please install Docker manually."
             exit 1
         fi
+    else
+        # Docker is already installed, but check if Docker Compose plugin is missing
+        if ! docker compose version &> /dev/null; then
+            install_docker_compose_only
+        fi
     fi
 
     # Docker Compose plugin is included in docker-ce installation above for Ubuntu/Debian/Fedora
     # No additional installation needed - it's part of docker-compose-plugin package
+}
+
+# Function to install Docker Compose plugin if Docker is installed but Compose is missing
+install_docker_compose_only() {
+    if command -v docker &> /dev/null && ! docker compose version &> /dev/null; then
+        echo "Docker is installed but Docker Compose plugin is missing."
+        echo "Installing Docker Compose plugin..."
+
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case $ID in
+                ubuntu|debian)
+                    # Ensure Docker's official repo is configured (same as fresh Docker install)
+                    if ! [ -f /etc/apt/sources.list.d/docker.list ]; then
+                        echo "Setting up Docker official repository..."
+                        sudo apt-get update
+                        sudo apt-get install -y ca-certificates curl gnupg
+                        sudo install -m 0755 -d /etc/apt/keyrings
+                        curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+                        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    fi
+                    sudo apt-get update
+                    sudo apt-get install -y docker-compose-plugin
+                    ;;
+                fedora)
+                    # Ensure Docker's official repo is configured
+                    if ! sudo dnf repolist | grep -q docker-ce-stable; then
+                        echo "Setting up Docker official repository..."
+                        sudo dnf -y install dnf-plugins-core
+                        sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+                    fi
+                    sudo dnf install -y docker-compose-plugin
+                    ;;
+                *)
+                    echo "Unsupported distribution for Docker Compose plugin installation."
+                    echo "Please install Docker Compose manually from https://docs.docker.com/compose/install/"
+                    exit 1
+                    ;;
+            esac
+        else
+            echo "Unable to determine OS distribution."
+            echo "Please install Docker Compose manually from https://docs.docker.com/compose/install/"
+            exit 1
+        fi
+    fi
 }
 
 # default docker command
