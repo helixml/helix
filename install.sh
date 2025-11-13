@@ -1523,7 +1523,7 @@ EOF
   ],
   "webrtc_port_range": {
     "min": 40000,
-    "max": 40010
+    "max": 40100
   },
   "webrtc_network_types": [
     "udp4",
@@ -2001,7 +2001,7 @@ EOF"
         echo "│"
         echo "│ ⚠️  Additional ports for desktop streaming (Helix Code):"
         echo "│   - UDP 3478: TURN server for WebRTC NAT traversal"
-        echo "│   - UDP 40000-40010: WebRTC media ports"
+        echo "│   - UDP 40000-40100: WebRTC media ports"
     fi
     echo "│"
     echo "│ Start the Helix services by running:"
