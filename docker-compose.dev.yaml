@@ -167,6 +167,7 @@ services:
 
     # Kodit code indexing service
     kodit:
+        profiles: [kodit]
         image: registry.helixml.tech/helix/kodit:latest
         # ports:
         #   - 8632:8632
@@ -200,6 +201,7 @@ services:
 
     # Kodit PostgreSQL database with pgvector
     vectorchord-kodit:
+        profiles: [kodit]
         image: tensorchord/vchord-suite:pg17-20250601
         restart: always
         environment:
@@ -294,8 +296,11 @@ services:
         #   - 7317:7317
 
     wolf:
-      image: wolf:helix-fixed
-      # image: ghcr.io/games-on-whales/wolf:wolf-ui
+      profiles: [wolf]
+      # Using public upstream image for ARM64 compatibility (local build not available on Apple Silicon)
+      # For local dev builds: uncomment wolf:helix-fixed and comment this out, but requires x86_64
+      # image: wolf:helix-fixed
+      image: ghcr.io/games-on-whales/wolf:wolf-ui
       networks:
         default:
           ipv4_address: 172.19.0.50
@@ -364,6 +369,7 @@ services:
 
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:
+      profiles: [wolf]
       image: helix-moonlight-web:helix-fixed
       command: bash -c "/app/init-moonlight-config.sh"
       ports:
@@ -451,12 +457,16 @@ services:
             target: ui-dev-env
         restart: always
         volumes:
-            - ./frontend/package.json:/app/package.json
+            # Mount source code for hot reload, but preserve container's node_modules
             - ./frontend/src:/app/src
             - ./frontend/assets:/app/assets
             - ./frontend/index.html:/app/index.html
             - ./frontend/tsconfig.json:/app/tsconfig.json
             - ./frontend/vite.config.ts:/app/vite.config.ts
+            - ./frontend/package.json:/app/package.json
+            - ./frontend/yarn.lock:/app/yarn.lock
+            # Preserve node_modules from image build (don't mount from host)
+            - /app/node_modules
 
     haystack:
         build:

@@ -552,6 +552,19 @@ function stop() {
 }
 
 function up() {
+  # Check if Wolf source code exists, if not clone it
+  if [ ! -d "../wolf" ]; then
+    echo "🐺 Wolf source code not found at ../wolf/"
+    echo "📥 Cloning Wolf repository..."
+    cd ..
+    git clone https://github.com/games-on-whales/wolf.git
+    cd helix
+    echo "✅ Wolf repository cloned successfully"
+  fi
+
+  # Wolf services are optional via --profile wolf flag
+  # To enable Wolf and Moonlight Web: ./stack up --profile wolf
+
   docker compose -f docker-compose.dev.yaml up -d $@
 }
 
