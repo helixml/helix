@@ -74,7 +74,9 @@ const ShimmerButton = styled(Button)(({ theme }) => ({
     ${theme.palette.secondary.dark} 100%
   )`,
   backgroundSize: '200% auto',
+  // Disabled animations in dev to allow reliable clicking - use animation-play-state: paused
   animation: `${shimmer} 2s linear infinite, ${pulse} 3s ease-in-out infinite`,
+  animationPlayState: 'paused',
   transition: 'all 0.3s ease-in-out',
   boxShadow: '0 0 15px rgba(0, 229, 255, 0.3)',
   fontWeight: 'bold',
@@ -85,7 +87,7 @@ const ShimmerButton = styled(Button)(({ theme }) => ({
     transform: 'scale(1.05)',
     boxShadow: '0 0 25px rgba(0, 229, 255, 0.6)',
     backgroundSize: '200% auto',
-    animation: `${shimmer} 1s linear infinite`,
+    animationPlayState: 'paused',
   },
 }))
 
