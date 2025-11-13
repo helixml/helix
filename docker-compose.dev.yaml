@@ -330,8 +330,7 @@ services:
         - GOP_SIZE=${GOP_SIZE:-15}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
-        # Mount init script into container init directory
-        - ./wolf/init-wolf-config.sh:/etc/cont-init.d/05-init-wolf-config.sh:ro
+        # Init script is baked into container at /etc/cont-init.d/05-init-wolf-config.sh
         - /tmp/sockets:/tmp/sockets:rw
         - /var/run/docker.sock:/var/run/docker.sock:rw
         - /dev/:/dev/:rw
