@@ -3,7 +3,7 @@
 # Initialize Wolf config from template if config.toml doesn't exist or is empty
 
 CONFIG_FILE="/etc/wolf/cfg/config.toml"
-TEMPLATE_FILE="/etc/wolf/cfg/config.toml.template"
+TEMPLATE_FILE="/opt/wolf-defaults/config.toml.template"
 
 if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
     echo "🔧 Initializing Wolf config from template..."
@@ -16,6 +16,11 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "🆔 Generated UUID: $WOLF_UUID"
     fi
 
+    # Set hostname from env var (default: "local" if not set)
+    HELIX_HOSTNAME=${HELIX_HOSTNAME:-local}
+    sed -i "s/{{HELIX_HOSTNAME}}/$HELIX_HOSTNAME/g" "$CONFIG_FILE"
+    echo "🏷️  Set hostname: Helix ($HELIX_HOSTNAME)"
+
     # Set pairing PIN from env var if provided
     if [ ! -z "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
         # Wolf stores PIN as 4-digit array in config
@@ -26,9 +31,8 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
     fi
 
     # Set GOP size (keyframe interval) from env var
-    # Default: 15 (keyframe every 15 frames = ~0.25s at 60fps)
-    # For lower bandwidth: 120 (every 2 seconds), 180 (every 3 seconds)
-    GOP_SIZE=${GOP_SIZE:-15}
+    # Default: 120 (keyframe every 2 seconds at 60fps)
+    GOP_SIZE=${GOP_SIZE:-120}
     sed -i "s/gop-size=[0-9-]*/gop-size=$GOP_SIZE/g" "$CONFIG_FILE"
     echo "🎬 Set GOP size (keyframe interval): $GOP_SIZE frames"
 

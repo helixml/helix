@@ -273,6 +273,10 @@ services:
       - WOLF_USE_ZERO_COPY=TRUE
       # Internal moonlight-web pairing PIN (secure random, shared via env)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      # GOP size (keyframe interval): frames between I-frames
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Helix hostname (for Moonlight client display name)
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
     volumes:
       - ./wolf/:/etc/wolf/cfg/
       - /tmp/sockets:/tmp/sockets:rw
@@ -310,7 +314,7 @@ services:
   moonlight-web:
     profiles: [code]
     image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
-    command: bash -c "/app/server/init-moonlight-config.sh"
+    command: bash -c "/app/init-moonlight-config.sh"
     ports:
       - "8081:8080"  # Web interface
       - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
@@ -325,6 +329,10 @@ services:
       - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
       # TURN server credentials (must match config.json)
       - TURN_PASSWORD=${TURN_PASSWORD:-}
+      # TURN server public IP (auto-detected if not set)
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      # Helix hostname (for display name in Moonlight client)
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
     volumes:
       - ./moonlight-web-config:/app/server:rw
     restart: unless-stopped
