@@ -2,6 +2,7 @@ config_version = 6
 hostname = 'Helix ({{HELIX_HOSTNAME}})'
 uuid = ''
 paired_clients = []
+pin = []
 
 # wolf-ui requires profiles instead of top-level apps array
 # Apps created via API will be added to this profile
