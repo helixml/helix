@@ -1751,10 +1751,11 @@ EOF
             echo "Wolf SSL certificates already exist at $INSTALL_DIR/wolf/ (preserving existing)"
         fi
 
-        # Create initial moonlight-web data.json with Wolf host pre-registered
+        # Create initial moonlight-web data.json.template with Wolf host pre-registered
         # This allows moonlight-web's per-session pairing to work (needs host_id 0 to exist)
-        echo "Creating moonlight-web data.json with Wolf host..."
-        cat << 'MOONLIGHTDATA' > "$INSTALL_DIR/moonlight-web-config/data.json"
+        # The init script will copy this template to data.json on container startup
+        echo "Creating moonlight-web data.json.template with Wolf host..."
+        cat << 'MOONLIGHTDATA' > "$INSTALL_DIR/moonlight-web-config/data.json.template"
 {
   "hosts": [
     {
@@ -1769,7 +1770,7 @@ EOF
   ]
 }
 MOONLIGHTDATA
-        echo "Moonlight-web data.json created at $INSTALL_DIR/moonlight-web-config/data.json"
+        echo "Moonlight-web data.json.template created at $INSTALL_DIR/moonlight-web-config/data.json.template"
 
         # Create init script for moonlight-web
         cat << 'MOONLIGHTINIT' > "$INSTALL_DIR/moonlight-web-config/init-moonlight-config.sh"
