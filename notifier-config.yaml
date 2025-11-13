@@ -1,0 +1,18 @@
+  apiVersion: cloud-build-notifiers/v1
+  kind: SlackNotifier
+  metadata:
+    name: gcloud-slack-notifier
+  spec:
+    notification:
+      filter: build.status == Build.Status.SUCCESS
+      params:
+        buildStatus: $(build.status)
+      delivery:
+        webhookUrl:
+          secretRef: slack-webhook-url
+      template:
+        type: golang
+        uri: gs://helixml-notifiers-config/slack.json
+    secrets:
+    - name: slack-webhook-url
+      value: projects/helixml/secrets/slack-webhook-url/versions/latest
