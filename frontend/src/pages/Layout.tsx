@@ -23,6 +23,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
+import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
@@ -59,6 +60,7 @@ const Layout: FC<{
   const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showLoginRegisterDialog, setShowLoginRegisterDialog] = useState(false)
   const userMenuHeight = useUserMenuHeight()
 
   const hasNewVersion = useMemo(() => {
@@ -390,9 +392,6 @@ const Layout: FC<{
                 Please login to continue
               </DialogTitle>
               <DialogContent>
-                <Typography gutterBottom>
-                  You can login with your Google account or your organization's SSO provider.
-                </Typography>
                 <Typography>
                   We will keep what you've done here for you, so you may continue where you left off.
                 </Typography>
@@ -409,7 +408,15 @@ const Layout: FC<{
                 </Button>
                 <Button
                   onClick={() => {
-                    account.onLogin()
+                    account.setShowLoginWindow(false)
+                    // For local email/password authentication ('regular' provider),
+                    // show the LoginRegisterDialog component for login/register forms.
+                    // For OIDC/OAuth providers, redirect to the OAuth provider.
+                    if (account.serverConfig?.auth_provider === 'regular') {
+                      setShowLoginRegisterDialog(true)
+                    } else {
+                      account.onLogin()
+                    }
                   }}
                   variant="contained"
                   color="secondary"
@@ -420,10 +427,14 @@ const Layout: FC<{
             </DarkDialog>
           )
         }
+        <LoginRegisterDialog
+          open={showLoginRegisterDialog}
+          onClose={() => setShowLoginRegisterDialog(false)}
+        />
         {
-          (account.serverConfig?.license && !account.serverConfig.license.valid) || 
-          account.serverConfig?.deployment_id === "unknown" ? 
-            <LicenseKeyPrompt /> : 
+          (account.serverConfig?.license && !account.serverConfig.license.valid) ||
+          account.serverConfig?.deployment_id === "unknown" ?
+            <LicenseKeyPrompt /> :
             null
         }
         {
