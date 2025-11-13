@@ -412,9 +412,10 @@ const Layout: FC<{
                 <Button
                   onClick={() => {
                     account.setShowLoginWindow(false)
-                    // For local authentication, show the login/register dialog
-                    // For OIDC/OAuth, redirect to provider
-                    if (account.serverConfig?.auth_provider === 'auth-provider-regular') {
+                    // For local email/password authentication ('regular' provider),
+                    // show the LoginRegisterDialog component for login/register forms.
+                    // For OIDC/OAuth providers, redirect to the OAuth provider.
+                    if (account.serverConfig?.auth_provider === 'regular') {
                       setShowLoginRegisterDialog(true)
                     } else {
                       account.onLogin()
@@ -429,13 +430,10 @@ const Layout: FC<{
             </DarkDialog>
           )
         }
-        {
-          showLoginRegisterDialog && (
-            <LoginRegisterDialog
-              onClose={() => setShowLoginRegisterDialog(false)}
-            />
-          )
-        }
+        <LoginRegisterDialog
+          open={showLoginRegisterDialog}
+          onClose={() => setShowLoginRegisterDialog(false)}
+        />
         {
           (account.serverConfig?.license && !account.serverConfig.license.valid) ||
           account.serverConfig?.deployment_id === "unknown" ?
