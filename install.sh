@@ -1479,6 +1479,9 @@ WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
+# Helix hostname (displayed in Moonlight client to distinguish between servers)
+HELIX_HOSTNAME=${TURN_HOST}
+
 # Moonlight Web credentials (secure random, shared between API and moonlight-web)
 MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS}
 
@@ -1492,6 +1495,12 @@ TURN_PASSWORD=${TURN_PASSWORD}
 
 # Moonlight Web pairing (internal, secure random)
 MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
+
+# Wolf GOP size (keyframe interval in frames)
+# 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
+# 60 = keyframe every 1s (balanced)
+# 120 = keyframe every 2s (lower bandwidth, recommended for Helix Code)
+GOP_SIZE=120
 EOF
 
         # Generate moonlight-web config from template

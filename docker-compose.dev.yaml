@@ -327,7 +327,9 @@ services:
         - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
         # GOP size (keyframe interval): frames between I-frames
         # Configured in .env file - see comments there for recommended values
-        - GOP_SIZE=${GOP_SIZE:-15}
+        - GOP_SIZE=${GOP_SIZE:-120}
+        # Helix hostname (for Moonlight client display name)
+        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         # Init script is baked into container at /etc/cont-init.d/05-init-wolf-config.sh
@@ -363,7 +365,7 @@ services:
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:
       image: helix-moonlight-web:helix-fixed
-      command: bash -c "/app/server/init-moonlight-config.sh"
+      command: bash -c "/app/init-moonlight-config.sh"
       ports:
         - "8081:8080"  # Web interface
         - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
@@ -381,6 +383,8 @@ services:
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         # TURN server public IP (auto-detected if not set, or use --api-host from install.sh)
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+        # Helix hostname (for display name in Moonlight client)
+        - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
         # Note: TURN config is templated in config.json.template with {{TURN_PUBLIC_IP}}
         # Both moonlight-web and browser clients use the same ICE servers from that config
         #
