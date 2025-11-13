@@ -23,6 +23,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
+import LoginRegisterDialog from '../components/orgs/LoginRegisterDialog'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
@@ -59,6 +60,7 @@ const Layout: FC<{
   const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showLoginRegisterDialog, setShowLoginRegisterDialog] = useState(false)
   const userMenuHeight = useUserMenuHeight()
 
   const hasNewVersion = useMemo(() => {
@@ -409,7 +411,14 @@ const Layout: FC<{
                 </Button>
                 <Button
                   onClick={() => {
-                    account.onLogin()
+                    account.setShowLoginWindow(false)
+                    // For local authentication, show the login/register dialog
+                    // For OIDC/OAuth, redirect to provider
+                    if (account.serverConfig?.auth_provider === 'auth-provider-regular') {
+                      setShowLoginRegisterDialog(true)
+                    } else {
+                      account.onLogin()
+                    }
                   }}
                   variant="contained"
                   color="secondary"
@@ -421,9 +430,16 @@ const Layout: FC<{
           )
         }
         {
-          (account.serverConfig?.license && !account.serverConfig.license.valid) || 
-          account.serverConfig?.deployment_id === "unknown" ? 
-            <LicenseKeyPrompt /> : 
+          showLoginRegisterDialog && (
+            <LoginRegisterDialog
+              onClose={() => setShowLoginRegisterDialog(false)}
+            />
+          )
+        }
+        {
+          (account.serverConfig?.license && !account.serverConfig.license.valid) ||
+          account.serverConfig?.deployment_id === "unknown" ?
+            <LicenseKeyPrompt /> :
             null
         }
         {

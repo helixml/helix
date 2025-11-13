@@ -439,6 +439,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to validate password")
 			http.Error(w, "Failed to validate password: "+err.Error(), http.StatusUnauthorized)
+			return
 		}
 
 		// Generate a new token
@@ -463,15 +464,21 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	// OIDC
-	redirectURL := s.oidcClient.GetAuthURL(state, nonce)
-	if redirectURL == "" {
-		log.Error().Msg("empty redirect URL")
-		http.Error(w, "empty redirect URL", http.StatusBadGateway)
+	// OIDC - only available if not using regular auth
+	if s.Cfg.Auth.Provider != types.AuthProviderRegular {
+		redirectURL := s.oidcClient.GetAuthURL(state, nonce)
+		if redirectURL == "" {
+			log.Error().Msg("empty redirect URL")
+			http.Error(w, "empty redirect URL", http.StatusBadGateway)
+			return
+		}
+		log.Trace().Str("auth_url", redirectURL).Msg("Redirecting to auth URL")
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
-	log.Trace().Str("auth_url", redirectURL).Msg("Redirecting to auth URL")
-	http.Redirect(w, r, redirectURL, http.StatusFound)
+	// Regular auth provider - email and password are required
+	log.Error().Msg("Email and password are required for regular authentication")
+	http.Error(w, "Email and password are required", http.StatusBadRequest)
 }
 
 // callback godoc
