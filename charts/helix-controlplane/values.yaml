@@ -81,14 +81,6 @@ pgvector:
     selector: {}
     dataSource: {}
 
-gptscript:
-  enabled: true
-  image:
-    repository: registry.helixml.tech/helix/gptscript-runner
-  replicas: 2
-  concurrency: 20
-  maxTasks: 0
-
 controlplane:
   logLevel: "INFO"
   runnerToken: ""
@@ -133,7 +125,7 @@ controlplane:
     args:
       - 'echo "Hello World"'
   haystack:
-    enabled: true
+    enabled: false
     image:
       repository: registry.helixml.tech/helix/haystack
     embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
@@ -243,7 +235,7 @@ postgresql:
   image:
     registry: docker.io
     repository: bitnamilegacy/postgresql
-    tag: "16.3.0-debian-12-r14"
+    tag: "latest"
     pullPolicy: IfNotPresent
   auth:
     postgresPassword: ""
