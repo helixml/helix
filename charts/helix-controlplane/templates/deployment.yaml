@@ -64,16 +64,20 @@ spec:
             - name: RUNNER_TOKEN
               value: {{ .Values.controlplane.runnerToken | quote }}
             {{- end }}
+            - name: AUTH_PROVIDER
+              value: {{ .Values.controlplane.authProvider | quote }}
             {{- if .Values.controlplane.licenseKeyExistingSecret }}
             - name: LICENSE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.controlplane.licenseKeyExistingSecret }}
-                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license-key" }}
+                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license" }}
             {{- else if .Values.controlplane.licenseKey }}
             - name: LICENSE_KEY
               value: {{ .Values.controlplane.licenseKey | quote }}
             {{- end }}
+            ### Keycloak specific configuration
+            {{- if .Values.controlplane.keycloak.enabled }}
             - name: KEYCLOAK_URL
               value: {{ .Values.controlplane.keycloak.url | quote }}
             - name: KEYCLOAK_FRONTEND_URL
@@ -95,6 +99,24 @@ spec:
             - name: KEYCLOAK_PASSWORD
               value: {{ .Values.controlplane.keycloak.password | quote }}
             {{- end }}
+            {{- end }}
+            ### End keycloak config
+            ### SMTP configuration
+            {{- if .Values.controlplane.smtp.enabled }}
+            - name: SMTP_HOST
+              value: {{ .Values.controlplane.smtp.host | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.controlplane.smtp.port | quote }}
+            - name: SMTP_USERNAME
+              value: {{ .Values.controlplane.smtp.username | quote }}
+            - name: SMTP_PASSWORD
+              value: {{ .Values.controlplane.smtp.password | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.controlplane.smtp.from | quote }}
+            - name: SMTP_TO
+              value: {{ .Values.controlplane.smtp.to | quote }}
+            {{- end }}
+            ### End SMTP configuration
             - name: ADMIN_USER_SOURCE
               value: {{ .Values.controlplane.admin.userSource | quote }}
             - name: ADMIN_USER_IDS

@@ -112,6 +112,7 @@ type HelixAPIServer struct {
 	router                      *mux.Router
 	scheduler                   *scheduler.Scheduler
 	pingService                 *version.PingService
+	authenticator               auth.Authenticator
 	oidcClient                  auth.OIDC
 	oauthManager                *oauth.Manager
 	fileServerHandler           http.Handler
@@ -170,51 +171,25 @@ func NewServer(
 
 	helixRedirectURL := fmt.Sprintf("%s/api/v1/auth/callback", cfg.WebServer.URL)
 	var oidcClient auth.OIDC
-	if cfg.OIDC.Enabled {
-		if cfg.OIDC.Audience == "" {
+	if cfg.Auth.OIDC.Enabled {
+		if cfg.Auth.OIDC.Audience == "" {
 			return nil, fmt.Errorf("oidc audience is required")
 		}
 		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
-			ProviderURL:  cfg.OIDC.URL,
-			ClientID:     cfg.OIDC.ClientID,
-			ClientSecret: cfg.OIDC.ClientSecret,
+			ProviderURL:  cfg.Auth.OIDC.URL,
+			ClientID:     cfg.Auth.OIDC.ClientID,
+			ClientSecret: cfg.Auth.OIDC.ClientSecret,
 			RedirectURL:  helixRedirectURL,
 			AdminUserIDs: cfg.WebServer.AdminIDs,
 			AdminUserSrc: cfg.WebServer.AdminSrc,
-			Audience:     cfg.OIDC.Audience,
-			Scopes:       strings.Split(cfg.OIDC.Scopes, ","),
+			Audience:     cfg.Auth.OIDC.Audience,
+			Scopes:       strings.Split(cfg.Auth.OIDC.Scopes, ","),
 			Store:        store,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create oidc client: %w", err)
 		}
 		oidcClient = client
-	} else if cfg.Keycloak.KeycloakEnabled {
-		keycloakURL, err := url.Parse(cfg.Keycloak.KeycloakFrontEndURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse keycloak front end url: %w", err)
-		}
-		// Strip any trailing slashes from the path
-		keycloakURL.Path = strings.TrimRight(keycloakURL.Path, "/")
-		keycloakURL.Path = fmt.Sprintf("%s/realms/%s", keycloakURL.Path, cfg.Keycloak.Realm)
-		client, err := auth.NewOIDCClient(controller.Ctx, auth.OIDCConfig{
-			ProviderURL:  keycloakURL.String(),
-			ClientID:     cfg.Keycloak.APIClientID,
-			ClientSecret: cfg.Keycloak.ClientSecret,
-			RedirectURL:  helixRedirectURL,
-			AdminUserIDs: cfg.WebServer.AdminIDs,
-			AdminUserSrc: cfg.WebServer.AdminSrc,
-			Audience:     "account",
-			Scopes:       []string{"openid", "profile", "email"},
-			Store:        store,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create keycloak client: %w", err)
-		}
-		oidcClient = client
-	}
-	if oidcClient == nil {
-		return nil, fmt.Errorf("no oidc client found")
 	}
 
 	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
@@ -277,7 +252,6 @@ func NewServer(
 		contextMappings:            make(map[string]string),
 		inferenceServer:            inferenceServer,
 		authMiddleware: newAuthMiddleware(
-			oidcClient,
 			authenticator,
 			store,
 			authMiddlewareConfig{
@@ -296,6 +270,7 @@ func NewServer(
 		skillManager:      skillManager,
 		scheduler:         scheduler,
 		pingService:       pingService,
+		authenticator:     authenticator,
 		oidcClient:        oidcClient,
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
@@ -500,12 +475,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
 
-	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
+	insecureRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods(http.MethodGet)
 
-	subRouter.HandleFunc("/config/js", apiServer.configJS).Methods(http.MethodGet)
-	subRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods(http.MethodGet)
+	insecureRouter.HandleFunc("/config/js", apiServer.configJS).Methods(http.MethodGet)
+	insecureRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods(http.MethodGet)
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
@@ -724,12 +699,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
 
 	// User auth, BFF
+	insecureRouter.HandleFunc("/auth/register", apiServer.register).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/login", apiServer.login).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/callback", apiServer.callback).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/user", apiServer.user).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/logout", apiServer.logout).Methods(http.MethodPost)
 	insecureRouter.HandleFunc("/auth/authenticated", apiServer.authenticated).Methods(http.MethodGet)
 	insecureRouter.HandleFunc("/auth/refresh", apiServer.refresh).Methods(http.MethodPost)
+
+	insecureRouter.HandleFunc("/auth/password-reset", apiServer.passwordReset).Methods(http.MethodPost)
+	insecureRouter.HandleFunc("/auth/password-reset-complete", apiServer.passwordResetComplete).Methods(http.MethodPost)
+	authRouter.HandleFunc("/auth/password-update", apiServer.passwordUpdate).Methods(http.MethodPost) // Update for authenticated users
 
 	// Orgs, authz
 	authRouter.HandleFunc("/organizations", apiServer.listOrganizations).Methods(http.MethodGet)
@@ -1034,11 +1014,11 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	if !apiServer.Cfg.Keycloak.KeycloakEnabled {
+	if !apiServer.Cfg.Auth.Keycloak.KeycloakEnabled {
 		log.Info().Msg("Keycloak is disabled, skipping proxy")
 		return
 	}
-	u, err := url.Parse(apiServer.Cfg.Keycloak.KeycloakURL)
+	u, err := url.Parse(apiServer.Cfg.Auth.Keycloak.KeycloakURL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
 		return

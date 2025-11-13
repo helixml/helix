@@ -37,7 +37,10 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
 import LowCreditsDisplay from '../system/LowCreditsDisplay'
+import { useGetConfig } from '../../services/userService'
 import { styled, keyframes } from '@mui/material/styles'
+import LoginRegisterDialog from './LoginRegisterDialog'
+import { TypesAuthProvider } from '../../api/api'
 
 // Shimmer animation for login button
 const shimmer = keyframes`
@@ -157,11 +160,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const themeConfig = useThemeConfig()
   const isBigScreen = useIsBigScreen()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [compactExpanded, setCompactExpanded] = useState(false)
   const [menuItemsExpanded, setMenuItemsExpanded] = useState(false)
 
-
+  const { data: config } = useGetConfig()
 
   // Use consistent width for user menu - always use the sidebar width (wider option)
   const menuWidth = isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth
@@ -967,7 +971,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               endIcon={<LogIn size={20} />}
               onClick={(e) => {
                 e.stopPropagation()
-                account.onLogin()
+                if (config?.auth_provider === TypesAuthProvider.AuthProviderRegular) {
+                  setLoginDialogOpen(true)
+                } else {
+                  account.onLogin()
+                }
               }}
             >
               Login / Register
@@ -1255,6 +1263,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           </Box>
         </DialogContent>
       </Popover>
+
+      <LoginRegisterDialog
+        open={loginDialogOpen}
+        onClose={() => setLoginDialogOpen(false)}
+      />
     </>
   )
 }

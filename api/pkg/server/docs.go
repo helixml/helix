@@ -1635,6 +1635,86 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/password-reset": {
+            "post": {
+                "description": "Reset the password for a user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Password Reset",
+                "parameters": [
+                    {
+                        "description": "Request body with email.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PasswordResetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/password-reset-complete": {
+            "post": {
+                "description": "Complete the password reset process using the access token from the reset email",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Complete Password Reset",
+                "parameters": [
+                    {
+                        "description": "Request body with access token and new password.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PasswordResetCompleteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/password-update": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the password for the authenticated user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Update Password",
+                "parameters": [
+                    {
+                        "description": "Request body with new password.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.PasswordUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/refresh": {
             "post": {
                 "description": "Refresh the access token",
@@ -1645,6 +1725,31 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/register": {
+            "post": {
+                "description": "Register a new user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Register",
+                "parameters": [
+                    {
+                        "description": "Request body with email and password.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.RegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     }
                 }
             }
@@ -15666,6 +15771,22 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AuthProvider": {
+            "type": "string",
+            "enum": [
+                "regular",
+                "keycloak",
+                "oidc"
+            ],
+            "x-enum-comments": {
+                "AuthProviderRegular": "Embedded in Helix, no external dependencies"
+            },
+            "x-enum-varnames": [
+                "AuthProviderRegular",
+                "AuthProviderKeycloak",
+                "AuthProviderOIDC"
+            ]
+        },
         "types.AuthenticatedResponse": {
             "type": "object",
             "properties": {
@@ -17328,6 +17449,12 @@ const docTemplate = `{
         "types.LoginRequest": {
             "type": "object",
             "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
                 "redirect_uri": {
                     "type": "string"
                 }
@@ -18153,6 +18280,33 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PasswordResetCompleteRequest": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "new_password": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PasswordResetRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.PasswordUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "new_password": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Pricing": {
             "type": "object",
             "properties": {
@@ -18651,6 +18805,20 @@ const docTemplate = `{
                             "type": "string"
                         }
                     }
+                }
+            }
+        },
+        "types.RegisterRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "password_confirm": {
+                    "type": "string"
                 }
             }
         },
@@ -19162,6 +19330,14 @@ const docTemplate = `{
                 "apps_enabled": {
                     "type": "boolean"
                 },
+                "auth_provider": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.AuthProvider"
+                        }
+                    ]
+                },
                 "billing_enabled": {
                     "description": "Charging for usage",
                     "type": "boolean"
@@ -19176,7 +19352,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "filestore_prefix": {
-                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                     "type": "string"
                 },
                 "google_analytics_frontend": {
@@ -21606,18 +21781,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
@@ -21704,6 +21879,9 @@ const docTemplate = `{
                     "description": "if the token is associated with an app",
                     "type": "string"
                 },
+                "auth_provider": {
+                    "$ref": "#/definitions/types.AuthProvider"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -21721,6 +21899,17 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "must_change_password": {
+                    "description": "if the user must change their password",
+                    "type": "boolean"
+                },
+                "password_hash": {
+                    "description": "bcrypt hash of the password",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "sb": {
                     "type": "boolean"
