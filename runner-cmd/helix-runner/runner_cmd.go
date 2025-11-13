@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -39,7 +40,7 @@ func newRunnerOptions() *RunnerOptions {
 			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
-			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
+			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", filepath.Join(os.TempDir(), "helix-cache")),
 			WebServer: runner.WebServer{
 				Host: getDefaultServeOptionString("SERVER_HOST", "127.0.0.1"),
 				Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
@@ -157,7 +158,10 @@ func newRunnerCmd() *cobra.Command {
 }
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
+	fmt.Fprintf(os.Stderr, "DEBUG: runnerCLI() called\n")
+	fmt.Fprintf(os.Stderr, "DEBUG: Starting logging setup\n")
 	system.SetupLogging()
+	fmt.Fprintf(os.Stderr, "DEBUG: Logging setup complete\n")
 
 	if options.Runner.APIToken == "" {
 		return fmt.Errorf("api token is required")
@@ -178,20 +182,26 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	defer cancel()
 
 	janitor := janitor.NewJanitor(options.Janitor)
+	fmt.Fprintf(os.Stderr, "DEBUG: About to initialize janitor\n")
 	err = janitor.Initialize()
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Janitor initialized\n")
 
+	fmt.Fprintf(os.Stderr, "DEBUG: About to initialize models cache\n")
 	err = initializeModelsCache(options.Runner.Config)
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to initialize models cache")
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Models cache initialized\n")
 
+	fmt.Fprintf(os.Stderr, "DEBUG: About to create runner controller\n")
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: Runner controller created successfully\n")
 
 	go runnerController.Run(ctx)
 
