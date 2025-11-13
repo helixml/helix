@@ -348,7 +348,9 @@ export const useAccountContext = (): IAccountContext => {
 
         if (win.$crisp) {
           win.$crisp.push(['set', 'user:email', user?.email])
-          win.$crisp.push(['set', 'user:nickname', user?.name])
+          if (user?.name) {
+            win.$crisp.push(['set', 'user:nickname', user?.name])
+          }
         }
 
         setUser(user)
