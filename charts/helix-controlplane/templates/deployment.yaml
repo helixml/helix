@@ -71,7 +71,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.controlplane.licenseKeyExistingSecret }}
-                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license-key" }}
+                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license" }}
             {{- else if .Values.controlplane.licenseKey }}
             - name: LICENSE_KEY
               value: {{ .Values.controlplane.licenseKey | quote }}

@@ -133,9 +133,9 @@ controlplane:
   licenseKey: ""
   # Option: Use existing secret for license key (recommended for production)
   # Create the license secret with:
-  #   kubectl create secret generic helix-license --from-literal=license-key="<your-license-key-here>"
+  #   kubectl create secret generic helix-license --from-literal=license="<your-license-key-here>"
   # licenseKeyExistingSecret: "helix-license"
-  # licenseKeyExistingSecretKey: "license-key"  # defaults to "license-key" if not specified
+  # licenseKeyExistingSecretKey: "license"  # defaults to "license" if not specified
 
   # Hugging Face token configuration (distributed to all runners automatically,
   # only required if you need to use vLLM models)
