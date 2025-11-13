@@ -1,5 +1,5 @@
 config_version = 6
-hostname = 'Helix'
+hostname = 'Helix ({{HELIX_HOSTNAME}})'
 uuid = ''
 paired_clients = []
 
