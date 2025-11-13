@@ -313,7 +313,7 @@ services:
     command: bash -c "/app/server/init-moonlight-config.sh"
     ports:
       - "8081:8080"  # Web interface
-      - "40000-40010:40000-40010/udp"  # WebRTC UDP ports
+      - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
     networks:
       - default
     environment:
