@@ -392,9 +392,6 @@ const Layout: FC<{
                 Please login to continue
               </DialogTitle>
               <DialogContent>
-                <Typography gutterBottom>
-                  You can login with your Google account or your organization's SSO provider.
-                </Typography>
                 <Typography>
                   We will keep what you've done here for you, so you may continue where you left off.
                 </Typography>
