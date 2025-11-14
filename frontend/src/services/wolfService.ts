@@ -16,9 +16,16 @@ export function useWolfHealth(options?: {
 
   return useQuery({
     queryKey: WOLF_HEALTH_QUERY_KEY(),
-    queryFn: () => apiClient.v1WolfHealthList(),
-    // Poll every 30 seconds by default (matches watchdog check interval)
-    refetchInterval: options?.refetchInterval ?? 30000,
+    queryFn: async () => {
+      console.log('[Wolf Health] Fetching health data...')
+      const result = await apiClient.v1WolfHealthList()
+      console.log('[Wolf Health] Full response:', result)
+      console.log('[Wolf Health] Response.data:', result.data)
+      // The generated client returns Axios response, need to extract .data
+      return result.data
+    },
+    // Poll every 5 seconds for live monitoring
+    refetchInterval: options?.refetchInterval ?? 5000,
     enabled: options?.enabled ?? true,
     // Don't retry on error - if Wolf is down, retrying won't help
     retry: false,

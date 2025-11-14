@@ -209,6 +209,23 @@ const { data } = useQuery({
 })
 ```
 
+**CRITICAL: Generated client returns full Axios response**
+
+The OpenAPI-generated client methods return the **complete Axios response object**, not just the data:
+
+```typescript
+// ❌ WRONG: Using the full response object
+const result = await apiClient.v1WolfHealthList()
+// result = {data: {...}, status: 200, headers: {...}, config: {...}}
+return result  // Component receives {data: {...}} instead of just {...}
+
+// ✅ CORRECT: Extract .data from response
+const result = await apiClient.v1WolfHealthList()
+return result.data  // Component receives the actual data object
+```
+
+**This is a VERY common bug - always extract `.data` in React Query hooks!**
+
 **Regenerate client:** `./stack update_openapi`
 
 **Required Swagger annotations:**
