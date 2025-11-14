@@ -291,7 +291,6 @@ services:
     devices:
       - /dev/dri
       - /dev/uinput
-      - /dev/uhid
       - /dev/dma_heap  # Required for GPU-accelerated Wayland compositor (CUDA memory buffers)
     ports:
       # Moonlight protocol ports
