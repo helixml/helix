@@ -149,3 +149,18 @@ export function useUpdatePassword() {
     },
   })
 }
+
+export function useUpdateAccount() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (data: { full_name?: string }) => {
+      const response = await apiClient.v1AuthUpdateCreate({ full_name: data.full_name })
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user"] })
+    },
+  })
+}
