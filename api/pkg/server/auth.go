@@ -425,6 +425,11 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 			Email: loginRequest.Email,
 		})
 		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				log.Error().Str("email", loginRequest.Email).Msg("User not found")
+				http.Error(w, "User with this email does not exist", http.StatusUnauthorized)
+				return
+			}
 			log.Error().Err(err).Msg("Failed to get user")
 			http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
 			return
