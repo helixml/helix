@@ -255,18 +255,61 @@ this->on_error = [](auto request, const error_code &ec) {
 
 ---
 
-## PROBABLE BUG: Unsafe Event-Driven Pipeline Manipulation
+## Analysis: Why Thread 43209 Died
 
-**Evidence**:
-- Thread 99 (HTTPS) calling `gst_element_send_event()` on pipeline owned by Thread 40
-- Thread 99 deadlocked
-- While `gst_element_send_event()` is documented as "MT safe", empirical evidence shows deadlock
+**Timeline from Logs** (2025-11-13 19:00-19:06):
+```
+19:03:12 - Lobby f29e0063 created, pipelines started
+19:03:16 - Session 16644389455306939041 created
+19:03:17 - Session JOINS lobby (SwitchStreamProducerEvents)
+19:05:27 - PauseStreamEvent
+19:05:27 - /cancel request
+19:05:27 - SwitchStreamProducerEvents (switching BACK to session)
+19:05:28 - WARN: Failed to acquire buffer from pool: -2
+19:05:28 - ERROR: Rendering failed. err=MappingError
+19:05:28 - ERROR: [GSTREAMER] Pipeline error: Internal data stream error
+```
 
-**Probable Cause**:
-Although `gst_element_send_event()` itself is thread-safe (acquires STATE_LOCK), calling it while the pipeline is actively streaming from another thread can cause race conditions with internal non-recursive locks like `live_lock`.
+**What Happened**:
+1. Session was switching between lobby and direct mode (interpipe reconnection)
+2. During switch, **waylanddisplaysrc buffer pool exhausted** (-2 error)
+3. Rendering thread crashed with MappingError
+4. Thread 43209 (likely GStreamer task thread) died mid-operation
+5. **Thread 43209 held GstBaseSrc mutex** (or interpipe mutex triggering GstBaseSrc operation)
+6. Mutex left in locked state, owner=43209
+7. Future operations on ANY pipeline blocked on abandoned mutex
 
-**Fix** (80% confidence will help):
-Replace direct `gst_element_send_event()` calls with thread-safe `g_main_loop_quit()`:
+**Interpipe Nested Locking** (Source Analysis):
+```c
+gst_inter_pipe_listen_node (gstinterpipe.c:118):
+  g_mutex_lock(&listeners_mutex)  // GLOBAL
+    → leave_node_priv (line 133)
+      → sink->remove_listener (gstinterpipesink.c:856)
+        → g_mutex_lock(&sink->listeners_mutex)  // PER-SINK (nested)
+```
+
+Complex state transitions during interpipe switching create **nested mutex acquisition**. If thread dies during this, multiple mutexes abandoned.
+
+---
+
+## THE ACTUAL BUG: HTTPS Thread Vulnerable to Abandoned Mutexes
+
+**Problem**: HTTPS thread performs synchronous GStreamer operations that can hit abandoned mutexes from dead threads.
+
+**What We Know**:
+1. `gst_element_send_event()` IS thread-safe (documented "MT safe", uses recursive STATE_LOCK)
+2. Calling it from HTTPS thread is NOT inherently wrong
+3. **BUT**: If a GStreamer internal thread dies holding a mutex, any subsequent `gst_element_send_event()` can block forever
+4. Thread 43209 died → left mutex locked → Thread 99 (HTTPS) blocked → **entire HTTPS server hung**
+
+**Why HTTPS Specifically Affected**:
+- HTTP thread hadn't tried to manipulate the affected pipeline yet
+- Thread 99 happened to be the first to send event to pipeline with abandoned mutex
+- Pure timing/luck which thread hits the deadlock
+
+**Fix**: Isolate HTTPS Thread from Pipeline Mutex Dependencies
+
+Replace direct `gst_element_send_event()` with `g_main_loop_quit()`:
 
 **Current** (streaming.cpp:172-178):
 ```cpp
@@ -288,12 +331,44 @@ auto stop_handler = event_bus->register_handler<StopStreamEvent>(
     });
 ```
 
-**Why This Should Work**:
-1. `g_main_loop_quit()` is explicitly documented as thread-safe (can be called from any thread)
-2. Doesn't acquire any GStreamer pipeline/element mutexes
-3. Main loop exits normally
-4. Cleanup happens in `run_pipeline()` lines 110-112 (in correct thread context)
-5. Eliminates cross-thread pipeline manipulation entirely
+**Why This Fixes HTTPS Deadlock**:
+
+**Current Problem**:
+```
+HTTPS Thread → gst_element_send_event(pipeline)
+             → interpipesink event handler
+             → acquire sink->listeners_mutex
+             → forward to interpipesrc
+             → acquire GstBaseSrc mutex (0x70537c0062b0)
+             → BLOCKED if mutex owned by dead thread 43209
+             → HTTPS server COMPLETELY HUNG
+```
+
+**With Fix**:
+```
+HTTPS Thread → g_main_loop_quit(loop)
+             → NO mutex acquisition
+             → Returns immediately ✓
+
+Pipeline Thread 40 → Detects quit flag in ppoll
+                  → Exits g_main_loop_run
+                  → Cleanup in run_pipeline() lines 110-112
+                  → If hits abandoned mutex, ONLY Thread 40 blocks
+                  → HTTPS server stays responsive ✓
+```
+
+**Key Benefits**:
+1. **HTTPS thread isolated** - never touches GStreamer/interpipe mutexes
+2. **Fault containment** - dead mutex only affects specific pipeline thread
+3. **Server stays up** - other sessions/requests continue working
+4. **Thread-safe by design** - g_main_loop_quit documented as callable from any thread
+5. **No complex locking** - simple flag set, no mutex dependencies
+
+**What This Does NOT Fix**:
+- ❌ Doesn't prevent threads from dying (buffer pool errors, rendering failures still possible)
+- ❌ Doesn't prevent mutexes from being abandoned
+- ❌ Pipeline cleanup can still deadlock (but isolated to that pipeline's thread)
+- ❌ Root cause of Thread 43209 death not addressed
 
 **Changes Required**:
 1. `streaming.hpp:64-65` - add `loop` parameter to callback signature
@@ -302,19 +377,63 @@ auto stop_handler = event_bus->register_handler<StopStreamEvent>(
 
 ---
 
-## Why I Cannot Prove Exact Root Cause
+## Deeper Fixes Needed (Prevent Threads from Dying)
 
-**Limitations**:
-1. **No debugging symbols** for libgstbase-1.0.so.0 - can't see exact function at frame #4
-2. **Corrupted core dump** - most thread registers unavailable
-3. **Can't identify mutex owner** - no way to dump mutex state from core
-4. **Proprietary NVIDIA code** - no symbols for libEGL_nvidia.so.0
+The proposed fix (g_main_loop_quit) **prevents HTTPS deadlock** but **doesn't prevent threads from dying**. Deeper fixes needed:
 
-**What Would Provide Proof**:
-1. **Reproduce with symbols** - rebuild GStreamer with debug symbols, capture new core dump
-2. **Live GDB attach** - attach to running process, inspect mutex ownership
-3. **Add logging** - log thread IDs when acquiring/releasing mutexes
-4. **Reproduce locally** - sustained load test to trigger deadlock with full debugging
+### Fix A: Robust Buffer Pool Management
+
+**Problem**: "Failed to acquire buffer from pool: -2" during pipeline state changes
+
+**Possible Solutions**:
+1. Increase buffer pool size for waylanddisplaysrc
+2. Add buffer pool resize during state transitions
+3. Handle buffer exhaustion gracefully (pause instead of crash)
+4. Pre-allocate buffers before state changes
+
+**Investigation Needed**:
+- Why does buffer pool exhaust during interpipe switching?
+- Is this a waylanddisplaysrc bug or interpipe interaction?
+- Can buffer pool be made dynamic/expandable?
+
+### Fix B: Graceful Thread Termination
+
+**Problem**: GStreamer task threads can die without mutex cleanup
+
+**Possible Solutions**:
+1. Add pthread cleanup handlers (`pthread_cleanup_push`) to release mutexes on exit
+2. Use `pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED)` to defer cancellation to safe points
+3. Wrap GStreamer operations in try-catch for exceptions
+4. Add thread monitoring to detect/log unexpected exits
+
+**Challenge**: GStreamer creates its own internal threads - Wolf doesn't control them directly
+
+### Fix C: Mutex Timeout + Recovery
+
+**Problem**: Abandoned mutexes cause permanent deadlocks
+
+**Possible Solutions**:
+1. Use `pthread_mutex_timedlock` with timeout (e.g., 5s)
+2. If timeout, log error and fail gracefully instead of blocking forever
+3. Consider using robust mutexes (`PTHREAD_MUTEX_ROBUST`) that detect dead owners
+4. Implement circuit breaker: if mutex wait > threshold, reject request
+
+**Challenge**: Would need to modify GStreamer/interpipe code
+
+### Fix D: Interpipe Switching Robustness
+
+**Problem**: Complex nested locking during SwitchStreamProducerEvents
+
+**Possible Solutions**:
+1. Serialize interpipe switches (global lock for all switching operations)
+2. Add timeout to interpipe reconnection
+3. Validate buffer pool state before switching
+4. Implement two-phase switching (drain old, connect new)
+
+**Investigation Needed**:
+- Can we avoid interpipe switching entirely?
+- Is there a simpler architecture that doesn't require runtime reconnection?
+- Can we pre-create all needed pipelines and just mux/switch outputs?
 
 ---
 
