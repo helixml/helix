@@ -26,7 +26,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const api = useApi();
@@ -40,7 +39,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
     setPassword('');
     setPasswordConfirm('');
     setError(null);
-    setPasswordError(null);
     onClose();
   };
 
@@ -52,7 +50,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     setLoading(true);
     setError(null);
-    setPasswordError(null);
 
     try {
       const loginRequest: TypesLoginRequest = {
@@ -66,14 +63,21 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       handleClose();
       window.location.reload();
     } catch (err: any) {
-      if (err?.response?.status === 401) {
-        setPasswordError('email or password doesn\'t match');
-        setError(null);
-      } else {
-        const errorMessage = err?.response?.data?.error || err?.message || 'Login failed';
-        setError(errorMessage);
-        snackbar.error(errorMessage);
+      let errorMessage = 'Login failed';
+      if (err?.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error;
+        } else {
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
       }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -111,9 +115,21 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       handleClose();
       window.location.reload();
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.error || err?.message || 'Registration failed';
+      let errorMessage = 'Registration failed';
+      if (err?.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error;
+        } else {
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
       setError(errorMessage);
-      snackbar.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -141,12 +157,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ p: 3 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-
           <TextField
             autoFocus
             margin="dense"
@@ -188,12 +198,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             fullWidth
             variant="outlined"
             value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setPasswordError(null);
-            }}
-            error={!!passwordError}
-            helperText={passwordError}
+            onChange={(e) => setPassword(e.target.value)}
             sx={{
               mb: mode === 'register' ? 2 : 0,
               '& .MuiOutlinedInput-root': {
@@ -215,9 +220,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               },
               '& .MuiOutlinedInput-input': {
                 color: '#F1F1F1',
-              },
-              '& .MuiFormHelperText-root': {
-                color: '#f44336',
               },
             }}
           />
@@ -293,6 +295,11 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
         </DialogContent>
 
         <DialogActions sx={{ p: 2, pt: 0, flexDirection: 'column', gap: 2 }}>
+          {error && (
+            <Alert severity="error" sx={{ width: '100%', mb: 1 }}>
+              {error}
+            </Alert>
+          )}
           <Button
             type="submit"
             variant="contained"
@@ -324,7 +331,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
                 onClick={() => {
                   setMode(mode === 'login' ? 'register' : 'login');
                   setError(null);
-                  setPasswordError(null);
                   setPassword('');
                   setPasswordConfirm('');
                 }}
