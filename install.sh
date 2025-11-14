@@ -766,6 +766,46 @@ check_nvidia_runtime_needed() {
     return 0
 }
 
+# Function to configure NVIDIA GPU kernel module with modeset=1 (required for Wayland/GPU acceleration)
+configure_nvidia_gpu_kernel() {
+    if ! check_nvidia_gpu; then
+        return
+    fi
+
+    # Check if we're on a Linux system that supports kernel module configuration
+    if [ "$OS" != "linux" ]; then
+        return
+    fi
+
+    # Check if nvidia_drm module is loaded and has modeset=1
+    if [ -f /sys/module/nvidia_drm/parameters/modeset ]; then
+        CURRENT_MODESET=$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null || echo "N")
+        if [ "$CURRENT_MODESET" = "Y" ]; then
+            return  # Already configured correctly
+        fi
+    fi
+
+    echo "Configuring NVIDIA GPU kernel module with modeset=1 for GPU-accelerated Wayland..."
+
+    # Add modeset=1 to modprobe configuration
+    if ! grep -q "^options nvidia-drm modeset=1" /etc/modprobe.d/nvidia-drm.conf 2>/dev/null; then
+        # Create or update modprobe configuration
+        echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia-drm.conf > /dev/null
+        echo "NVIDIA kernel module configuration updated: /etc/modprobe.d/nvidia-drm.conf"
+
+        # Check if module is currently loaded and attempt reload if necessary
+        if lsmod | grep -q "^nvidia_drm"; then
+            echo "Note: NVIDIA kernel module (nvidia_drm) is currently loaded."
+            echo "The modeset=1 flag will be applied on next reboot."
+            echo ""
+            echo "To apply the change immediately (requires stopping all containers):"
+            echo "  sudo rmmod nvidia_drm"
+            echo "  sudo modprobe nvidia_drm modeset=1"
+            echo ""
+        fi
+    fi
+}
+
 # Function to install NVIDIA Docker runtime
 install_nvidia_docker() {
     if ! check_nvidia_gpu; then
@@ -1146,6 +1186,11 @@ if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT"
                 DOCKER_CMD="docker"
             fi
         fi
+    fi
+
+    # Configure NVIDIA GPU kernel module for GPU-accelerated Wayland (if applicable)
+    if [ "$CODE" = true ] || [ "$RUNNER" = true ]; then
+        configure_nvidia_gpu_kernel
     fi
 fi
 
