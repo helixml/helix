@@ -454,10 +454,77 @@ watch -n 2 'docker exec helixml-wolf-1 timeout 2 bash -c "cat < /dev/null > /dev
 
 **Analysis**: GStreamer thread waiting on mutex 0x70537c0062b0 while trying to send a stop event. This could indicate concurrent pipeline manipulation.
 
-**HTTPS Thread - NOT YET IDENTIFIED**:
+**HTTPS Thread - IDENTIFIED (one of TID 199, 201, 202)**:
 - Expected to be detached thread from wolf.cpp:185-188
 - Should be running SimpleWeb HTTPS server on port 47984
-- Need to find it in the thread list
+- Live process shows 4 threads in `ep_poll`: TID 197 (HTTP), TID 199, 201, 202 (likely HTTPS + RTSP)
+
+### Live Process Testing (2025-11-14 10:50 UTC)
+
+**HTTP Server (port 47989) - STILL WORKING**:
+```bash
+$ curl -s http://localhost:47989/serverinfo
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200"><hostname>Helix (code.helix.ml)</hostname>...
+```
+
+**CRITICAL FINDING**: HTTP works perfectly, HTTPS completely hung. This is **NOT** a global deadlock!
+
+### Updated Root Cause Hypothesis
+
+**Primary Suspect: `handler_runner->continue_lock()` Bottleneck**
+
+Location: `custom-https.cpp:63` in SSL handshake callback:
+```cpp
+session->connection->socket->async_handshake(..., [this, session](const error_code &ec) {
+  session->connection->cancel_timeout();
+  auto lock = session->connection->handler_runner->continue_lock(); // ← BLOCKS HERE
+  if (!lock)
+    return;
+  if (!ec)
+    this->read(session); // Never reached if lock fails
+  ...
+});
+```
+
+**Theory**:
+1. SSL handshake completes successfully
+2. Callback tries to acquire `handler_runner->continue_lock()`
+3. Lock is ALREADY HELD by another thread processing a previous request
+4. That thread is stuck in `get_mac_address()` or other blocking operation
+5. New handshakes complete but callbacks never proceed → **appears as handshake hang**
+
+**Evidence**:
+- TCP connection succeeds (port accepts)
+- SSL "Client Hello" sent but no response
+- HTTP server (no SSL) works fine (different event loop, no continue_lock?)
+- GStreamer thread stuck on mutex 0x70537c0062b0
+- Single-threaded event loop architecture (wolf.cpp:185-188)
+
+**Why This Explains Everything**:
+- First few connections work (no lock contention)
+- After 18 days, leaked connections (17 CLOSE_WAIT) cause resource pressure
+- Slow operations (MAC enumeration, SSL ops) hold lock longer
+- New connections queue up waiting for lock
+- Eventually all new SSL handshakes hang
+- Moonlight-web sees timeout after 1s (now 10s with fix)
+
+### Refined Fix Strategy
+
+**IMMEDIATE** (prevents total outage):
+1. ✅ Healthcheck - auto-restart when hung (already done)
+2. ✅ Moonlight-web 10s timeout (already done)
+3. **NEW**: Add timeout to `continue_lock()` acquisition - if lock not acquired in 5s, fail the handshake gracefully
+4. **NEW**: Fix connection leak - ensure proper close() on CLOSE_WAIT connections
+
+**ROOT CAUSE** (prevents recurrence):
+1. **Remove blocking operations from lock-held sections**:
+   - Move `get_mac_address()` out of request path (already planned)
+   - Cache MAC at startup, never enumerate during requests
+2. **Multi-threaded HTTPS event loop**:
+   - Use io_service thread pool instead of single detached thread
+   - Distribute SSL handshakes across multiple threads
+   - No shared lock bottleneck
 
 ### Next Steps for Core Dump Investigation
 
