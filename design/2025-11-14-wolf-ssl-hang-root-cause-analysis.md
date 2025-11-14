@@ -408,11 +408,71 @@ watch -n 2 'docker exec helixml-wolf-1 timeout 2 bash -c "cat < /dev/null > /dev
 4. **Are there other blocking syscalls in the HTTPS path?**
    - File I/O, DNS lookups, Docker API calls?
 
+## Core Dump Analysis (2025-11-14 10:42 UTC)
+
+### Core Dump Captured
+- **Location**: `/tmp/wolf-core.1342726` (17GB)
+- **Method**: `gcore` from host (PID 1342726)
+- **Threads**: 101 total
+
+### Key Findings from Backtrace
+
+**Main Thread (LWP 1342726) - SHUTDOWN DEADLOCK**:
+```
+#0  __futex_lock_pi64 at futex-internal.c:180
+#1  __pthread_mutex_lock_full
+#2-17 NVIDIA EGL library cleanup (libEGL_nvidia.so.0)
+#18 __run_exit_handlers at exit.c:118
+#19 __GI_exit
+#20 <signal handler> - SIGABRT (signal 6)
+#21 shutdown_handler at exceptions.h:71
+#22-28 pthread join waiting for HTTP thread
+#29 run() at wolf.cpp:231 - http_thread.join()
+```
+
+**Analysis**: Main thread is deadlocked in NVIDIA driver cleanup **triggered by gcore SIGABRT**. This is NOT the original hang - it's an artifact of the core dump capture process.
+
+**HTTP Server Thread (47989) - WORKING**:
+```
+#0  epoll_reactor::run at epoll_reactor.ipp:521
+#8  SimpleWeb::ServerBase::start at server_http.hpp:492
+#9  HTTPServers::startServer (port=47989) at servers.cpp:105
+#10 wolf.cpp:181 lambda (HTTP server thread)
+```
+
+**Status**: HTTP server thread is healthy, sitting in epoll event loop.
+
+**GStreamer Thread (LWP 1345727) - HUNG ON MUTEX**:
+```
+#0  futex_wait (futex_word=0x70537c0062b0)
+#1  __lll_lock_wait (mutex=0x70537c0062b0)
+#3  ___pthread_mutex_lock (mutex=0x70537c0062b0)
+#4  libgstbase-1.0.so.0
+#5  gst_element_send_event
+#8  StopStreamEvent handler
+```
+
+**Analysis**: GStreamer thread waiting on mutex 0x70537c0062b0 while trying to send a stop event. This could indicate concurrent pipeline manipulation.
+
+**HTTPS Thread - NOT YET IDENTIFIED**:
+- Expected to be detached thread from wolf.cpp:185-188
+- Should be running SimpleWeb HTTPS server on port 47984
+- Need to find it in the thread list
+
+### Next Steps for Core Dump Investigation
+
+1. **Find HTTPS thread**: Search for thread with `async_handshake` or SSL operations
+2. **Identify which mutex it's waiting on**: Check if same as GStreamer thread (0x70537c0062b0)
+3. **Map futex addresses to code**: Determine what locks are being held
+4. **Check for circular wait**: Thread A holds lock X, waits for lock Y; Thread B holds lock Y, waits for lock X
+
 ## Additional Debugging Needed
 
 Before restarting Wolf, collect:
-- [ ] Thread backtraces (need ptrace capability)
-- [ ] Network connection states
+- [x] Thread backtraces (captured via gcore)
+- [x] Network connection states (17 CLOSE_WAIT)
+- [ ] HTTPS thread identification
+- [ ] Mutex ownership mapping
 - [ ] Recent logs with correlation IDs
 - [ ] Paired clients count (could affect iteration time)
 
