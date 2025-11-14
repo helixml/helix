@@ -121,7 +121,7 @@ type SwayWolfAppConfig struct {
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap*",
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -190,7 +190,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw", "c 249:* rmw"],
     "Ulimits": [
       {
         "Name": "nofile",
@@ -1223,7 +1223,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 
 	// Create Wolf app using the same Sway configuration as the main creation function
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap*",
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
@@ -1264,7 +1264,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw", "c 249:* rmw"],
     "Ulimits": [
       {
         "Name": "nofile",
