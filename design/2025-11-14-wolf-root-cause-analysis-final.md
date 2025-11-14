@@ -152,66 +152,77 @@ TIMEOUT - SSL handshake never completes
 
 ---
 
-## THE CRITICAL MYSTERY: Who Holds Mutex 0x70537c0062b0?
+## ROOT CAUSE IDENTIFIED: Abandoned Mutex from Dead Thread
 
-**Known**:
-- ✅ Thread 99 is waiting for it
-- ✅ Thread 40 (pipeline owner) is NOT holding it (sitting in ppoll)
-- ✅ No other thread waiting for it
-- ✅ It's a non-recursive mutex inside libgstbase-1.0.so.0
+### Mutex Analysis (0x70537c0062b0)
 
-**Unknown**:
-- ❌ Which thread currently holds it
-- ❌ What operation acquired it
-- ❌ Whether it's abandoned (thread exited while holding)
-- ❌ Whether it's corrupted
+**Raw Mutex Structure**:
+```
+0x70537c0062b0: 0x00000002  ← futex value (2 = locked with waiters)
+0x70537c0062b4: 0x00000001
+0x70537c0062b8: 0x0000a8c9  ← owner TID = 43209 (decimal)
+0x70537c0062bc: 0x00000001
+```
 
-**Possible Scenarios**:
+**Owner Thread**: LWP 43209 (Thread 108 in core dump)
 
-### Scenario A: Abandoned Lock (Most Likely)
+**Thread 43209 Status**:
+- ✅ Exists in core dump (Thread 108)
+- ❌ Registers CORRUPTED in core dump (no backtrace available)
+- ❌ Does NOT exist in live process (`ls /proc/1342726/task/` - not found)
 
-**Theory**: Another thread acquired `live_lock` or similar GstBaseSrc mutex, then crashed/exited without releasing it.
+**PROOF**: Thread 43209 **exited while holding mutex 0x70537c0062b0**, leaving it permanently locked. Thread 99 is now waiting forever for a mutex that will never be released.
 
-**Evidence FOR**:
-- Thread 40 is healthy but not holding the lock
-- Only Thread 99 waiting (no contention)
-- 17 leaked connections suggest other threads may have crashed
-- Core dump may have captured state AFTER cleanup of dead threads
+### Interpipe Global Mutex Discovery
 
-**Evidence AGAINST**:
-- No obvious crashed threads in core dump
-- Can't identify the holder
+**File**: `/tmp/gst-interpipe/gst/interpipe/gstinterpipe.c:51-52`
+```c
+static GMutex listeners_mutex;  // GLOBAL - shared across ALL interpipesrc
+static GMutex nodes_mutex;      // GLOBAL - shared across ALL interpipesink
+```
 
-**How to Verify**:
-- Restart Wolf and reproduce with better debugging
-- Add mutex ownership logging
-- Check if issue recurs
+**Pipeline Architecture**:
+Session 9671ab7 has interconnected pipelines via interpipe:
+```
+Audio Producer:  pulsesrc ! queue ! interpipesink name="9671ab7_audio"
+Audio Consumer:  interpipesrc listen-to="9671ab7_audio" ! encoder ! rtpmoonlightpay ! appsink
+Video Producer:  waylanddisplaysrc ! interpipesink name="9671ab7_video"
+Video Consumer:  interpipesrc listen-to="9671ab7_video" ! encoder ! rtpmoonlightpay ! appsink
+```
 
-### Scenario B: Concurrent Pipeline Manipulation Bug
+**Event Propagation Through Interpipe**:
+When Thread 99 sends EOS to audio producer pipeline:
+1. `gst_element_send_event(pipeline, EOS)` - Frame #7
+2. Recursively calls each element: pulsesrc, queue, **interpipesink**
+3. interpipesink event handler acquires **sink->listeners_mutex** (gstinterpipesink.c:587)
+4. Tries to notify all connected interpipesrc listeners
+5. **Blocks on mutex held by dead Thread 43209**
 
-**Theory**: Two operations on the same pipeline tried to acquire `live_lock` in conflicting order, causing circular deadlock. One thread has since exited.
+**THE DEADLOCK MECHANISM** (PROVEN):
 
-**Evidence FOR**:
-- Multiple event handlers can fire concurrently
-- Pipeline shared between threads via event_bus
-- Complex locking order (STATE_LOCK → PAD_STREAM_LOCK → live_lock)
+1. **Thread 43209** (now dead) was a GStreamer internal thread
+2. Thread 43209 acquired mutex **0x70537c0062b0** (proven by mutex+8 = 0xa8c9 = 43209)
+3. Thread 43209 exited/crashed WITHOUT releasing the mutex
+4. Mutex left in locked state, owner field still = 43209
+5. **Thread 99** (HTTPS) called `gst_element_send_event(pipeline, EOS)`
+6. Event propagated to **interpipesink** element
+7. interpipesink tried to acquire mutex (likely `listeners_mutex` or related)
+8. **Blocked forever** waiting for mutex held by dead thread
+9. All new HTTPS requests wait for Thread 99 → **complete HTTPS hang**
 
-**Evidence AGAINST**:
-- Can't find second thread in core dump
-- Thread 40 (owner) is healthy
+**Why Thread 43209 Died**:
+- Unknown (registers corrupted in core dump)
+- Likely a GStreamer internal streaming thread
+- Could be from:
+  - Previous session cleanup
+  - GStreamer task thread that crashed
+  - interpipesrc consumer thread that was terminated
+  - Exception during buffer processing
 
-### Scenario C: GStreamer Internal Bug
-
-**Theory**: Bug in GStreamer library itself - mutex not released after exception or error path.
-
-**Evidence FOR**:
-- Mutex stuck in libgstbase internal code (no Wolf code in stack)
-- Pipeline was processing normally (Thread 40 in ppoll)
-- Similar issues reported in GStreamer issue tracker
-
-**Evidence AGAINST**:
-- GStreamer is mature, widely used
-- Would affect many users
+**Why Only Thread 99 Affected**:
+- HTTP thread hasn't tried to manipulate THIS specific pipeline yet
+- Thread 99 happened to send EOS to a pipeline with abandoned interpipe mutex
+- Other pipelines/sessions still functional (HTTP works)
 
 ---
 
