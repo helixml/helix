@@ -179,7 +179,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	}
 
 	// Add DMA heap device mount (required for CUDA buffer allocation in Wayland/GPU rendering)
-	mounts = append(mounts, "/dev/dma_heap:/dev/dma_heap:rw")
+	// Mount the system device file inside /dev/dma_heap (not the directory itself)
+	mounts = append(mounts, "/dev/dma_heap/system:/dev/dma_heap/system:rw")
 
 	// Add extra mounts (e.g., internal project repo)
 	mounts = append(mounts, config.ExtraMounts...)
@@ -1257,7 +1258,8 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	}
 
 	// Add DMA heap device mount (required for CUDA buffer allocation in Wayland/GPU rendering)
-	mounts = append(mounts, "/dev/dma_heap:/dev/dma_heap:rw")
+	// Mount the system device file inside /dev/dma_heap (not the directory itself)
+	mounts = append(mounts, "/dev/dma_heap/system:/dev/dma_heap/system:rw")
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
