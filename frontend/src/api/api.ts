@@ -3016,6 +3016,7 @@ export interface TypesRAGSettings {
 
 export interface TypesRegisterRequest {
   email?: string;
+  full_name?: string;
   password?: string;
   password_confirm?: string;
 }
@@ -4213,11 +4214,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
