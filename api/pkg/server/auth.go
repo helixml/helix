@@ -179,6 +179,7 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 	user := &types.User{
 		ID:           userID,
 		Email:        registerRequest.Email,
+		FullName:     registerRequest.FullName,
 		Username:     registerRequest.Email,
 		Password:     registerRequest.Password,
 		Type:         types.OwnerTypeUser,
@@ -209,6 +210,73 @@ func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
 		Email: createdUser.Email,
 		Token: token,
 		Name:  createdUser.FullName,
+	}
+	writeResponse(w, response, http.StatusOK)
+}
+
+// accountUpdate godoc
+// @Summary Update Account
+// @Description Update the account information for the authenticated user
+// @Tags    auth
+// @Success 200 {object} types.UserResponse
+// @Param request    body types.AccountUpdateRequest true "Request body with full name."
+// @Router /api/v1/auth/update [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) accountUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	ctx := r.Context()
+
+	user := getRequestUser(r)
+	if user == nil || user.ID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var accountUpdateRequest types.AccountUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&accountUpdateRequest); err != nil {
+		log.Error().Err(err).Msg("Failed to decode account update request")
+		http.Error(w, "Failed to decode account update request", http.StatusBadRequest)
+		return
+	}
+
+	existingUser, err := s.Store.GetUser(ctx, &store.GetUserQuery{
+		ID: user.ID,
+	})
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to get user")
+		http.Error(w, "Failed to get user: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if existingUser == nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	existingUser.FullName = accountUpdateRequest.FullName
+
+	updatedUser, err := s.Store.UpdateUser(ctx, existingUser)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID).Msg("Failed to update user")
+		http.Error(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	cm := NewCookieManager(s.Cfg)
+	accessToken, err := cm.Get(r, accessTokenCookie)
+	if err != nil {
+		log.Debug().Err(err).Str("cookie", accessTokenCookie.Name).Msg("failed to get cookie")
+		accessToken = ""
+	}
+
+	response := types.UserResponse{
+		ID:    updatedUser.ID,
+		Email: updatedUser.Email,
+		Token: accessToken,
+		Name:  updatedUser.FullName,
 	}
 	writeResponse(w, response, http.StatusOK)
 }
