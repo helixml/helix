@@ -140,7 +140,11 @@ const MoonlightMonitor: FC = () => {
 
         try {
           const response = await api.get(`/api/v1/sessions/${helixSessionId}/wolf-app-state`)
-          states[session.session_id] = response.data.state || 'unknown'
+          if (response && response.data) {
+            states[session.session_id] = response.data.state || 'unknown'
+          } else {
+            states[session.session_id] = 'unknown'
+          }
         } catch (err) {
           states[session.session_id] = 'error'
         }

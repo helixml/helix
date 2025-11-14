@@ -662,7 +662,7 @@ type ThreadHealthInfo struct {
 	Details                string `json:"details"`
 	SecondsSinceHeartbeat  int64  `json:"seconds_since_heartbeat"`
 	SecondsAlive           int64  `json:"seconds_alive"`
-	HeartbeatCount         uint64 `json:"heartbeat_count"`
+	HeartbeatCount         int64  `json:"heartbeat_count"`
 	IsStuck                bool   `json:"is_stuck"`
 }
 

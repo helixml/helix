@@ -170,7 +170,7 @@ const WolfHealthPanel: React.FC = () => {
         )}
 
         <Typography variant="caption" color="text.secondary" display="block" mt={2}>
-          Data refreshes every 30 seconds
+          Data refreshes every 5 seconds
         </Typography>
       </CardContent>
     </Card>
