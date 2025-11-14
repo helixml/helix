@@ -766,6 +766,59 @@ check_nvidia_runtime_needed() {
     return 0
 }
 
+# Function to configure DMA heap device permissions (required for CUDA buffer allocation in containers)
+configure_dma_heap_permissions() {
+    if [ "$OS" != "linux" ]; then
+        return
+    fi
+
+    if ! check_nvidia_gpu; then
+        return
+    fi
+
+    # Check if DMA heap device exists
+    if [ ! -e /dev/dma_heap/system ]; then
+        return
+    fi
+
+    echo "Configuring DMA heap device permissions for Docker containers..."
+
+    # Create helper script to fix permissions on boot
+    cat << 'EOF' | sudo tee /usr/local/bin/fix-dma-heap-permissions.sh > /dev/null
+#!/bin/bash
+# Fix DMA heap permissions for Docker containers (required for CUDA buffer allocation)
+if [ -e /dev/dma_heap/system ]; then
+    chmod 666 /dev/dma_heap/system
+fi
+EOF
+    sudo chmod +x /usr/local/bin/fix-dma-heap-permissions.sh
+
+    # Run it now to fix current session
+    sudo /usr/local/bin/fix-dma-heap-permissions.sh
+
+    # Create systemd service to run on boot
+    cat << 'EOF' | sudo tee /etc/systemd/system/dma-heap-permissions.service > /dev/null
+[Unit]
+Description=Fix DMA Heap Device Permissions for Docker Containers
+After=dev-dma_heap.device
+ConditionPathExists=/dev/dma_heap/system
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fix-dma-heap-permissions.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Enable the service
+    sudo systemctl daemon-reload
+    sudo systemctl enable dma-heap-permissions.service
+
+    echo "DMA heap permissions configured. Service will auto-start on boot."
+}
+
 # Function to configure NVIDIA GPU kernel module with modeset=1 (required for Wayland/GPU acceleration)
 configure_nvidia_gpu_kernel() {
     if ! check_nvidia_gpu; then
@@ -1191,6 +1244,7 @@ if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT"
     # Configure NVIDIA GPU kernel module for GPU-accelerated Wayland (if applicable)
     if [ "$CODE" = true ] || [ "$RUNNER" = true ]; then
         configure_nvidia_gpu_kernel
+        configure_dma_heap_permissions
     fi
 fi
 
