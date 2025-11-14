@@ -137,3 +137,52 @@ func (apiServer *HelixAPIServer) completeWolfPairing(res http.ResponseWriter, re
 	res.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(res).Encode(response)
 }
+
+// getWolfHealth handles GET /api/v1/wolf/health
+// Returns Wolf system health including thread heartbeat status and deadlock detection
+//
+// @Summary Get Wolf system health
+// @Description Get Wolf system health status including thread heartbeat monitoring and deadlock detection
+// @Tags Wolf
+// @Success 200 {object} wolf.SystemHealthResponse
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 503 {string} string "Wolf not available"
+// @Router /api/v1/wolf/health [get]
+// @Security ApiKeyAuth
+func (apiServer *HelixAPIServer) getWolfHealth(res http.ResponseWriter, req *http.Request) {
+	user := getRequestUser(req)
+	if user == nil {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get Wolf client from the executor
+	wolfExecutor, ok := apiServer.externalAgentExecutor.(*external_agent.WolfExecutor)
+	if !ok {
+		http.Error(res, "Wolf executor not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	wolfClient := wolfExecutor.GetWolfClient()
+	if wolfClient == nil {
+		http.Error(res, "Wolf client not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	healthResponse, err := wolfClient.GetSystemHealth(req.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get Wolf system health")
+		http.Error(res, fmt.Sprintf("Failed to get system health: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Str("overall_status", healthResponse.OverallStatus).
+		Int32("stuck_thread_count", healthResponse.StuckThreadCount).
+		Int32("total_thread_count", healthResponse.TotalThreadCount).
+		Msg("Retrieved Wolf system health")
+
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(healthResponse)
+}
