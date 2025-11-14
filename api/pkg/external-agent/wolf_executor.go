@@ -178,6 +178,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 			Msg("Mounting SSH keys for git access")
 	}
 
+	// Add DMA heap device mount (required for CUDA buffer allocation in Wayland/GPU rendering)
+	mounts = append(mounts, "/dev/dma_heap:/dev/dma_heap:rw")
+
 	// Add extra mounts (e.g., internal project repo)
 	mounts = append(mounts, config.ExtraMounts...)
 
@@ -1252,6 +1255,9 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
 		)
 	}
+
+	// Add DMA heap device mount (required for CUDA buffer allocation in Wayland/GPU rendering)
+	mounts = append(mounts, "/dev/dma_heap:/dev/dma_heap:rw")
 
 	// Use Wolf app ID as both container name and hostname for predictable DNS
 	containerHostname := fmt.Sprintf("personal-dev-%s", wolfAppID)
