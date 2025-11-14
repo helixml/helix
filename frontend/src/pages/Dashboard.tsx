@@ -41,6 +41,7 @@ import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedul
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import MoonlightMonitor from "../components/admin/MoonlightMonitor";
+import WolfHealthPanel from "../components/wolf/WolfHealthPanel";
 import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -632,6 +633,9 @@ const Dashboard: FC = () => {
                         }}
                     >
                         <AgentSandboxes />
+                        <Box sx={{ mt: 4 }}>
+                            <WolfHealthPanel />
+                        </Box>
                         <Box sx={{ mt: 4 }}>
                             <MoonlightMonitor />
                         </Box>

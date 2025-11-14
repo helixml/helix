@@ -4389,6 +4389,25 @@ export interface TypesZedInstanceStatus {
   zed_instance_id?: string;
 }
 
+export interface WolfSystemHealthResponse {
+  overall_status?: string;
+  process_uptime_seconds?: number;
+  stuck_thread_count?: number;
+  success?: boolean;
+  threads?: WolfThreadHealthInfo[];
+  total_thread_count?: number;
+}
+
+export interface WolfThreadHealthInfo {
+  details?: string;
+  heartbeat_count?: number;
+  is_stuck?: boolean;
+  name?: string;
+  seconds_alive?: number;
+  seconds_since_heartbeat?: number;
+  tid?: number;
+}
+
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
 import axios from "axios";
 
@@ -9699,6 +9718,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/wallet`,
         method: "GET",
         query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get Wolf system health status including thread heartbeat monitoring and deadlock detection
+     *
+     * @tags Wolf
+     * @name V1WolfHealthList
+     * @summary Get Wolf system health
+     * @request GET:/api/v1/wolf/health
+     * @secure
+     */
+    v1WolfHealthList: (params: RequestParams = {}) =>
+      this.request<WolfSystemHealthResponse, string>({
+        path: `/api/v1/wolf/health`,
+        method: "GET",
         secure: true,
         ...params,
       }),
