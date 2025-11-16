@@ -14,6 +14,7 @@ import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 import useRouter from '../../hooks/useRouter';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
+import { useGetConfig } from '../../services/userService';
 
 interface LoginRegisterDialogProps {
   open: boolean;
@@ -29,10 +30,14 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const { data: config, isLoading: isLoadingConfig } = useGetConfig()
+
   const api = useApi();
   const snackbar = useSnackbar();
   const router = useRouter();
   const apiClient = api.getApiClient();
+
+  const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false;
 
   const handleClose = () => {
     setMode('login');
@@ -160,6 +165,11 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ p: 3 }}>
+          {isRegistrationDisabled && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              New account registrations are disabled. Please contact your server administrator.
+            </Alert>
+          )}
           <TextField
             autoFocus
             margin="dense"
@@ -169,6 +179,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             variant="outlined"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={isRegistrationDisabled}
             sx={{
               mb: 2,
               '& .MuiOutlinedInput-root': {
@@ -203,6 +214,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               variant="outlined"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
+              disabled={isRegistrationDisabled}
               sx={{
                 mb: 2,
                 '& .MuiOutlinedInput-root': {
@@ -237,6 +249,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             variant="outlined"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            disabled={isRegistrationDisabled}
             sx={{
               mb: mode === 'register' ? 2 : 0,
               '& .MuiOutlinedInput-root': {
@@ -306,6 +319,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               variant="outlined"
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
+              disabled={isRegistrationDisabled}
               sx={{
                 '& .MuiOutlinedInput-root': {
                   '& fieldset': {
@@ -342,7 +356,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             type="submit"
             variant="contained"
             color="secondary"
-            disabled={loading}
+            disabled={loading || isRegistrationDisabled}
             fullWidth
             sx={{
               backgroundColor: '#00E5FF',
