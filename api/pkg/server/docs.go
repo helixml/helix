@@ -22289,8 +22289,14 @@ const docTemplate = `{
         "wolf.ThreadHealthInfo": {
             "type": "object",
             "properties": {
+                "current_request_path": {
+                    "type": "string"
+                },
                 "details": {
                     "type": "string"
+                },
+                "has_active_request": {
+                    "type": "boolean"
                 },
                 "heartbeat_count": {
                     "type": "integer"
@@ -22301,11 +22307,17 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "request_duration_seconds": {
+                    "type": "integer"
+                },
                 "seconds_alive": {
                     "type": "integer"
                 },
                 "seconds_since_heartbeat": {
                     "type": "integer"
+                },
+                "stack_trace": {
+                    "type": "string"
                 },
                 "tid": {
                     "type": "integer"

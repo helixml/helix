@@ -4399,12 +4399,16 @@ export interface WolfSystemHealthResponse {
 }
 
 export interface WolfThreadHealthInfo {
+  current_request_path?: string;
   details?: string;
+  has_active_request?: boolean;
   heartbeat_count?: number;
   is_stuck?: boolean;
   name?: string;
+  request_duration_seconds?: number;
   seconds_alive?: number;
   seconds_since_heartbeat?: number;
+  stack_trace?: string;
   tid?: number;
 }
 

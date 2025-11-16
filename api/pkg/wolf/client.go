@@ -664,6 +664,10 @@ type ThreadHealthInfo struct {
 	SecondsAlive           int64  `json:"seconds_alive"`
 	HeartbeatCount         int64  `json:"heartbeat_count"`
 	IsStuck                bool   `json:"is_stuck"`
+	CurrentRequestPath     string `json:"current_request_path"`
+	RequestDurationSeconds int64  `json:"request_duration_seconds"`
+	HasActiveRequest       bool   `json:"has_active_request"`
+	StackTrace             string `json:"stack_trace"`
 }
 
 // SystemHealthResponse represents Wolf system health status
