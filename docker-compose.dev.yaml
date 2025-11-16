@@ -367,6 +367,8 @@ services:
           reservations:
             devices:
               - capabilities: [gpu]
+      cap_add:
+        - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/stack for thread diagnostics
       restart: unless-stopped
       healthcheck:
         test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]

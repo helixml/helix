@@ -17,10 +17,7 @@ export function useWolfHealth(options?: {
   return useQuery({
     queryKey: WOLF_HEALTH_QUERY_KEY(),
     queryFn: async () => {
-      console.log('[Wolf Health] Fetching health data...')
       const result = await apiClient.v1WolfHealthList()
-      console.log('[Wolf Health] Full response:', result)
-      console.log('[Wolf Health] Response.data:', result.data)
       // The generated client returns Axios response, need to extract .data
       return result.data
     },

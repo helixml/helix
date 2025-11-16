@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Box,
   Card,
@@ -13,7 +13,11 @@ import {
   Chip,
   Alert,
   CircularProgress,
+  Collapse,
+  IconButton,
 } from '@mui/material'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import { useWolfHealth } from '../../services'
 
 
@@ -33,6 +37,19 @@ const formatUptime = (seconds: number): string => {
 
 const WolfHealthPanel: React.FC = () => {
   const { data: health, isLoading, error } = useWolfHealth()
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+
+  const toggleRow = (tid: number) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(tid)) {
+        newSet.delete(tid)
+      } else {
+        newSet.add(tid)
+      }
+      return newSet
+    })
+  }
 
   if (isLoading) {
     return (
@@ -97,9 +114,10 @@ const WolfHealthPanel: React.FC = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>TID</TableCell>
                   <TableCell>Name</TableCell>
-                  <TableCell>Details</TableCell>
+                  <TableCell>Details / Current Request</TableCell>
                   <TableCell align="right">Heartbeat</TableCell>
                   <TableCell align="right">Alive</TableCell>
                   <TableCell align="right">Count</TableCell>
@@ -107,33 +125,55 @@ const WolfHealthPanel: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {health.threads.map((thread) => (
-                  <TableRow
-                    key={thread.tid}
-                    sx={{
-                      backgroundColor: thread.is_stuck ? 'error.light' : 'inherit',
-                      opacity: thread.is_stuck ? 1 : 0.9,
-                    }}
-                  >
-                    <TableCell>
-                      <Typography variant="body2" fontFamily="monospace">
-                        {thread.tid}
-                      </Typography>
-                    </TableCell>
+                {health.threads.map((thread) => {
+                  const isExpanded = expandedRows.has(thread.tid || 0)
+                  const hasExpandableContent = thread.stack_trace || thread.has_active_request
+
+                  return (
+                    <React.Fragment key={thread.tid}>
+                      <TableRow
+                        sx={{
+                          backgroundColor: thread.is_stuck ? 'error.light' : 'inherit',
+                          opacity: thread.is_stuck ? 1 : 0.9,
+                        }}
+                      >
+                        <TableCell>
+                          {hasExpandableContent && (
+                            <IconButton size="small" onClick={() => toggleRow(thread.tid || 0)}>
+                              {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                            </IconButton>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontFamily="monospace">
+                            {thread.tid}
+                          </Typography>
+                        </TableCell>
                     <TableCell>
                       <Typography variant="body2" fontWeight={thread.is_stuck ? 'bold' : 'normal'}>
                         {thread.name}
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2" fontSize="0.75rem" color="text.secondary" sx={{
-                        maxWidth: 300,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {thread.details}
-                      </Typography>
+                      {thread.has_active_request ? (
+                        <Box>
+                          <Typography variant="body2" fontSize="0.75rem" fontWeight="bold" color={thread.request_duration_seconds && thread.request_duration_seconds > 30 ? 'error.main' : 'warning.main'}>
+                            {thread.current_request_path}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {thread.request_duration_seconds}s elapsed
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" fontSize="0.75rem" color="text.secondary" sx={{
+                          maxWidth: 300,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {thread.details}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" fontFamily="monospace">
@@ -150,16 +190,61 @@ const WolfHealthPanel: React.FC = () => {
                         {thread.heartbeat_count}
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={thread.is_stuck ? 'STUCK' : 'OK'}
-                        color={thread.is_stuck ? 'error' : 'success'}
-                        size="small"
-                        sx={{ minWidth: 60 }}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                        <TableCell>
+                          <Chip
+                            label={thread.is_stuck ? 'STUCK' : 'OK'}
+                            color={thread.is_stuck ? 'error' : 'success'}
+                            size="small"
+                            sx={{ minWidth: 60 }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                      {hasExpandableContent && (
+                        <TableRow>
+                          <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                              <Box sx={{ margin: 2 }}>
+                                {thread.has_active_request && thread.current_request_path && (
+                                  <Box sx={{ mb: 2 }}>
+                                    <Typography variant="subtitle2" gutterBottom>
+                                      Active HTTP Request:
+                                    </Typography>
+                                    <Typography variant="body2" fontFamily="monospace" color="warning.main">
+                                      {thread.current_request_path}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Duration: {thread.request_duration_seconds}s
+                                    </Typography>
+                                  </Box>
+                                )}
+                                {thread.stack_trace && (
+                                  <Box>
+                                    <Typography variant="subtitle2" gutterBottom>
+                                      Current System Call:
+                                    </Typography>
+                                    <Box
+                                      component="pre"
+                                      sx={{
+                                        fontSize: '0.8rem',
+                                        fontFamily: 'monospace',
+                                        backgroundColor: 'background.default',
+                                        padding: 1,
+                                        borderRadius: 1,
+                                        overflow: 'auto',
+                                      }}
+                                    >
+                                      {thread.stack_trace || 'Thread is running in userspace'}
+                                    </Box>
+                                  </Box>
+                                )}
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
           </TableContainer>
