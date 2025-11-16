@@ -134,7 +134,8 @@ func randString(nByte int) (string, error) {
 // @Param request    body types.RegisterRequest true "Request body with email and password.")
 // @Router /api/v1/auth/register [post]
 func (s *HelixAPIServer) register(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
+	if !s.Cfg.Auth.RegistrationEnabled {
+		http.Error(w, "Registration is disabled", http.StatusForbidden)
 		return
 	}
 
