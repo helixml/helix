@@ -1317,6 +1317,13 @@ export interface TypesAddTeamMemberRequest {
   user_reference?: string;
 }
 
+export interface TypesAdminCreateUserRequest {
+  admin?: boolean;
+  email?: string;
+  full_name?: string;
+  password?: string;
+}
+
 export interface TypesAgentDashboardSummary {
   active_help_requests?: TypesHelpRequest[];
   active_sessions?: TypesAgentSessionStatus[];
@@ -9634,6 +9641,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new user with the specified details. Only admins can create users.
+     *
+     * @tags users
+     * @name V1UsersCreate
+     * @summary Create a new user (Admin only)
+     * @request POST:/api/v1/users
+     * @secure
+     */
+    v1UsersCreate: (request: TypesAdminCreateUserRequest, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",
