@@ -256,6 +256,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	}
 
 	config := types.ServerConfigForFrontend{
+		RegistrationEnabled:                    apiServer.Cfg.Auth.RegistrationEnabled,
 		AuthProvider:                           apiServer.Cfg.Auth.Provider,
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
