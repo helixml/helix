@@ -20,11 +20,14 @@ import {
     InputLabel,
     Select,
     MenuItem,
+    Button,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import AddIcon from "@mui/icons-material/Add";
 import { TypesUser, TypesPaginatedUsersList } from "../../api/api";
 import { useListUsers, UserListQuery } from "../../services/dashboardService";
+import CreateUserDialog from "./CreateUserDialog";
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -90,6 +93,7 @@ const UsersTable: FC = () => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(25);
     const [searchType, setSearchType] = useState<"username" | "email">("username");
+    const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
     // Debounced search query
     const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -175,59 +179,70 @@ const UsersTable: FC = () => {
     const totalPages = data?.totalPages || 0;
 
     return (
-        <Paper sx={{ width: "100%", overflow: "hidden" }}>
-            <Box
-                sx={{
-                    p: 2,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 2,
-                }}
-            >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 2, flex: 1 }}>
-                    <TextField
-                        label={`Search by ${searchType}`}
-                        size="small"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        sx={{ minWidth: 300 }}
-                        InputProps={{
-                            startAdornment: (
-                                <InputAdornment position="start">
-                                    <SearchIcon />
-                                </InputAdornment>
-                            ),
-                            endAdornment: searchQuery && (
-                                <InputAdornment position="end">
-                                    <IconButton
-                                        aria-label="clear search"
-                                        onClick={handleClearSearch}
-                                        edge="end"
-                                        size="small"
-                                    >
-                                        <ClearIcon />
-                                    </IconButton>
-                                </InputAdornment>
-                            ),
-                        }}
-                    />
-                    <FormControl size="small" sx={{ minWidth: 120 }}>
-                        <InputLabel>Search by</InputLabel>
-                        <Select
-                            value={searchType}
-                            label="Search by"
-                            onChange={handleSearchTypeChange}
-                        >
-                            <MenuItem value="username">Username</MenuItem>
-                            <MenuItem value="email">Email</MenuItem>
-                        </Select>
-                    </FormControl>
-                </Box>
-                <Typography variant="body2" color="text.secondary">
-                    {totalCount} user{totalCount !== 1 ? "s" : ""} total
-                </Typography>
+        <>
+            <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
+                <Button
+                    variant="contained"
+                    color="secondary"
+                    startIcon={<AddIcon />}
+                    onClick={() => setCreateDialogOpen(true)}
+                >
+                    Create User
+                </Button>
             </Box>
+            <Paper sx={{ width: "100%", overflow: "hidden" }}>
+                <Box
+                    sx={{
+                        p: 2,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 2,
+                    }}
+                >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, flex: 1 }}>
+                        <TextField
+                            label={`Search by ${searchType}`}
+                            size="small"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            sx={{ minWidth: 300 }}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <SearchIcon />
+                                    </InputAdornment>
+                                ),
+                                endAdornment: searchQuery && (
+                                    <InputAdornment position="end">
+                                        <IconButton
+                                            aria-label="clear search"
+                                            onClick={handleClearSearch}
+                                            edge="end"
+                                            size="small"
+                                        >
+                                            <ClearIcon />
+                                        </IconButton>
+                                    </InputAdornment>
+                                ),
+                            }}
+                        />
+                        <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <InputLabel>Search by</InputLabel>
+                            <Select
+                                value={searchType}
+                                label="Search by"
+                                onChange={handleSearchTypeChange}
+                            >
+                                <MenuItem value="username">Username</MenuItem>
+                                <MenuItem value="email">Email</MenuItem>
+                            </Select>
+                        </FormControl>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                        {totalCount} user{totalCount !== 1 ? "s" : ""} total
+                    </Typography>
+                </Box>
 
             <TableContainer>
                 <Table stickyHeader aria-label="users table">
@@ -305,6 +320,11 @@ const UsersTable: FC = () => {
                 />
             )}
         </Paper>
+        <CreateUserDialog
+            open={createDialogOpen}
+            onClose={() => setCreateDialogOpen(false)}
+        />
+        </>
     );
 };
 
