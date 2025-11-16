@@ -10383,6 +10383,43 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new user with the specified details. Only admins can create users.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a new user (Admin only)",
+                "parameters": [
+                    {
+                        "description": "User creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AdminCreateUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/users/search": {
@@ -14560,6 +14597,23 @@ const docTemplate = `{
             "properties": {
                 "user_reference": {
                     "description": "Either user ID or user email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AdminCreateUserRequest": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "password": {
                     "type": "string"
                 }
             }
@@ -19375,12 +19429,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "auth_provider": {
-                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AuthProvider"
-                        }
-                    ]
+                    "$ref": "#/definitions/types.AuthProvider"
                 },
                 "billing_enabled": {
                     "description": "Charging for usage",
@@ -19416,6 +19465,10 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "description": "Controls if users can add their own AI provider API keys",
+                    "type": "boolean"
+                },
+                "registration_enabled": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                     "type": "boolean"
                 },
                 "rudderstack_data_plane_url": {
