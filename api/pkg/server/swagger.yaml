@@ -2168,6 +2168,11 @@ definitions:
         description: If granted to a user
         type: string
     type: object
+  types.AccountUpdateRequest:
+    properties:
+      full_name:
+        type: string
+    type: object
   types.Action:
     enum:
     - Get
@@ -5185,6 +5190,8 @@ definitions:
   types.RegisterRequest:
     properties:
       email:
+        type: string
+      full_name:
         type: string
       password:
         type: string
@@ -8682,6 +8689,26 @@ paths:
         "200":
           description: OK
       summary: Register
+      tags:
+      - auth
+  /api/v1/auth/update:
+    post:
+      description: Update the account information for the authenticated user
+      parameters:
+      - description: Request body with full name.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AccountUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserResponse'
+      security:
+      - BearerAuth: []
+      summary: Update Account
       tags:
       - auth
   /api/v1/auth/user:

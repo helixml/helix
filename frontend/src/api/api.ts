@@ -1293,6 +1293,10 @@ export interface TypesAccessGrant {
   user_id?: string;
 }
 
+export interface TypesAccountUpdateRequest {
+  full_name?: string;
+}
+
 export enum TypesAction {
   ActionGet = "Get",
   ActionList = "List",
@@ -3016,6 +3020,7 @@ export interface TypesRAGSettings {
 
 export interface TypesRegisterRequest {
   email?: string;
+  full_name?: string;
   password?: string;
   password_confirm?: string;
 }
@@ -5530,6 +5535,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/auth/register`,
         method: "POST",
         body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Update the account information for the authenticated user
+     *
+     * @tags auth
+     * @name V1AuthUpdateCreate
+     * @summary Update Account
+     * @request POST:/api/v1/auth/update
+     * @secure
+     */
+    v1AuthUpdateCreate: (request: TypesAccountUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesUserResponse, any>({
+        path: `/api/v1/auth/update`,
+        method: "POST",
+        body: request,
+        secure: true,
         type: ContentType.Json,
         ...params,
       }),

@@ -2410,6 +2410,7 @@ type LoginRequest struct {
 type RegisterRequest struct {
 	Email           string `json:"email"`
 	Password        string `json:"password"`
+	FullName        string `json:"full_name"`
 	PasswordConfirm string `json:"password_confirm"`
 }
 
@@ -2424,6 +2425,10 @@ type PasswordResetCompleteRequest struct {
 
 type PasswordUpdateRequest struct {
 	NewPassword string `json:"new_password"`
+}
+
+type AccountUpdateRequest struct {
+	FullName string `json:"full_name"`
 }
 
 type UserResponse struct {
