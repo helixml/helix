@@ -984,6 +984,7 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
+	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
 	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled

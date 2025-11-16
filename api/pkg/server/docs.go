@@ -19375,12 +19375,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "auth_provider": {
-                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.AuthProvider"
-                        }
-                    ]
+                    "$ref": "#/definitions/types.AuthProvider"
                 },
                 "billing_enabled": {
                     "description": "Charging for usage",
@@ -19416,6 +19411,10 @@ const docTemplate = `{
                 },
                 "providers_management_enabled": {
                     "description": "Controls if users can add their own AI provider API keys",
+                    "type": "boolean"
+                },
+                "registration_enabled": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
                     "type": "boolean"
                 },
                 "rudderstack_data_plane_url": {

@@ -5556,14 +5556,7 @@ definitions:
       apps_enabled:
         type: boolean
       auth_provider:
-        allOf:
-        - $ref: '#/definitions/types.AuthProvider'
-        description: |-
-          used to prepend onto raw filestore paths to download files
-          the filestore path will have the user info in it - i.e.
-          it's a low level filestore path
-          if we are using an object storage thing - then this URL
-          can be the prefix to the bucket
+        $ref: '#/definitions/types.AuthProvider'
       billing_enabled:
         description: Charging for usage
         type: boolean
@@ -5588,6 +5581,14 @@ definitions:
         type: boolean
       providers_management_enabled:
         description: Controls if users can add their own AI provider API keys
+        type: boolean
+      registration_enabled:
+        description: |-
+          used to prepend onto raw filestore paths to download files
+          the filestore path will have the user info in it - i.e.
+          it's a low level filestore path
+          if we are using an object storage thing - then this URL
+          can be the prefix to the bucket
         type: boolean
       rudderstack_data_plane_url:
         type: string

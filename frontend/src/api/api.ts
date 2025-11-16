@@ -3216,13 +3216,6 @@ export interface TypesSecret {
 
 export interface TypesServerConfigForFrontend {
   apps_enabled?: boolean;
-  /**
-   * used to prepend onto raw filestore paths to download files
-   * the filestore path will have the user info in it - i.e.
-   * it's a low level filestore path
-   * if we are using an object storage thing - then this URL
-   * can be the prefix to the bucket
-   */
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
@@ -3238,6 +3231,14 @@ export interface TypesServerConfigForFrontend {
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
+  /**
+   * used to prepend onto raw filestore paths to download files
+   * the filestore path will have the user info in it - i.e.
+   * it's a low level filestore path
+   * if we are using an object storage thing - then this URL
+   * can be the prefix to the bucket
+   */
+  registration_enabled?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
