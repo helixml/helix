@@ -2205,6 +2205,17 @@ definitions:
         description: Either user ID or user email
         type: string
     type: object
+  types.AdminCreateUserRequest:
+    properties:
+      admin:
+        type: boolean
+      email:
+        type: string
+      full_name:
+        type: string
+      password:
+        type: string
+    type: object
   types.AgentDashboardSummary:
     properties:
       active_help_requests:
@@ -14189,6 +14200,30 @@ paths:
       security:
       - BearerAuth: []
       summary: List users with pagination and filtering
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Create a new user with the specified details. Only admins can create
+        users.
+      parameters:
+      - description: User creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AdminCreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+      security:
+      - BearerAuth: []
+      summary: Create a new user (Admin only)
       tags:
       - users
   /api/v1/users/{id}:

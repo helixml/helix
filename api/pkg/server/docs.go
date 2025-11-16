@@ -10383,6 +10383,43 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new user with the specified details. Only admins can create users.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a new user (Admin only)",
+                "parameters": [
+                    {
+                        "description": "User creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AdminCreateUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/users/search": {
@@ -14560,6 +14597,23 @@ const docTemplate = `{
             "properties": {
                 "user_reference": {
                     "description": "Either user ID or user email",
+                    "type": "string"
+                }
+            }
+        },
+        "types.AdminCreateUserRequest": {
+            "type": "object",
+            "properties": {
+                "admin": {
+                    "type": "boolean"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "password": {
                     "type": "string"
                 }
             }
