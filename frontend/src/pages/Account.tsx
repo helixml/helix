@@ -321,16 +321,18 @@ export HELIX_API_KEY=${apiKey}
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="h6" gutterBottom>Full Name</Typography>
-                  <TextField
-                    sx={{ width: '50%' }}
-                    value={fullName}
-                    autoComplete='off'
-                    
-                    onChange={(e) => setFullName(e.target.value)}
-                    onBlur={handleFullNameBlur}
-                    variant="outlined"
-                    disabled={updateAccount.isPending}
-                  />
+                  <form autoComplete="off" style={{ width: '50%' }}>
+                    <TextField
+                      fullWidth
+                      value={fullName}
+                      autoComplete="name"
+                      data-form-type="other"
+                      onChange={(e) => setFullName(e.target.value)}
+                      onBlur={handleFullNameBlur}
+                      variant="outlined"
+                      disabled={updateAccount.isPending}
+                    />
+                  </form>
                 </Box>
               </Grid>
             </Grid>
