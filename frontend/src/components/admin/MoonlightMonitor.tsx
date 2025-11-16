@@ -87,7 +87,7 @@ const MoonlightMonitor: FC = () => {
       try {
         const response = await api.get<MoonlightStatusResponse>('/api/v1/moonlight/status')
         // Handle both direct data and wrapped response
-        if (response.data) {
+        if (response && response.data) {
           return response.data
         } else if (response) {
           return response as MoonlightStatusResponse
