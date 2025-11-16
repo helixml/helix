@@ -23,6 +23,7 @@ interface LoginRegisterDialogProps {
 const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   const handleClose = () => {
     setMode('login');
     setEmail('');
+    setFullName('');
     setPassword('');
     setPasswordConfirm('');
     setError(null);
@@ -84,7 +86,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
   };
 
   const handleRegister = async () => {
-    if (!email || !password || !passwordConfirm) {
+    if (!email || !fullName || !password || !passwordConfirm) {
       setError('Please fill in all fields');
       return;
     }
@@ -105,6 +107,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
     try {
       const registerRequest: TypesRegisterRequest = {
         email,
+        full_name: fullName,
         password,
         password_confirm: passwordConfirm,
       };
@@ -190,6 +193,41 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               },
             }}
           />
+
+          {mode === 'register' && (
+            <TextField
+              margin="dense"
+              label="Full Name"
+              type="text"
+              fullWidth
+              variant="outlined"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              sx={{
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: '#2D3748',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#00E5FF',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#00E5FF',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: '#A0AEC0',
+                },
+                '& .MuiInputLabel-root.Mui-focused': {
+                  color: '#00E5FF',
+                },
+                '& .MuiOutlinedInput-input': {
+                  color: '#F1F1F1',
+                },
+              }}
+            />
+          )}
 
           <TextField
             margin="dense"
@@ -331,6 +369,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
                 onClick={() => {
                   setMode(mode === 'login' ? 'register' : 'login');
                   setError(null);
+                  setFullName('');
                   setPassword('');
                   setPasswordConfirm('');
                 }}
