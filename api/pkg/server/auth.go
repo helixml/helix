@@ -511,7 +511,7 @@ func (s *HelixAPIServer) login(w http.ResponseWriter, r *http.Request) {
 		err = s.authenticator.ValidatePassword(r.Context(), user, loginRequest.Password)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to validate password")
-			http.Error(w, "Failed to validate password: "+err.Error(), http.StatusUnauthorized)
+			http.Error(w, "Invalid email or password", http.StatusUnauthorized)
 			return
 		}
 
