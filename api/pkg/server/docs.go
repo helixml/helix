@@ -1754,6 +1754,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/auth/update": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the account information for the authenticated user",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Update Account",
+                "parameters": [
+                    {
+                        "description": "Request body with full name.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AccountUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/user": {
             "get": {
                 "description": "Get the current user's information",
@@ -14480,6 +14513,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AccountUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "full_name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Action": {
             "type": "string",
             "enum": [
@@ -18812,6 +18853,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "email": {
+                    "type": "string"
+                },
+                "full_name": {
                     "type": "string"
                 },
                 "password": {

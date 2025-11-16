@@ -39,9 +39,8 @@ import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import SmallSpinner from '../components/system/SmallSpinner'
 
-import { useGetUserAPIKeys, useGetConfig, useUpdatePassword } from '../services/userService'
+import { useGetUserAPIKeys, useGetConfig, useUpdatePassword, useUpdateAccount } from '../services/userService'
 import { TypesAuthProvider } from '../api/api'
-import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -60,7 +59,6 @@ const Account: FC = () => {
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [password, setPassword] = useState<string>('')
   const [passwordConfirm, setPasswordConfirm] = useState<string>('')
@@ -71,6 +69,9 @@ const Account: FC = () => {
 
   const regenerateApiKey = useRegenerateUserAPIKey()
   const updatePassword = useUpdatePassword()
+  const updateAccount = useUpdateAccount()
+  
+  const [fullName, setFullName] = useState<string>(account.user?.name || '')
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -177,6 +178,24 @@ const Account: FC = () => {
   }, [
     account.token,
   ])
+
+  useEffect(() => {
+    setFullName(account.user?.name || '')
+  }, [account.user?.name])
+
+  const handleFullNameBlur = useCallback(async () => {
+    const currentFullName = account.user?.name || ''
+    if (fullName !== currentFullName && fullName.trim() !== '') {
+      try {
+        await updateAccount.mutateAsync({ full_name: fullName.trim() })
+        snackbar.success('Profile name has been updated')
+      } catch (error) {
+        console.error('Failed to update name:', error)
+        snackbar.error('Failed to update name')
+        setFullName(currentFullName)
+      }
+    }
+  }, [fullName, account.user, updateAccount, snackbar])
 
   if (!account.user || !apiKeys || !account.models || isLoadingServerConfig) {
     return null
@@ -296,6 +315,27 @@ export HELIX_API_KEY=${apiKey}
                   </Grid></>
               </Grid>
             )}
+
+            {/* Full Name Update */}
+            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="h6" gutterBottom>Full Name</Typography>
+                  <form autoComplete="off" style={{ width: '50%' }}>
+                    <TextField
+                      fullWidth
+                      value={fullName}
+                      autoComplete="name"
+                      data-form-type="other"
+                      onChange={(e) => setFullName(e.target.value)}
+                      onBlur={handleFullNameBlur}
+                      variant="outlined"
+                      disabled={updateAccount.isPending}
+                    />
+                  </form>
+                </Box>
+              </Grid>
+            </Grid>
 
             {/* Password Update */}
             {serverConfig?.auth_provider === TypesAuthProvider.AuthProviderRegular && (
@@ -463,16 +503,6 @@ export HELIX_API_KEY=${apiKey}
           </Box>
         </Box>
       </Container>
-
-      {/* Moonlight Pairing Dialog */}
-      <MoonlightPairingOverlay
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onPairingComplete={() => {
-          setPairingDialogOpen(false)
-          snackbar.success('Moonlight client paired successfully!')
-        }}
-      />
 
       {/* Footer */}
       <Box

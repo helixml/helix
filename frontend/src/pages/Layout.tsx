@@ -42,6 +42,8 @@ import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
 import useApi from '../hooks/useApi'
 import useUserMenuHeight from '../hooks/useUserMenuHeight'
+import { useGetConfig } from '../services/userService'
+import { TypesAuthProvider } from '../api/api'
 
 const Layout: FC<{
   children: ReactNode,
@@ -62,6 +64,7 @@ const Layout: FC<{
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [showLoginRegisterDialog, setShowLoginRegisterDialog] = useState(false)
   const userMenuHeight = useUserMenuHeight()
+  const { data: config } = useGetConfig()
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -380,51 +383,53 @@ const Layout: FC<{
         <GlobalLoading />
         {
           account.showLoginWindow && (
-            <DarkDialog
-              open
-              maxWidth="md"
-              fullWidth
-              onClose={() => {
-                account.setShowLoginWindow(false)
-              }}
-            >
-              <DialogTitle>
-                Please login to continue
-              </DialogTitle>
-              <DialogContent>
-                <Typography>
-                  We will keep what you've done here for you, so you may continue where you left off.
-                </Typography>
-              </DialogContent>
-              <DialogActions>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false)
-                  }}
-                  color="primary"
-                  variant="outlined"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    account.setShowLoginWindow(false)
-                    // For local email/password authentication ('regular' provider),
-                    // show the LoginRegisterDialog component for login/register forms.
-                    // For OIDC/OAuth providers, redirect to the OAuth provider.
-                    if (account.serverConfig?.auth_provider === 'regular') {
-                      setShowLoginRegisterDialog(true)
-                    } else {
+            config?.auth_provider === TypesAuthProvider.AuthProviderRegular ? (
+              <LoginRegisterDialog
+                open
+                onClose={() => {
+                  account.setShowLoginWindow(false)
+                }}
+              />
+            ) : (
+              <DarkDialog
+                open
+                maxWidth="md"
+                fullWidth
+                onClose={() => {
+                  account.setShowLoginWindow(false)
+                }}
+              >
+                <DialogTitle>
+                  Please login to continue
+                </DialogTitle>
+                <DialogContent>
+                  <Typography>
+                    We will keep what you've done here for you, so you may continue where you left off.
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button
+                    onClick={() => {
+                      account.setShowLoginWindow(false)
+                    }}
+                    color="primary"
+                    variant="outlined"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      account.setShowLoginWindow(false)
                       account.onLogin()
-                    }
-                  }}
-                  variant="contained"
-                  color="secondary"
-                >
-                  Login
-                </Button>
-              </DialogActions>
-            </DarkDialog>
+                    }}
+                    variant="contained"
+                    color="secondary"
+                  >
+                    Login
+                  </Button>
+                </DialogActions>
+              </DarkDialog>
+            )
           )
         }
         <LoginRegisterDialog
