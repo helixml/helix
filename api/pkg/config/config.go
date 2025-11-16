@@ -147,15 +147,17 @@ type Tools struct {
 }
 
 type Auth struct {
-	Provider types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
-	Keycloak Keycloak
-	OIDC     OIDC
-	Regular  Regular
+	Provider            types.AuthProvider `envconfig:"AUTH_PROVIDER" default:"regular"`
+	RegistrationEnabled bool               `envconfig:"AUTH_REGISTRATION_ENABLED" default:"true"`
+	Keycloak            Keycloak
+	OIDC                OIDC
+	Regular             Regular
 }
 
 type Regular struct {
-	Enabled   bool   `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
-	JWTSecret string `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
+	Enabled       bool          `envconfig:"REGULAR_AUTH_ENABLED" default:"true"`
+	TokenValidity time.Duration `envconfig:"REGULAR_AUTH_TOKEN_VALIDITY" default:"168h"` // 7 days
+	JWTSecret     string        `envconfig:"REGULAR_AUTH_JWT_SECRET" default:"helix-default-jwt-secret"`
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation
