@@ -41,7 +41,6 @@ import SmallSpinner from '../components/system/SmallSpinner'
 
 import { useGetUserAPIKeys, useGetConfig, useUpdatePassword, useUpdateAccount } from '../services/userService'
 import { TypesAuthProvider } from '../api/api'
-import MoonlightPairingOverlay from '../components/fleet/MoonlightPairingOverlay'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -60,7 +59,6 @@ const Account: FC = () => {
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
-  const [pairingDialogOpen, setPairingDialogOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [password, setPassword] = useState<string>('')
   const [passwordConfirm, setPasswordConfirm] = useState<string>('')
@@ -190,7 +188,7 @@ const Account: FC = () => {
     if (fullName !== currentFullName && fullName.trim() !== '') {
       try {
         await updateAccount.mutateAsync({ full_name: fullName.trim() })
-        snackbar.success('Name updated successfully')
+        snackbar.success('Profile name has been updated')
       } catch (error) {
         console.error('Failed to update name:', error)
         snackbar.error('Failed to update name')
@@ -326,6 +324,8 @@ export HELIX_API_KEY=${apiKey}
                   <TextField
                     sx={{ width: '50%' }}
                     value={fullName}
+                    autoComplete='off'
+                    
                     onChange={(e) => setFullName(e.target.value)}
                     onBlur={handleFullNameBlur}
                     variant="outlined"
@@ -501,16 +501,6 @@ export HELIX_API_KEY=${apiKey}
           </Box>
         </Box>
       </Container>
-
-      {/* Moonlight Pairing Dialog */}
-      <MoonlightPairingOverlay
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onPairingComplete={() => {
-          setPairingDialogOpen(false)
-          snackbar.success('Moonlight client paired successfully!')
-        }}
-      />
 
       {/* Footer */}
       <Box
