@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -981,6 +982,69 @@ func (apiServer *HelixAPIServer) usersList(_ http.ResponseWriter, req *http.Requ
 	}
 
 	return response, nil
+}
+
+// createUser godoc
+// @Summary Create a new user (Admin only)
+// @Description Create a new user with the specified details. Only admins can create users.
+// @Tags    users
+// @Accept  json
+// @Produce json
+// @Param request body types.AdminCreateUserRequest true "User creation request"
+// @Success 200 {object} types.User
+// @Router /api/v1/users [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) createUser(_ http.ResponseWriter, req *http.Request) (*types.User, error) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	if !user.Admin {
+		return nil, system.NewHTTPError403("only admins can create users")
+	}
+
+	var request types.AdminCreateUserRequest
+
+	if err := jsoniter.NewDecoder(req.Body).Decode(&request); err != nil {
+		return nil, system.NewHTTPError400("failed to decode request: " + err.Error())
+	}
+
+	if request.Email == "" {
+		return nil, system.NewHTTPError400("email is required")
+	}
+
+	if request.Password == "" {
+		return nil, system.NewHTTPError400("password is required")
+	}
+
+	existingUser, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+		Email: request.Email,
+	})
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, system.NewHTTPError500("failed to check if user exists: " + err.Error())
+	}
+	if existingUser != nil {
+		return nil, system.NewHTTPError400("email is already taken")
+	}
+
+	userID := system.GenerateUserID()
+	newUser := &types.User{
+		ID:           userID,
+		Email:        request.Email,
+		FullName:     request.FullName,
+		Username:     request.Email,
+		Password:     request.Password,
+		Admin:        request.Admin,
+		Type:         types.OwnerTypeUser,
+		AuthProvider: types.AuthProviderRegular,
+		CreatedAt:    time.Now(),
+	}
+
+	createdUser, err := apiServer.authenticator.CreateUser(ctx, newUser)
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to create user: " + err.Error())
+	}
+
+	return createdUser, nil
 }
 
 // getSchedulerHeartbeats godoc
