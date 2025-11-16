@@ -1463,10 +1463,16 @@ EOF
 
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
-        # Generate TURN password, moonlight credentials, and pairing PIN
-        TURN_PASSWORD=$(generate_password)
-        MOONLIGHT_CREDENTIALS=$(generate_password)
-        MOONLIGHT_PIN=$(generate_moonlight_pin)
+        # Generate TURN password, moonlight credentials, and pairing PIN (preserve existing if upgrading)
+        if [ -f "$ENV_FILE" ]; then
+            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
+            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
+            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
+        else
+            TURN_PASSWORD=$(generate_password)
+            MOONLIGHT_CREDENTIALS=$(generate_password)
+            MOONLIGHT_PIN=$(generate_moonlight_pin)
+        fi
 
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
