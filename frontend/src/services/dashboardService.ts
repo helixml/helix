@@ -102,3 +102,49 @@ export function useListUsers(query?: UserListQuery) {
         placeholderData: (previousData) => previousData, // Keep previous data while fetching new page
     });
 }
+
+/**
+ * Hook to create a new user (Admin only)
+ * @returns React Query mutation for creating a user
+ * 
+ * @example
+ * const createUser = useCreateUser();
+ * 
+ * // Create a regular user
+ * createUser.mutate({
+ *   email: 'user@example.com',
+ *   password: 'securepassword',
+ *   full_name: 'John Doe',
+ *   admin: false
+ * });
+ * 
+ * @example
+ * // Create an admin user
+ * createUser.mutate({
+ *   email: 'admin@example.com',
+ *   password: 'securepassword',
+ *   full_name: 'Admin User',
+ *   admin: true
+ * });
+ */
+export function useCreateUser() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: {
+            email: string;
+            password: string;
+            full_name?: string;
+            admin?: boolean;
+        }) => {
+            const response = await apiClient.v1UsersCreate(data);
+            return response.data;
+        },
+        onSuccess: () => {
+            // Invalidate users list to refresh the UI
+            queryClient.invalidateQueries({ queryKey: ["users"] });
+        },
+    });
+}

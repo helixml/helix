@@ -984,6 +984,7 @@ type ServerConfigForFrontend struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
+	RegistrationEnabled                    bool                 `json:"registration_enabled"`
 	AuthProvider                           AuthProvider         `json:"auth_provider"`
 	FilestorePrefix                        string               `json:"filestore_prefix"`
 	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
@@ -2410,6 +2411,7 @@ type LoginRequest struct {
 type RegisterRequest struct {
 	Email           string `json:"email"`
 	Password        string `json:"password"`
+	FullName        string `json:"full_name"`
 	PasswordConfirm string `json:"password_confirm"`
 }
 
@@ -2424,6 +2426,17 @@ type PasswordResetCompleteRequest struct {
 
 type PasswordUpdateRequest struct {
 	NewPassword string `json:"new_password"`
+}
+
+type AccountUpdateRequest struct {
+	FullName string `json:"full_name"`
+}
+
+type AdminCreateUserRequest struct {
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Admin    bool   `json:"admin"`
 }
 
 type UserResponse struct {

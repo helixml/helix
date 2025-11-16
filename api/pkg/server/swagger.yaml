@@ -2168,6 +2168,11 @@ definitions:
         description: If granted to a user
         type: string
     type: object
+  types.AccountUpdateRequest:
+    properties:
+      full_name:
+        type: string
+    type: object
   types.Action:
     enum:
     - Get
@@ -2198,6 +2203,17 @@ definitions:
     properties:
       user_reference:
         description: Either user ID or user email
+        type: string
+    type: object
+  types.AdminCreateUserRequest:
+    properties:
+      admin:
+        type: boolean
+      email:
+        type: string
+      full_name:
+        type: string
+      password:
         type: string
     type: object
   types.AgentDashboardSummary:
@@ -5186,6 +5202,8 @@ definitions:
     properties:
       email:
         type: string
+      full_name:
+        type: string
       password:
         type: string
       password_confirm:
@@ -5549,14 +5567,7 @@ definitions:
       apps_enabled:
         type: boolean
       auth_provider:
-        allOf:
-        - $ref: '#/definitions/types.AuthProvider'
-        description: |-
-          used to prepend onto raw filestore paths to download files
-          the filestore path will have the user info in it - i.e.
-          it's a low level filestore path
-          if we are using an object storage thing - then this URL
-          can be the prefix to the bucket
+        $ref: '#/definitions/types.AuthProvider'
       billing_enabled:
         description: Charging for usage
         type: boolean
@@ -5581,6 +5592,14 @@ definitions:
         type: boolean
       providers_management_enabled:
         description: Controls if users can add their own AI provider API keys
+        type: boolean
+      registration_enabled:
+        description: |-
+          used to prepend onto raw filestore paths to download files
+          the filestore path will have the user info in it - i.e.
+          it's a low level filestore path
+          if we are using an object storage thing - then this URL
+          can be the prefix to the bucket
         type: boolean
       rudderstack_data_plane_url:
         type: string
@@ -8724,6 +8743,26 @@ paths:
         "200":
           description: OK
       summary: Register
+      tags:
+      - auth
+  /api/v1/auth/update:
+    post:
+      description: Update the account information for the authenticated user
+      parameters:
+      - description: Request body with full name.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AccountUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserResponse'
+      security:
+      - BearerAuth: []
+      summary: Update Account
       tags:
       - auth
   /api/v1/auth/user:
@@ -14203,6 +14242,30 @@ paths:
       security:
       - BearerAuth: []
       summary: List users with pagination and filtering
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Create a new user with the specified details. Only admins can create
+        users.
+      parameters:
+      - description: User creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AdminCreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+      security:
+      - BearerAuth: []
+      summary: Create a new user (Admin only)
       tags:
       - users
   /api/v1/users/{id}:

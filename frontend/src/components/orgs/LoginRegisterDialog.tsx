@@ -14,6 +14,7 @@ import useApi from '../../hooks/useApi';
 import useSnackbar from '../../hooks/useSnackbar';
 import useRouter from '../../hooks/useRouter';
 import { TypesLoginRequest, TypesRegisterRequest } from '../../api/api';
+import { useGetConfig } from '../../services/userService';
 
 interface LoginRegisterDialogProps {
   open: boolean;
@@ -23,24 +24,28 @@ interface LoginRegisterDialogProps {
 const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const { data: config, isLoading: isLoadingConfig } = useGetConfig()
 
   const api = useApi();
   const snackbar = useSnackbar();
   const router = useRouter();
   const apiClient = api.getApiClient();
 
+  const isRegistrationDisabled = mode === 'register' && config?.registration_enabled === false;
+
   const handleClose = () => {
     setMode('login');
     setEmail('');
+    setFullName('');
     setPassword('');
     setPasswordConfirm('');
     setError(null);
-    setPasswordError(null);
     onClose();
   };
 
@@ -52,7 +57,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
     setLoading(true);
     setError(null);
-    setPasswordError(null);
 
     try {
       const loginRequest: TypesLoginRequest = {
@@ -66,21 +70,28 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       handleClose();
       window.location.reload();
     } catch (err: any) {
-      if (err?.response?.status === 401) {
-        setPasswordError('email or password doesn\'t match');
-        setError(null);
-      } else {
-        const errorMessage = err?.response?.data?.error || err?.message || 'Login failed';
-        setError(errorMessage);
-        snackbar.error(errorMessage);
+      let errorMessage = 'Login failed';
+      if (err?.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error;
+        } else {
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
       }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   const handleRegister = async () => {
-    if (!email || !password || !passwordConfirm) {
+    if (!email || !fullName || !password || !passwordConfirm) {
       setError('Please fill in all fields');
       return;
     }
@@ -101,6 +112,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
     try {
       const registerRequest: TypesRegisterRequest = {
         email,
+        full_name: fullName,
         password,
         password_confirm: passwordConfirm,
       };
@@ -111,9 +123,21 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
       handleClose();
       window.location.reload();
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.error || err?.message || 'Registration failed';
+      let errorMessage = 'Registration failed';
+      if (err?.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error;
+        } else {
+          errorMessage = JSON.stringify(err.response.data);
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
       setError(errorMessage);
-      snackbar.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -141,12 +165,11 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
 
       <form onSubmit={handleSubmit}>
         <DialogContent sx={{ p: 3 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+          {isRegistrationDisabled && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              New account registrations are disabled. Please contact your server administrator.
             </Alert>
           )}
-
           <TextField
             autoFocus
             margin="dense"
@@ -156,6 +179,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             variant="outlined"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            disabled={isRegistrationDisabled}
             sx={{
               mb: 2,
               '& .MuiOutlinedInput-root': {
@@ -181,6 +205,42 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             }}
           />
 
+          {mode === 'register' && (
+            <TextField
+              margin="dense"
+              label="Full Name"
+              type="text"
+              fullWidth
+              variant="outlined"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              disabled={isRegistrationDisabled}
+              sx={{
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: '#2D3748',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#00E5FF',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#00E5FF',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: '#A0AEC0',
+                },
+                '& .MuiInputLabel-root.Mui-focused': {
+                  color: '#00E5FF',
+                },
+                '& .MuiOutlinedInput-input': {
+                  color: '#F1F1F1',
+                },
+              }}
+            />
+          )}
+
           <TextField
             margin="dense"
             label="Password"
@@ -188,12 +248,8 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
             fullWidth
             variant="outlined"
             value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              setPasswordError(null);
-            }}
-            error={!!passwordError}
-            helperText={passwordError}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isRegistrationDisabled}
             sx={{
               mb: mode === 'register' ? 2 : 0,
               '& .MuiOutlinedInput-root': {
@@ -215,9 +271,6 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               },
               '& .MuiOutlinedInput-input': {
                 color: '#F1F1F1',
-              },
-              '& .MuiFormHelperText-root': {
-                color: '#f44336',
               },
             }}
           />
@@ -266,6 +319,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
               variant="outlined"
               value={passwordConfirm}
               onChange={(e) => setPasswordConfirm(e.target.value)}
+              disabled={isRegistrationDisabled}
               sx={{
                 '& .MuiOutlinedInput-root': {
                   '& fieldset': {
@@ -293,11 +347,16 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
         </DialogContent>
 
         <DialogActions sx={{ p: 2, pt: 0, flexDirection: 'column', gap: 2 }}>
+          {error && (
+            <Alert severity="error" sx={{ width: '100%', mb: 1 }}>
+              {error}
+            </Alert>
+          )}
           <Button
             type="submit"
             variant="contained"
             color="secondary"
-            disabled={loading}
+            disabled={loading || isRegistrationDisabled}
             fullWidth
             sx={{
               backgroundColor: '#00E5FF',
@@ -324,7 +383,7 @@ const LoginRegisterDialog: React.FC<LoginRegisterDialogProps> = ({ open, onClose
                 onClick={() => {
                   setMode(mode === 'login' ? 'register' : 'login');
                   setError(null);
-                  setPasswordError(null);
+                  setFullName('');
                   setPassword('');
                   setPasswordConfirm('');
                 }}
