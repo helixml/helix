@@ -1293,6 +1293,10 @@ export interface TypesAccessGrant {
   user_id?: string;
 }
 
+export interface TypesAccountUpdateRequest {
+  full_name?: string;
+}
+
 export enum TypesAction {
   ActionGet = "Get",
   ActionList = "List",
@@ -1311,6 +1315,13 @@ export interface TypesAddOrganizationMemberRequest {
 export interface TypesAddTeamMemberRequest {
   /** Either user ID or user email */
   user_reference?: string;
+}
+
+export interface TypesAdminCreateUserRequest {
+  admin?: boolean;
+  email?: string;
+  full_name?: string;
+  password?: string;
 }
 
 export interface TypesAgentDashboardSummary {
@@ -3016,6 +3027,7 @@ export interface TypesRAGSettings {
 
 export interface TypesRegisterRequest {
   email?: string;
+  full_name?: string;
   password?: string;
   password_confirm?: string;
 }
@@ -3211,13 +3223,6 @@ export interface TypesSecret {
 
 export interface TypesServerConfigForFrontend {
   apps_enabled?: boolean;
-  /**
-   * used to prepend onto raw filestore paths to download files
-   * the filestore path will have the user info in it - i.e.
-   * it's a low level filestore path
-   * if we are using an object storage thing - then this URL
-   * can be the prefix to the bucket
-   */
   auth_provider?: TypesAuthProvider;
   /** Charging for usage */
   billing_enabled?: boolean;
@@ -3233,6 +3238,14 @@ export interface TypesServerConfigForFrontend {
   organizations_create_enabled_for_non_admins?: boolean;
   /** Controls if users can add their own AI provider API keys */
   providers_management_enabled?: boolean;
+  /**
+   * used to prepend onto raw filestore paths to download files
+   * the filestore path will have the user info in it - i.e.
+   * it's a low level filestore path
+   * if we are using an object storage thing - then this URL
+   * can be the prefix to the bucket
+   */
+  registration_enabled?: boolean;
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
@@ -5553,6 +5566,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/auth/register`,
         method: "POST",
         body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Update the account information for the authenticated user
+     *
+     * @tags auth
+     * @name V1AuthUpdateCreate
+     * @summary Update Account
+     * @request POST:/api/v1/auth/update
+     * @secure
+     */
+    v1AuthUpdateCreate: (request: TypesAccountUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesUserResponse, any>({
+        path: `/api/v1/auth/update`,
+        method: "POST",
+        body: request,
+        secure: true,
         type: ContentType.Json,
         ...params,
       }),
@@ -9632,6 +9664,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users`,
         method: "GET",
         query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new user with the specified details. Only admins can create users.
+     *
+     * @tags users
+     * @name V1UsersCreate
+     * @summary Create a new user (Admin only)
+     * @request POST:/api/v1/users
+     * @secure
+     */
+    v1UsersCreate: (request: TypesAdminCreateUserRequest, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users`,
+        method: "POST",
+        body: request,
         secure: true,
         type: ContentType.Json,
         format: "json",

@@ -256,7 +256,7 @@ func (h *HelixAuthenticator) GenerateUserToken(_ context.Context, user *types.Us
 	}
 
 	now := time.Now()
-	expiry := now.Add(24 * time.Hour)
+	expiry := now.Add(h.cfg.Auth.Regular.TokenValidity)
 
 	claims := jwt.Claims{
 		Subject:   user.ID,

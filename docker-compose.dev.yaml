@@ -45,7 +45,6 @@ services:
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
             - SERVER_URL=${SERVER_URL:-http://localhost:8080}
-            - KEYCLOAK_URL=http://keycloak:8080/auth
             - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
             - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
             - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -56,10 +55,6 @@ services:
             - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
             - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
             - FRONTEND_URL=http://frontend:8081
-            # this is an insecure development key do not use!
-            - KEYCLOAK_USER=admin
-            - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-            - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
             # lock down dashboard in production
             - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
             - EVAL_USER_ID=${EVAL_USER_ID:-}
@@ -130,13 +125,10 @@ services:
         #  - 5432:5432
         volumes:
             - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
-            - ./scripts/postgres:/docker-entrypoint-initdb.d
-
         environment:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-            - POSTGRES_DATABASES=keycloak
     # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
@@ -212,41 +204,6 @@ services:
             - ${VECTORCHORD_KODIT_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
         # ports:
         #   - 5434:5432
-    # keycloak:
-    #     image: quay.io/keycloak/keycloak:23.0
-    #     restart: always
-    #     environment:
-    #         - KC_DB=postgres
-    #         - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
-    #         - KC_DB_USERNAME=postgres
-    #         - KC_DB_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-    #         - KEYCLOAK_ADMIN=admin
-    #         - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-    #         - KC_PROXY_HEADERS=forwarded|xforwarded
-    #         - KC_HEALTH_ENABLED=true
-    #         - KC_HOSTNAME_PATH=/auth
-    #         - KC_HTTP_RELATIVE_PATH=/auth/
-    #         - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-    #         - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
-    #         # Theme development settings - disable caching
-    #         - KC_SPI_THEME_CACHE_THEMES=false
-    #         - KC_SPI_THEME_CACHE_TEMPLATES=false
-    #         - KC_SPI_THEME_STATIC_MAX_AGE=-1
-    #     volumes:
-    #         # Mount themes directory for development
-    #         - ./themes:/opt/keycloak/themes
-    #     healthcheck:
-    #         test:
-    #             [
-    #                 "CMD-SHELL",
-    #                 "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3",
-    #             ]
-    #         interval: 5s
-    #         timeout: 5s
-    #         retries: 30
-    #     command: ["start-dev"]
-    #     # ports:
-        #   - 30080:8080
     webhook_relay_stripe:
         image: webhookrelay/webhookrelayd
         environment:
@@ -269,15 +226,6 @@ services:
             - INSTANCE_NAME=helix-instance
             - UWSGI_WORKERS=4
             - UWSGI_THREADS=4
-
-    typense-ui:
-        image: ghcr.io/bfritscher/typesense-dashboard:latest
-        # ports:
-        #   - 8877:80
-        volumes:
-            - ./scripts/config.json:/srv/config.json
-        depends_on:
-            - typesense
     typesense:
         build:
             context: .
