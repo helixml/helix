@@ -1287,12 +1287,11 @@ EOF
 
         # Make a backup copy of the .env file
         DATE=$(date +%Y%m%d%H%M%S)
-        ENV_BACKUP="$ENV_FILE-$DATE"
-        cp "$ENV_FILE" "$ENV_BACKUP"
-        echo "Backup of .env file created: $ENV_BACKUP"
+        cp "$ENV_FILE" "$ENV_FILE-$DATE"
+        echo "Backup of .env file created: $ENV_FILE-$DATE"
         echo
         echo "To see what changed, run:"
-        echo "diff $ENV_FILE $ENV_BACKUP"
+        echo "diff $ENV_FILE $ENV_FILE-$DATE"
         echo
 
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
@@ -1305,12 +1304,26 @@ EOF
             ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | sed 's/^ANTHROPIC_API_KEY=//' || echo "")
         fi
 
+        # Preserve Code credentials if --code flag is set
+        if [[ -n "$CODE" ]]; then
+            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
+            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
+            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
+        fi
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
+
+        # Generate Code credentials if --code flag is set
+        if [[ -n "$CODE" ]]; then
+            TURN_PASSWORD=$(generate_password)
+            MOONLIGHT_CREDENTIALS=$(generate_password)
+            MOONLIGHT_PIN=$(generate_moonlight_pin)
+        fi
     fi
 
     # Build comma-separated list of Docker Compose profiles
@@ -1464,17 +1477,6 @@ EOF
 
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
-        # Generate TURN password, moonlight credentials, and pairing PIN (preserve existing if upgrading)
-        if [ -n "$ENV_BACKUP" ] && [ -f "$ENV_BACKUP" ]; then
-            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_BACKUP" | sed 's/^TURN_PASSWORD=//' || generate_password)
-            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_BACKUP" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
-            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_BACKUP" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
-        else
-            TURN_PASSWORD=$(generate_password)
-            MOONLIGHT_CREDENTIALS=$(generate_password)
-            MOONLIGHT_PIN=$(generate_moonlight_pin)
-        fi
-
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
