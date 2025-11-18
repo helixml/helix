@@ -245,10 +245,10 @@ services:
 
     wolf:
       profiles: [wolf]
-      # Using public upstream image for ARM64 compatibility (local build not available on Apple Silicon)
-      # For local dev builds: uncomment wolf:helix-fixed and comment this out, but requires x86_64
+      # Use latest Helix Wolf build from registry (versioned, built by Drone CI)
+      # For local dev builds from source: uncomment wolf:helix-fixed and comment registry line
       # image: wolf:helix-fixed
-      image: ghcr.io/games-on-whales/wolf:wolf-ui
+      image: registry.helixml.tech/helix/wolf:latest
       networks:
         default:
           ipv4_address: 172.19.0.50
