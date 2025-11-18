@@ -19,7 +19,8 @@ import {
   Switch,
   Select,
   MenuItem,
-  FormControl,  
+  FormControl,
+  InputAdornment,
   Tabs,
   Tab,
   Tooltip,
@@ -102,6 +103,7 @@ const GitRepoDetail: FC = () => {
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -119,6 +121,16 @@ const GitRepoDetail: FC = () => {
     !!selectedFile
   )
 
+  // Initialize edit fields when repository loads
+  React.useEffect(() => {
+    if (repository) {
+      setEditName(repository.name || '')
+      setEditDescription(repository.description || '')
+      setEditDefaultBranch(repository.default_branch || '')
+      setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+    }
+  }, [repository])
+
   // Auto-load README.md when repository loads
   React.useEffect(() => {
     if (treeData?.entries && !selectedFile) {
@@ -135,6 +147,7 @@ const GitRepoDetail: FC = () => {
     if (repository) {
       setEditName(repository.name || '')
       setEditDescription(repository.description || '')
+      setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditDialogOpen(true)
     }
@@ -149,6 +162,7 @@ const GitRepoDetail: FC = () => {
       await apiClient.v1GitRepositoriesUpdate(repoId, {
         name: editName,
         description: editDescription,
+        default_branch: editDefaultBranch || undefined,
         metadata: {
           ...repository.metadata,
           kodit_indexing: editKoditIndexing,
@@ -706,6 +720,21 @@ const GitRepoDetail: FC = () => {
                     helperText="A short description of what this repository contains"
                   />
 
+                  <TextField
+                    label="Default Branch"
+                    fullWidth
+                    value={editDefaultBranch || repository.default_branch || ''}
+                    onChange={(e) => setEditDefaultBranch(e.target.value)}
+                    helperText="The default branch for this repository"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
                   <FormControlLabel
                     control={
                       <Switch
@@ -741,8 +770,9 @@ const GitRepoDetail: FC = () => {
                     </Button>
                     <Button
                       onClick={() => {
-                        setEditName('')
-                        setEditDescription('')
+                        setEditName(repository.name || '')
+                        setEditDescription(repository.description || '')
+                        setEditDefaultBranch(repository.default_branch || '')
                         setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
                       }}
                       variant="outlined"
@@ -902,6 +932,21 @@ const GitRepoDetail: FC = () => {
                 rows={3}
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
+              />
+
+              <TextField
+                label="Default Branch"
+                fullWidth
+                value={editDefaultBranch}
+                onChange={(e) => setEditDefaultBranch(e.target.value)}
+                helperText="The default branch for this repository"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                    </InputAdornment>
+                  ),
+                }}
               />
 
               <FormControlLabel
