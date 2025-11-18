@@ -1287,11 +1287,12 @@ EOF
 
         # Make a backup copy of the .env file
         DATE=$(date +%Y%m%d%H%M%S)
-        cp "$ENV_FILE" "$ENV_FILE-$DATE"
-        echo "Backup of .env file created: $ENV_FILE-$DATE"
+        ENV_BACKUP="$ENV_FILE-$DATE"
+        cp "$ENV_FILE" "$ENV_BACKUP"
+        echo "Backup of .env file created: $ENV_BACKUP"
         echo
         echo "To see what changed, run:"
-        echo "diff $ENV_FILE $ENV_FILE-$DATE"
+        echo "diff $ENV_FILE $ENV_BACKUP"
         echo
 
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
@@ -1464,10 +1465,10 @@ EOF
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
         # Generate TURN password, moonlight credentials, and pairing PIN (preserve existing if upgrading)
-        if [ -f "$ENV_FILE" ]; then
-            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
-            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
-            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
+        if [ -n "$ENV_BACKUP" ] && [ -f "$ENV_BACKUP" ]; then
+            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_BACKUP" | sed 's/^TURN_PASSWORD=//' || generate_password)
+            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_BACKUP" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
+            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_BACKUP" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
         else
             TURN_PASSWORD=$(generate_password)
             MOONLIGHT_CREDENTIALS=$(generate_password)
