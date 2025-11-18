@@ -88,9 +88,10 @@ type GitRepositoryCreateRequest struct {
 
 // GitRepositoryUpdateRequest represents a request to update a repository
 type GitRepositoryUpdateRequest struct {
-	Name        string                 `json:"name,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	Description   string                 `json:"description,omitempty"`
+	DefaultBranch string                 `json:"default_branch,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Conversion helpers between services.GitRepository and store.GitRepository
@@ -304,9 +305,10 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 	}
 
 	// Store repository metadata (if store supports it)
-	err = s.storeRepositoryMetadata(ctx, gitRepo)
+	err = s.store.CreateGitRepository(ctx, toStoreGitRepository(gitRepo))
 	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to store repository metadata")
+		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to store repository metadata in database")
+		return nil, err
 	}
 
 	log.Info().
@@ -344,7 +346,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 					gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.ID
 
 					// Update repository metadata with Kodit ID
-					if err := s.storeRepositoryMetadata(context.Background(), gitRepo); err != nil {
+					if err := s.store.UpdateGitRepository(context.Background(), toStoreGitRepository(gitRepo)); err != nil {
 						log.Warn().
 							Err(err).
 							Str("repo_id", repoID).
@@ -440,6 +442,9 @@ func (s *GitRepositoryService) UpdateRepository(
 	if request.Description != "" {
 		existing.Description = request.Description
 	}
+	if request.DefaultBranch != "" {
+		existing.DefaultBranch = request.DefaultBranch
+	}
 	if request.Metadata != nil {
 		// Merge metadata
 		if existing.Metadata == nil {
@@ -453,7 +458,7 @@ func (s *GitRepositoryService) UpdateRepository(
 	existing.UpdatedAt = time.Now()
 
 	// Update in store
-	err = s.storeRepositoryMetadata(ctx, existing)
+	err = s.store.UpdateGitRepository(ctx, toStoreGitRepository(existing))
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
 	}
@@ -1957,24 +1962,6 @@ dist/
 `
 
 	return files
-}
-
-// storeRepositoryMetadata stores repository metadata in the store (if supported)
-func (s *GitRepositoryService) storeRepositoryMetadata(ctx context.Context, repo *GitRepository) error {
-	// Use the store's git repository methods if available
-
-	err := s.store.CreateGitRepository(ctx, toStoreGitRepository(repo))
-	if err != nil {
-		log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to store repository metadata in database")
-		return err
-	}
-	log.Info().
-		Str("repo_id", repo.ID).
-		Str("repo_type", string(repo.RepoType)).
-		Str("owner_id", repo.OwnerID).
-		Msg("Repository metadata stored in database")
-
-	return nil
 }
 
 // getRepositoryMetadata retrieves repository metadata from store
