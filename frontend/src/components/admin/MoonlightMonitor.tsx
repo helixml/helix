@@ -87,7 +87,7 @@ const MoonlightMonitor: FC = () => {
       try {
         const response = await api.get<MoonlightStatusResponse>('/api/v1/moonlight/status')
         // Handle both direct data and wrapped response
-        if (response.data) {
+        if (response && response.data) {
           return response.data
         } else if (response) {
           return response as MoonlightStatusResponse
@@ -140,7 +140,11 @@ const MoonlightMonitor: FC = () => {
 
         try {
           const response = await api.get(`/api/v1/sessions/${helixSessionId}/wolf-app-state`)
-          states[session.session_id] = response.data.state || 'unknown'
+          if (response && response.data) {
+            states[session.session_id] = response.data.state || 'unknown'
+          } else {
+            states[session.session_id] = 'unknown'
+          }
         } catch (err) {
           states[session.session_id] = 'error'
         }

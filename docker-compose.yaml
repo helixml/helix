@@ -275,9 +275,17 @@ services:
         reservations:
           devices:
             - capabilities: [gpu]
+    cap_add:
+      - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
     restart: unless-stopped
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Moonlight Web Stream - Browser-based Moonlight streaming
   moonlight-web:
