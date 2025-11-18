@@ -672,12 +672,13 @@ type ThreadHealthInfo struct {
 
 // SystemHealthResponse represents Wolf system health status
 type SystemHealthResponse struct {
-	Success              bool               `json:"success"`
-	ProcessUptimeSeconds int64              `json:"process_uptime_seconds"`
-	Threads              []ThreadHealthInfo `json:"threads"`
-	StuckThreadCount     int32              `json:"stuck_thread_count"`
-	TotalThreadCount     int32              `json:"total_thread_count"`
-	OverallStatus        string             `json:"overall_status"`
+	Success                 bool               `json:"success"`
+	ProcessUptimeSeconds    int64              `json:"process_uptime_seconds"`
+	Threads                 []ThreadHealthInfo `json:"threads"`
+	StuckThreadCount        int32              `json:"stuck_thread_count"`
+	TotalThreadCount        int32              `json:"total_thread_count"`
+	CanCreateNewPipelines   bool               `json:"can_create_new_pipelines"`   // Tests if GStreamer type lock is available
+	OverallStatus           string             `json:"overall_status"`
 }
 
 // GetSystemMemory retrieves Wolf system memory and resource usage statistics
