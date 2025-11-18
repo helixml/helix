@@ -275,6 +275,8 @@ services:
         reservations:
           devices:
             - capabilities: [gpu]
+    cap_add:
+      - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
     restart: unless-stopped
     depends_on:
       - api
