@@ -2,9 +2,7 @@ import React, { FC, useState } from 'react'
 import Container from '@mui/material/Container'
 import {
   Box,
-  Typography,
-  Card,
-  CardContent,
+  Typography,  
   CircularProgress,
   Alert,
   Button,
@@ -21,8 +19,7 @@ import {
   Switch,
   Select,
   MenuItem,
-  FormControl,
-  InputLabel,
+  FormControl,  
   Tabs,
   Tab,
   Tooltip,
@@ -32,21 +29,17 @@ import {
   GitBranch,
   Copy,
   ExternalLink,
-  ArrowLeft,
-  Edit,
+  ArrowLeft, 
   Brain,
   Link,
   Trash2,
-  Plus,
   Folder,
-  File,
   FileText,
   ChevronRight,
   X as CloseIcon,
   Settings,
   Users,
   Code as CodeIcon,
-  Download,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -355,28 +348,6 @@ const GitRepoDetail: FC = () => {
                   variant="outlined"
                 />
               </Box>
-            </Box>
-
-            {/* Action buttons */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<Download size={16} />}
-                onClick={() => setCloneDialogOpen(true)}
-                sx={{ textTransform: 'none' }}
-              >
-                Code
-              </Button>
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                startIcon={<Plus size={16} />}
-                onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repoId })}
-              >
-                New Spec Task
-              </Button>
             </Box>
           </Box>
 
