@@ -726,26 +726,11 @@ function rebuild-wolf() {
     exit 1
   fi
 
-  # Build Wolf container with image tags
-  local COMMIT_HASH=$(git rev-parse --short HEAD)
-  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
-
+  # Build Wolf container locally (no registry push - releases handled by Helix CI)
   echo "🔨 Building Wolf container from source..."
   cd ../wolf
 
-  if [ -n "$GIT_TAG" ]; then
-    echo "🏷️  Git tag detected: ${GIT_TAG}"
-    docker build -f docker/wolf.Dockerfile \
-      -t wolf:helix-fixed \
-      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/wolf:${GIT_TAG}" \
-      .
-  else
-    docker build -f docker/wolf.Dockerfile \
-      -t wolf:helix-fixed \
-      -t "registry.helixml.tech/helix/wolf:${COMMIT_HASH}" \
-      .
-  fi
+  docker build -f docker/wolf.Dockerfile -t wolf:helix-fixed .
 
   if [ $? -eq 0 ]; then
     echo "✅ Wolf container built successfully"
@@ -755,17 +740,6 @@ function rebuild-wolf() {
     return 1
   fi
   cd - > /dev/null
-
-  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/wolf"
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Wolf images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
-    fi
-    echo "📦 Registry images pushed"
-  fi
 
   # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
   if [ -z "${SKIP_DEV_RESTART:-}" ]; then
