@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Api } from '../api/api';
 import useApi from '../hooks/useApi';
 
 // Re-export generated types for convenience
@@ -11,14 +10,13 @@ export type {
   ServerSampleType as SampleType,
   ServerSampleTypesResponse as SampleTypesResponse,
   ServerCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
-  ServerCreateSpecTaskRepositoryRequest as CreateSpecTaskRepositoryRequest,
   ServerCloneCommandResponse as CloneCommandResponse,
   ServerInitializeSampleRepositoriesRequest as InitializeSampleRepositoriesRequest,
   ServerInitializeSampleRepositoriesResponse as InitializeSampleRepositoriesResponse,
 } from '../api/api';
 
 // Query keys
-const QUERY_KEYS = {
+export const QUERY_KEYS = {
   gitRepositories: ['git-repositories'] as const,
   gitRepository: (id: string) => ['git-repositories', id] as const,
   sampleTypes: ['git-repositories', 'sample-types'] as const,
