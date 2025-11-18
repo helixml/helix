@@ -675,7 +675,37 @@ function push_image_tags() {
 }
 
 function rebuild-wolf() {
-  echo "🐺 Rebuilding Wolf container with latest source code..."
+  # Check if WOLF_VERSION is set - if so, use versioned registry image
+  if [ -n "${WOLF_VERSION:-}" ]; then
+    echo "🐺 Using versioned Wolf image from registry: registry.helixml.tech/helix/wolf:${WOLF_VERSION}"
+    echo "📥 Pulling Wolf container image..."
+
+    if docker pull "registry.helixml.tech/helix/wolf:${WOLF_VERSION}"; then
+      echo "✅ Wolf image pulled successfully"
+      # Tag it as wolf:helix-fixed for compatibility with docker-compose.dev.yaml
+      docker tag "registry.helixml.tech/helix/wolf:${WOLF_VERSION}" wolf:helix-fixed
+      echo "✅ Tagged as wolf:helix-fixed for local development"
+    else
+      echo "❌ Failed to pull Wolf image from registry"
+      echo "💡 Tip: Verify that the tag exists at registry.helixml.tech/helix/wolf:${WOLF_VERSION}"
+      echo "💡 Available tags: https://drone.lukemarsden.net/helixml/wolf"
+      return 1
+    fi
+
+    # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
+    if [ -z "${SKIP_DEV_RESTART:-}" ]; then
+      echo "🔄 Removing old Wolf container and recreating with updated image..."
+      docker compose -f docker-compose.dev.yaml rm -f wolf
+      docker compose -f docker-compose.dev.yaml up -d wolf
+
+      echo "✅ Wolf container using registry image: ${WOLF_VERSION}"
+      echo "🐺 Wolf is ready"
+    fi
+    return 0
+  fi
+
+  # WOLF_VERSION not set - build from local source
+  echo "🐺 WOLF_VERSION not set, building Wolf container from local source..."
 
   # Check if Wolf source directory exists
   if [ ! -d "../wolf" ]; then
@@ -687,6 +717,10 @@ function rebuild-wolf() {
     echo "  cd .."
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
+    echo "  ./stack rebuild-wolf"
+    echo ""
+    echo "💡 Alternatively, set WOLF_VERSION to use a pre-built registry image:"
+    echo "  export WOLF_VERSION=v1.0.0"
     echo "  ./stack rebuild-wolf"
     exit 1
   fi
