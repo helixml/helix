@@ -1016,11 +1016,12 @@ export interface ServicesGitRepository {
   name?: string;
   organization_id?: string;
   owner_id?: string;
+  password?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
-  spec_task_id?: string;
   status?: ServicesGitRepositoryStatus;
   updated_at?: string;
+  username?: string;
 }
 
 export interface ServicesGitRepositoryCreateRequest {
@@ -1034,7 +1035,6 @@ export interface ServicesGitRepositoryCreateRequest {
   owner_id?: string;
   project_id?: string;
   repo_type?: ServicesGitRepositoryType;
-  spec_task_id?: string;
 }
 
 export interface ServicesGitRepositoryFileResponse {
@@ -1059,6 +1059,7 @@ export enum ServicesGitRepositoryType {
 }
 
 export interface ServicesGitRepositoryUpdateRequest {
+  default_branch?: string;
   description?: string;
   metadata?: Record<string, any>;
   name?: string;
@@ -1214,8 +1215,6 @@ export interface StoreGitRepository {
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
   created_at?: string;
-  /** Reference to stored credentials (SSH key, OAuth token, etc.) */
-  credential_ref?: string;
   default_branch?: string;
   description?: string;
   /** External platform's repository ID */
@@ -1232,19 +1231,21 @@ export interface StoreGitRepository {
   last_activity?: string;
   /** Local filesystem path for Helix-hosted repos (empty for external) */
   local_path?: string;
-  /** Transient field, not persisted (used by services) */
-  metadata?: Record<string, any>;
   /** Stores Metadata as JSON */
-  metadata_json?: string;
+  metadata?: Record<string, any>;
   name?: string;
   /** Organization ID - will be backfilled for existing repos */
   organization_id?: string;
   owner_id?: string;
+  /** Password for the repository */
+  password?: string;
   project_id?: string;
   repo_type?: string;
   spec_task_id?: string;
   status?: string;
   updated_at?: string;
+  /** Username for the repository */
+  username?: string;
 }
 
 export enum StripeSubscriptionStatus {
