@@ -222,7 +222,7 @@ const Projects: FC = () => {
     }
   }
 
-  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean) => {
+  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string) => {
     if (!url.trim() || !ownerId) return
 
     setCreating(true)
@@ -237,18 +237,28 @@ const Projects: FC = () => {
         repoName = match ? match[1] : 'external-repo'
       }
 
+      const metadata: Record<string, any> = {
+        is_external: true,
+        external_url: url,
+        external_type: type,
+        kodit_indexing: koditIndexing,
+      }
+
+      if (username) {
+        metadata.username = username
+      }
+
+      if (password) {
+        metadata.password = password
+      }
+
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: `External ${type} repository`,
         owner_id: ownerId,
         repo_type: 'project' as any,
         default_branch: 'main',
-        metadata: {
-          is_external: true,
-          external_url: url,
-          external_type: type,
-          kodit_indexing: koditIndexing,
-        },
+        metadata,
       })
 
       // Invalidate and refetch git repositories query
