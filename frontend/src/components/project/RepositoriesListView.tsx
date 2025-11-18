@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useMemo, useCallback, useState } from 'react'
 import {
   Box,
   Button,
@@ -9,9 +9,22 @@ import {
   InputAdornment,
   Pagination,
   Chip,
+  Menu,
+  MenuItem,
+  IconButton,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
-import { GitBranch, Link, Brain } from 'lucide-react'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import { GitBranch, Link, Brain, RefreshCw, Trash } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+
+import SimpleTable from '../widgets/SimpleTable'
+import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
+
+import useTheme from '@mui/material/styles/useTheme'
+import { useDeleteGitRepository, QUERY_KEYS } from '../../services/gitRepositoryService'
+import useSnackbar from '../../hooks/useSnackbar'
 
 import type { ServicesGitRepository } from '../../api/api'
 
@@ -40,6 +53,153 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   totalPages,
   onViewRepository,
 }) => {
+  const theme = useTheme()
+  const queryClient = useQueryClient()
+  const snackbar = useSnackbar()
+  const deleteRepositoryMutation = useDeleteGitRepository()
+
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [currentRepo, setCurrentRepo] = useState<ServicesGitRepository | null>(null)
+
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, repo: any) => {
+    setAnchorEl(event.currentTarget)
+    setCurrentRepo(repo._data as ServicesGitRepository)
+  }
+
+  const handleMenuClose = () => {
+    setAnchorEl(null)
+    setCurrentRepo(null)
+  }
+
+  const handleRefresh = async () => {
+    if (!currentRepo?.id) return
+
+    try {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepositories })
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.gitRepository(currentRepo.id) })
+      snackbar.success('Repository refreshed')
+    } catch (error) {
+      console.error('Failed to refresh repository:', error)
+      snackbar.error('Failed to refresh repository')
+    }
+    handleMenuClose()
+  }
+
+  const handleDelete = async () => {
+    if (!currentRepo?.id) return
+
+    try {
+      await deleteRepositoryMutation.mutateAsync(currentRepo.id)
+      snackbar.success('Repository deleted successfully')
+    } catch (error) {
+      console.error('Failed to delete repository:', error)
+      snackbar.error('Failed to delete repository')
+    }
+    handleMenuClose()
+  }
+
+  const tableData = useMemo(() => {
+    return paginatedRepositories.map((repo: ServicesGitRepository) => {
+      const updatedAt = repo.updated_at || repo.created_at
+      const updatedTime = updatedAt 
+        ? new Date(updatedAt).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })
+        : 'Never'
+
+      return {
+        id: repo.id,
+        _data: repo,
+        name: (
+          <Row>
+            <Cell sx={{ pr: 2 }}>
+              <GitBranch size={20} color={theme.palette.text.secondary} />
+            </Cell>
+            <Cell grow>
+              <Typography variant="body1">
+                <a
+                  style={{
+                    textDecoration: 'none',
+                    fontWeight: 'bold',
+                    color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                  }}
+                  href="#"
+                  onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onViewRepository(repo)
+                  }}
+                >
+                  {ownerSlug}/{repo.name || repo.id}
+                </a>
+              </Typography>
+              {repo.description && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  {repo.description}
+                </Typography>
+              )}
+              <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                {repo.metadata?.is_external && (
+                  <Chip
+                    icon={<Link size={12} />}
+                    label={repo.metadata.external_type.toUpperCase() || 'External'}
+                    size="small"
+                    sx={{ height: 20, fontSize: '0.75rem' }}
+                  />
+                )}
+                {repo.metadata?.kodit_indexing && (
+                  <Chip
+                    icon={<Brain size={12} />}
+                    label="Code Intelligence"
+                    size="small"
+                    color="success"
+                    sx={{ height: 20, fontSize: '0.75rem' }}
+                  />
+                )}
+              </Box>
+            </Cell>
+          </Row>
+        ),
+        updated: (
+          <Typography variant="body2" color="text.secondary">
+            {updatedTime}
+          </Typography>
+        ),
+      }
+    })
+  }, [paginatedRepositories, ownerSlug, theme, onViewRepository])
+
+  const getActions = useCallback((repo: any) => {
+    return (
+      <IconButton
+        aria-label="more"
+        aria-controls="long-menu"
+        aria-haspopup="true"
+        onClick={(e) => {
+          e.stopPropagation()
+          handleMenuClick(e, repo)
+        }}
+      >
+        <MoreVertIcon />
+      </IconButton>
+    )
+  }, [])
+
+  const tableFields = useMemo(() => [
+    {
+      name: 'name',
+      title: 'Name',
+    },
+    {
+      name: 'updated',
+      title: 'Updated',
+    },
+  ], [])
+
   return (
     <>
       {/* GitHub-style header with owner/repositories */}
@@ -50,35 +210,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
             <span style={{ color: 'text.secondary', fontWeight: 300 }}>/</span>
             <span style={{ fontWeight: 600 }}>repositories</span>
           </Typography>
-        </Box>
-
-        {/* Search bar */}
-        {repositories.length > 0 && (
-          <Box>
-            <TextField
-              placeholder="Find a repository..."
-              size="small"
-              value={searchQuery}
-              onChange={(e) => {
-                onSearchChange(e.target.value)
-                onPageChange(0)
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{ maxWidth: 400 }}
-            />
-            {searchQuery && (
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
-                {filteredRepositories.length} of {repositories.length} repositories
-              </Typography>
-            )}
-          </Box>
-        )}
+        </Box>        
       </Box>
 
       {filteredRepositories.length === 0 && searchQuery ? (
@@ -113,108 +245,43 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
         </Card>
       ) : (
         <>
-        {/* GitHub-style list view */}
-        <Box>
-          {paginatedRepositories.map((repo: ServicesGitRepository) => (
-            <Box
-              key={repo.id}
-              sx={{
-                py: 3,
-                px: 2,
-                borderBottom: 1,
-                borderColor: 'divider',
-                '&:hover': {
-                  bgcolor: 'rgba(0, 0, 0, 0.02)',
-                },
-                cursor: 'pointer'
-              }}
-              onClick={() => onViewRepository(repo)}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box sx={{ flex: 1 }}>
-                  {/* Repo name as owner/repo */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <GitBranch size={16} color="#656d76" />
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontSize: '1.25rem',
-                        fontWeight: 600,
-                        color: '#3b82f6',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        '&:hover': {
-                          textDecoration: 'underline'
-                        }
-                      }}
-                    >
-                      {ownerSlug}
-                      <span style={{ color: 'text.secondary', fontWeight: 400 }}>/</span>
-                      {repo.name || repo.id}
-                    </Typography>
+          <SimpleTable
+            authenticated={true}
+            fields={tableFields}
+            data={tableData}
+            getActions={getActions}
+          />
 
-                    {/* Chips */}
-                    {repo.metadata?.is_external && (
-                      <Chip
-                        icon={<Link size={12} />}
-                        label={repo.metadata.external_type || 'External'}
-                        size="small"
-                        sx={{ height: 20, fontSize: '0.75rem' }}
-                      />
-                    )}
-                    {repo.metadata?.kodit_indexing && (
-                      <Chip
-                        icon={<Brain size={12} />}
-                        label="Code Intelligence"
-                        size="small"
-                        color="success"
-                        sx={{ height: 20, fontSize: '0.75rem' }}
-                      />
-                    )}
-                    <Chip
-                      label={repo.repo_type || 'project'}
-                      size="small"
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: '0.75rem', borderRadius: '12px' }}
-                    />
-                  </Box>
-
-                  {/* Description */}
-                  {repo.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, ml: 3 }}>
-                      {repo.description}
-                    </Typography>
-                  )}
-
-                  {/* Metadata row */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ml: 3, mt: 1 }}>
-                    {repo.created_at && (
-                      <Typography variant="caption" color="text.secondary">
-                        Updated {new Date(repo.created_at).toLocaleDateString()}
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-
-              </Box>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+              <Pagination
+                count={totalPages}
+                page={page + 1}
+                onChange={(_, newPage) => onPageChange(newPage - 1)}
+                color="primary"
+                showFirstButton
+                showLastButton
+              />
             </Box>
-          ))}
-        </Box>
+          )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-            <Pagination
-              count={totalPages}
-              page={page + 1}
-              onChange={(_, newPage) => onPageChange(newPage - 1)}
-              color="primary"
-              showFirstButton
-              showLastButton
-            />
-          </Box>
-        )}
+          {/* Actions Menu */}
+          <Menu
+            id="long-menu"
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+          >
+            <MenuItem onClick={handleRefresh}>
+              <RefreshCw size={16} style={{ marginRight: 5 }} />
+              Refresh
+            </MenuItem>
+            <MenuItem onClick={handleDelete}>
+              <Trash size={16} style={{ marginRight: 5 }} />
+              Delete
+            </MenuItem>
+          </Menu>
         </>
       )}
     </>
