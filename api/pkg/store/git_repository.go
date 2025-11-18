@@ -33,7 +33,8 @@ type GitRepository struct {
 	ExternalType   string `gorm:"type:varchar(50)" json:"external_type"`               // "github", "gitlab", "ado", "bitbucket", etc.
 	ExternalRepoID string `gorm:"type:varchar(255)" json:"external_repo_id"`           // External platform's repository ID
 
-	AuthToken string `gorm:"type:text" json:"auth_token"` // Authentication token for the repository
+	Username string `json:"username"` // Username for the repository
+	Password string `json:"password"` // Password for the repository
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"type:boolean;default:false;index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)

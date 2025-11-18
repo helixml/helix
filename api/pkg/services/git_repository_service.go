@@ -45,7 +45,8 @@ type GitRepository struct {
 	RepoType       GitRepositoryType      `json:"repo_type"`
 	Status         GitRepositoryStatus    `json:"status"`
 	CloneURL       string                 `json:"clone_url"`
-	AuthToken      string                 `json:"auth_token"`
+	Username       string                 `json:"username"`
+	Password       string                 `json:"password"`
 	LocalPath      string                 `json:"local_path"`
 	DefaultBranch  string                 `json:"default_branch"`
 	Branches       []string               `json:"branches,omitempty"`
@@ -130,7 +131,8 @@ func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
 		RepoType:       GitRepositoryType(repo.RepoType),
 		Status:         GitRepositoryStatus(repo.Status),
 		CloneURL:       repo.CloneURL,
-		AuthToken:      repo.AuthToken,
+		Username:       repo.Username,
+		Password:       repo.Password,
 		LocalPath:      repo.LocalPath,
 		DefaultBranch:  repo.DefaultBranch,
 		LastActivity:   repo.LastActivity,
@@ -263,11 +265,15 @@ func (s *GitRepositoryService) CreateRepository(
 		}
 	}
 
-	// Dig for auth token somewhere in the metadata
-	var token string
+	// Dig for credentials somewhere in the metadata
+	var username string
+	var password string
 	if request.Metadata != nil {
-		if authToken, ok := request.Metadata["auth_token"].(string); ok && authToken != "" {
-			token = authToken
+		if u, ok := request.Metadata["username"].(string); ok && u != "" {
+			username = u
+		}
+		if p, ok := request.Metadata["password"].(string); ok && p != "" {
+			password = p
 		}
 	}
 
@@ -283,7 +289,8 @@ func (s *GitRepositoryService) CreateRepository(
 		RepoType:       request.RepoType,
 		Status:         GitRepositoryStatusActive,
 		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
-		AuthToken:      token,
+		Username:       username,
+		Password:       password,
 		LocalPath:      repoPath,
 		DefaultBranch:  defaultBranch,
 		LastActivity:   time.Now(),
