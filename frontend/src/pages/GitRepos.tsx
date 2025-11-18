@@ -608,11 +608,7 @@ const GitRepos: FC = () => {
                     </Typography>
                   </Box>
                 }
-              />
-
-              <Alert severity="warning">
-                Authentication to external repositories is not yet implemented. You can link repositories for reference, but cloning and syncing will require manual setup.
-              </Alert>
+              />          
 
               <Alert severity="info">
                 {externalKoditIndexing
