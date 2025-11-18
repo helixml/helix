@@ -10,11 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/filemode"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/rs/zerolog/log"
 )
@@ -41,7 +42,6 @@ type GitRepository struct {
 	OwnerID        string                 `json:"owner_id"`
 	OrganizationID string                 `json:"organization_id,omitempty"`
 	ProjectID      string                 `json:"project_id,omitempty"`
-	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
 	RepoType       GitRepositoryType      `json:"repo_type"`
 	Status         GitRepositoryStatus    `json:"status"`
 	CloneURL       string                 `json:"clone_url"`
@@ -81,7 +81,6 @@ type GitRepositoryCreateRequest struct {
 	OwnerID        string                 `json:"owner_id"`
 	OrganizationID string                 `json:"organization_id,omitempty"` // Organization ID - required for access control
 	ProjectID      string                 `json:"project_id,omitempty"`
-	SpecTaskID     string                 `json:"spec_task_id,omitempty"`
 	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
 	DefaultBranch  string                 `json:"default_branch,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
@@ -105,10 +104,11 @@ func toStoreGitRepository(repo *GitRepository) *store.GitRepository {
 		OwnerID:        repo.OwnerID,
 		OrganizationID: repo.OrganizationID,
 		ProjectID:      repo.ProjectID,
-		SpecTaskID:     repo.SpecTaskID,
 		RepoType:       string(repo.RepoType),
 		Status:         string(repo.Status),
 		CloneURL:       repo.CloneURL,
+		Username:       repo.Username,
+		Password:       repo.Password,
 		LocalPath:      repo.LocalPath,
 		DefaultBranch:  repo.DefaultBranch,
 		LastActivity:   repo.LastActivity,
@@ -127,7 +127,6 @@ func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
 		OwnerID:        repo.OwnerID,
 		OrganizationID: repo.OrganizationID,
 		ProjectID:      repo.ProjectID,
-		SpecTaskID:     repo.SpecTaskID,
 		RepoType:       GitRepositoryType(repo.RepoType),
 		Status:         GitRepositoryStatus(repo.Status),
 		CloneURL:       repo.CloneURL,
@@ -205,10 +204,7 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 }
 
 // CreateRepository creates a new git repository
-func (s *GitRepositoryService) CreateRepository(
-	ctx context.Context,
-	request *GitRepositoryCreateRequest,
-) (*GitRepository, error) {
+func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *GitRepositoryCreateRequest) (*GitRepository, error) {
 	// Check for duplicate repository name for this owner
 	existingRepos, err := s.ListRepositories(ctx, request.OwnerID)
 	if err == nil {
@@ -285,7 +281,6 @@ func (s *GitRepositoryService) CreateRepository(
 		OwnerID:        request.OwnerID,
 		OrganizationID: orgID,
 		ProjectID:      request.ProjectID,
-		SpecTaskID:     request.SpecTaskID,
 		RepoType:       request.RepoType,
 		Status:         GitRepositoryStatusActive,
 		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
@@ -299,11 +294,13 @@ func (s *GitRepositoryService) CreateRepository(
 		Metadata:       request.Metadata,
 	}
 
-	// Initialize git repository as bare
-	// ALL filestore repos are bare - agents and API server push to them
-	err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize git repository: %w", err)
+	if gitRepo.CloneURL == "" {
+		// Initialize git repository as bare
+		// ALL filestore repos are bare - agents and API server push to them
+		err = s.initializeGitRepository(repoPath, defaultBranch, request.Name, request.InitialFiles, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize git repository: %w", err)
+		}
 	}
 
 	// Store repository metadata (if store supports it)
@@ -371,6 +368,8 @@ func (s *GitRepositoryService) CreateRepository(
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
+	log.Info().Str("repo_id", repoID).Msg("Getting repository metadata from store")
+
 	gitRepo, err := s.getRepositoryMetadata(ctx, repoID)
 	if err != nil {
 		// Not in store - fallback to default path under gitRepoBase
@@ -388,8 +387,17 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 			CloneURL:  s.generateCloneURL(repoID),
 			Status:    GitRepositoryStatusActive,
 		}
-	} else {
-		// Got from database - verify the LocalPath exists
+		// Update with current git information
+		err = s.updateRepositoryFromGit(gitRepo)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update repository info from git: %w", err)
+		}
+
+		return gitRepo, nil
+	}
+
+	// Got from database - verify the LocalPath exists if this is not external
+	if gitRepo.CloneURL == "" {
 		if gitRepo.LocalPath != "" {
 			if _, err := os.Stat(gitRepo.LocalPath); os.IsNotExist(err) {
 				return nil, fmt.Errorf("repository not found: %s", repoID)
@@ -906,10 +914,51 @@ func (s *GitRepositoryService) isGitRepository(path string) bool {
 
 // updateRepositoryFromGit updates repository info from git metadata
 func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *GitRepository) error {
-	// Open git repository
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository: %w", err)
+
+	var (
+		repo *git.Repository
+		err  error
+	)
+
+	if gitRepo.CloneURL != "" {
+		repo, err = git.PlainOpen(gitRepo.LocalPath)
+		if err != nil {
+			cloneOptions := &git.CloneOptions{
+				URL:      gitRepo.CloneURL,
+				Progress: os.Stdout,
+			}
+
+			if gitRepo.Username != "" && gitRepo.Password != "" {
+				cloneOptions.Auth = &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			}
+
+			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
+			if err != nil {
+				return fmt.Errorf("failed to clone git repository: %w", err)
+			}
+		} else {
+			// Repository exists locally - check if we should pull latest changes
+			if time.Since(gitRepo.LastActivity) > time.Minute {
+				worktree, err := repo.Worktree()
+				if err == nil {
+					pullOptions := &git.PullOptions{
+						RemoteName: "origin",
+					}
+					if gitRepo.Username != "" && gitRepo.Password != "" {
+						pullOptions.Auth = &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+					}
+					err = worktree.Pull(pullOptions)
+					if err != nil && err != git.NoErrAlreadyUpToDate {
+						log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to pull latest changes")
+					}
+				}
+			}
+		}
+	} else {
+		repo, err = git.PlainOpen(gitRepo.LocalPath)
+		if err != nil {
+			return fmt.Errorf("failed to open git repository: %w", err)
+		}
 	}
 
 	// Get branches
@@ -1913,40 +1962,28 @@ dist/
 // storeRepositoryMetadata stores repository metadata in the store (if supported)
 func (s *GitRepositoryService) storeRepositoryMetadata(ctx context.Context, repo *GitRepository) error {
 	// Use the store's git repository methods if available
-	if postgresStore, ok := s.store.(interface {
-		CreateGitRepository(ctx context.Context, repo *store.GitRepository) error
-	}); ok {
-		err := postgresStore.CreateGitRepository(ctx, toStoreGitRepository(repo))
-		if err != nil {
-			log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to store repository metadata in database")
-			return err
-		}
-		log.Info().
-			Str("repo_id", repo.ID).
-			Str("repo_type", string(repo.RepoType)).
-			Str("owner_id", repo.OwnerID).
-			Msg("Repository metadata stored in database")
-		return nil
-	}
 
-	log.Warn().Msg("Store does not support git repository persistence")
-	return fmt.Errorf("store does not support git repository persistence")
+	err := s.store.CreateGitRepository(ctx, toStoreGitRepository(repo))
+	if err != nil {
+		log.Warn().Err(err).Str("repo_id", repo.ID).Msg("Failed to store repository metadata in database")
+		return err
+	}
+	log.Info().
+		Str("repo_id", repo.ID).
+		Str("repo_type", string(repo.RepoType)).
+		Str("owner_id", repo.OwnerID).
+		Msg("Repository metadata stored in database")
+
+	return nil
 }
 
 // getRepositoryMetadata retrieves repository metadata from store
 func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID string) (*GitRepository, error) {
-	// Use the store's git repository methods if available
-	if postgresStore, ok := s.store.(interface {
-		GetGitRepository(ctx context.Context, id string) (*store.GitRepository, error)
-	}); ok {
-		storeRepo, err := postgresStore.GetGitRepository(ctx, repoID)
-		if err != nil {
-			return nil, err
-		}
-		return fromStoreGitRepository(storeRepo), nil
+	storeRepo, err := s.store.GetGitRepository(ctx, repoID)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("repository metadata not found in store")
+	return fromStoreGitRepository(storeRepo), nil
 }
 
 // TreeEntry represents a file or directory in a repository
