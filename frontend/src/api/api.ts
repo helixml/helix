@@ -4226,11 +4226,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -4400,6 +4400,29 @@ export interface TypesZedInstanceStatus {
   status?: string;
   thread_count?: number;
   zed_instance_id?: string;
+}
+
+export interface WolfSystemHealthResponse {
+  overall_status?: string;
+  process_uptime_seconds?: number;
+  stuck_thread_count?: number;
+  success?: boolean;
+  threads?: WolfThreadHealthInfo[];
+  total_thread_count?: number;
+}
+
+export interface WolfThreadHealthInfo {
+  current_request_path?: string;
+  details?: string;
+  has_active_request?: boolean;
+  heartbeat_count?: number;
+  is_stuck?: boolean;
+  name?: string;
+  request_duration_seconds?: number;
+  seconds_alive?: number;
+  seconds_since_heartbeat?: number;
+  stack_trace?: string;
+  tid?: number;
 }
 
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, HeadersDefaults, ResponseType } from "axios";
@@ -9751,6 +9774,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/wallet`,
         method: "GET",
         query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get Wolf system health status including thread heartbeat monitoring and deadlock detection
+     *
+     * @tags Wolf
+     * @name V1WolfHealthList
+     * @summary Get Wolf system health
+     * @request GET:/api/v1/wolf/health
+     * @secure
+     */
+    v1WolfHealthList: (params: RequestParams = {}) =>
+      this.request<WolfSystemHealthResponse, string>({
+        path: `/api/v1/wolf/health`,
+        method: "GET",
         secure: true,
         ...params,
       }),

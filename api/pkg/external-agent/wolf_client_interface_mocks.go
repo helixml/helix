@@ -70,19 +70,48 @@ func (mr *MockWolfClientInterfaceMockRecorder) CreateLobby(ctx, req any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateLobby", reflect.TypeOf((*MockWolfClientInterface)(nil).CreateLobby), ctx, req)
 }
 
-// CreateSession mocks base method.
-func (m *MockWolfClientInterface) CreateSession(ctx context.Context, session *wolf.Session) (string, error) {
+// GetSystemHealth mocks base method.
+func (m *MockWolfClientInterface) GetSystemHealth(ctx context.Context) (*wolf.SystemHealthResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateSession", ctx, session)
-	ret0, _ := ret[0].(string)
+	ret := m.ctrl.Call(m, "GetSystemHealth", ctx)
+	ret0, _ := ret[0].(*wolf.SystemHealthResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CreateSession indicates an expected call of CreateSession.
-func (mr *MockWolfClientInterfaceMockRecorder) CreateSession(ctx, session any) *gomock.Call {
+// GetSystemHealth indicates an expected call of GetSystemHealth.
+func (mr *MockWolfClientInterfaceMockRecorder) GetSystemHealth(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockWolfClientInterface)(nil).CreateSession), ctx, session)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSystemHealth", reflect.TypeOf((*MockWolfClientInterface)(nil).GetSystemHealth), ctx)
+}
+
+// GetSystemMemory mocks base method.
+func (m *MockWolfClientInterface) GetSystemMemory(ctx context.Context) (*wolf.SystemMemoryResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSystemMemory", ctx)
+	ret0, _ := ret[0].(*wolf.SystemMemoryResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSystemMemory indicates an expected call of GetSystemMemory.
+func (mr *MockWolfClientInterfaceMockRecorder) GetSystemMemory(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSystemMemory", reflect.TypeOf((*MockWolfClientInterface)(nil).GetSystemMemory), ctx)
+}
+
+// JoinLobby mocks base method.
+func (m *MockWolfClientInterface) JoinLobby(ctx context.Context, req *wolf.JoinLobbyRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "JoinLobby", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// JoinLobby indicates an expected call of JoinLobby.
+func (mr *MockWolfClientInterfaceMockRecorder) JoinLobby(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "JoinLobby", reflect.TypeOf((*MockWolfClientInterface)(nil).JoinLobby), ctx, req)
 }
 
 // ListApps mocks base method.
@@ -115,6 +144,21 @@ func (mr *MockWolfClientInterfaceMockRecorder) ListLobbies(ctx any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLobbies", reflect.TypeOf((*MockWolfClientInterface)(nil).ListLobbies), ctx)
 }
 
+// ListSessions mocks base method.
+func (m *MockWolfClientInterface) ListSessions(ctx context.Context) ([]wolf.WolfStreamSession, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessions", ctx)
+	ret0, _ := ret[0].([]wolf.WolfStreamSession)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSessions indicates an expected call of ListSessions.
+func (mr *MockWolfClientInterfaceMockRecorder) ListSessions(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockWolfClientInterface)(nil).ListSessions), ctx)
+}
+
 // RemoveApp mocks base method.
 func (m *MockWolfClientInterface) RemoveApp(ctx context.Context, appID string) error {
 	m.ctrl.T.Helper()
@@ -144,15 +188,15 @@ func (mr *MockWolfClientInterfaceMockRecorder) StopLobby(ctx, req any) *gomock.C
 }
 
 // StopSession mocks base method.
-func (m *MockWolfClientInterface) StopSession(ctx context.Context, sessionID string) error {
+func (m *MockWolfClientInterface) StopSession(ctx context.Context, clientID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StopSession", ctx, sessionID)
+	ret := m.ctrl.Call(m, "StopSession", ctx, clientID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StopSession indicates an expected call of StopSession.
-func (mr *MockWolfClientInterfaceMockRecorder) StopSession(ctx, sessionID any) *gomock.Call {
+func (mr *MockWolfClientInterfaceMockRecorder) StopSession(ctx, clientID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopSession", reflect.TypeOf((*MockWolfClientInterface)(nil).StopSession), ctx, sessionID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopSession", reflect.TypeOf((*MockWolfClientInterface)(nil).StopSession), ctx, clientID)
 }
