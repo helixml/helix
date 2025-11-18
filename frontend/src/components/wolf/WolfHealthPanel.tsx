@@ -103,9 +103,30 @@ const WolfHealthPanel: React.FC = () => {
           </Box>
         </Box>
 
-        {health.stuck_thread_count && health.stuck_thread_count > 0 && (
+        {health.can_create_new_pipelines === false && (
           <Alert severity="error" sx={{ mb: 2 }}>
+            <strong>CRITICAL:</strong> Pipeline creation test FAILED - new streaming sessions will NOT work.
+            GStreamer type lock is likely held by a crashed thread. System needs restart.
+          </Alert>
+        )}
+
+        {health.stuck_thread_count && health.stuck_thread_count > 0 && (
+          <Alert
+            severity={health.can_create_new_pipelines ? "warning" : "error"}
+            sx={{ mb: 2 }}
+          >
             <strong>{health.stuck_thread_count}</strong> of <strong>{health.total_thread_count}</strong> threads are stuck (no heartbeat &gt;30s)
+            {health.can_create_new_pipelines && (
+              <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                Pipeline creation test still works - new sessions OK despite stuck threads
+              </Typography>
+            )}
+          </Alert>
+        )}
+
+        {health.can_create_new_pipelines === true && health.stuck_thread_count === 0 && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            System healthy - pipeline creation works, no stuck threads
           </Alert>
         )}
 
