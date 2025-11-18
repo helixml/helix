@@ -129,16 +129,16 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	project := &types.Project{
-		ID:             system.GenerateUUID(),
-		Name:           req.Name,
-		Description:    req.Description,
-		UserID:         user.ID,
-		GitHubRepoURL:  req.GitHubRepoURL,
-		DefaultBranch:  req.DefaultBranch,
-		Technologies:   req.Technologies,
-		Status:         "active",
-		DefaultRepoID:  req.DefaultRepoID,
-		StartupScript:  req.StartupScript,
+		ID:            system.GenerateUUID(),
+		Name:          req.Name,
+		Description:   req.Description,
+		UserID:        user.ID,
+		GitHubRepoURL: req.GitHubRepoURL,
+		DefaultBranch: req.DefaultBranch,
+		Technologies:  req.Technologies,
+		Status:        "active",
+		DefaultRepoID: req.DefaultRepoID,
+		StartupScript: req.StartupScript,
 	}
 
 	created, err := s.Store.CreateProject(r.Context(), project)
@@ -188,7 +188,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 			Status:         "ready",
 			LocalPath:      internalRepoPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
+			Metadata:       map[string]interface{}{},
 		}
 
 		err = s.Store.CreateGitRepository(r.Context(), internalRepo)
@@ -974,19 +974,19 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	session := &types.Session{
-		ID:             system.GenerateSessionID(),
-		Name:           fmt.Sprintf("Explore: %s", project.Name),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		ParentSession:  "",
-		Mode:           types.SessionModeInference,
-		Type:           types.SessionTypeText,
-		Provider:       "anthropic",
-		ModelName:      "external_agent",
-		LoraDir:        "",
-		Owner:          user.ID,
-		OwnerType:      types.OwnerTypeUser,
-		Metadata:       sessionMetadata,
+		ID:            system.GenerateSessionID(),
+		Name:          fmt.Sprintf("Explore: %s", project.Name),
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		ParentSession: "",
+		Mode:          types.SessionModeInference,
+		Type:          types.SessionTypeText,
+		Provider:      "anthropic",
+		ModelName:     "external_agent",
+		LoraDir:       "",
+		Owner:         user.ID,
+		OwnerType:     types.OwnerTypeUser,
+		Metadata:      sessionMetadata,
 	}
 
 	createdSession, err := s.Store.CreateSession(r.Context(), *session)
@@ -1026,7 +1026,7 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		UserID:              user.ID,
 		Input:               fmt.Sprintf("Explore the %s project", project.Name),
 		ProjectPath:         "workspace",
-		SpecTaskID:          "", // No task - exploratory mode
+		SpecTaskID:          "",        // No task - exploratory mode
 		ProjectID:           projectID, // For loading project repos and startup script
 		PrimaryRepositoryID: primaryRepoID,
 		RepositoryIDs:       repositoryIDs,

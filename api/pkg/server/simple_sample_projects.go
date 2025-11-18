@@ -822,7 +822,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Status:         "ready",
 		LocalPath:      internalRepoPath,
 		DefaultBranch:  "main",
-		MetadataJSON:   "{}",
+		Metadata:       map[string]interface{}{},
 	}
 
 	log.Info().
@@ -876,7 +876,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
+			Metadata:       map[string]interface{}{},
 		}
 
 		log.Info().
@@ -927,7 +927,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      notebooksPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   `{"repo_purpose": "notebooks"}`,
+			Metadata:       map[string]interface{}{"repo_purpose": "notebooks"},
 		}
 
 		err = s.Store.CreateGitRepository(ctx, notebooksRepo)
@@ -962,7 +962,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      pyforestPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   `{"repo_purpose": "library"}`,
+			Metadata:       map[string]interface{}{"repo_purpose": "library"},
 		}
 
 		err = s.Store.CreateGitRepository(ctx, pyforestRepo)
@@ -1006,7 +1006,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
+			Metadata:       map[string]interface{}{},
 		}
 
 		log.Info().
