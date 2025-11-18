@@ -1336,10 +1336,24 @@ trigger:
 steps:
   - name: clone-wolf
     image: alpine/git:latest
+    environment:
+      SSH_KEY:
+        from_secret: github_ssh_key
     commands:
-      - git clone --depth 1 https://github.com/helixml/wolf.git /drone/src/wolf
+      # Setup SSH for git operations
+      - mkdir -p ~/.ssh
+      - echo "$SSH_KEY" > ~/.ssh/id_rsa
+      - chmod 600 ~/.ssh/id_rsa
+      - ssh-keyscan github.com >> ~/.ssh/known_hosts
+      # Clone Wolf and tag it with Helix version
+      - git clone git@github.com:helixml/wolf.git /drone/src/wolf
       - cd /drone/src/wolf
-      - echo "Building Wolf from Helix-maintained fork for version ${DRONE_TAG}"
+      - git config user.email "drone@helix.ml"
+      - git config user.name "Helix Drone CI"
+      - echo "Tagging Wolf stable branch with ${DRONE_TAG}"
+      - git tag -a "${DRONE_TAG}" -m "Release ${DRONE_TAG} (built with Helix ${DRONE_TAG})"
+      - git push origin "${DRONE_TAG}" || echo "Tag ${DRONE_TAG} already exists, continuing..."
+      - echo "Building Wolf from stable branch for Helix version ${DRONE_TAG}"
     when:
       event:
         - tag
