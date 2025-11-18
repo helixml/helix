@@ -13807,19 +13807,22 @@ const docTemplate = `{
                 "owner_id": {
                     "type": "string"
                 },
+                "password": {
+                    "type": "string"
+                },
                 "project_id": {
                     "type": "string"
                 },
                 "repo_type": {
                     "$ref": "#/definitions/services.GitRepositoryType"
                 },
-                "spec_task_id": {
-                    "type": "string"
-                },
                 "status": {
                     "$ref": "#/definitions/services.GitRepositoryStatus"
                 },
                 "updated_at": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -13858,9 +13861,6 @@ const docTemplate = `{
                 },
                 "repo_type": {
                     "$ref": "#/definitions/services.GitRepositoryType"
-                },
-                "spec_task_id": {
-                    "type": "string"
                 }
             }
         },
@@ -13920,6 +13920,9 @@ const docTemplate = `{
         "services.GitRepositoryUpdateRequest": {
             "type": "object",
             "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -14368,10 +14371,6 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string"
                 },
-                "credential_ref": {
-                    "description": "Reference to stored credentials (SSH key, OAuth token, etc.)",
-                    "type": "string"
-                },
                 "default_branch": {
                     "type": "string"
                 },
@@ -14409,13 +14408,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "metadata": {
-                    "description": "Transient field, not persisted (used by services)",
+                    "description": "Stores Metadata as JSON",
                     "type": "object",
                     "additionalProperties": true
-                },
-                "metadata_json": {
-                    "description": "Stores Metadata as JSON",
-                    "type": "string"
                 },
                 "name": {
                     "type": "string"
@@ -14425,6 +14420,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner_id": {
+                    "type": "string"
+                },
+                "password": {
+                    "description": "Password for the repository",
                     "type": "string"
                 },
                 "project_id": {
@@ -14440,6 +14439,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Username for the repository",
                     "type": "string"
                 }
             }
