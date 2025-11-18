@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,15 +107,15 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string   // User ID for SSH key mounting
-	SessionID         string   // Session ID for settings sync daemon
+	UserID            string // User ID for SSH key mounting
+	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
 	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
-	DisplayWidth      int
-	DisplayHeight     int
-	DisplayFPS        int
+	DisplayWidth  int
+	DisplayHeight int
+	DisplayFPS    int
 }
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
@@ -283,7 +284,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		workspaceBasePathForCloning:  "/filestore/workspaces",                          // Path inside API container for git clone operations
 		workspaceBasePathForMounting: filepath.Join(filestoreVolumePath, "workspaces"), // Absolute host path for Wolf to mount
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
-		lobbyCacheTTL:                5 * time.Second, // Cache lobby lookups for 5 seconds to prevent Wolf API spam
+		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
 	}
 
@@ -304,7 +305,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 
 	return executor
 }
-
 
 // StartZedAgent implements the Executor interface for external agent sessions
 func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
@@ -626,7 +626,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Agent must keep running when no Moonlight clients connected!
+		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
@@ -730,7 +730,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
 		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString, // NEW: Return PIN for storage in Helix session
+		WolfLobbyPIN:  lobbyPINString,    // NEW: Return PIN for storage in Helix session
 	}
 
 	log.Info().
@@ -755,8 +755,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		LastInteraction: time.Now(),
 		AgentType:       agentType,
 		WolfAppID:       response.WolfAppID,
-		WolfLobbyID:     response.WolfLobbyID,   // Store lobby ID for cleanup even after session deleted
-		WolfLobbyPIN:    response.WolfLobbyPIN,  // Store lobby PIN for cleanup
+		WolfLobbyID:     response.WolfLobbyID,  // Store lobby ID for cleanup even after session deleted
+		WolfLobbyPIN:    response.WolfLobbyPIN, // Store lobby PIN for cleanup
 		WorkspaceDir:    workspaceDir,
 		UserID:          agent.UserID,
 	})
@@ -1312,18 +1312,6 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	return nil
 }
 
-// NOTE: Background session creation has been moved to Wolf's native auto_persistent_sessions feature.
-// Wolf now handles container lifecycle directly through auto_start_containers = true configuration.
-// No need for Helix to create fake background sessions - Wolf automatically starts containers
-// when apps are added, and real Moonlight clients can connect to running containers seamlessly.
-
-// generateRandomIP generates a unique fake IP address for RTSP routing
-func generateRandomIP() string {
-	// Generate a random IP in the 192.168.1.x range to avoid conflicts
-	// Wolf uses fake IPs to route RTSP connections back to the correct session
-	return fmt.Sprintf("192.168.1.%d", 100+time.Now().UnixNano()%155) // 100-254 range
-}
-
 // checkWolfAppExists checks if a Wolf app with the given ID already exists
 func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
 	apps, err := w.wolfClient.ListApps(ctx)
@@ -1437,7 +1425,6 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 
 	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
 }
-
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
 // Terminates external agents after 1min of inactivity (for testing, will be 30min in production)
@@ -2037,7 +2024,26 @@ func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir st
 				continue
 			}
 
-			cloneCmd := fmt.Sprintf("git clone %q %q", repo.CloneURL, cloneDir)
+			cloneURL := repo.CloneURL
+			if repo.Username != "" && repo.Password != "" {
+				parsedURL, err := url.Parse(cloneURL)
+				if err != nil {
+					log.Warn().
+						Err(err).
+						Str("repository_id", repoID).
+						Str("clone_url", cloneURL).
+						Msg("Failed to parse clone URL, cloning without credentials")
+				} else {
+					parsedURL.User = url.UserPassword(repo.Username, repo.Password)
+					cloneURL = parsedURL.String()
+					log.Info().
+						Str("repository_id", repoID).
+						Str("username", repo.Username).
+						Msg("Using credentials for git clone")
+				}
+			}
+
+			cloneCmd := fmt.Sprintf("git clone %q %q", cloneURL, cloneDir)
 			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
 			if err != nil {
 				log.Error().
