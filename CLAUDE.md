@@ -2,6 +2,67 @@
 
 See also: @.cursor/rules/helix.mdc, @.cursor/rules/go-api-handlers.mdc, @.cursor/rules/use-gorm-for-database.mdc, @.cursor/rules/use-frontend-api-client.mdc
 
+## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
+
+**DEBUGGING HUNG PROCESSES IS ALWAYS MORE IMPORTANT THAN QUICK RECOVERY**
+
+When a production process is hung/deadlocked:
+
+```bash
+# ✅ CORRECT: Collect debugging info FIRST
+# 1. Get process ID
+PID=$(docker inspect --format '{{.State.Pid}}' wolf-1)
+
+# 2. Attach GDB and collect thread backtraces
+sudo gdb -p $PID
+(gdb) thread apply all bt        # Full backtraces of all threads
+(gdb) info threads               # Thread states
+(gdb) thread <N>                 # Switch to specific thread
+(gdb) bt full                    # Full backtrace with local variables
+(gdb) p *mutex_ptr               # Examine mutex state
+(gdb) detach                     # Detach without killing
+(gdb) quit
+
+# 3. Check for deadlock cycles
+sudo gdb -p $PID -batch \
+  -ex 'thread apply all bt' \
+  -ex 'info threads' > /tmp/deadlock-$(date +%Y%m%d-%H%M%S).txt
+
+# 4. Collect system state
+cat /proc/$PID/status
+ls -la /proc/$PID/task/          # List all threads
+cat /proc/$PID/task/*/syscall    # Current syscalls for all threads
+
+# 5. ONLY AFTER collecting all above: Consider restart
+
+# ❌ WRONG: Immediate restart destroys debugging info
+docker compose restart wolf      # NEVER DO THIS
+docker compose down wolf && docker compose up -d wolf  # OR THIS
+```
+
+**Why:** Hung processes contain irreplaceable debugging information:
+- Thread backtraces show exact deadlock location
+- Mutex states reveal which thread holds which lock
+- Memory dumps show corruption patterns
+- Syscall states show kernel blocking points
+
+**Restarting destroys ALL of this. You get ONE chance to debug a deadlock. Don't waste it.**
+
+**Production recovery vs debugging:**
+- Hung process = debugging opportunity (happens rarely, need data to fix root cause)
+- If you restart immediately, the deadlock WILL happen again
+- Spending 10 minutes debugging now saves hours of blind debugging later
+
+**Document what you collect:**
+```bash
+# Save to design/ directory with timestamp
+mkdir -p /root/helix/design/
+gdb -p $PID -batch \
+  -ex 'thread apply all bt full' \
+  -ex 'info threads' \
+  > /root/helix/design/$(date +%Y-%m-%d)-wolf-deadlock-${PID}.txt
+```
+
 ## CRITICAL: Fail Fast with Clear Errors
 
 **NEVER write fallback code or silently continue after failures**
