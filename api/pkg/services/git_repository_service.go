@@ -23,13 +23,13 @@ import (
 // Uses the filestore mount for persistent storage of git repositories
 type GitRepositoryService struct {
 	store           store.Store
-	filestoreBase   string // Base path for filestore (e.g., "/tmp/helix/filestore")
-	gitRepoBase     string // Base path for git repositories within filestore
-	serverBaseURL   string // Base URL for git server (e.g., "http://api:8080")
-	gitUserName     string // Default git user name
-	gitUserEmail    string // Default git user email
-	enableGitServer bool   // Whether to enable git server functionality
-	testMode        bool   // Test mode for unit tests
+	filestoreBase   string        // Base path for filestore (e.g., "/tmp/helix/filestore")
+	gitRepoBase     string        // Base path for git repositories within filestore
+	serverBaseURL   string        // Base URL for git server (e.g., "http://api:8080")
+	gitUserName     string        // Default git user name
+	gitUserEmail    string        // Default git user email
+	enableGitServer bool          // Whether to enable git server functionality
+	testMode        bool          // Test mode for unit tests
 	koditService    *KoditService // Optional Kodit service for code intelligence
 }
 
@@ -45,6 +45,7 @@ type GitRepository struct {
 	RepoType       GitRepositoryType      `json:"repo_type"`
 	Status         GitRepositoryStatus    `json:"status"`
 	CloneURL       string                 `json:"clone_url"`
+	AuthToken      string                 `json:"auth_token"`
 	LocalPath      string                 `json:"local_path"`
 	DefaultBranch  string                 `json:"default_branch"`
 	Branches       []string               `json:"branches,omitempty"`
@@ -129,12 +130,13 @@ func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
 		RepoType:       GitRepositoryType(repo.RepoType),
 		Status:         GitRepositoryStatus(repo.Status),
 		CloneURL:       repo.CloneURL,
+		AuthToken:      repo.AuthToken,
 		LocalPath:      repo.LocalPath,
 		DefaultBranch:  repo.DefaultBranch,
 		LastActivity:   repo.LastActivity,
 		CreatedAt:      repo.CreatedAt,
 		UpdatedAt:      repo.UpdatedAt,
-		Metadata:      repo.Metadata,
+		Metadata:       repo.Metadata,
 	}
 }
 
@@ -261,6 +263,14 @@ func (s *GitRepositoryService) CreateRepository(
 		}
 	}
 
+	// Dig for auth token somewhere in the metadata
+	var token string
+	if request.Metadata != nil {
+		if authToken, ok := request.Metadata["auth_token"].(string); ok && authToken != "" {
+			token = authToken
+		}
+	}
+
 	// Create repository object
 	gitRepo := &GitRepository{
 		ID:             repoID,
@@ -273,6 +283,7 @@ func (s *GitRepositoryService) CreateRepository(
 		RepoType:       request.RepoType,
 		Status:         GitRepositoryStatusActive,
 		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
+		AuthToken:      token,
 		LocalPath:      repoPath,
 		DefaultBranch:  defaultBranch,
 		LastActivity:   time.Now(),
@@ -914,7 +925,6 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *GitRepository) e
 
 	return nil
 }
-
 
 // getSampleProjectFiles returns sample files based on project type
 func (s *GitRepositoryService) getSampleProjectFiles(sampleType string) map[string]string {
