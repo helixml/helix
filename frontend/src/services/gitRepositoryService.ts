@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import useApi from '../hooks/useApi';
+import type { TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest } from '../api/api';
 
 // Re-export generated types for convenience
 export type {
@@ -8,6 +9,8 @@ export type {
   TypesGitRepositoryType as GitRepositoryType,
   TypesGitRepositoryStatus as GitRepositoryStatus,
   TypesCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
+  TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest,
+  TypesGitRepositoryFileResponse as GitRepositoryFileResponse,
 } from '../api/api';
 
 // Query keys
@@ -221,6 +224,28 @@ export function useInitializeSampleRepositories() {
   });
 }
 
+export function useCreateOrUpdateRepositoryFile() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, request }: { repositoryId: string; request: UpdateGitRepositoryFileContentsRequest }) => {
+      const response = await api.getApiClient().createOrUpdateGitRepositoryFileContents(repositoryId, request);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate the specific file query to refresh the file content
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryFile(variables.repositoryId, variables.request.path || '', variables.request.branch || '') 
+      });
+      // Also invalidate the tree query to refresh the file listing
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.request.branch || '') 
+      });
+    },
+  });
+}
+
 // Helper functions
 
 export function getRepositoryTypeColor(repoType: string): string {
@@ -371,6 +396,7 @@ const gitRepositoryService = {
   useCreateGitRepository,
   useCreateSampleRepository,
   useInitializeSampleRepositories,
+  useCreateOrUpdateRepositoryFile,
 
   // Helper functions
   getRepositoryTypeColor,

@@ -4229,11 +4229,26 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
+}
+
+export interface TypesUpdateGitRepositoryFileContentsRequest {
+  /** Author name */
+  author?: string;
+  /** Branch name */
+  branch?: string;
+  /** Base64 encoded content */
+  content?: string;
+  /** Author email */
+  email?: string;
+  /** Commit message */
+  message?: string;
+  /** File path */
+  path?: string;
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -6121,30 +6136,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get code intelligence enrichments for a repository from Kodit
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesEnrichmentsDetail
-     * @summary Get repository enrichments
-     * @request GET:/api/v1/git/repositories/{id}/enrichments
-     * @secure
-     */
-    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}/enrichments`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description Get the contents of a file at a specific path in a repository
      *
      * @tags git-repositories
      * @name GetGitRepositoryFile
      * @summary Get file contents
-     * @request GET:/api/v1/git/repositories/{id}/file
+     * @request GET:/api/v1/git/repositories/{id}/contents
      * @secure
      */
     getGitRepositoryFile: (
@@ -6158,9 +6155,51 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       params: RequestParams = {},
     ) =>
       this.request<TypesGitRepositoryFileResponse, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}/file`,
+        path: `/api/v1/git/repositories/${id}/contents`,
         method: "GET",
         query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create or update the contents of a file in a repository
+     *
+     * @tags git-repositories
+     * @name CreateOrUpdateGitRepositoryFileContents
+     * @summary Create or update file contents
+     * @request PUT:/api/v1/git/repositories/{id}/contents
+     * @secure
+     */
+    createOrUpdateGitRepositoryFileContents: (
+      id: string,
+      request: TypesUpdateGitRepositoryFileContentsRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesGitRepositoryFileResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/contents`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get code intelligence enrichments for a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesEnrichmentsDetail
+     * @summary Get repository enrichments
+     * @request GET:/api/v1/git/repositories/{id}/enrichments
+     * @secure
+     */
+    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/enrichments`,
+        method: "GET",
         secure: true,
         format: "json",
         ...params,
