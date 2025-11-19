@@ -954,15 +954,26 @@ if [ "$AUTO" = true ]; then
 fi
 
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
-    # When installing a remote runner (without controlplane), both API_HOST and RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
-        echo "to connect to an external controlplane, for example:"
-        echo
-        echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-        echo
-        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-        exit 1
+    # Two cases:
+    # 1. --runner WITH --runner-token = remote runner (needs API_HOST + RUNNER_TOKEN)
+    # 2. --runner WITHOUT --runner-token = local installation (auto-enable controlplane)
+
+    if [ -n "$RUNNER_TOKEN" ]; then
+        # Case 1: Remote runner - require API_HOST
+        if [ -z "$API_HOST" ]; then
+            echo "Error: When installing a remote runner, you must specify both --api-host and --runner-token"
+            echo "to connect to an external controlplane, for example:"
+            echo
+            echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+            echo
+            echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+            exit 1
+        fi
+    else
+        # Case 2: Local installation - auto-enable controlplane
+        echo "Note: --runner specified without --runner-token, assuming local installation (enabling controlplane)."
+        CONTROLPLANE=true
+        CLI=true
     fi
 fi
 
