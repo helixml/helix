@@ -844,7 +844,7 @@ func (s *GitHTTPServer) checkCommentResolution(ctx context.Context, specTaskID, 
 
 // handleFeatureBranchPush detects when an agent pushes to a feature branch
 // Transitions task from implementation → implementation_review
-func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *GitRepository, branchName string, commitHash string, repoPath string) {
+func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *types.GitRepository, branchName string, commitHash string, repoPath string) {
 	log.Info().
 		Str("repo_id", repo.ID).
 		Str("branch", branchName).
@@ -933,7 +933,7 @@ func (s *GitHTTPServer) handleFeatureBranchPush(ctx context.Context, repo *GitRe
 
 // handleMainBranchPush detects when code is merged to main
 // Transitions task from implementation_review → done
-func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *GitRepository, commitHash string, repoPath string) {
+func (s *GitHTTPServer) handleMainBranchPush(ctx context.Context, repo *types.GitRepository, commitHash string, repoPath string) {
 	log.Info().
 		Str("repo_id", repo.ID).
 		Str("commit", commitHash).
@@ -1084,7 +1084,7 @@ func (s *GitHTTPServer) checkForDesignDocs(repoPath string) (bool, error) {
 
 	files := strings.Split(string(output), "\n")
 	designDocPatterns := []string{
-		"tasks/",          // SpecTask design docs are in tasks/ subdirectories
+		"tasks/", // SpecTask design docs are in tasks/ subdirectories
 		"design/",
 		"requirements.md",
 		"design.md",

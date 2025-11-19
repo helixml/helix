@@ -17,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -35,121 +36,121 @@ type GitRepositoryService struct {
 }
 
 // GitRepository represents a git repository hosted on the server
-type GitRepository struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	OwnerID        string                 `json:"owner_id"`
-	OrganizationID string                 `json:"organization_id,omitempty"`
-	ProjectID      string                 `json:"project_id,omitempty"`
-	RepoType       GitRepositoryType      `json:"repo_type"`
-	Status         GitRepositoryStatus    `json:"status"`
-	CloneURL       string                 `json:"clone_url"`
-	Username       string                 `json:"username"`
-	Password       string                 `json:"password"`
-	LocalPath      string                 `json:"local_path"`
-	DefaultBranch  string                 `json:"default_branch"`
-	Branches       []string               `json:"branches,omitempty"`
-	LastActivity   time.Time              `json:"last_activity"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-}
+// type GitRepository struct {
+// 	ID             string                 `json:"id"`
+// 	Name           string                 `json:"name"`
+// 	Description    string                 `json:"description"`
+// 	OwnerID        string                 `json:"owner_id"`
+// 	OrganizationID string                 `json:"organization_id,omitempty"`
+// 	ProjectID      string                 `json:"project_id,omitempty"`
+// 	RepoType       GitRepositoryType      `json:"repo_type"`
+// 	Status         GitRepositoryStatus    `json:"status"`
+// 	CloneURL       string                 `json:"clone_url"`
+// 	Username       string                 `json:"username"`
+// 	Password       string                 `json:"password"`
+// 	LocalPath      string                 `json:"local_path"`
+// 	DefaultBranch  string                 `json:"default_branch"`
+// 	Branches       []string               `json:"branches,omitempty"`
+// 	LastActivity   time.Time              `json:"last_activity"`
+// 	CreatedAt      time.Time              `json:"created_at"`
+// 	UpdatedAt      time.Time              `json:"updated_at"`
+// 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+// }
 
-// GitRepositoryType defines the type of repository
-type GitRepositoryType string
+// // GitRepositoryType defines the type of repository
+// type GitRepositoryType string
 
-const (
-	GitRepositoryTypeInternal GitRepositoryType = "internal" // Internal project config repository
-	GitRepositoryTypeCode     GitRepositoryType = "code"     // Code repository (user projects, samples, external repos)
-)
+// const (
+// 	GitRepositoryTypeInternal GitRepositoryType = "internal" // Internal project config repository
+// 	GitRepositoryTypeCode     GitRepositoryType = "code"     // Code repository (user projects, samples, external repos)
+// )
 
-// GitRepositoryStatus defines the status of a repository
-type GitRepositoryStatus string
+// // GitRepositoryStatus defines the status of a repository
+// type GitRepositoryStatus string
 
-const (
-	GitRepositoryStatusActive   GitRepositoryStatus = "active"
-	GitRepositoryStatusArchived GitRepositoryStatus = "archived"
-	GitRepositoryStatusDeleted  GitRepositoryStatus = "deleted"
-)
+// const (
+// 	GitRepositoryStatusActive   GitRepositoryStatus = "active"
+// 	GitRepositoryStatusArchived GitRepositoryStatus = "archived"
+// 	GitRepositoryStatusDeleted  GitRepositoryStatus = "deleted"
+// )
 
-// GitRepositoryCreateRequest represents a request to create a new repository
-type GitRepositoryCreateRequest struct {
-	Name           string                 `json:"name"`
-	Description    string                 `json:"description"`
-	RepoType       GitRepositoryType      `json:"repo_type"`
-	OwnerID        string                 `json:"owner_id"`
-	OrganizationID string                 `json:"organization_id,omitempty"` // Organization ID - required for access control
-	ProjectID      string                 `json:"project_id,omitempty"`
-	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
-	DefaultBranch  string                 `json:"default_branch,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-}
+// // GitRepositoryCreateRequest represents a request to create a new repository
+// type GitRepositoryCreateRequest struct {
+// 	Name           string                  `json:"name"`
+// 	Description    string                  `json:"description"`
+// 	RepoType       types.GitRepositoryType `json:"repo_type"`
+// 	OwnerID        string                  `json:"owner_id"`
+// 	OrganizationID string                  `json:"organization_id,omitempty"` // Organization ID - required for access control
+// 	ProjectID      string                  `json:"project_id,omitempty"`
+// 	InitialFiles   map[string]string       `json:"initial_files,omitempty"`
+// 	DefaultBranch  string                  `json:"default_branch,omitempty"`
+// 	Metadata       map[string]interface{}  `json:"metadata,omitempty"`
+// }
 
-// GitRepositoryUpdateRequest represents a request to update a repository
-type GitRepositoryUpdateRequest struct {
-	Name          string                 `json:"name,omitempty"`
-	Description   string                 `json:"description,omitempty"`
-	DefaultBranch string                 `json:"default_branch,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
-}
+// // GitRepositoryUpdateRequest represents a request to update a repository
+// type GitRepositoryUpdateRequest struct {
+// 	Name          string                 `json:"name,omitempty"`
+// 	Description   string                 `json:"description,omitempty"`
+// 	DefaultBranch string                 `json:"default_branch,omitempty"`
+// 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+// }
 
 // Conversion helpers between services.GitRepository and store.GitRepository
 
 // toStoreGitRepository converts services.GitRepository to store.GitRepository
-func toStoreGitRepository(repo *GitRepository) *store.GitRepository {
-	return &store.GitRepository{
-		ID:             repo.ID,
-		Name:           repo.Name,
-		Description:    repo.Description,
-		OwnerID:        repo.OwnerID,
-		OrganizationID: repo.OrganizationID,
-		ProjectID:      repo.ProjectID,
-		RepoType:       string(repo.RepoType),
-		Status:         string(repo.Status),
-		CloneURL:       repo.CloneURL,
-		Username:       repo.Username,
-		Password:       repo.Password,
-		LocalPath:      repo.LocalPath,
-		DefaultBranch:  repo.DefaultBranch,
-		LastActivity:   repo.LastActivity,
-		CreatedAt:      repo.CreatedAt,
-		UpdatedAt:      repo.UpdatedAt,
-		Metadata:       repo.Metadata,
-	}
-}
+// func toStoreGitRepository(repo *types.GitRepository) *store.GitRepository {
+// 	return &store.GitRepository{
+// 		ID:             repo.ID,
+// 		Name:           repo.Name,
+// 		Description:    repo.Description,
+// 		OwnerID:        repo.OwnerID,
+// 		OrganizationID: repo.OrganizationID,
+// 		ProjectID:      repo.ProjectID,
+// 		RepoType:       string(repo.RepoType),
+// 		Status:         string(repo.Status),
+// 		CloneURL:       repo.CloneURL,
+// 		Username:       repo.Username,
+// 		Password:       repo.Password,
+// 		LocalPath:      repo.LocalPath,
+// 		DefaultBranch:  repo.DefaultBranch,
+// 		LastActivity:   repo.LastActivity,
+// 		CreatedAt:      repo.CreatedAt,
+// 		UpdatedAt:      repo.UpdatedAt,
+// 		Metadata:       repo.Metadata,
+// 	}
+// }
 
-// fromStoreGitRepository converts store.GitRepository to services.GitRepository
-func fromStoreGitRepository(repo *store.GitRepository) *GitRepository {
-	return &GitRepository{
-		ID:             repo.ID,
-		Name:           repo.Name,
-		Description:    repo.Description,
-		OwnerID:        repo.OwnerID,
-		OrganizationID: repo.OrganizationID,
-		ProjectID:      repo.ProjectID,
-		RepoType:       GitRepositoryType(repo.RepoType),
-		Status:         GitRepositoryStatus(repo.Status),
-		CloneURL:       repo.CloneURL,
-		Username:       repo.Username,
-		Password:       repo.Password,
-		LocalPath:      repo.LocalPath,
-		DefaultBranch:  repo.DefaultBranch,
-		LastActivity:   repo.LastActivity,
-		CreatedAt:      repo.CreatedAt,
-		UpdatedAt:      repo.UpdatedAt,
-		Metadata:       repo.Metadata,
-	}
-}
+// // fromStoreGitRepository converts store.GitRepository to services.GitRepository
+// func fromStoreGitRepository(repo *store.GitRepository) *types.GitRepository {
+// 	return &types.GitRepository{
+// 		ID:             repo.ID,
+// 		Name:           repo.Name,
+// 		Description:    repo.Description,
+// 		OwnerID:        repo.OwnerID,
+// 		OrganizationID: repo.OrganizationID,
+// 		ProjectID:      repo.ProjectID,
+// 		RepoType:       types.GitRepositoryType(repo.RepoType),
+// 		Status:         types.GitRepositoryStatus(repo.Status),
+// 		CloneURL:       repo.CloneURL,
+// 		Username:       repo.Username,
+// 		Password:       repo.Password,
+// 		LocalPath:      repo.LocalPath,
+// 		DefaultBranch:  repo.DefaultBranch,
+// 		LastActivity:   repo.LastActivity,
+// 		CreatedAt:      repo.CreatedAt,
+// 		UpdatedAt:      repo.UpdatedAt,
+// 		Metadata:       repo.Metadata,
+// 	}
+// }
 
 // fromStoreGitRepositories converts []*store.GitRepository to []*GitRepository
-func fromStoreGitRepositories(repos []*store.GitRepository) []*GitRepository {
-	result := make([]*GitRepository, len(repos))
-	for i, repo := range repos {
-		result[i] = fromStoreGitRepository(repo)
-	}
-	return result
-}
+// func fromStoreGitRepositories(repos []*store.GitRepository) []*types.GitRepository {
+// 	result := make([]*types.GitRepository, len(repos))
+// 	for i, repo := range repos {
+// 		result[i] = fromStoreGitRepository(repo)
+// 	}
+// 	return result
+// }
 
 // NewGitRepositoryService creates a new git repository service
 func NewGitRepositoryService(
@@ -205,15 +206,19 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 }
 
 // CreateRepository creates a new git repository
-func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *GitRepositoryCreateRequest) (*GitRepository, error) {
+func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
 	// Check for duplicate repository name for this owner
-	existingRepos, err := s.ListRepositories(ctx, request.OwnerID)
-	if err == nil {
-		// Only fail if we can successfully check for duplicates
-		for _, repo := range existingRepos {
-			if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
-				return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
-			}
+	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		OrganizationID: request.OrganizationID,
+		OwnerID:        request.OwnerID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+	// Check for duplicates
+	for _, repo := range existingRepos {
+		if repo.Name == request.Name && repo.OwnerID == request.OwnerID {
+			return nil, fmt.Errorf("repository with name '%s' already exists for this owner", request.Name)
 		}
 	}
 
@@ -275,7 +280,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 	}
 
 	// Create repository object
-	gitRepo := &GitRepository{
+	gitRepo := &types.GitRepository{
 		ID:             repoID,
 		Name:           request.Name,
 		Description:    request.Description,
@@ -283,7 +288,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 		OrganizationID: orgID,
 		ProjectID:      request.ProjectID,
 		RepoType:       request.RepoType,
-		Status:         GitRepositoryStatusActive,
+		Status:         types.GitRepositoryStatusActive,
 		CloneURL:       cloneURL, // Empty for internal repos, external URL for external repos
 		Username:       username,
 		Password:       password,
@@ -305,7 +310,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 	}
 
 	// Store repository metadata (if store supports it)
-	err = s.store.CreateGitRepository(ctx, toStoreGitRepository(gitRepo))
+	err = s.store.CreateGitRepository(ctx, gitRepo)
 	if err != nil {
 		log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to store repository metadata in database")
 		return nil, err
@@ -346,7 +351,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 					gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.ID
 
 					// Update repository metadata with Kodit ID
-					if err := s.store.UpdateGitRepository(context.Background(), toStoreGitRepository(gitRepo)); err != nil {
+					if err := s.store.UpdateGitRepository(context.Background(), gitRepo); err != nil {
 						log.Warn().
 							Err(err).
 							Str("repo_id", repoID).
@@ -368,11 +373,11 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *Gi
 }
 
 // GetRepository retrieves repository information by ID
-func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*GitRepository, error) {
+func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
 	log.Info().Str("repo_id", repoID).Msg("Getting repository metadata from store")
 
-	gitRepo, err := s.getRepositoryMetadata(ctx, repoID)
+	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		// Not in store - fallback to default path under gitRepoBase
 		repoPath := filepath.Join(s.gitRepoBase, repoID)
@@ -383,11 +388,11 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 		}
 
 		// Create from filesystem
-		gitRepo = &GitRepository{
+		gitRepo = &types.GitRepository{
 			ID:        repoID,
 			LocalPath: repoPath,
 			CloneURL:  s.generateCloneURL(repoID),
-			Status:    GitRepositoryStatusActive,
+			Status:    types.GitRepositoryStatusActive,
 		}
 		// Update with current git information
 		err = s.updateRepositoryFromGit(gitRepo)
@@ -427,8 +432,8 @@ func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string)
 func (s *GitRepositoryService) UpdateRepository(
 	ctx context.Context,
 	repoID string,
-	request *GitRepositoryUpdateRequest,
-) (*GitRepository, error) {
+	request *types.GitRepositoryUpdateRequest,
+) (*types.GitRepository, error) {
 	// Get existing repository
 	existing, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -458,7 +463,7 @@ func (s *GitRepositoryService) UpdateRepository(
 	existing.UpdatedAt = time.Now()
 
 	// Update in store
-	err = s.store.UpdateGitRepository(ctx, toStoreGitRepository(existing))
+	err = s.store.UpdateGitRepository(ctx, existing)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update repository metadata: %w", err)
 	}
@@ -498,64 +503,6 @@ func (s *GitRepositoryService) DeleteRepository(ctx context.Context, repoID stri
 	return nil
 }
 
-// ListRepositories lists all repositories
-func (s *GitRepositoryService) ListRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error) {
-	// Try to list from database first
-	if postgresStore, ok := s.store.(interface {
-		ListGitRepositories(ctx context.Context, ownerID string) ([]*store.GitRepository, error)
-	}); ok {
-		storeRepos, err := postgresStore.ListGitRepositories(ctx, ownerID)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to list repositories from database, falling back to filesystem scan")
-		} else {
-			log.Info().
-				Int("count", len(storeRepos)).
-				Str("owner_id", ownerID).
-				Msg("Listed repositories from database")
-			return fromStoreGitRepositories(storeRepos), nil
-		}
-	}
-
-	// Fallback to filesystem scan if database not available
-	repositories := []*GitRepository{}
-
-	// Walk the git repositories directory
-	err := filepath.Walk(s.gitRepoBase, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip errors
-		}
-
-		// Check if this is a git repository directory
-		if info.IsDir() && s.isGitRepository(path) {
-			repoID := filepath.Base(path)
-
-			repo, err := s.GetRepository(ctx, repoID)
-			if err != nil {
-				log.Warn().Err(err).Str("repo_id", repoID).Msg("Failed to get repository info")
-				return nil // Continue walking
-			}
-
-			// Filter by owner if specified
-			if ownerID == "" || repo.OwnerID == ownerID {
-				repositories = append(repositories, repo)
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list repositories: %w", err)
-	}
-
-	log.Info().
-		Int("count", len(repositories)).
-		Str("owner_id", ownerID).
-		Msg("Listed repositories from filesystem")
-
-	return repositories, nil
-}
-
 // incrementRepositoryName intelligently increments a repository name suffix
 // Examples: "repo" -> "repo-2", "repo-2" -> "repo-3", "repo-5" -> "repo-6"
 func incrementRepositoryName(name string) string {
@@ -578,40 +525,37 @@ func incrementRepositoryName(name string) string {
 // Automatically handles name conflicts by appending -2, -3, -4, etc.
 func (s *GitRepositoryService) CreateSampleRepository(
 	ctx context.Context,
-	name string,
-	description string,
-	ownerID string,
-	sampleType string,
-	koditIndexing bool,
-) (*GitRepository, error) {
+	request *types.CreateSampleRepositoryRequest,
+) (*types.GitRepository, error) {
 	// Get sample files based on type
-	initialFiles := s.getSampleProjectFiles(sampleType)
+	initialFiles := s.getSampleProjectFiles(request.SampleType)
 
 	// Try creating with incremented names if there's a conflict
 	maxRetries := 100
-	currentName := name
+	currentName := request.Name
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		request := &GitRepositoryCreateRequest{
-			Name:          currentName,
-			Description:   description,
-			RepoType:      GitRepositoryTypeCode,
-			OwnerID:       ownerID,
-			InitialFiles:  initialFiles,
-			DefaultBranch: "main",
+		request := &types.GitRepositoryCreateRequest{
+			Name:           currentName,
+			Description:    request.Description,
+			RepoType:       types.GitRepositoryTypeCode,
+			OwnerID:        request.OwnerID,
+			OrganizationID: request.OrganizationID,
+			InitialFiles:   initialFiles,
+			DefaultBranch:  "main",
 			Metadata: map[string]interface{}{
-				"sample_type":    sampleType,
+				"sample_type":    request.SampleType,
 				"created_from":   "sample",
-				"kodit_indexing": koditIndexing,
+				"kodit_indexing": request.KoditIndexing,
 			},
 		}
 
 		repo, err := s.CreateRepository(ctx, request)
 		if err == nil {
 			// Success!
-			if currentName != name {
+			if currentName != request.Name {
 				log.Info().
-					Str("original_name", name).
+					Str("original_name", request.Name).
 					Str("final_name", currentName).
 					Msg("Created sample repository with auto-incremented name")
 			}
@@ -645,7 +589,7 @@ func (s *GitRepositoryService) GetCloneCommand(repoID string, targetDir string) 
 }
 
 // generateRepositoryID generates a unique repository ID
-func (s *GitRepositoryService) generateRepositoryID(repoType GitRepositoryType, name string) string {
+func (s *GitRepositoryService) generateRepositoryID(repoType types.GitRepositoryType, name string) string {
 	// Sanitize name for filesystem
 	sanitizedName := strings.ReplaceAll(strings.ToLower(name), " ", "-")
 	sanitizedName = strings.ReplaceAll(sanitizedName, "_", "-")
@@ -918,8 +862,7 @@ func (s *GitRepositoryService) isGitRepository(path string) bool {
 }
 
 // updateRepositoryFromGit updates repository info from git metadata
-func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *GitRepository) error {
-
+func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitRepository) error {
 	var (
 		repo *git.Repository
 		err  error
@@ -1964,37 +1907,8 @@ dist/
 	return files
 }
 
-// getRepositoryMetadata retrieves repository metadata from store
-func (s *GitRepositoryService) getRepositoryMetadata(ctx context.Context, repoID string) (*GitRepository, error) {
-	storeRepo, err := s.store.GetGitRepository(ctx, repoID)
-	if err != nil {
-		return nil, err
-	}
-	return fromStoreGitRepository(storeRepo), nil
-}
-
-// TreeEntry represents a file or directory in a repository
-type TreeEntry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	IsDir bool   `json:"is_dir"`
-	Size  int64  `json:"size"`
-}
-
-// GitRepositoryTreeResponse represents the response for browsing repository tree
-type GitRepositoryTreeResponse struct {
-	Path    string      `json:"path"`
-	Entries []TreeEntry `json:"entries"`
-}
-
-// GitRepositoryFileResponse represents the response for getting file contents
-type GitRepositoryFileResponse struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
 // BrowseTree lists files and directories at a given path in a specific branch
-func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]TreeEntry, error) {
+func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]types.TreeEntry, error) {
 	// Get repository to find local path
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -2049,7 +1963,7 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 	}
 
 	// Build tree entries
-	result := make([]TreeEntry, 0, len(tree.Entries))
+	result := make([]types.TreeEntry, 0, len(tree.Entries))
 	for _, entry := range tree.Entries {
 		entryPath := path
 		if entryPath == "." || entryPath == "" {
@@ -2071,7 +1985,7 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 			}
 		}
 
-		result = append(result, TreeEntry{
+		result = append(result, types.TreeEntry{
 			Name:  entry.Name,
 			Path:  entryPath,
 			IsDir: isDir,
