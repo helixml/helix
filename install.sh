@@ -75,6 +75,22 @@
 # 12. Ubuntu + No Docker + No GPU + --code
 #     Result: Exit with error, instructions to install NVIDIA/Intel/AMD drivers
 #
+# 13. Ubuntu + NVIDIA GPU + --code (without --controlplane)
+#     Result: Auto-enable --cli and --controlplane (--code is a controlplane feature)
+#     Note: Simplest way to install controlplane with Code features
+#
+# 14. Ubuntu + NVIDIA GPU + --runner --code --haystack (without --runner-token)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
+#     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
+#
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner locally
+#     Note: --runner without token auto-enables controlplane for local installation
+#
+# 16. Ubuntu + --runner --runner-token TOKEN --api-host HOST
+#     Result: Remote runner only (connects to external controlplane at HOST)
+#     Note: Does NOT auto-enable controlplane (token provided = remote mode)
+#
 # ================================================================================
 
 set -euo pipefail
@@ -280,8 +296,11 @@ Examples:
 11. Install on Windows Git Bash (requires Docker Desktop):
    ./install.sh --cli --controlplane
 
-12. Install with Helix Code (External Agents, PDEs, streaming):
-   ./install.sh --cli --controlplane --code --api-host https://helix.mycompany.com
+12. Install with Helix Code (auto-enables --cli --controlplane):
+   ./install.sh --code --api-host https://helix.mycompany.com
+
+13. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
+   ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
 
 EOF
 }
@@ -953,6 +972,14 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
+# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
+    echo "Note: --code or --haystack specified (controlplane features)."
+    echo "      Auto-enabling: --cli --controlplane"
+    CONTROLPLANE=true
+    CLI=true
+fi
+
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Two cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST + RUNNER_TOKEN)
@@ -970,8 +997,9 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
             exit 1
         fi
     else
-        # Case 2: Local installation - auto-enable controlplane
-        echo "Note: --runner specified without --runner-token, assuming local installation (enabling controlplane)."
+        # Case 2: Local installation - auto-enable controlplane and CLI
+        echo "Note: --runner specified without --runner-token, assuming local installation."
+        echo "      Auto-enabling: --cli --controlplane"
         CONTROLPLANE=true
         CLI=true
     fi
