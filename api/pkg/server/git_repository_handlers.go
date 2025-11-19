@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -704,9 +705,9 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 // @Success 200 {object} types.GitRepositoryFileResponse
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
-// @Router /api/v1/git/repositories/{id}/file [get]
+// @Router /api/v1/git/repositories/{id}/contents [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *http.Request) {
+func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["id"]
 	if repoID == "" {
@@ -732,6 +733,119 @@ func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *
 	response := &types.GitRepositoryFileResponse{
 		Path:    path,
 		Content: content,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// createOrUpdateGitRepositoryFileContents creates or updates a file in a repository
+// @Summary Create or update file contents
+// @Description Create or update the contents of a file in a repository
+// @ID createOrUpdateGitRepositoryFileContents
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body types.UpdateGitRepositoryFileContentsRequest true "Update file contents request"
+// @Success 200 {object} types.GitRepositoryFileResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/contents [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	var request types.UpdateGitRepositoryFileContentsRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Get existing one
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	if request.Path == "" {
+		http.Error(w, "File path is required", http.StatusBadRequest)
+		return
+	}
+
+	if request.Branch == "" {
+		request.Branch = existing.DefaultBranch
+		if request.Branch == "" {
+			request.Branch = "main"
+		}
+	}
+
+	if request.Message == "" {
+		request.Message = fmt.Sprintf("Update %s", request.Path)
+	}
+
+	authorName := request.Author
+	authorEmail := request.Email
+
+	if authorName == "" {
+		authorName = user.FullName
+	}
+
+	if authorEmail == "" {
+		authorEmail = user.Email
+	}
+
+	content := []byte(request.Content)
+	if request.Content != "" {
+		decoded, err := base64.StdEncoding.DecodeString(request.Content)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to decode base64 content, treating as plain text")
+		} else {
+			content = decoded
+		}
+	}
+
+	fileContent, err := s.gitRepositoryService.CreateOrUpdateFileContents(
+		r.Context(),
+		repoID,
+		request.Path,
+		request.Branch,
+		content,
+		request.Message,
+		authorName,
+		authorEmail,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
+		http.Error(w, fmt.Sprintf("Failed to create/update file: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &types.GitRepositoryFileResponse{
+		Path:    request.Path,
+		Content: fileContent,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

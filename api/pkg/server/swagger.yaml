@@ -7299,18 +7299,39 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
+  types.UpdateGitRepositoryFileContentsRequest:
+    properties:
+      author:
+        description: Author name
+        type: string
+      branch:
+        description: Branch name
+        type: string
+      content:
+        description: Base64 encoded content
+        type: string
+      email:
+        description: Author email
+        type: string
+      message:
+        description: Commit message
+        type: string
+      path:
+        description: File path
+        type: string
+    type: object
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -9372,36 +9393,7 @@ paths:
       summary: Get clone command
       tags:
       - git-repositories
-  /api/v1/git/repositories/{id}/enrichments:
-    get:
-      description: Get code intelligence enrichments for a repository from Kodit
-      parameters:
-      - description: Repository ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/services.KoditEnrichmentListResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get repository enrichments
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/{id}/file:
+  /api/v1/git/repositories/{id}/contents:
     get:
       description: Get the contents of a file at a specific path in a repository
       operationId: getGitRepositoryFile
@@ -9438,6 +9430,72 @@ paths:
       security:
       - BearerAuth: []
       summary: Get file contents
+      tags:
+      - git-repositories
+    put:
+      consumes:
+      - application/json
+      description: Create or update the contents of a file in a repository
+      operationId: createOrUpdateGitRepositoryFileContents
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update file contents request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateGitRepositoryFileContentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitRepositoryFileResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create or update file contents
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/enrichments:
+    get:
+      description: Get code intelligence enrichments for a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository enrichments
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:
