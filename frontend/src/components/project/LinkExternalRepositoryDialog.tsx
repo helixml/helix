@@ -163,10 +163,10 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
           </Tooltip>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      <DialogActions>        
         <Button
           onClick={handleSubmit}
+          color="secondary"
           variant="contained"
           disabled={!url.trim() || isCreating}
         >

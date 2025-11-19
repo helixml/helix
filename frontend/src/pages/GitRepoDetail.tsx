@@ -25,6 +25,7 @@ import {
   Tab,
   Tooltip,
   Paper,
+  Collapse,
 } from '@mui/material'
 import {
   GitBranch,
@@ -37,10 +38,13 @@ import {
   Folder,
   FileText,
   ChevronRight,
+  ChevronDown,
   X as CloseIcon,
   Settings,
   Users,
   Code as CodeIcon,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -84,7 +88,7 @@ const GitRepoDetail: FC = () => {
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
   // List branches for branch switcher
-  const { data: branches = [] } = useListRepositoryBranches(repoId || '')
+  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(repoId || '')
 
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
@@ -105,12 +109,17 @@ const GitRepoDetail: FC = () => {
   const [editDescription, setEditDescription] = useState('')
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
+  const [editExternalUrl, setEditExternalUrl] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [editPassword, setEditPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
+  const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
 
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
@@ -128,6 +137,9 @@ const GitRepoDetail: FC = () => {
       setEditDescription(repository.description || '')
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditExternalUrl(repository.external_url || '')
+      setEditUsername(repository.username || '')
+      setEditPassword('')
     }
   }, [repository])
 
@@ -149,6 +161,9 @@ const GitRepoDetail: FC = () => {
       setEditDescription(repository.description || '')
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditExternalUrl(repository.external_url || '')
+      setEditUsername(repository.username || '')
+      setEditPassword('')
       setEditDialogOpen(true)
     }
   }
@@ -159,7 +174,7 @@ const GitRepoDetail: FC = () => {
     setUpdating(true)
     try {
       const apiClient = api.getApiClient()
-      await apiClient.v1GitRepositoriesUpdate(repoId, {
+      const updateData: any = {
         name: editName,
         description: editDescription,
         default_branch: editDefaultBranch || undefined,
@@ -167,13 +182,24 @@ const GitRepoDetail: FC = () => {
           ...repository.metadata,
           kodit_indexing: editKoditIndexing,
         },
-      })
+      }
+
+      if (repository.is_external || repository.external_url) {
+        updateData.external_url = editExternalUrl || undefined
+        updateData.username = editUsername || undefined
+      }
+      if (editPassword && editPassword !== '') {
+        updateData.password = editPassword
+      }
+
+      await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
 
       // Invalidate queries
       await queryClient.invalidateQueries({ queryKey: ['git-repository', repoId] })
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
       setEditDialogOpen(false)
+      setEditPassword('')
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
@@ -760,44 +786,119 @@ const GitRepoDetail: FC = () => {
 
                   <Divider />
 
+                  {(repository.is_external || repository.external_url) && (
+                    <>
+                      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
+                        External Repository Settings
+                      </Typography>
+
+                      <TextField
+                        label="External URL"
+                        fullWidth
+                        value={editExternalUrl || repository.external_url || ''}
+                        onChange={(e) => setEditExternalUrl(e.target.value)}
+                        helperText="Full URL to the external repository (e.g., https://github.com/org/repo)"
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+
+                      <TextField
+                        label="Username"
+                        fullWidth
+                        value={editUsername || repository.username || ''}
+                        onChange={(e) => setEditUsername(e.target.value)}
+                        helperText="Username for authenticating with the external repository"
+                      />
+
+                      <TextField
+                        label="Password"
+                        fullWidth
+                        type={showPassword ? 'text' : 'password'}
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => setShowPassword(!showPassword)}
+                                edge="end"
+                                size="small"
+                              >
+                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </>
+                  )}
+
+                  <Divider />
+
                   <Box sx={{ display: 'flex', gap: 2 }}>
+                    {/* Add spacing between buttons */}
+                    <Box sx={{ flex: 1 }} />
                     <Button
+                      color="secondary"
                       onClick={handleUpdateRepository}
                       variant="contained"
                       disabled={updating}
                     >
                       {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setEditName(repository.name || '')
-                        setEditDescription(repository.description || '')
-                        setEditDefaultBranch(repository.default_branch || '')
-                        setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
-                      }}
-                      variant="outlined"
-                    >
-                      Reset
-                    </Button>
+                    </Button>                    
                   </Box>
 
                   <Divider sx={{ my: 2 }} />
 
                   <Box>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'error.main' }}>
-                      Danger Zone
-                    </Typography>
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                      Once you delete a repository, there is no going back. This action cannot be undone.
-                    </Alert>
-                    <Button
-                      onClick={() => setDeleteDialogOpen(true)}
-                      variant="outlined"
-                      color="error"
-                      startIcon={<Trash2 size={16} />}
+                    <Box
+                      onClick={() => setDangerZoneExpanded(!dangerZoneExpanded)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        mb: dangerZoneExpanded ? 2 : 0,
+                        '&:hover': {
+                          opacity: 0.8,
+                        },
+                      }}
                     >
-                      Delete Repository
-                    </Button>
+                      <Typography variant="h6" sx={{ fontWeight: 600, color: 'error.main' }}>
+                        Danger Zone
+                      </Typography>
+                      <ChevronDown
+                        size={20}
+                        style={{
+                          color: 'var(--mui-palette-error-main)',
+                          transform: dangerZoneExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                        }}
+                      />
+                    </Box>
+                    <Collapse in={dangerZoneExpanded}>
+                      <Box>
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                          Once you delete a repository, there is no going back. This action cannot be undone.
+                        </Alert>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            onClick={() => setDeleteDialogOpen(true)}
+                            variant="outlined"
+                            color="error"
+                            startIcon={<Trash2 size={16} />}
+                          >
+                            Delete Repository
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Collapse>
                   </Box>
                 </Stack>
               </Paper>
@@ -966,6 +1067,49 @@ const GitRepoDetail: FC = () => {
                   </Box>
                 }
               />
+
+              {(repository?.is_external || repository?.external_url) && (
+                <>
+                  <Divider />
+                  <TextField
+                    label="External URL"
+                    fullWidth
+                    value={editExternalUrl}
+                    onChange={(e) => setEditExternalUrl(e.target.value)}
+                    helperText="Full URL to the external repository"
+                  />
+
+                  <TextField
+                    label="Username"
+                    fullWidth
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    helperText="Username for authenticating with the external repository"
+                  />
+
+                  <TextField
+                    label="Password"
+                    fullWidth
+                    type={showPassword ? 'text' : 'password'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    helperText={repository?.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPassword(!showPassword)}
+                            edge="end"
+                            size="small"
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </>
+              )}
             </Stack>
           </DialogContent>
           <DialogActions>
