@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/services"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/wolf"
@@ -177,7 +176,7 @@ func (s *HelixAPIServer) createProject(_ http.ResponseWriter, r *http.Request) (
 
 		// Create a GitRepository entry for the internal repo so it can be browsed
 		internalRepoID := fmt.Sprintf("%s-internal", created.ID)
-		internalRepo := &store.GitRepository{
+		internalRepo := &types.GitRepository{
 			ID:             internalRepoID,
 			Name:           fmt.Sprintf("%s-internal", data.SlugifyName(created.Name)),
 			Description:    "Internal project repository for configuration and metadata",
@@ -434,7 +433,7 @@ func (s *HelixAPIServer) deleteProject(_ http.ResponseWriter, r *http.Request) (
 // @Accept json
 // @Produce json
 // @Param id path string true "Project ID"
-// @Success 200 {array} store.GitRepository
+// @Success 200 {array} types.GitRepository
 // @Failure 401 {object} system.HTTPError
 // @Failure 404 {object} system.HTTPError
 // @Failure 500 {object} system.HTTPError
@@ -463,7 +462,9 @@ func (s *HelixAPIServer) getProjectRepositories(_ http.ResponseWriter, r *http.R
 		return nil, system.NewHTTPError404("project not found")
 	}
 
-	repos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	repos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		ProjectID: projectID,
+	})
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -516,7 +517,9 @@ func (s *HelixAPIServer) setProjectPrimaryRepository(_ http.ResponseWriter, r *h
 	}
 
 	// Verify the repository exists and belongs to this project
-	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		ProjectID: projectID,
+	})
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -682,7 +685,9 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 	}
 
 	// Verify the repository is attached to this project
-	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		ProjectID: projectID,
+	})
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -893,7 +898,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 					Msg("Exploratory session exists but lobby stopped - restarting with fresh startup script")
 
 				// Get project repositories for restarting
-				projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+				projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+					ProjectID: projectID,
+				})
 				if err != nil {
 					log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for restart")
 					projectRepos = nil
@@ -1000,7 +1007,9 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 	}
 
 	// Get all project repositories
-	projectRepos, err := s.Store.GetProjectRepositories(r.Context(), projectID)
+	projectRepos, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		ProjectID: projectID,
+	})
 	if err != nil {
 		log.Warn().Err(err).Str("project_id", projectID).Msg("Failed to get project repositories for exploratory session")
 		projectRepos = nil

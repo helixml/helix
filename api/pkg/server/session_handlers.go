@@ -1796,12 +1796,12 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 
 	// Build the ZedAgent config for resume
 	agent := &types.ZedAgent{
-		SessionID:       id,
-		UserID:          user.ID,
-		HelixSessionID:  id, // This session already exists
-		Input:           "Resume session",
-		ProjectPath:     "workspace",
-		SpecTaskID:      specTaskID,
+		SessionID:      id,
+		UserID:         user.ID,
+		HelixSessionID: id, // This session already exists
+		Input:          "Resume session",
+		ProjectPath:    "workspace",
+		SpecTaskID:     specTaskID,
 		// WorkDir left empty - wolf_executor will use filestore path for persistence
 	}
 
@@ -1833,7 +1833,9 @@ func (s *HelixAPIServer) resumeSession(rw http.ResponseWriter, req *http.Request
 	if projectID != "" {
 		agent.ProjectID = projectID
 
-		projectRepos, err := s.Controller.Options.Store.GetProjectRepositories(ctx, projectID)
+		projectRepos, err := s.Controller.Options.Store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+			ProjectID: projectID,
+		})
 		if err == nil && len(projectRepos) > 0 {
 			agent.RepositoryIDs = make([]string, 0, len(projectRepos))
 			for _, repo := range projectRepos {
@@ -2112,4 +2114,3 @@ func (s *HelixAPIServer) stopExternalAgentSession(_ http.ResponseWriter, r *http
 		"session_id": sessionID,
 	}, nil
 }
-
