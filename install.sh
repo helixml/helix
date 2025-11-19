@@ -83,9 +83,9 @@
 #     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
 #     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
 #
-# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack)
-#     Result: Auto-enable --cli and --controlplane, install controlplane+runner locally
-#     Note: --runner without token auto-enables controlplane for local installation
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack/--controlplane)
+#     Result: ERROR - must specify --runner-token OR --controlplane OR controlplane features
+#     Note: Prevents ambiguity - user must explicitly choose remote or local installation
 #
 # 16. Ubuntu + --runner --runner-token TOKEN --api-host HOST
 #     Result: Remote runner only (connects to external controlplane at HOST)
@@ -981,9 +981,10 @@ if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
 fi
 
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
-    # Two cases:
-    # 1. --runner WITH --runner-token = remote runner (needs API_HOST + RUNNER_TOKEN)
-    # 2. --runner WITHOUT --runner-token = local installation (auto-enable controlplane)
+    # Three cases:
+    # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
+    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
 
     if [ -n "$RUNNER_TOKEN" ]; then
         # Case 1: Remote runner - require API_HOST
@@ -997,11 +998,16 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
             exit 1
         fi
     else
-        # Case 2: Local installation - auto-enable controlplane and CLI
-        echo "Note: --runner specified without --runner-token, assuming local installation."
-        echo "      Auto-enabling: --cli --controlplane"
-        CONTROLPLANE=true
-        CLI=true
+        # Case 2: --runner without token = ERROR (need either token or controlplane)
+        echo "Error: --runner requires either:"
+        echo "  1. --runner-token (for remote runner connecting to external controlplane)"
+        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo
+        echo "Examples:"
+        echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
+        echo "  Local install:  ./install.sh --runner --code --api-host HOST"
+        echo "  Local install:  ./install.sh --controlplane --runner"
+        exit 1
     fi
 fi
 
