@@ -1005,7 +1005,12 @@ if [ "$RUNNER" = true ]; then
     fi
     echo "NVIDIA GPU detected. Runner requirements satisfied."
     if check_nvidia_runtime_needed; then
-        echo "Note: NVIDIA Docker runtime will be installed automatically."
+        # Check if toolkit already installed or needs fresh install
+        if command -v nvidia-container-toolkit &> /dev/null; then
+            echo "Note: NVIDIA Docker runtime will be configured automatically."
+        else
+            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+        fi
     fi
 fi
 
@@ -1016,7 +1021,12 @@ if [ "$CODE" = true ]; then
         echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
 
         if check_nvidia_runtime_needed; then
-            echo "Note: NVIDIA Docker runtime will be installed automatically."
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
         fi
     elif check_intel_amd_gpu; then
         # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
@@ -1076,7 +1086,12 @@ gather_modifications() {
 
     if [ "$RUNNER" = true ]; then
         if check_nvidia_runtime_needed; then
-            modifications+="  - Install NVIDIA Docker runtime\n"
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                modifications+="  - Configure NVIDIA Docker runtime\n"
+            else
+                modifications+="  - Install and configure NVIDIA Docker runtime\n"
+            fi
         fi
         modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
     fi
@@ -1084,7 +1099,12 @@ gather_modifications() {
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
     if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
         if check_nvidia_runtime_needed; then
-            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                modifications+="  - Configure NVIDIA Docker runtime for desktop streaming\n"
+            else
+                modifications+="  - Install and configure NVIDIA Docker runtime for desktop streaming\n"
+            fi
         fi
     fi
 
