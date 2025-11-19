@@ -530,8 +530,7 @@ const GitRepoDetail: FC = () => {
                           </MenuItem>
                         ))}
                       </Select>
-                    </FormControl>
-
+                    </FormControl>                    
                     <Button
                       startIcon={<Plus size={16} />}
                       variant="outlined"
@@ -541,7 +540,7 @@ const GitRepoDetail: FC = () => {
                         setNewFileContent('')
                         setCreateFileDialogOpen(true)
                       }}
-                      sx={{ ml: 2, height: 40, whiteSpace: 'nowrap' }}
+                      sx={{  height: 40, whiteSpace: 'nowrap' }}
                     >
                       Add File
                     </Button>
@@ -1200,36 +1199,79 @@ const GitRepoDetail: FC = () => {
         </Dialog>
 
         {/* Create File Dialog */}
-        <Dialog open={createFileDialogOpen} onClose={() => setCreateFileDialogOpen(false)} maxWidth="lg" fullWidth>
-          <DialogTitle>Create New File</DialogTitle>
-          <DialogContent>
-            <Stack spacing={3} sx={{ mt: 1, height: '100%' }}>
+        <Dialog 
+          open={createFileDialogOpen} 
+          onClose={() => setCreateFileDialogOpen(false)} 
+          maxWidth="lg" 
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>Create New File</Typography>
+            <IconButton onClick={() => setCreateFileDialogOpen(false)} edge="end" size="small">
+              <CloseIcon size={20} />
+            </IconButton>
+          </DialogTitle>
+
+          <DialogContent sx={{ p: 3, height: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' }}>
               <TextField
-                label="File Path"
+                label="Filename"
                 fullWidth
                 value={newFilePath}
                 onChange={(e) => setNewFilePath(e.target.value)}
                 placeholder="path/to/file.txt"
-                helperText={`Creating in branch: ${currentBranch || repository.default_branch || 'main'}`}
+                helperText={`Creating in branch ${currentBranch || repository.default_branch || 'main'}`}
                 InputProps={{
                   sx: { fontFamily: 'monospace' }
                 }}
               />
-              <Box sx={{ flex: 1, minHeight: 400, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                <MonacoEditor
-                  value={newFileContent}
-                  onChange={setNewFileContent}
-                  language="plaintext"
-                  height="500px"
-                  theme="helix-dark"
-                />
+              <Box sx={{ 
+                flex: 1, 
+                minHeight: 0, 
+                border: '1px solid', 
+                borderColor: 'divider', 
+                borderRadius: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                position: 'relative'
+              }}>
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+                  <MonacoEditor
+                    value={newFileContent}
+                    onChange={setNewFileContent}
+                    language={
+                      newFilePath.endsWith('.json') ? 'json' :
+                      newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
+                      newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
+                      newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
+                      newFilePath.endsWith('.go') ? 'go' :
+                      newFilePath.endsWith('.py') ? 'python' :
+                      newFilePath.endsWith('.md') ? 'markdown' :
+                      newFilePath.endsWith('.css') ? 'css' :
+                      newFilePath.endsWith('.html') ? 'html' :
+                      newFilePath.endsWith('.sh') ? 'shell' :
+                      'plaintext'
+                    }
+                    height="100%"
+                    autoHeight={false}
+                    theme="helix-dark"
+                    options={{
+                      minimap: { enabled: true },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      padding: { top: 16, bottom: 16 },
+                      automaticLayout: true,
+                    }}
+                  />
+                </Box>
               </Box>
-            </Stack>
+            </Box>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setCreateFileDialogOpen(false)}>Cancel</Button>
+          <DialogActions sx={{ px: 3, py: 2 }}>                        
             <Button
               onClick={handleCreateFile}
+              color="secondary"
               variant="contained"
               disabled={!newFilePath.trim() || creatingFile}
             >
