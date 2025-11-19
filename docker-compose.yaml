@@ -257,10 +257,12 @@ services:
       - /var/run/wolf:/var/run/wolf:rw
     device_cgroup_rules:
       - 'c 13:* rmw'
+      - 'c 249:* rwm'  # DMA heap device for NVIDIA GBM buffer allocation
     devices:
       - /dev/dri
       - /dev/uinput
       - /dev/uhid
+      - /dev/dma_heap
     ports:
       # Moonlight protocol ports
       - "47984:47984"     # HTTPS
