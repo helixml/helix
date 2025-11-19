@@ -245,10 +245,9 @@ services:
 
     wolf:
       profiles: [wolf]
-      # Uses HELIX_VERSION if set (pulls from registry), otherwise uses wolf:helix-fixed (local build)
-      # To use a specific version: export HELIX_VERSION=v1.5.0
-      # To use local build: ./stack rebuild-wolf (without HELIX_VERSION set)
-      image: ${HELIX_VERSION:+registry.helixml.tech/helix/wolf:${HELIX_VERSION}}${HELIX_VERSION:-wolf:helix-fixed}
+      # Development: uses latest from registry by default
+      # For local builds: export WOLF_LOCAL_BUILD=true && ./stack rebuild-wolf
+      image: ${WOLF_LOCAL_BUILD:+wolf:helix-fixed}${WOLF_LOCAL_BUILD:-registry.helixml.tech/helix/wolf:latest}
       networks:
         default:
           ipv4_address: 172.19.0.50

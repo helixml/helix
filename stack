@@ -675,38 +675,18 @@ function push_image_tags() {
 }
 
 function rebuild-wolf() {
-  # Check if HELIX_VERSION is set - if so, use versioned registry image
-  # Wolf versions now match Helix versions for consistency
-  if [ -n "${HELIX_VERSION:-}" ]; then
-    echo "🐺 Using versioned Wolf image from registry: registry.helixml.tech/helix/wolf:${HELIX_VERSION}"
-    echo "📥 Pulling Wolf container image..."
-
-    if docker pull "registry.helixml.tech/helix/wolf:${HELIX_VERSION}"; then
-      echo "✅ Wolf image pulled successfully"
-      # Tag it as wolf:helix-fixed for compatibility with docker-compose.dev.yaml
-      docker tag "registry.helixml.tech/helix/wolf:${HELIX_VERSION}" wolf:helix-fixed
-      echo "✅ Tagged as wolf:helix-fixed for local development"
-    else
-      echo "❌ Failed to pull Wolf image from registry"
-      echo "💡 Tip: Verify that the tag exists at registry.helixml.tech/helix/wolf:${HELIX_VERSION}"
-      echo "💡 Available tags: https://drone.lukemarsden.net/helixml/wolf"
-      return 1
-    fi
-
-    # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
-    if [ -z "${SKIP_DEV_RESTART:-}" ]; then
-      echo "🔄 Removing old Wolf container and recreating with updated image..."
-      docker compose -f docker-compose.dev.yaml rm -f wolf
-      docker compose -f docker-compose.dev.yaml up -d wolf
-
-      echo "✅ Wolf container using registry image: ${HELIX_VERSION}"
-      echo "🐺 Wolf is ready"
-    fi
+  # Only rebuild Wolf when WOLF_LOCAL_BUILD is set
+  # Otherwise, docker-compose will pull latest automatically
+  if [ "${WOLF_LOCAL_BUILD:-}" != "true" ]; then
+    echo "ℹ️  WOLF_LOCAL_BUILD is not set"
+    echo "💡 Docker compose will use latest Wolf from registry automatically"
+    echo "💡 To build from local source, run:"
+    echo "   export WOLF_LOCAL_BUILD=true"
+    echo "   ./stack rebuild-wolf"
     return 0
   fi
 
-  # HELIX_VERSION not set - build from local source
-  echo "🐺 HELIX_VERSION not set, building Wolf container from local source..."
+  echo "🐺 WOLF_LOCAL_BUILD=true, building Wolf container from local source..."
 
   # Check if Wolf source directory exists
   if [ ! -d "../wolf" ]; then
@@ -716,12 +696,9 @@ function rebuild-wolf() {
     echo ""
     echo "Please run:"
     echo "  cd .."
-    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  git clone https://github.com/helixml/wolf.git"
     echo "  cd helix"
-    echo "  ./stack rebuild-wolf"
-    echo ""
-    echo "💡 Alternatively, set HELIX_VERSION to use a pre-built registry image:"
-    echo "  export HELIX_VERSION=v1.0.0"
+    echo "  export WOLF_LOCAL_BUILD=true"
     echo "  ./stack rebuild-wolf"
     exit 1
   fi
