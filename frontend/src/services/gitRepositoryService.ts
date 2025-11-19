@@ -238,9 +238,15 @@ export function useCreateOrUpdateRepositoryFile() {
       queryClient.invalidateQueries({ 
         queryKey: QUERY_KEYS.repositoryFile(variables.repositoryId, variables.request.path || '', variables.request.branch || '') 
       });
-      // Also invalidate the tree query to refresh the file listing
+      // Calculate parent directory of the file being created/updated
+      const filePath = variables.request.path || ''
+      const filePathParts = filePath.split('/').filter(p => p)
+      const parentDir = filePathParts.length > 1 
+        ? filePathParts.slice(0, -1).join('/')
+        : '.'
+      // Invalidate the tree query for the parent directory to refresh the file listing
       queryClient.invalidateQueries({ 
-        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.request.branch || '') 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, parentDir, variables.request.branch || '') 
       });
     },
   });

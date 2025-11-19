@@ -301,24 +301,44 @@ const GitRepoDetail: FC = () => {
     try {
       // Base64 encode content (handling unicode)
       const encodedContent = btoa(unescape(encodeURIComponent(newFileContent)))
+      const branch = currentBranch || repository.default_branch || 'main'
 
       await createOrUpdateFileMutation.mutateAsync({
         repositoryId: repoId,
         request: {
           path: newFilePath,
-          branch: currentBranch || repository.default_branch || 'main',
+          branch: branch,
           content: encodedContent,
           message: `Create ${newFilePath}`,
         }
       })
 
+      // Calculate parent directory of the file being created
+      const filePathParts = newFilePath.split('/').filter(p => p)
+      const parentDir = filePathParts.length > 1 
+        ? filePathParts.slice(0, -1).join('/')
+        : '.'
+
+      // Use the same branch value as the query (currentBranch, which can be empty string)
+      const queryBranch = currentBranch || ''
+
+      // Invalidate tree queries for the parent directory and current path
+      // This ensures the file list refreshes whether viewing the parent dir or a subdirectory
+      const pathsToInvalidate = [parentDir]
+      if (currentPath !== parentDir) {
+        pathsToInvalidate.push(currentPath)
+      }
+
+      for (const path of pathsToInvalidate) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch] 
+        })
+      }
+
       snackbar.success('File created successfully')
       setCreateFileDialogOpen(false)
       setNewFilePath('')
       setNewFileContent('')
-      
-      // If the file is in the current directory or a subdirectory, we might want to navigate or just refresh
-      // The mutation's onSuccess handles query invalidation
     } catch (error) {
       console.error('Failed to create file:', error)
       snackbar.error('Failed to create file')
