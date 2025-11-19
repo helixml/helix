@@ -26,19 +26,19 @@ import useTheme from '@mui/material/styles/useTheme'
 import { useDeleteGitRepository, QUERY_KEYS } from '../../services/gitRepositoryService'
 import useSnackbar from '../../hooks/useSnackbar'
 
-import type { ServicesGitRepository } from '../../api/api'
+import type { TypesGitRepository } from '../../api/api'
 
 interface RepositoriesListViewProps {
-  repositories: ServicesGitRepository[]
+  repositories: TypesGitRepository[]
   ownerSlug: string
   searchQuery: string
   onSearchChange: (query: string) => void
   page: number
   onPageChange: (page: number) => void
-  filteredRepositories: ServicesGitRepository[]
-  paginatedRepositories: ServicesGitRepository[]
+  filteredRepositories: TypesGitRepository[]
+  paginatedRepositories: TypesGitRepository[]
   totalPages: number
-  onViewRepository: (repo: ServicesGitRepository) => void
+  onViewRepository: (repo: TypesGitRepository) => void
 }
 
 const RepositoriesListView: FC<RepositoriesListViewProps> = ({
@@ -59,11 +59,11 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   const deleteRepositoryMutation = useDeleteGitRepository()
 
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
-  const [currentRepo, setCurrentRepo] = useState<ServicesGitRepository | null>(null)
+  const [currentRepo, setCurrentRepo] = useState<TypesGitRepository | null>(null)
 
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>, repo: any) => {
     setAnchorEl(event.currentTarget)
-    setCurrentRepo(repo._data as ServicesGitRepository)
+    setCurrentRepo(repo._data as TypesGitRepository)
   }
 
   const handleMenuClose = () => {
@@ -99,7 +99,7 @@ const RepositoriesListView: FC<RepositoriesListViewProps> = ({
   }
 
   const tableData = useMemo(() => {
-    return paginatedRepositories.map((repo: ServicesGitRepository) => {
+    return paginatedRepositories.map((repo: TypesGitRepository) => {
       const updatedAt = repo.updated_at || repo.created_at
       const updatedTime = updatedAt 
         ? new Date(updatedAt).toLocaleDateString('en-US', { 

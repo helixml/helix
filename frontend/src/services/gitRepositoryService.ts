@@ -3,16 +3,11 @@ import useApi from '../hooks/useApi';
 
 // Re-export generated types for convenience
 export type {
-  ServicesGitRepository as GitRepository,
-  ServicesGitRepositoryCreateRequest as GitRepositoryCreateRequest,
-  ServicesGitRepositoryType as GitRepositoryType,
-  ServicesGitRepositoryStatus as GitRepositoryStatus,
-  ServerSampleType as SampleType,
-  ServerSampleTypesResponse as SampleTypesResponse,
-  ServerCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
-  ServerCloneCommandResponse as CloneCommandResponse,
-  ServerInitializeSampleRepositoriesRequest as InitializeSampleRepositoriesRequest,
-  ServerInitializeSampleRepositoriesResponse as InitializeSampleRepositoriesResponse,
+  TypesGitRepository as GitRepository,
+  TypesGitRepositoryCreateRequest as GitRepositoryCreateRequest,
+  TypesGitRepositoryType as GitRepositoryType,
+  TypesGitRepositoryStatus as GitRepositoryStatus,
+  TypesCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
 } from '../api/api';
 
 // Query keys

@@ -560,17 +560,9 @@ export interface ServerCoordinationLogResponse {
   total_events?: number;
 }
 
-export interface ServerCreateSampleRepositoryRequest {
-  description?: string;
-  /** Enable Kodit code intelligence indexing */
-  kodit_indexing?: boolean;
-  name?: string;
-  owner_id?: string;
-  sample_type?: string;
-}
-
 export interface ServerCreateSpecTaskFromDemoRequest {
   demo_repo: string;
+  organization_id?: string;
   priority?: string;
   prompt: string;
   type?: string;
@@ -652,6 +644,7 @@ export interface ServerGStreamerPipelineStats {
 }
 
 export interface ServerInitializeSampleRepositoriesRequest {
+  organization_id?: string;
   owner_id?: string;
   /** If empty, creates all samples */
   sample_types?: string[];
@@ -659,7 +652,7 @@ export interface ServerInitializeSampleRepositoriesRequest {
 
 export interface ServerInitializeSampleRepositoriesResponse {
   created_count?: number;
-  created_repositories?: ServicesGitRepository[];
+  created_repositories?: TypesGitRepository[];
   errors?: string[];
   success?: boolean;
 }
@@ -1003,68 +996,6 @@ export interface ServicesDocumentHandoffStatus {
   spec_task_id?: string;
 }
 
-export interface ServicesGitRepository {
-  branches?: string[];
-  clone_url?: string;
-  created_at?: string;
-  default_branch?: string;
-  description?: string;
-  id?: string;
-  last_activity?: string;
-  local_path?: string;
-  metadata?: Record<string, any>;
-  name?: string;
-  organization_id?: string;
-  owner_id?: string;
-  password?: string;
-  project_id?: string;
-  repo_type?: ServicesGitRepositoryType;
-  status?: ServicesGitRepositoryStatus;
-  updated_at?: string;
-  username?: string;
-}
-
-export interface ServicesGitRepositoryCreateRequest {
-  default_branch?: string;
-  description?: string;
-  initial_files?: Record<string, string>;
-  metadata?: Record<string, any>;
-  name?: string;
-  /** Organization ID - required for access control */
-  organization_id?: string;
-  owner_id?: string;
-  project_id?: string;
-  repo_type?: ServicesGitRepositoryType;
-}
-
-export interface ServicesGitRepositoryFileResponse {
-  content?: string;
-  path?: string;
-}
-
-export enum ServicesGitRepositoryStatus {
-  GitRepositoryStatusActive = "active",
-  GitRepositoryStatusArchived = "archived",
-  GitRepositoryStatusDeleted = "deleted",
-}
-
-export interface ServicesGitRepositoryTreeResponse {
-  entries?: ServicesTreeEntry[];
-  path?: string;
-}
-
-export enum ServicesGitRepositoryType {
-  GitRepositoryTypeInternal = "internal",
-  GitRepositoryTypeCode = "code",
-}
-
-export interface ServicesGitRepositoryUpdateRequest {
-  default_branch?: string;
-  description?: string;
-  metadata?: Record<string, any>;
-  name?: string;
-}
-
 export interface ServicesHandoffResult {
   branch_name?: string;
   estimated_completion?: string;
@@ -1167,13 +1098,6 @@ export interface ServicesStartupScriptVersion {
   timestamp?: string;
 }
 
-export interface ServicesTreeEntry {
-  is_dir?: boolean;
-  name?: string;
-  path?: string;
-  size?: number;
-}
-
 export interface ServicesZedSessionCreationResult {
   /** "spawned", "planned", "ad_hoc" */
   creation_method?: string;
@@ -1209,43 +1133,6 @@ export interface SqlNullString {
   string?: string;
   /** Valid is true if String is not NULL */
   valid?: boolean;
-}
-
-export interface StoreGitRepository {
-  /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
-  clone_url?: string;
-  created_at?: string;
-  default_branch?: string;
-  description?: string;
-  /** External platform's repository ID */
-  external_repo_id?: string;
-  /** "github", "gitlab", "ado", "bitbucket", etc. */
-  external_type?: string;
-  /** Full URL to external repo (e.g., https://github.com/org/repo) */
-  external_url?: string;
-  id?: string;
-  /** External repository fields */
-  is_external?: boolean;
-  /** Code intelligence fields */
-  kodit_indexing?: boolean;
-  last_activity?: string;
-  /** Local filesystem path for Helix-hosted repos (empty for external) */
-  local_path?: string;
-  /** Stores Metadata as JSON */
-  metadata?: Record<string, any>;
-  name?: string;
-  /** Organization ID - will be backfilled for existing repos */
-  organization_id?: string;
-  owner_id?: string;
-  /** Password for the repository */
-  password?: string;
-  project_id?: string;
-  repo_type?: string;
-  spec_task_id?: string;
-  status?: string;
-  updated_at?: string;
-  /** Username for the repository */
-  username?: string;
 }
 
 export enum StripeSubscriptionStatus {
@@ -1894,6 +1781,16 @@ export interface TypesCreateAccessGrantRequest {
   user_reference?: string;
 }
 
+export interface TypesCreateSampleRepositoryRequest {
+  description?: string;
+  /** Enable Kodit code intelligence indexing */
+  kodit_indexing?: boolean;
+  name?: string;
+  organization_id?: string;
+  owner_id?: string;
+  sample_type?: string;
+}
+
 export interface TypesCreateTeamRequest {
   name?: string;
   organization_id?: string;
@@ -2143,6 +2040,84 @@ export interface TypesGitHubWorkConfig {
   labels?: string[];
   repo_name?: string;
   repo_owner?: string;
+}
+
+export interface TypesGitRepository {
+  branches?: string[];
+  /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
+  clone_url?: string;
+  created_at?: string;
+  default_branch?: string;
+  description?: string;
+  /** External platform's repository ID */
+  external_repo_id?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  external_type?: string;
+  /** Full URL to external repo (e.g., https://github.com/org/repo) */
+  external_url?: string;
+  id?: string;
+  /** External repository fields */
+  is_external?: boolean;
+  /** Code intelligence fields */
+  kodit_indexing?: boolean;
+  last_activity?: string;
+  /** Local filesystem path for Helix-hosted repos (empty for external) */
+  local_path?: string;
+  /** Stores Metadata as JSON */
+  metadata?: Record<string, any>;
+  name?: string;
+  /** Organization ID - will be backfilled for existing repos */
+  organization_id?: string;
+  owner_id?: string;
+  /** Password for the repository */
+  password?: string;
+  project_id?: string;
+  repo_type?: TypesGitRepositoryType;
+  status?: TypesGitRepositoryStatus;
+  updated_at?: string;
+  /** Username for the repository */
+  username?: string;
+}
+
+export interface TypesGitRepositoryCreateRequest {
+  default_branch?: string;
+  description?: string;
+  initial_files?: Record<string, string>;
+  metadata?: Record<string, any>;
+  name?: string;
+  /** Organization ID - required for access control */
+  organization_id?: string;
+  owner_id?: string;
+  project_id?: string;
+  repo_type?: TypesGitRepositoryType;
+}
+
+export interface TypesGitRepositoryFileResponse {
+  content?: string;
+  path?: string;
+}
+
+export enum TypesGitRepositoryStatus {
+  GitRepositoryStatusActive = "active",
+  GitRepositoryStatusArchived = "archived",
+  GitRepositoryStatusDeleted = "deleted",
+}
+
+export interface TypesGitRepositoryTreeResponse {
+  entries?: TypesTreeEntry[];
+  path?: string;
+}
+
+export enum TypesGitRepositoryType {
+  GitRepositoryTypeInternal = "internal",
+  GitRepositoryTypeCode = "code",
+}
+
+export interface TypesGitRepositoryUpdateRequest {
+  default_branch?: string;
+  description?: string;
+  metadata?: Record<string, any>;
+  name?: string;
 }
 
 export interface TypesGlobalAllocationDecision {
@@ -4161,6 +4136,13 @@ export interface TypesToolZapierConfig {
   model?: string;
 }
 
+export interface TypesTreeEntry {
+  is_dir?: boolean;
+  name?: string;
+  path?: string;
+  size?: number;
+}
+
 export interface TypesTrigger {
   agent_work_queue?: TypesAgentWorkQueueTrigger;
   azure_devops?: TypesAzureDevOpsTrigger;
@@ -5945,10 +5927,12 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         owner_id?: string;
         /** Filter by repository type */
         repo_type?: string;
+        /** Filter by organization ID */
+        organization_id?: string;
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesGitRepository[], TypesAPIError>({
+      this.request<TypesGitRepository[], TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "GET",
         query: query,
@@ -5966,8 +5950,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/git/repositories
      * @secure
      */
-    v1GitRepositoriesCreate: (repository: ServicesGitRepositoryCreateRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
+    v1GitRepositoriesCreate: (repository: TypesGitRepositoryCreateRequest, params: RequestParams = {}) =>
+      this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories`,
         method: "POST",
         body: repository,
@@ -6004,7 +5988,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1GitRepositoriesDetail: (id: string, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
+      this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
         method: "GET",
         secure: true,
@@ -6021,8 +6005,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/git/repositories/{id}
      * @secure
      */
-    v1GitRepositoriesUpdate: (id: string, repository: ServicesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
+    v1GitRepositoriesUpdate: (id: string, repository: TypesGitRepositoryUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}`,
         method: "PUT",
         body: repository,
@@ -6153,7 +6137,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesGitRepositoryFileResponse, TypesAPIError>({
+      this.request<TypesGitRepositoryFileResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/file`,
         method: "GET",
         query: query,
@@ -6199,7 +6183,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesGitRepositoryTreeResponse, TypesAPIError>({
+      this.request<TypesGitRepositoryTreeResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/tree`,
         method: "GET",
         query: query,
@@ -7291,7 +7275,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     getProjectRepositories: (id: string, params: RequestParams = {}) =>
-      this.request<StoreGitRepository[], SystemHTTPError>({
+      this.request<TypesGitRepository[], SystemHTTPError>({
         path: `/api/v1/projects/${id}/repositories`,
         method: "GET",
         secure: true,
@@ -7847,8 +7831,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/samples/repositories
      * @secure
      */
-    v1SamplesRepositoriesCreate: (request: ServerCreateSampleRepositoryRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
+    v1SamplesRepositoriesCreate: (request: TypesCreateSampleRepositoryRequest, params: RequestParams = {}) =>
+      this.request<TypesGitRepository, TypesAPIError>({
         path: `/api/v1/samples/repositories`,
         method: "POST",
         body: request,
