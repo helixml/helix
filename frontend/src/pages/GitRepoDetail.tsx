@@ -45,6 +45,7 @@ import {
   Code as CodeIcon,
   Eye,
   EyeOff,
+  Plus,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -59,6 +60,7 @@ import {
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
+  useCreateOrUpdateRepositoryFile,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -71,6 +73,7 @@ import {
   getEnrichmentTypeName,
   getEnrichmentTypeIcon,
 } from '../services/koditService'
+import MonacoEditor from '../components/widgets/MonacoEditor'
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -94,6 +97,7 @@ const GitRepoDetail: FC = () => {
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
+  const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
 
   // Kodit code intelligence enrichments
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
@@ -120,6 +124,12 @@ const GitRepoDetail: FC = () => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
+
+  // Create File Dialog State
+  const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
+  const [newFilePath, setNewFilePath] = useState('')
+  const [newFileContent, setNewFileContent] = useState('')
+  const [creatingFile, setCreatingFile] = useState(false)
 
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
@@ -282,6 +292,39 @@ const GitRepoDetail: FC = () => {
     const newPath = parts.length === 0 ? '.' : parts.join('/')
     setCurrentPath(newPath)
     setSelectedFile(null)
+  }
+
+  const handleCreateFile = async () => {
+    if (!repoId || !newFilePath) return
+
+    setCreatingFile(true)
+    try {
+      // Base64 encode content (handling unicode)
+      const encodedContent = btoa(unescape(encodeURIComponent(newFileContent)))
+
+      await createOrUpdateFileMutation.mutateAsync({
+        repositoryId: repoId,
+        request: {
+          path: newFilePath,
+          branch: currentBranch || repository.default_branch || 'main',
+          content: encodedContent,
+          message: `Create ${newFilePath}`,
+        }
+      })
+
+      snackbar.success('File created successfully')
+      setCreateFileDialogOpen(false)
+      setNewFilePath('')
+      setNewFileContent('')
+      
+      // If the file is in the current directory or a subdirectory, we might want to navigate or just refresh
+      // The mutation's onSuccess handles query invalidation
+    } catch (error) {
+      console.error('Failed to create file:', error)
+      snackbar.error('Failed to create file')
+    } finally {
+      setCreatingFile(false)
+    }
   }
 
   const getPathBreadcrumbs = () => {
@@ -489,15 +532,23 @@ const GitRepoDetail: FC = () => {
                       </Select>
                     </FormControl>
 
+                    <Button
+                      startIcon={<Plus size={16} />}
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
+                        setNewFileContent('')
+                        setCreateFileDialogOpen(true)
+                      }}
+                      sx={{ ml: 2, height: 40, whiteSpace: 'nowrap' }}
+                    >
+                      Add File
+                    </Button>
+
                     {/* Breadcrumb navigation */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
-                      <Chip
-                        label={repository.name}
-                        size="small"
-                        onClick={() => handleNavigateToDirectory('.')}
-                        sx={{ cursor: 'pointer', fontWeight: 500 }}
-                        variant={currentPath === '.' ? 'filled' : 'outlined'}
-                      />
+                      
                       {getPathBreadcrumbs().map((part, index, arr) => {
                         const path = arr.slice(0, index + 1).join('/')
                         const isLast = index === arr.length - 1
@@ -921,7 +972,7 @@ const GitRepoDetail: FC = () => {
                     appId={repoId || ''}
                     accessGrants={accessGrants}
                     isLoading={accessGrantsLoading}
-                    isReadOnly={repository.owner_id !== account.user?.id && !account.user?.admin}
+                    isReadOnly={repository.owner_id !== account.user?.id && !account.admin}
                     onCreateGrant={handleCreateAccessGrant}
                     onDeleteGrant={handleDeleteAccessGrant}
                   />
@@ -1144,6 +1195,45 @@ const GitRepoDetail: FC = () => {
               disabled={deleting}
             >
               {deleting ? <CircularProgress size={20} /> : 'Delete Repository'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Create File Dialog */}
+        <Dialog open={createFileDialogOpen} onClose={() => setCreateFileDialogOpen(false)} maxWidth="lg" fullWidth>
+          <DialogTitle>Create New File</DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} sx={{ mt: 1, height: '100%' }}>
+              <TextField
+                label="File Path"
+                fullWidth
+                value={newFilePath}
+                onChange={(e) => setNewFilePath(e.target.value)}
+                placeholder="path/to/file.txt"
+                helperText={`Creating in branch: ${currentBranch || repository.default_branch || 'main'}`}
+                InputProps={{
+                  sx: { fontFamily: 'monospace' }
+                }}
+              />
+              <Box sx={{ flex: 1, minHeight: 400, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                <MonacoEditor
+                  value={newFileContent}
+                  onChange={setNewFileContent}
+                  language="plaintext"
+                  height="500px"
+                  theme="helix-dark"
+                />
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCreateFileDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleCreateFile}
+              variant="contained"
+              disabled={!newFilePath.trim() || creatingFile}
+            >
+              {creatingFile ? <CircularProgress size={20} /> : 'Create File'}
             </Button>
           </DialogActions>
         </Dialog>
