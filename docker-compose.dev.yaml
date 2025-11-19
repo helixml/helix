@@ -245,10 +245,10 @@ services:
 
     wolf:
       profiles: [wolf]
-      # Use latest Helix Wolf build from registry (versioned, built by Drone CI)
-      # For local dev builds from source: uncomment wolf:helix-fixed and comment registry line
-      # image: wolf:helix-fixed
-      image: registry.helixml.tech/helix/wolf:latest
+      # Uses HELIX_VERSION if set (pulls from registry), otherwise uses wolf:helix-fixed (local build)
+      # To use a specific version: export HELIX_VERSION=v1.5.0
+      # To use local build: ./stack rebuild-wolf (without HELIX_VERSION set)
+      image: ${HELIX_VERSION:+registry.helixml.tech/helix/wolf:${HELIX_VERSION}}${HELIX_VERSION:-wolf:helix-fixed}
       networks:
         default:
           ipv4_address: 172.19.0.50
