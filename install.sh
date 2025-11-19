@@ -43,7 +43,7 @@
 #    Result: Install CLI only, no Docker installation offered
 #
 # 2. Ubuntu + No Docker + NVIDIA GPU with drivers + --controlplane --runner
-#    Result: Offer to install Docker + NVIDIA runtime → Install both → Create runner
+#    Result: Install Docker + NVIDIA runtime → Install controlplane + local runner
 #
 # 3. Ubuntu + Docker installed + NVIDIA GPU with drivers + No NVIDIA runtime + --code
 #    Result: Detect missing NVIDIA runtime → Offer to install → Install it → Enable code profile
@@ -63,11 +63,11 @@
 # 8. macOS + No Docker + --controlplane
 #    Result: Exit with error, tell user to install Docker Desktop manually
 #
-# 9. Fedora + No Docker + NVIDIA GPU + --runner
-#    Result: Offer to install Docker + NVIDIA runtime → Install both using dnf
+# 9. Fedora + No Docker + NVIDIA GPU + --runner --runner-token TOKEN --api-host HOST
+#    Result: Install Docker + NVIDIA runtime using dnf → Create remote runner script
 #
-# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner
-#     Result: Skip Docker/runtime installation → Create runner script
+# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner --runner-token TOKEN --api-host HOST
+#     Result: Skip Docker/runtime installation → Create remote runner script
 #
 # 11. Arch Linux + No Docker + --controlplane
 #     Result: Exit with error, auto-install only supports Ubuntu/Debian/Fedora
