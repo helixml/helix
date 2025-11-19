@@ -878,9 +878,17 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
-		"WLR_BACKENDS=drm",               // Force wlroots to use DRM backend for headless NVIDIA GPU operation
-		"WLR_DRM_DEVICES=/dev/dri/card1", // Skip Hyper-V card0, use NVIDIA card1 directly
-		"LIBSEAT_BACKEND=noop",           // Disable libseat session management (not needed in headless containers)
+		"WLR_BACKENDS=drm",     // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		"LIBSEAT_BACKEND=noop", // Disable libseat session management (not needed in headless containers)
+	}
+
+	// Auto-detect NVIDIA DRM device and set WLR_DRM_DEVICES if found
+	// This handles systems with multiple GPUs (e.g., Azure VMs with Hyper-V + NVIDIA)
+	if nvidiaCard := detectNVIDIADRMDevice(); nvidiaCard != "" {
+		env = append(env, fmt.Sprintf("WLR_DRM_DEVICES=%s", nvidiaCard))
+	}
+
+	env = append(env,
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
@@ -891,7 +899,7 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 		"HELIX_API_URL=http://api:8080",
 		fmt.Sprintf("HELIX_API_TOKEN=%s", helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
-	}
+	)
 	env = append(env, config.ExtraEnv...)
 
 	mounts := []string{

@@ -20,6 +20,33 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// detectNVIDIADRMDevice finds the DRM card device for NVIDIA GPU
+// Returns the card path (e.g., "/dev/dri/card1") or empty string if not found
+func detectNVIDIADRMDevice() string {
+	// Check /sys/class/drm/card*/device/vendor for NVIDIA vendor ID (0x10de)
+	for i := 0; i < 10; i++ {
+		vendorPath := fmt.Sprintf("/sys/class/drm/card%d/device/vendor", i)
+
+		vendor, err := os.ReadFile(vendorPath)
+		if err != nil {
+			continue // Card doesn't exist or no vendor file
+		}
+
+		// NVIDIA vendor ID is 0x10de
+		if strings.TrimSpace(string(vendor)) == "0x10de" {
+			cardPath := fmt.Sprintf("/dev/dri/card%d", i)
+			log.Info().
+				Str("nvidia_card", cardPath).
+				Int("card_index", i).
+				Msg("Detected NVIDIA DRM device for desktop streaming")
+			return cardPath
+		}
+	}
+
+	log.Warn().Msg("No NVIDIA DRM device found, wlroots will auto-detect GPU")
+	return "" // Let wlroots auto-detect
+}
+
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
 	lobbyID   string
@@ -123,9 +150,17 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
-		"WLR_BACKENDS=drm",               // Force wlroots to use DRM backend for headless NVIDIA GPU operation
-		"WLR_DRM_DEVICES=/dev/dri/card1", // Skip Hyper-V card0, use NVIDIA card1 directly
-		"LIBSEAT_BACKEND=noop",           // Disable libseat session management (not needed in headless containers)
+		"WLR_BACKENDS=drm",     // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		"LIBSEAT_BACKEND=noop", // Disable libseat session management (not needed in headless containers)
+	}
+
+	// Auto-detect NVIDIA DRM device and set WLR_DRM_DEVICES if found
+	// This handles systems with multiple GPUs (e.g., Azure VMs with Hyper-V + NVIDIA)
+	if nvidiaCard := detectNVIDIADRMDevice(); nvidiaCard != "" {
+		env = append(env, fmt.Sprintf("WLR_DRM_DEVICES=%s", nvidiaCard))
+	}
+
+	env = append(env,
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
@@ -138,7 +173,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"HELIX_API_URL=http://api:8080",
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
-	}
+	)
 
 	// Startup script is executed directly from cloned internal Git repo
 	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
