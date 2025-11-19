@@ -876,7 +876,7 @@ input * {
 
 func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPIToken string) *wolf.App {
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
 		"WLR_BACKENDS=drm", // Force wlroots to use DRM backend for headless NVIDIA GPU operation
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
