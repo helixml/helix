@@ -1981,7 +1981,8 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     echo "Starting \$CONTAINER_NAME with GPU(s): \$GPU_DEVICES (runner ID: \$RUNNER_ID)"
 
     # Run the docker container with specific GPU devices
-    docker run --privileged --gpus '"'device=\$GPU_DEVICES'"' \\
+    # Note: --privileged removed to properly enforce GPU isolation via --gpus device=X
+    docker run --gpus '"'device=\$GPU_DEVICES'"' \\
         -e CUDA_VISIBLE_DEVICES=\$GPU_DEVICES \\
         --shm-size=10g --restart=always -d \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
