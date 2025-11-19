@@ -583,6 +583,20 @@ install_docker() {
                     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                     sudo systemctl start docker
                     sudo systemctl enable docker
+                    # Wait for Docker to be ready
+                    echo "Waiting for Docker to start..."
+                    for i in {1..30}; do
+                        if docker ps >/dev/null 2>&1 || sudo docker ps >/dev/null 2>&1; then
+                            echo "Docker is ready."
+                            break
+                        fi
+                        if [ $i -eq 30 ]; then
+                            echo "Error: Docker failed to start after installation."
+                            echo "Please check: sudo systemctl status docker"
+                            exit 1
+                        fi
+                        sleep 1
+                    done
                     ;;
                 fedora)
                     sudo dnf -y install dnf-plugins-core
@@ -590,6 +604,20 @@ install_docker() {
                     sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                     sudo systemctl start docker
                     sudo systemctl enable docker
+                    # Wait for Docker to be ready
+                    echo "Waiting for Docker to start..."
+                    for i in {1..30}; do
+                        if docker ps >/dev/null 2>&1 || sudo docker ps >/dev/null 2>&1; then
+                            echo "Docker is ready."
+                            break
+                        fi
+                        if [ $i -eq 30 ]; then
+                            echo "Error: Docker failed to start after installation."
+                            echo "Please check: sudo systemctl status docker"
+                            exit 1
+                        fi
+                        sleep 1
+                    done
                     ;;
                 *)
                     echo "Unsupported distribution for automatic Docker installation."
@@ -808,7 +836,7 @@ install_nvidia_docker() {
     fi
 
     # Check if NVIDIA runtime needs installation
-    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && echo "true" || echo "false")
+    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null && echo "true" || echo "false")
     NVIDIA_CTK_EXISTS=$(command -v nvidia-container-toolkit &> /dev/null && echo "true" || echo "false")
 
     echo "Checking NVIDIA Docker runtime status..."
