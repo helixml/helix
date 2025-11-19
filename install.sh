@@ -1982,8 +1982,8 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
 
     # Run the docker container with specific GPU devices
     # Note: --privileged removed to properly enforce GPU isolation via --gpus device=X
+    # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
     docker run --gpus '"'device=\$GPU_DEVICES'"' \\
-        -e CUDA_VISIBLE_DEVICES=\$GPU_DEVICES \\
         --shm-size=10g --restart=always -d \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
