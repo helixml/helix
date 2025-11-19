@@ -134,6 +134,7 @@ EMBEDDINGS_PROVIDER="helix"
 EXTERNAL_ZED_RUNNER_ID=""
 EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
+SPLIT_RUNNERS="1"
 
 # Enhanced environment detection
 detect_environment() {
@@ -256,6 +257,7 @@ Options:
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
   --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
   --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
+  --split-runners <n>      Split GPUs across N runner containers (default: 1, must divide evenly into total GPU count)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -301,6 +303,9 @@ Examples:
 
 13. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+
+14. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
+   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
 
 EOF
 }
@@ -490,6 +495,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --external-zed-concurrency)
             EXTERNAL_ZED_CONCURRENCY="$2"
+            shift 2
+            ;;
+        --split-runners=*)
+            SPLIT_RUNNERS="${1#*=}"
+            shift
+            ;;
+        --split-runners)
+            SPLIT_RUNNERS="$2"
             shift 2
             ;;
         *)
@@ -1870,6 +1883,7 @@ if [ "$RUNNER" = true ]; then
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
+SPLIT_RUNNERS="${SPLIT_RUNNERS}"
 
 # HF_TOKEN is now managed by the control plane and distributed to runners automatically
 # No longer setting HF_TOKEN on runners to avoid confusion
@@ -1889,15 +1903,95 @@ else
     echo "helix_default network already exists."
 fi
 
-# Run the docker container
-docker run --privileged --gpus all --shm-size=10g \\
-    --restart=always -d \\
-    --name helix-runner --ipc=host --ulimit memlock=-1 \\
-    --ulimit stack=67108864 \\
-    --network="helix_default" \\
-    registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
-    --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
-    --runner-id \$(hostname)
+# Detect total number of GPUs
+TOTAL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+if [ "\$TOTAL_GPUS" -eq 0 ]; then
+    echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+    exit 1
+fi
+
+echo "Detected \$TOTAL_GPUS GPUs on this system"
+
+# Validate SPLIT_RUNNERS
+if [ "\$SPLIT_RUNNERS" -lt 1 ]; then
+    echo "Error: --split-runners must be at least 1"
+    exit 1
+fi
+
+if [ "\$SPLIT_RUNNERS" -gt "\$TOTAL_GPUS" ]; then
+    echo "Error: --split-runners (\$SPLIT_RUNNERS) cannot be greater than total GPUs (\$TOTAL_GPUS)"
+    exit 1
+fi
+
+# Check if TOTAL_GPUS is evenly divisible by SPLIT_RUNNERS
+if [ \$((\$TOTAL_GPUS % \$SPLIT_RUNNERS)) -ne 0 ]; then
+    echo "Error: Total GPUs (\$TOTAL_GPUS) must be evenly divisible by --split-runners (\$SPLIT_RUNNERS)"
+    echo "Please choose a value that divides evenly into \$TOTAL_GPUS"
+    exit 1
+fi
+
+GPUS_PER_RUNNER=\$((\$TOTAL_GPUS / \$SPLIT_RUNNERS))
+echo "Creating \$SPLIT_RUNNERS runner container(s) with \$GPUS_PER_RUNNER GPU(s) each"
+
+# Stop and remove any existing runner containers
+# First, always clean up the old non-numbered container (upgrade path)
+if docker ps -a --format '{{.Names}}' | grep -q "^helix-runner\$"; then
+    echo "Stopping and removing existing container: helix-runner"
+    docker stop helix-runner >/dev/null 2>&1 || true
+    docker rm helix-runner >/dev/null 2>&1 || true
+fi
+
+# Then clean up numbered containers if SPLIT_RUNNERS > 1
+if [ "\$SPLIT_RUNNERS" -gt 1 ]; then
+    for i in \$(seq 1 \$SPLIT_RUNNERS); do
+        CONTAINER_NAME="helix-runner-\$i"
+        if docker ps -a --format '{{.Names}}' | grep -q "^\${CONTAINER_NAME}\$"; then
+            echo "Stopping and removing existing container: \$CONTAINER_NAME"
+            docker stop \$CONTAINER_NAME >/dev/null 2>&1 || true
+            docker rm \$CONTAINER_NAME >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+# Create runner containers
+for i in \$(seq 1 \$SPLIT_RUNNERS); do
+    # Calculate GPU device IDs for this container
+    START_GPU=\$(( (\$i - 1) * \$GPUS_PER_RUNNER ))
+    END_GPU=\$(( \$START_GPU + \$GPUS_PER_RUNNER - 1 ))
+
+    # Build device list (e.g., "0,1" or "2,3,4,5")
+    GPU_DEVICES=""
+    for gpu_id in \$(seq \$START_GPU \$END_GPU); do
+        if [ -z "\$GPU_DEVICES" ]; then
+            GPU_DEVICES="\$gpu_id"
+        else
+            GPU_DEVICES="\$GPU_DEVICES,\$gpu_id"
+        fi
+    done
+
+    # Set container name
+    if [ "\$SPLIT_RUNNERS" -eq 1 ]; then
+        CONTAINER_NAME="helix-runner"
+        RUNNER_ID="\$(hostname)"
+    else
+        CONTAINER_NAME="helix-runner-\$i"
+        RUNNER_ID="\$(hostname)-\$i"
+    fi
+
+    echo "Starting \$CONTAINER_NAME with GPU(s): \$GPU_DEVICES (runner ID: \$RUNNER_ID)"
+
+    # Run the docker container with specific GPU devices
+    docker run --privileged --gpus '"'device=\$GPU_DEVICES'"' --shm-size=10g \\
+        --restart=always -d \\
+        --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
+        --ulimit stack=67108864 \\
+        --network="helix_default" \\
+        registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
+        --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
+        --runner-id \$RUNNER_ID
+done
+
+echo "Successfully started \$SPLIT_RUNNERS runner container(s)"
 EOF
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
