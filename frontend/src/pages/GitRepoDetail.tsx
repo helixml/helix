@@ -46,6 +46,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  Pencil,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -125,8 +126,9 @@ const GitRepoDetail: FC = () => {
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
 
-  // Create File Dialog State
+  // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
+  const [isEditingFile, setIsEditingFile] = useState(false)
   const [newFilePath, setNewFilePath] = useState('')
   const [newFileContent, setNewFileContent] = useState('')
   const [creatingFile, setCreatingFile] = useState(false)
@@ -309,7 +311,7 @@ const GitRepoDetail: FC = () => {
           path: newFilePath,
           branch: branch,
           content: encodedContent,
-          message: `Create ${newFilePath}`,
+          message: isEditingFile ? `Update ${newFilePath}` : `Create ${newFilePath}`,
         }
       })
 
@@ -335,13 +337,21 @@ const GitRepoDetail: FC = () => {
         })
       }
 
-      snackbar.success('File created successfully')
+      // Invalidate the file query if we're editing
+      if (isEditingFile) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch] 
+        })
+      }
+
+      snackbar.success(isEditingFile ? 'File updated successfully' : 'File created successfully')
       setCreateFileDialogOpen(false)
       setNewFilePath('')
       setNewFileContent('')
+      setIsEditingFile(false)
     } catch (error) {
-      console.error('Failed to create file:', error)
-      snackbar.error('Failed to create file')
+      console.error('Failed to create/update file:', error)
+      snackbar.error(isEditingFile ? 'Failed to update file' : 'Failed to create file')
     } finally {
       setCreatingFile(false)
     }
@@ -558,6 +568,7 @@ const GitRepoDetail: FC = () => {
                       onClick={() => {
                         setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
                         setNewFileContent('')
+                        setIsEditingFile(false)
                         setCreateFileDialogOpen(true)
                       }}
                       sx={{  height: 40, whiteSpace: 'nowrap' }}
@@ -695,9 +706,26 @@ const GitRepoDetail: FC = () => {
                       <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                         {selectedFile.split('/').pop()}
                       </Typography>
-                      <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                        <CloseIcon size={16} />
-                      </IconButton>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Tooltip title="Edit file">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => {
+                              if (selectedFile && fileData?.content) {
+                                setNewFilePath(selectedFile)
+                                setNewFileContent(fileData.content)
+                                setIsEditingFile(true)
+                                setCreateFileDialogOpen(true)
+                              }
+                            }}
+                          >
+                            <Pencil size={16} />
+                          </IconButton>
+                        </Tooltip>
+                        <IconButton size="small" onClick={() => setSelectedFile(null)}>
+                          <CloseIcon size={16} />
+                        </IconButton>
+                      </Box>
                     </Box>
                     {fileLoading ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -1218,16 +1246,32 @@ const GitRepoDetail: FC = () => {
           </DialogActions>
         </Dialog>
 
-        {/* Create File Dialog */}
+        {/* Create/Edit File Dialog */}
         <Dialog 
           open={createFileDialogOpen} 
-          onClose={() => setCreateFileDialogOpen(false)} 
+          onClose={() => {
+            setCreateFileDialogOpen(false)
+            setIsEditingFile(false)
+            setNewFilePath('')
+            setNewFileContent('')
+          }} 
           maxWidth="lg" 
           fullWidth
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>Create New File</Typography>
-            <IconButton onClick={() => setCreateFileDialogOpen(false)} edge="end" size="small">
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {isEditingFile ? 'Edit File' : 'Create New File'}
+            </Typography>
+            <IconButton 
+              onClick={() => {
+                setCreateFileDialogOpen(false)
+                setIsEditingFile(false)
+                setNewFilePath('')
+                setNewFileContent('')
+              }} 
+              edge="end" 
+              size="small"
+            >
               <CloseIcon size={20} />
             </IconButton>
           </DialogTitle>
@@ -1240,7 +1284,8 @@ const GitRepoDetail: FC = () => {
                 value={newFilePath}
                 onChange={(e) => setNewFilePath(e.target.value)}
                 placeholder="path/to/file.txt"
-                helperText={`Creating in branch ${currentBranch || repository.default_branch || 'main'}`}
+                disabled={isEditingFile}
+                helperText={`${isEditingFile ? 'Editing' : 'Creating'} in branch ${currentBranch || repository.default_branch || 'main'}`}
                 InputProps={{
                   sx: { fontFamily: 'monospace' }
                 }}
@@ -1295,7 +1340,7 @@ const GitRepoDetail: FC = () => {
               variant="contained"
               disabled={!newFilePath.trim() || creatingFile}
             >
-              {creatingFile ? <CircularProgress size={20} /> : 'Create File'}
+              {creatingFile ? <CircularProgress size={20} /> : (isEditingFile ? 'Update File' : 'Create File')}
             </Button>
           </DialogActions>
         </Dialog>
