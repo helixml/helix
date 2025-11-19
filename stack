@@ -675,18 +675,7 @@ function push_image_tags() {
 }
 
 function rebuild-wolf() {
-  # Only rebuild Wolf when WOLF_LOCAL_BUILD is set
-  # Otherwise, docker-compose will pull latest automatically
-  if [ "${WOLF_LOCAL_BUILD:-}" != "true" ]; then
-    echo "ℹ️  WOLF_LOCAL_BUILD is not set"
-    echo "💡 Docker compose will use latest Wolf from registry automatically"
-    echo "💡 To build from local source, run:"
-    echo "   export WOLF_LOCAL_BUILD=true"
-    echo "   ./stack rebuild-wolf"
-    return 0
-  fi
-
-  echo "🐺 WOLF_LOCAL_BUILD=true, building Wolf container from local source..."
+  echo "🐺 Building Wolf container from local source..."
 
   # Check if Wolf source directory exists
   if [ ! -d "../wolf" ]; then
@@ -698,7 +687,6 @@ function rebuild-wolf() {
     echo "  cd .."
     echo "  git clone https://github.com/helixml/wolf.git"
     echo "  cd helix"
-    echo "  export WOLF_LOCAL_BUILD=true"
     echo "  ./stack rebuild-wolf"
     exit 1
   fi
@@ -710,13 +698,16 @@ function rebuild-wolf() {
   docker build -f docker/wolf.Dockerfile -t wolf:helix-fixed .
 
   if [ $? -eq 0 ]; then
-    echo "✅ Wolf container built successfully"
+    echo "✅ Wolf container built successfully as wolf:helix-fixed"
   else
     echo "❌ Failed to build Wolf container"
     cd - > /dev/null
     return 1
   fi
   cd - > /dev/null
+
+  # Export WOLF_LOCAL_BUILD so it persists for subsequent ./stack commands in this shell
+  export WOLF_LOCAL_BUILD=true
 
   # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
   if [ -z "${SKIP_DEV_RESTART:-}" ]; then
@@ -726,6 +717,10 @@ function rebuild-wolf() {
 
     echo "✅ Wolf container rebuilt and restarted successfully"
     echo "🐺 Wolf is ready for testing with latest source code changes"
+    echo ""
+    echo "💡 WOLF_LOCAL_BUILD=true is now set in your current shell"
+    echo "💡 Future ./stack commands will continue using wolf:helix-fixed"
+    echo "💡 To go back to latest: unset WOLF_LOCAL_BUILD"
   fi
 }
 
