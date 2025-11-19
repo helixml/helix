@@ -207,8 +207,9 @@ EOF
     #   echo -n " && killall sway" >> $HOME/.config/sway/config
     # fi
 
-    # Start sway
-    dbus-run-session -- sway --unsupported-gpu
+    # Start sway with DRM backend (required for headless NVIDIA GPU operation)
+    # WLR_BACKENDS=drm forces wlroots to use direct GPU access instead of nested Wayland
+    WLR_BACKENDS=drm dbus-run-session -- sway --unsupported-gpu
   else
     echo "[exec] Starting: $@"
     exec $@
