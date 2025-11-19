@@ -186,7 +186,7 @@ func (apiServer *HelixAPIServer) getAgentSandboxesDebug(rw http.ResponseWriter, 
 	// Check WOLF_MODE to determine whether to fetch apps or lobbies
 	wolfMode := os.Getenv("WOLF_MODE")
 	if wolfMode == "" {
-		wolfMode = "apps" // Default
+		wolfMode = "lobbies" // Default (consistent with wolf_executor.go)
 	}
 
 	if wolfMode == "lobbies" {
