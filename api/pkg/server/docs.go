@@ -16096,6 +16096,21 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ExternalRepositoryType": {
+            "type": "string",
+            "enum": [
+                "github",
+                "gitlab",
+                "ado",
+                "bitbucket"
+            ],
+            "x-enum-varnames": [
+                "ExternalRepositoryTypeGitHub",
+                "ExternalRepositoryTypeGitLab",
+                "ExternalRepositoryTypeADO",
+                "ExternalRepositoryTypeBitbucket"
+            ]
+        },
         "types.Feedback": {
             "type": "string",
             "enum": [
@@ -16491,13 +16506,13 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
-                "external_repo_id": {
-                    "description": "External platform's repository ID",
-                    "type": "string"
-                },
                 "external_type": {
                     "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
-                    "type": "string"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
                 },
                 "external_url": {
                     "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
@@ -16553,7 +16568,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
-                    "description": "Username for the repository",
+                    "description": "Authentication fields",
                     "type": "string"
                 }
             }
@@ -16567,11 +16582,31 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "external_url": {
+                    "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
                 "initial_files": {
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "is_external": {
+                    "description": "True for GitHub/GitLab/ADO, false for Helix-hosted",
+                    "type": "boolean"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing",
+                    "type": "boolean"
                 },
                 "metadata": {
                     "type": "object",
@@ -16587,11 +16622,19 @@ const docTemplate = `{
                 "owner_id": {
                     "type": "string"
                 },
+                "password": {
+                    "description": "Password for the repository",
+                    "type": "string"
+                },
                 "project_id": {
                     "type": "string"
                 },
                 "repo_type": {
                     "$ref": "#/definitions/types.GitRepositoryType"
+                },
+                "username": {
+                    "description": "Username for the repository",
+                    "type": "string"
                 }
             }
         },
@@ -16657,11 +16700,20 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "external_url": {
+                    "type": "string"
+                },
                 "metadata": {
                     "type": "object",
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -21836,18 +21888,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {

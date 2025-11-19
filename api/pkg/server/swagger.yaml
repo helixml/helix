@@ -3243,6 +3243,18 @@ definitions:
       status:
         type: string
     type: object
+  types.ExternalRepositoryType:
+    enum:
+    - github
+    - gitlab
+    - ado
+    - bitbucket
+    type: string
+    x-enum-varnames:
+    - ExternalRepositoryTypeGitHub
+    - ExternalRepositoryTypeGitLab
+    - ExternalRepositoryTypeADO
+    - ExternalRepositoryTypeBitbucket
   types.Feedback:
     enum:
     - like
@@ -3510,12 +3522,10 @@ definitions:
         type: string
       description:
         type: string
-      external_repo_id:
-        description: External platform's repository ID
-        type: string
       external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
         description: '"github", "gitlab", "ado", "bitbucket", etc.'
-        type: string
       external_url:
         description: Full URL to external repo (e.g., https://github.com/org/repo)
         type: string
@@ -3555,7 +3565,7 @@ definitions:
       updated_at:
         type: string
       username:
-        description: Username for the repository
+        description: Authentication fields
         type: string
     type: object
   types.GitRepositoryCreateRequest:
@@ -3564,10 +3574,23 @@ definitions:
         type: string
       description:
         type: string
+      external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
+      external_url:
+        description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
       initial_files:
         additionalProperties:
           type: string
         type: object
+      is_external:
+        description: True for GitHub/GitLab/ADO, false for Helix-hosted
+        type: boolean
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing
+        type: boolean
       metadata:
         additionalProperties: true
         type: object
@@ -3578,10 +3601,16 @@ definitions:
         type: string
       owner_id:
         type: string
+      password:
+        description: Password for the repository
+        type: string
       project_id:
         type: string
       repo_type:
         $ref: '#/definitions/types.GitRepositoryType'
+      username:
+        description: Username for the repository
+        type: string
     type: object
   types.GitRepositoryFileResponse:
     properties:
@@ -3626,10 +3655,16 @@ definitions:
         type: string
       description:
         type: string
+      external_url:
+        type: string
       metadata:
         additionalProperties: true
         type: object
       name:
+        type: string
+      password:
+        type: string
+      username:
         type: string
     type: object
   types.GlobalAllocationDecision:
@@ -7264,18 +7299,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

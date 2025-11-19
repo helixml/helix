@@ -42,13 +42,16 @@ type GitRepository struct {
 	Metadata       map[string]interface{} `gorm:"type:jsonb;serializer:json" json:"metadata"` // Stores Metadata as JSON
 
 	// External repository fields
-	IsExternal     bool   `gorm:"index" json:"is_external"` // True for GitHub/GitLab/ADO, false for Helix-hosted
-	ExternalURL    string `json:"external_url"`             // Full URL to external repo (e.g., https://github.com/org/repo)
-	ExternalType   string `json:"external_type"`            // "github", "gitlab", "ado", "bitbucket", etc.
-	ExternalRepoID string `json:"external_repo_id"`         // External platform's repository ID
+	IsExternal   bool                   `gorm:"index" json:"is_external"` // True for GitHub/GitLab/ADO, false for Helix-hosted
+	ExternalURL  string                 `json:"external_url"`             // Full URL to external repo (e.g., https://github.com/org/repo)
+	ExternalType ExternalRepositoryType `json:"external_type"`            // "github", "gitlab", "ado", "bitbucket", etc.
 
+	// Authentication fields
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
+
+	// TODO: OAuth support using our providers
+	// TODO: SSH key
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
@@ -58,6 +61,15 @@ type GitRepository struct {
 func (GitRepository) TableName() string {
 	return "git_repositories"
 }
+
+type ExternalRepositoryType string
+
+const (
+	ExternalRepositoryTypeGitHub    ExternalRepositoryType = "github"
+	ExternalRepositoryTypeGitLab    ExternalRepositoryType = "gitlab"
+	ExternalRepositoryTypeADO       ExternalRepositoryType = "ado"
+	ExternalRepositoryTypeBitbucket ExternalRepositoryType = "bitbucket"
+)
 
 // GitRepositoryCreateRequest represents a request to create a new repository
 type GitRepositoryCreateRequest struct {
@@ -70,6 +82,15 @@ type GitRepositoryCreateRequest struct {
 	InitialFiles   map[string]string      `json:"initial_files,omitempty"`
 	DefaultBranch  string                 `json:"default_branch,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+
+	IsExternal   bool                   `json:"is_external"`   // True for GitHub/GitLab/ADO, false for Helix-hosted
+	ExternalURL  string                 `json:"external_url"`  // Full URL to external repo (e.g., https://github.com/org/repo)
+	ExternalType ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
+
+	Username string `json:"username"` // Username for the repository
+	Password string `json:"password"` // Password for the repository
+
+	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 }
 
 // GitRepositoryUpdateRequest represents a request to update a repository
@@ -77,6 +98,9 @@ type GitRepositoryUpdateRequest struct {
 	Name          string                 `json:"name,omitempty"`
 	Description   string                 `json:"description,omitempty"`
 	DefaultBranch string                 `json:"default_branch,omitempty"`
+	Username      string                 `json:"username,omitempty"`
+	Password      string                 `json:"password,omitempty"`
+	ExternalURL   string                 `json:"external_url,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
