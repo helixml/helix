@@ -1818,19 +1818,25 @@ EOF"
     echo "│ This will take a minute or so to boot."
     echo "└───────────────────────────────────────────────────────────────────────────"
 
-    # Auto-restart services if configs were changed
+    # Auto-restart services if configs were changed and services are running
     if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
-        echo
-        echo "Hostname configuration changed - restarting Wolf and Moonlight Web to apply..."
-        cd "$INSTALL_DIR"
-        if [ "$NEED_SUDO" = "true" ]; then
-            sudo docker compose down wolf moonlight-web
-            sudo docker compose up -d wolf moonlight-web
+        # Check if wolf or moonlight-web containers are running
+        if $DOCKER_CMD ps --format '{{.Names}}' | grep -qE '^(wolf-1|moonlight-web-1)$'; then
+            echo
+            echo "Hostname configuration changed - restarting Wolf and Moonlight Web to apply..."
+            cd "$INSTALL_DIR"
+            if [ "$NEED_SUDO" = "true" ]; then
+                sudo docker compose down wolf moonlight-web
+                sudo docker compose up -d wolf moonlight-web
+            else
+                docker compose down wolf moonlight-web
+                docker compose up -d wolf moonlight-web
+            fi
+            echo "✓ Services restarted with new hostname configuration"
         else
-            docker compose down wolf moonlight-web
-            docker compose up -d wolf moonlight-web
+            echo
+            echo "Note: Hostname configuration updated. Start services with: docker compose up -d"
         fi
-        echo "✓ Services restarted with new hostname configuration"
     fi
 fi
 
