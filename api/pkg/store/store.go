@@ -438,11 +438,11 @@ type Store interface {
 	ListUnprocessedGitPushEvents(ctx context.Context) ([]types.SpecTaskGitPushEvent, error)
 
 	// git repositories
-	CreateGitRepository(ctx context.Context, repo *GitRepository) error
-	GetGitRepository(ctx context.Context, id string) (*GitRepository, error)
-	UpdateGitRepository(ctx context.Context, repo *GitRepository) error
+	CreateGitRepository(ctx context.Context, repo *types.GitRepository) error
+	GetGitRepository(ctx context.Context, id string) (*types.GitRepository, error)
+	UpdateGitRepository(ctx context.Context, repo *types.GitRepository) error
 	DeleteGitRepository(ctx context.Context, id string) error
-	ListGitRepositories(ctx context.Context, ownerID string) ([]*GitRepository, error)
+	ListGitRepositories(ctx context.Context, request *types.ListGitRepositoriesRequest) ([]*types.GitRepository, error)
 
 	// spec-driven task multi-session management
 	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
@@ -531,7 +531,6 @@ type Store interface {
 	ListProjects(ctx context.Context, userID string) ([]*types.Project, error)
 	UpdateProject(ctx context.Context, project *types.Project) error
 	DeleteProject(ctx context.Context, projectID string) error
-	GetProjectRepositories(ctx context.Context, projectID string) ([]*GitRepository, error)
 	SetProjectPrimaryRepository(ctx context.Context, projectID string, repoID string) error
 	AttachRepositoryToProject(ctx context.Context, projectID string, repoID string) error
 	DetachRepositoryFromProject(ctx context.Context, repoID string) error
