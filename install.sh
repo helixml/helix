@@ -953,24 +953,30 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
-    echo "to connect to an external controlplane, for example:"
-    echo
-    echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-    echo
-    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-    exit 1
+if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
+    # When installing a remote runner (without controlplane), both API_HOST and RUNNER_TOKEN are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
+        echo "to connect to an external controlplane, for example:"
+        echo
+        echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo
+        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        exit 1
+    fi
 fi
 
-if [ "$EXTERNAL_ZED_AGENT" = true ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
-    echo "to connect to an external controlplane, for example:"
-    echo
-    echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-    echo
-    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-    exit 1
+if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    # When installing external Zed agent, both API_HOST and RUNNER_TOKEN are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
+        echo "to connect to an external controlplane, for example:"
+        echo
+        echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo
+        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        exit 1
+    fi
 fi
 
 # Validate GPU requirements for --runner flag
