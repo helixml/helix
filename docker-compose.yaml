@@ -214,7 +214,7 @@ services:
   # Helix Code services (Wolf streaming + Zed agents + Moonlight Web)
   wolf:
     profiles: [code]
-    image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
+    image: registry.helixml.tech/helix/wolf:latest
     networks:
       default:
         ipv4_address: 172.19.0.50
