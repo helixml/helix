@@ -604,17 +604,9 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 			env = append(env, "CUDA_VISIBLE_DEVICES=-1")
 			log.Info().Msg("Configuring Ollama for CPU-only mode")
 		} else {
-			// Inherit CUDA_VISIBLE_DEVICES from container environment if set
-			// This supports --split-runners flag where each container has pre-configured GPU isolation
-			if cudaVisibleDevices := os.Getenv("CUDA_VISIBLE_DEVICES"); cudaVisibleDevices != "" {
-				env = append(env, "CUDA_VISIBLE_DEVICES="+cudaVisibleDevices)
-				log.Info().
-					Str("cuda_visible_devices", cudaVisibleDevices).
-					Msg("Inheriting CUDA_VISIBLE_DEVICES from container environment")
-			} else {
-				// Default to all available GPUs if no specific selection
-				log.Debug().Msg("Ollama will use all available GPUs (no CUDA_VISIBLE_DEVICES set)")
-			}
+			// Default to all available GPUs if no specific selection
+			// For --split-runners, Docker's --gpus device=X handles isolation at container level
+			log.Debug().Msg("Ollama will use all available GPUs (no CUDA_VISIBLE_DEVICES set)")
 		}
 	}
 
