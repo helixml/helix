@@ -139,3 +139,12 @@ type GitRepositoryFileResponse struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
+
+type UpdateGitRepositoryFileContentsRequest struct {
+	Path    string `json:"path"`    // File path
+	Branch  string `json:"branch"`  // Branch name
+	Message string `json:"message"` // Commit message
+	Author  string `json:"author"`  // Author name
+	Email   string `json:"email"`   // Author email
+	Content string `json:"content"` // Base64 encoded content
+}
