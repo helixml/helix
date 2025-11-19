@@ -1894,6 +1894,13 @@ export interface TypesExternalAgentConnection {
   status?: string;
 }
 
+export enum TypesExternalRepositoryType {
+  ExternalRepositoryTypeGitHub = "github",
+  ExternalRepositoryTypeGitLab = "gitlab",
+  ExternalRepositoryTypeADO = "ado",
+  ExternalRepositoryTypeBitbucket = "bitbucket",
+}
+
 export enum TypesFeedback {
   FeedbackLike = "like",
   FeedbackDislike = "dislike",
@@ -2049,10 +2056,8 @@ export interface TypesGitRepository {
   created_at?: string;
   default_branch?: string;
   description?: string;
-  /** External platform's repository ID */
-  external_repo_id?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
-  external_type?: string;
+  external_type?: TypesExternalRepositoryType;
   /** Full URL to external repo (e.g., https://github.com/org/repo) */
   external_url?: string;
   id?: string;
@@ -2075,21 +2080,33 @@ export interface TypesGitRepository {
   repo_type?: TypesGitRepositoryType;
   status?: TypesGitRepositoryStatus;
   updated_at?: string;
-  /** Username for the repository */
+  /** Authentication fields */
   username?: string;
 }
 
 export interface TypesGitRepositoryCreateRequest {
   default_branch?: string;
   description?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  external_type?: TypesExternalRepositoryType;
+  /** Full URL to external repo (e.g., https://github.com/org/repo) */
+  external_url?: string;
   initial_files?: Record<string, string>;
+  /** True for GitHub/GitLab/ADO, false for Helix-hosted */
+  is_external?: boolean;
+  /** Enable Kodit code intelligence indexing */
+  kodit_indexing?: boolean;
   metadata?: Record<string, any>;
   name?: string;
   /** Organization ID - required for access control */
   organization_id?: string;
   owner_id?: string;
+  /** Password for the repository */
+  password?: string;
   project_id?: string;
   repo_type?: TypesGitRepositoryType;
+  /** Username for the repository */
+  username?: string;
 }
 
 export interface TypesGitRepositoryFileResponse {
@@ -2116,8 +2133,11 @@ export enum TypesGitRepositoryType {
 export interface TypesGitRepositoryUpdateRequest {
   default_branch?: string;
   description?: string;
+  external_url?: string;
   metadata?: Record<string, any>;
   name?: string;
+  password?: string;
+  username?: string;
 }
 
 export interface TypesGlobalAllocationDecision {
@@ -4209,11 +4229,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {

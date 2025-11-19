@@ -32,7 +32,7 @@ import {
   TypesProject,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
-import type { ServicesGitRepository } from '../api/api'
+import type { TypesExternalRepositoryType, TypesGitRepository  } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
@@ -89,7 +89,7 @@ const Projects: FC = () => {
   const projectsTotalPages = Math.ceil(filteredProjects.length / projectsPerPage)
 
   // Filter and paginate repositories
-  const filteredRepositories = repositories.filter((repo: ServicesGitRepository) =>
+  const filteredRepositories = repositories.filter((repo: TypesGitRepository) =>
     repo.name?.toLowerCase().includes(reposSearchQuery.toLowerCase()) ||
     repo.description?.toLowerCase().includes(reposSearchQuery.toLowerCase())
   )
@@ -98,12 +98,6 @@ const Projects: FC = () => {
     (reposPage + 1) * reposPerPage
   )
   const reposTotalPages = Math.ceil(filteredRepositories.length / reposPerPage)
-
-  // Handle tab change
-  const handleViewChange = (view: 'projects' | 'repositories') => {
-    const newParams = view === 'repositories' ? { tab: 'repositories' } : {}
-    navigate('projects', newParams, { replace: true })
-  }
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, project: TypesProject) => {
     setAnchorEl(event.currentTarget)
@@ -236,29 +230,22 @@ const Projects: FC = () => {
         const match = url.match(/\/([^\/]+?)(\.git)?$/)
         repoName = match ? match[1] : 'external-repo'
       }
-
-      const metadata: Record<string, any> = {
-        is_external: true,
-        external_url: url,
-        external_type: type,
-        kodit_indexing: koditIndexing,
-      }
-
-      if (username) {
-        metadata.username = username
-      }
-
-      if (password) {
-        metadata.password = password
-      }
-
+      
       await apiClient.v1GitRepositoriesCreate({
         name: repoName,
         description: `External ${type} repository`,
         owner_id: ownerId,
         repo_type: 'project' as any,
         default_branch: 'main',
-        metadata,
+        // Remote URL
+        external_url: url,
+        // Repository provider (github, gitlab, ado, etc.)
+        external_type: type as TypesExternalRepositoryType,        
+        // Auth details
+        username: username,
+        password: password,
+        // Code intelligence
+        kodit_indexing: koditIndexing,
       })
 
       // Invalidate and refetch git repositories query
@@ -278,7 +265,7 @@ const Projects: FC = () => {
     }
   }
 
-  const handleViewRepository = (repo: ServicesGitRepository) => {
+  const handleViewRepository = (repo: TypesGitRepository) => {
     account.orgNavigate('git-repo-detail', { repoId: repo.id })
   }
 

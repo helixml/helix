@@ -104,10 +104,10 @@ const CreateRepositoryDialog: FC<CreateRepositoryDialogProps> = ({
           </Alert>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      <DialogActions>        
         <Button
           onClick={handleSubmit}
+          color="secondary"
           variant="contained"
           disabled={!name.trim() || isCreating}
         >
