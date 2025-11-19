@@ -980,6 +980,41 @@ if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
     CLI=true
 fi
 
+# Validate GPU requirements for --runner flag (MUST happen before token validation)
+if [ "$RUNNER" = true ]; then
+    if ! check_nvidia_gpu; then
+        echo "┌───────────────────────────────────────────────────────────────────────────"
+        echo "│ ❌ ERROR: --runner requires NVIDIA GPU"
+        echo "│"
+        echo "│ No NVIDIA GPU detected. Helix Runner requires an NVIDIA GPU."
+        echo "│"
+        echo "│ If you have an NVIDIA GPU:"
+        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
+        echo "│      sudo ubuntu-drivers install"
+        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│"
+        echo "│   2. Reboot your system:"
+        echo "│      sudo reboot"
+        echo "│"
+        echo "│   3. Verify drivers are loaded:"
+        echo "│      nvidia-smi"
+        echo "│"
+        echo "│   4. Re-run this installer - it will automatically install Docker and"
+        echo "│      the NVIDIA Docker runtime for you."
+        echo "└───────────────────────────────────────────────────────────────────────────"
+        exit 1
+    fi
+    echo "NVIDIA GPU detected. Runner requirements satisfied."
+    if check_nvidia_runtime_needed; then
+        # Check if toolkit already installed or needs fresh install
+        if command -v nvidia-container-toolkit &> /dev/null; then
+            echo "Note: NVIDIA Docker runtime will be configured automatically."
+        else
+            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+        fi
+    fi
+fi
+
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     # Three cases:
     # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
@@ -1021,41 +1056,6 @@ if [ "$EXTERNAL_ZED_AGENT" = true ]; then
         echo
         echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
         exit 1
-    fi
-fi
-
-# Validate GPU requirements for --runner flag
-if [ "$RUNNER" = true ]; then
-    if ! check_nvidia_gpu; then
-        echo "┌───────────────────────────────────────────────────────────────────────────"
-        echo "│ ❌ ERROR: --runner requires NVIDIA GPU"
-        echo "│"
-        echo "│ No NVIDIA GPU detected. Helix Runner requires an NVIDIA GPU."
-        echo "│"
-        echo "│ If you have an NVIDIA GPU:"
-        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
-        echo "│      sudo ubuntu-drivers install"
-        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
-        echo "│"
-        echo "│   2. Reboot your system:"
-        echo "│      sudo reboot"
-        echo "│"
-        echo "│   3. Verify drivers are loaded:"
-        echo "│      nvidia-smi"
-        echo "│"
-        echo "│   4. Re-run this installer - it will automatically install Docker and"
-        echo "│      the NVIDIA Docker runtime for you."
-        echo "└───────────────────────────────────────────────────────────────────────────"
-        exit 1
-    fi
-    echo "NVIDIA GPU detected. Runner requirements satisfied."
-    if check_nvidia_runtime_needed; then
-        # Check if toolkit already installed or needs fresh install
-        if command -v nvidia-container-toolkit &> /dev/null; then
-            echo "Note: NVIDIA Docker runtime will be configured automatically."
-        else
-            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
-        fi
     fi
 fi
 
