@@ -805,61 +805,50 @@ install_nvidia_docker() {
         fi
 
         check_wsl2_docker
-        echo "NVIDIA Docker runtime not found or incomplete. Installing NVIDIA Docker runtime..."
+
+        # If toolkit is already installed, just configure Docker (don't reinstall package)
+        if [ "$NVIDIA_CTK_EXISTS" = "true" ]; then
+            echo "NVIDIA Container Toolkit already installed. Configuring Docker to use it..."
+        else
+            echo "Installing NVIDIA Docker runtime..."
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                case $ID in
+                    ubuntu|debian)
+                        # Remove any existing NVIDIA repository configurations to avoid conflicts
+                        sudo rm -f /etc/apt/sources.list.d/nvidia-container-toolkit.list
+                        sudo rm -f /etc/apt/sources.list.d/nvidia-docker.list
+
+                        # Use nvidia-container-toolkit
+                        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+                        sudo apt-get update
+                        sudo apt-get install -y nvidia-container-toolkit nvidia-container-runtime
+                        ;;
+                    fedora)
+                        # Use nvidia-container-toolkit for Fedora
+                        curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
+                            sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+                        sudo dnf install -y nvidia-container-toolkit nvidia-container-runtime
+                        ;;
+                    *)
+                        echo "Unsupported distribution for automatic NVIDIA Docker runtime installation. Please install NVIDIA Docker runtime manually."
+                        exit 1
+                        ;;
+                esac
+            else
+                echo "Unable to determine OS distribution. Please install NVIDIA Docker runtime manually."
+                exit 1
+            fi
+        fi
+
+        # Configure Docker to use NVIDIA runtime (runs whether we just installed or toolkit was pre-installed)
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             case $ID in
-                ubuntu|debian)
-                    # Use nvidia-container-toolkit
-                    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-                        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-                        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-                    sudo apt-get update
-                    sudo apt-get install -y nvidia-container-toolkit nvidia-container-runtime
-
-                    # Configure Docker to use NVIDIA runtime
-                    if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
-                        echo "Configured NVIDIA runtime using nvidia-ctk"
-                    else
-                        # Fallback: manually configure daemon.json if nvidia-ctk doesn't support runtime configure
-                        echo "Configuring NVIDIA runtime via /etc/docker/daemon.json..."
-                        sudo mkdir -p /etc/docker
-                        sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
-{
-  "runtimes": {
-    "nvidia": {
-      "path": "nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  }
-}
-EOF
-                    fi
-
-                    echo "Restarting Docker to load NVIDIA runtime..."
-                    sudo systemctl restart docker
-                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
-                    echo "Waiting for Docker to restart..."
-                    sleep 5
-                    for i in {1..12}; do
-                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
-                            echo "NVIDIA runtime successfully configured in Docker."
-                            break
-                        fi
-                        if [ $i -eq 12 ]; then
-                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
-                        fi
-                        sleep 5
-                    done
-                    ;;
-                fedora)
-                    # Use nvidia-container-toolkit for Fedora
-                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
-                        sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
-                    sudo dnf install -y nvidia-container-toolkit nvidia-container-runtime
-
-                    # Configure Docker to use NVIDIA runtime
+                ubuntu|debian|fedora)
                     if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
                         echo "Configured NVIDIA runtime using nvidia-ctk"
                     else
