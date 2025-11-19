@@ -123,7 +123,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
-		"WLR_BACKENDS=drm", // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		"WLR_BACKENDS=drm",     // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		"LIBSEAT_BACKEND=noop", // Disable libseat session management (not needed in headless containers)
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
