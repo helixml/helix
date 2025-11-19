@@ -942,6 +942,41 @@ EOF
     fi
 }
 
+# Function to enable nvidia-drm modeset for NVIDIA GBM/DMA-BUF support
+# Required for desktop streaming (Wolf/Sway) with NVIDIA GPUs
+setup_nvidia_drm_modeset() {
+    # Check if NVIDIA GPU is present
+    if ! command -v nvidia-smi &> /dev/null; then
+        return 0  # No NVIDIA GPU, skip
+    fi
+
+    echo "🔧 Checking NVIDIA DRM modeset configuration for desktop streaming..."
+
+    # Check if already enabled
+    if [ -f /sys/module/nvidia_drm/parameters/modeset ]; then
+        MODESET=$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null || echo "N")
+        if [ "$MODESET" = "Y" ]; then
+            echo "✅ nvidia-drm modeset already enabled"
+            return 0
+        fi
+    fi
+
+    # Enable nvidia-drm modeset
+    echo "📝 Enabling nvidia-drm modeset for GBM/DMA-BUF support..."
+    echo "   This is required for NVIDIA desktop streaming (Wolf/Sway)"
+    echo "options nvidia-drm modeset=1" | sudo tee /etc/modprobe.d/nvidia-drm.conf > /dev/null
+
+    # Update initramfs if available
+    if command -v update-initramfs &> /dev/null; then
+        echo "   Updating initramfs..."
+        sudo update-initramfs -u > /dev/null 2>&1
+    fi
+
+    echo "⚠️  IMPORTANT: System reboot required for nvidia-drm modeset to take effect"
+    echo "   After reboot, NVIDIA desktop streaming (Helix Code) will be fully functional"
+    REBOOT_REQUIRED=true
+}
+
 # Function to check if Ollama is running on localhost:11434 or Docker bridge IP
 check_ollama() {
     # Check localhost with a short read timeout using curl
@@ -1241,6 +1276,7 @@ fi
 if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
     if check_nvidia_runtime_needed; then
         install_nvidia_docker
+        setup_nvidia_drm_modeset
     fi
 fi
 
@@ -1837,6 +1873,7 @@ fi
 # Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
     install_nvidia_docker
+    setup_nvidia_drm_modeset
 
     # Determine runner tag
     if [ "$LARGE" = true ]; then
@@ -1989,3 +2026,19 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
 fi
 
 echo -e "\nInstallation complete."
+
+if [ "$REBOOT_REQUIRED" = true ]; then
+    echo
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ ⚠️  SYSTEM REBOOT REQUIRED                                                │"
+    echo "├───────────────────────────────────────────────────────────────────────────┤"
+    echo "│ NVIDIA DRM modeset has been enabled for desktop streaming support.       │"
+    echo "│ A system reboot is required for this change to take effect.              │"
+    echo "│                                                                           │"
+    echo "│ After reboot, Helix Code desktop streaming will be fully functional.     │"
+    echo "│                                                                           │"
+    echo "│ Please reboot your system when convenient:                               │"
+    echo "│   sudo reboot                                                             │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
+    echo
+fi
