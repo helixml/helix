@@ -90,7 +90,7 @@ services:
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-            - WOLF_MODE=${WOLF_MODE:-apps}  # "apps" (default) or "lobbies" (multi-user with PIN support)
+            - WOLF_MODE=${WOLF_MODE:-lobbies}  # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
