@@ -566,14 +566,14 @@ function up() {
   # To enable Wolf and Moonlight Web: ./stack up --profile wolf
 
   # Parse arguments to separate profiles from other args
-  local PROFILES=""
-  local ARGS=""
-  
+  local PROFILES=()
+  local ARGS=()
+
   while [[ $# -gt 0 ]]; do
     case $1 in
       --profile)
         if [[ -n "$2" ]]; then
-          PROFILES="$PROFILES --profile $2"
+          PROFILES+=(--profile "$2")
           shift 2
         else
           echo "❌ Error: --profile requires an argument"
@@ -581,15 +581,14 @@ function up() {
         fi
         ;;
       *)
-        ARGS="$ARGS $1"
+        ARGS+=("$1")
         shift
         ;;
     esac
   done
 
   # Run docker compose with profiles before 'up'
-  # shellcheck disable=SC2086
-  docker compose -f docker-compose.dev.yaml $PROFILES up -d $ARGS
+  docker compose -f docker-compose.dev.yaml "${PROFILES[@]}" up -d "${ARGS[@]}"
 }
 
 function build-zed-agent() {
