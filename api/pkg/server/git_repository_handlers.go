@@ -851,3 +851,81 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// pushPullGitRepository pulls latest commits and pushes local commits to the remote repository
+// @Summary Push and pull repository
+// @Description Pulls latest commits from remote and pushes local commits. Automatically merges if needed.
+// @ID pushPullGitRepository
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param branch query string false "Branch name (defaults to repository default branch)"
+// @Success 200 {object} PushPullResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/push-pull [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	branchName := r.URL.Query().Get("branch")
+	if branchName == "" {
+		branchName = existing.DefaultBranch
+		if branchName == "" {
+			branchName = "main"
+		}
+	}
+
+	err = s.gitRepositoryService.PushPullRequest(r.Context(), repoID, branchName)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Msg("Failed to push/pull repository")
+		http.Error(w, fmt.Sprintf("Failed to push/pull repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := PushPullResponse{
+		RepositoryID: repoID,
+		Branch:       branchName,
+		Success:      true,
+		Message:      "Successfully pulled and pushed repository",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// PushPullResponse represents the response for push/pull request
+type PushPullResponse struct {
+	RepositoryID string `json:"repository_id"`
+	Branch       string `json:"branch"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
+}
