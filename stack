@@ -653,20 +653,26 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  echo "🔨 Rebuilding wolf and moonlight-web images..."
+  # If no arguments provided, build wolf and moonlight-web
+  if [[ $# -eq 0 ]]; then
+    echo "🔨 Rebuilding wolf and moonlight-web images..."
 
-  rebuild-wolf || {
-    echo "❌ Failed to build wolf"
-    return 1
-  }
+    rebuild-wolf || {
+      echo "❌ Failed to build wolf"
+      return 1
+    }
 
-  build-moonlight-web || {
-    echo "❌ Failed to build moonlight-web"
-    return 1
-  }
+    build-moonlight-web || {
+      echo "❌ Failed to build moonlight-web"
+      return 1
+    }
 
-  echo "✅ Wolf and moonlight-web images built successfully"
-  echo "💡 To start with wolf profile: ./stack up --profile wolf"
+    echo "✅ Wolf and moonlight-web images built successfully"
+    echo "💡 To start with wolf profile: ./stack up --profile wolf"
+  else
+    # If arguments provided, rebuild specific services with docker compose
+    docker compose -f docker-compose.dev.yaml up -d --build $@
+  fi
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
