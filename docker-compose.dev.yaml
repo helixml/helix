@@ -299,7 +299,8 @@ services:
       devices:
         - /dev/dri
         - /dev/uinput
-        - /dev/uhid
+        # /dev/uhid - Optional: uncomment if uhid kernel module is available
+        # If missing, run: sudo modprobe uhid || echo "uhid not available"
       ports:
         # Moonlight protocol ports
         - "47984:47984"     # HTTPS
