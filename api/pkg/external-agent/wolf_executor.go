@@ -672,7 +672,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			RefreshRate:             displayRefreshRate,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
+			VideoProducerBufferCaps: "video/x-raw", // System memory for headless wlroots (CUDA memory doesn't work with headless backend)
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,
