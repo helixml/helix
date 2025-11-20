@@ -1604,11 +1604,33 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
+        # Auto-detect first NVIDIA render node for Wolf
+        # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), NVIDIA starts at renderD129
+        WOLF_RENDER_NODE="/dev/dri/renderD128"  # Default
+        if [ -d "/sys/class/drm" ]; then
+            for render_node in /dev/dri/renderD*; do
+                if [ -e "$render_node" ]; then
+                    # Check if this render node is NVIDIA by checking driver symlink
+                    node_name=$(basename "$render_node")
+                    driver_link="/sys/class/drm/$node_name/device/driver"
+                    if [ -L "$driver_link" ]; then
+                        driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+                        if [[ "$driver" == "nvidia" ]]; then
+                            WOLF_RENDER_NODE="$render_node"
+                            echo "Auto-detected NVIDIA render node: $WOLF_RENDER_NODE"
+                            break
+                        fi
+                    fi
+                fi
+            done
+        fi
+
         cat << EOF >> "$ENV_FILE"
 
 ## Helix Code Configuration (External Agents / PDEs)
 # Wolf streaming platform
 WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+WOLF_RENDER_NODE=${WOLF_RENDER_NODE}
 ZED_IMAGE=registry.helixml.tech/helix/zed-agent:${LATEST_RELEASE}
 HELIX_HOST_HOME=${INSTALL_DIR}
 
