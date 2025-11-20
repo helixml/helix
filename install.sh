@@ -43,7 +43,7 @@
 #    Result: Install CLI only, no Docker installation offered
 #
 # 2. Ubuntu + No Docker + NVIDIA GPU with drivers + --controlplane --runner
-#    Result: Offer to install Docker + NVIDIA runtime → Install both → Create runner
+#    Result: Install Docker + NVIDIA runtime → Install controlplane + local runner
 #
 # 3. Ubuntu + Docker installed + NVIDIA GPU with drivers + No NVIDIA runtime + --code
 #    Result: Detect missing NVIDIA runtime → Offer to install → Install it → Enable code profile
@@ -63,17 +63,33 @@
 # 8. macOS + No Docker + --controlplane
 #    Result: Exit with error, tell user to install Docker Desktop manually
 #
-# 9. Fedora + No Docker + NVIDIA GPU + --runner
-#    Result: Offer to install Docker + NVIDIA runtime → Install both using dnf
+# 9. Fedora + No Docker + NVIDIA GPU + --runner --runner-token TOKEN --api-host HOST
+#    Result: Install Docker + NVIDIA runtime using dnf → Create remote runner script
 #
-# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner
-#     Result: Skip Docker/runtime installation → Create runner script
+# 10. Ubuntu + Docker + NVIDIA runtime installed + --runner --runner-token TOKEN --api-host HOST
+#     Result: Skip Docker/runtime installation → Create remote runner script
 #
 # 11. Arch Linux + No Docker + --controlplane
 #     Result: Exit with error, auto-install only supports Ubuntu/Debian/Fedora
 #
 # 12. Ubuntu + No Docker + No GPU + --code
 #     Result: Exit with error, instructions to install NVIDIA/Intel/AMD drivers
+#
+# 13. Ubuntu + NVIDIA GPU + --code (without --controlplane)
+#     Result: Auto-enable --cli and --controlplane (--code is a controlplane feature)
+#     Note: Simplest way to install controlplane with Code features
+#
+# 14. Ubuntu + NVIDIA GPU + --runner --code --haystack (without --runner-token)
+#     Result: Auto-enable --cli and --controlplane, install controlplane+runner+code+haystack
+#     Note: --code/--haystack auto-enable controlplane, --runner (no token) adds local runner
+#
+# 15. Ubuntu + NVIDIA GPU + --runner (without --runner-token or --code/--haystack/--controlplane)
+#     Result: ERROR - must specify --runner-token OR --controlplane OR controlplane features
+#     Note: Prevents ambiguity - user must explicitly choose remote or local installation
+#
+# 16. Ubuntu + --runner --runner-token TOKEN --api-host HOST
+#     Result: Remote runner only (connects to external controlplane at HOST)
+#     Note: Does NOT auto-enable controlplane (token provided = remote mode)
 #
 # ================================================================================
 
@@ -118,6 +134,7 @@ EMBEDDINGS_PROVIDER="helix"
 EXTERNAL_ZED_RUNNER_ID=""
 EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
+SPLIT_RUNNERS="1"
 
 # Enhanced environment detection
 detect_environment() {
@@ -240,6 +257,7 @@ Options:
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
   --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
   --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
+  --split-runners <n>      Split GPUs across N runner containers (default: 1, must divide evenly into total GPU count)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -280,8 +298,14 @@ Examples:
 11. Install on Windows Git Bash (requires Docker Desktop):
    ./install.sh --cli --controlplane
 
-12. Install with Helix Code (External Agents, PDEs, streaming):
-   ./install.sh --cli --controlplane --code --api-host https://helix.mycompany.com
+12. Install with Helix Code (auto-enables --cli --controlplane):
+   ./install.sh --code --api-host https://helix.mycompany.com
+
+13. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
+   ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+
+14. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
+   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
 
 EOF
 }
@@ -473,6 +497,14 @@ while [[ $# -gt 0 ]]; do
             EXTERNAL_ZED_CONCURRENCY="$2"
             shift 2
             ;;
+        --split-runners=*)
+            SPLIT_RUNNERS="${1#*=}"
+            shift
+            ;;
+        --split-runners)
+            SPLIT_RUNNERS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             display_help
@@ -564,6 +596,20 @@ install_docker() {
                     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                     sudo systemctl start docker
                     sudo systemctl enable docker
+                    # Wait for Docker to be ready
+                    echo "Waiting for Docker to start..."
+                    for i in {1..30}; do
+                        if docker ps >/dev/null 2>&1 || sudo docker ps >/dev/null 2>&1; then
+                            echo "Docker is ready."
+                            break
+                        fi
+                        if [ $i -eq 30 ]; then
+                            echo "Error: Docker failed to start after installation."
+                            echo "Please check: sudo systemctl status docker"
+                            exit 1
+                        fi
+                        sleep 1
+                    done
                     ;;
                 fedora)
                     sudo dnf -y install dnf-plugins-core
@@ -571,6 +617,20 @@ install_docker() {
                     sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                     sudo systemctl start docker
                     sudo systemctl enable docker
+                    # Wait for Docker to be ready
+                    echo "Waiting for Docker to start..."
+                    for i in {1..30}; do
+                        if docker ps >/dev/null 2>&1 || sudo docker ps >/dev/null 2>&1; then
+                            echo "Docker is ready."
+                            break
+                        fi
+                        if [ $i -eq 30 ]; then
+                            echo "Error: Docker failed to start after installation."
+                            echo "Please check: sudo systemctl status docker"
+                            exit 1
+                        fi
+                        sleep 1
+                    done
                     ;;
                 *)
                     echo "Unsupported distribution for automatic Docker installation."
@@ -789,7 +849,7 @@ install_nvidia_docker() {
     fi
 
     # Check if NVIDIA runtime needs installation
-    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && echo "true" || echo "false")
+    NVIDIA_IN_DOCKER=$(timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i "runtimes.*nvidia" &> /dev/null && echo "true" || echo "false")
     NVIDIA_CTK_EXISTS=$(command -v nvidia-container-toolkit &> /dev/null && echo "true" || echo "false")
 
     echo "Checking NVIDIA Docker runtime status..."
@@ -805,61 +865,50 @@ install_nvidia_docker() {
         fi
 
         check_wsl2_docker
-        echo "NVIDIA Docker runtime not found or incomplete. Installing NVIDIA Docker runtime..."
+
+        # If toolkit is already installed, just configure Docker (don't reinstall package)
+        if [ "$NVIDIA_CTK_EXISTS" = "true" ]; then
+            echo "NVIDIA Container Toolkit already installed. Configuring Docker to use it..."
+        else
+            echo "Installing NVIDIA Docker runtime..."
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                case $ID in
+                    ubuntu|debian)
+                        # Remove any existing NVIDIA repository configurations to avoid conflicts
+                        sudo rm -f /etc/apt/sources.list.d/nvidia-container-toolkit.list
+                        sudo rm -f /etc/apt/sources.list.d/nvidia-docker.list
+
+                        # Use nvidia-container-toolkit
+                        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+                        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+                            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+                        sudo apt-get update
+                        sudo apt-get install -y nvidia-container-toolkit nvidia-container-runtime
+                        ;;
+                    fedora)
+                        # Use nvidia-container-toolkit for Fedora
+                        curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
+                            sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+                        sudo dnf install -y nvidia-container-toolkit nvidia-container-runtime
+                        ;;
+                    *)
+                        echo "Unsupported distribution for automatic NVIDIA Docker runtime installation. Please install NVIDIA Docker runtime manually."
+                        exit 1
+                        ;;
+                esac
+            else
+                echo "Unable to determine OS distribution. Please install NVIDIA Docker runtime manually."
+                exit 1
+            fi
+        fi
+
+        # Configure Docker to use NVIDIA runtime (runs whether we just installed or toolkit was pre-installed)
         if [ -f /etc/os-release ]; then
             . /etc/os-release
             case $ID in
-                ubuntu|debian)
-                    # Use nvidia-container-toolkit
-                    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-                        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-                        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-                    sudo apt-get update
-                    sudo apt-get install -y nvidia-container-toolkit nvidia-container-runtime
-
-                    # Configure Docker to use NVIDIA runtime
-                    if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
-                        echo "Configured NVIDIA runtime using nvidia-ctk"
-                    else
-                        # Fallback: manually configure daemon.json if nvidia-ctk doesn't support runtime configure
-                        echo "Configuring NVIDIA runtime via /etc/docker/daemon.json..."
-                        sudo mkdir -p /etc/docker
-                        sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
-{
-  "runtimes": {
-    "nvidia": {
-      "path": "nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  }
-}
-EOF
-                    fi
-
-                    echo "Restarting Docker to load NVIDIA runtime..."
-                    sudo systemctl restart docker
-                    # Wait for Docker to fully restart and verify NVIDIA runtime is available
-                    echo "Waiting for Docker to restart..."
-                    sleep 5
-                    for i in {1..12}; do
-                        if timeout 5 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
-                            echo "NVIDIA runtime successfully configured in Docker."
-                            break
-                        fi
-                        if [ $i -eq 12 ]; then
-                            echo "Warning: NVIDIA runtime not detected after Docker restart. Please verify manually with: docker info | grep -i nvidia"
-                        fi
-                        sleep 5
-                    done
-                    ;;
-                fedora)
-                    # Use nvidia-container-toolkit for Fedora
-                    curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | \
-                        sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
-                    sudo dnf install -y nvidia-container-toolkit nvidia-container-runtime
-
-                    # Configure Docker to use NVIDIA runtime
+                ubuntu|debian|fedora)
                     if sudo nvidia-ctk runtime configure --runtime=docker 2>/dev/null; then
                         echo "Configured NVIDIA runtime using nvidia-ctk"
                     else
@@ -964,27 +1013,15 @@ if [ "$AUTO" = true ]; then
     fi
 fi
 
-if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
-    echo "to connect to an external controlplane, for example:"
-    echo
-    echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-    echo
-    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-    exit 1
+# Auto-enable controlplane if --code or --haystack specified (they're controlplane features)
+if [ "$CONTROLPLANE" = false ] && [[ -n "$CODE" || -n "$HAYSTACK" ]]; then
+    echo "Note: --code or --haystack specified (controlplane features)."
+    echo "      Auto-enabling: --cli --controlplane"
+    CONTROLPLANE=true
+    CLI=true
 fi
 
-if [ "$EXTERNAL_ZED_AGENT" = true ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
-    echo "to connect to an external controlplane, for example:"
-    echo
-    echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-    echo
-    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
-    exit 1
-fi
-
-# Validate GPU requirements for --runner flag
+# Validate GPU requirements for --runner flag (MUST happen before token validation)
 if [ "$RUNNER" = true ]; then
     if ! check_nvidia_gpu; then
         echo "┌───────────────────────────────────────────────────────────────────────────"
@@ -1010,7 +1047,56 @@ if [ "$RUNNER" = true ]; then
     fi
     echo "NVIDIA GPU detected. Runner requirements satisfied."
     if check_nvidia_runtime_needed; then
-        echo "Note: NVIDIA Docker runtime will be installed automatically."
+        # Check if toolkit already installed or needs fresh install
+        if command -v nvidia-container-toolkit &> /dev/null; then
+            echo "Note: NVIDIA Docker runtime will be configured automatically."
+        else
+            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+        fi
+    fi
+fi
+
+if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
+    # Three cases:
+    # 1. --runner WITH --runner-token = remote runner (needs API_HOST)
+    # 2. --runner WITHOUT token but controlplane already enabled by --code/--haystack = local installation
+    # 3. --runner WITHOUT token and no controlplane features = ERROR (missing token)
+
+    if [ -n "$RUNNER_TOKEN" ]; then
+        # Case 1: Remote runner - require API_HOST
+        if [ -z "$API_HOST" ]; then
+            echo "Error: When installing a remote runner, you must specify both --api-host and --runner-token"
+            echo "to connect to an external controlplane, for example:"
+            echo
+            echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+            echo
+            echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+            exit 1
+        fi
+    else
+        # Case 2: --runner without token = ERROR (need either token or controlplane)
+        echo "Error: --runner requires either:"
+        echo "  1. --runner-token (for remote runner connecting to external controlplane)"
+        echo "  2. --controlplane or controlplane features like --code/--haystack (for local installation)"
+        echo
+        echo "Examples:"
+        echo "  Remote runner:  ./install.sh --runner --api-host HOST --runner-token TOKEN"
+        echo "  Local install:  ./install.sh --runner --code --api-host HOST"
+        echo "  Local install:  ./install.sh --controlplane --runner"
+        exit 1
+    fi
+fi
+
+if [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    # When installing external Zed agent, both API_HOST and RUNNER_TOKEN are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
+        echo "to connect to an external controlplane, for example:"
+        echo
+        echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo
+        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        exit 1
     fi
 fi
 
@@ -1021,7 +1107,12 @@ if [ "$CODE" = true ]; then
         echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
 
         if check_nvidia_runtime_needed; then
-            echo "Note: NVIDIA Docker runtime will be installed automatically."
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
         fi
     elif check_intel_amd_gpu; then
         # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
@@ -1081,7 +1172,12 @@ gather_modifications() {
 
     if [ "$RUNNER" = true ]; then
         if check_nvidia_runtime_needed; then
-            modifications+="  - Install NVIDIA Docker runtime\n"
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                modifications+="  - Configure NVIDIA Docker runtime\n"
+            else
+                modifications+="  - Install and configure NVIDIA Docker runtime\n"
+            fi
         fi
         modifications+="  - Set up start script for Helix Runner ${LATEST_RELEASE}\n"
     fi
@@ -1089,7 +1185,12 @@ gather_modifications() {
     # Install NVIDIA Docker runtime for --code with NVIDIA GPU (even without --runner)
     if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
         if check_nvidia_runtime_needed; then
-            modifications+="  - Install NVIDIA Docker runtime for desktop streaming\n"
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                modifications+="  - Configure NVIDIA Docker runtime for desktop streaming\n"
+            else
+                modifications+="  - Install and configure NVIDIA Docker runtime for desktop streaming\n"
+            fi
         fi
     fi
 
@@ -1304,12 +1405,26 @@ EOF
             ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | sed 's/^ANTHROPIC_API_KEY=//' || echo "")
         fi
 
+        # Preserve Code credentials if --code flag is set
+        if [[ -n "$CODE" ]]; then
+            TURN_PASSWORD=$(grep '^TURN_PASSWORD=' "$ENV_FILE" | sed 's/^TURN_PASSWORD=//' || generate_password)
+            MOONLIGHT_CREDENTIALS=$(grep '^MOONLIGHT_CREDENTIALS=' "$ENV_FILE" | sed 's/^MOONLIGHT_CREDENTIALS=//' || generate_password)
+            MOONLIGHT_PIN=$(grep '^MOONLIGHT_INTERNAL_PAIRING_PIN=' "$ENV_FILE" | sed 's/^MOONLIGHT_INTERNAL_PAIRING_PIN=//' || generate_moonlight_pin)
+        fi
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
         POSTGRES_ADMIN_PASSWORD=$(generate_password)
         RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
         PGVECTOR_PASSWORD=$(generate_password)
+
+        # Generate Code credentials if --code flag is set
+        if [[ -n "$CODE" ]]; then
+            TURN_PASSWORD=$(generate_password)
+            MOONLIGHT_CREDENTIALS=$(generate_password)
+            MOONLIGHT_PIN=$(generate_moonlight_pin)
+        fi
     fi
 
     # Build comma-separated list of Docker Compose profiles
@@ -1463,11 +1578,6 @@ EOF
 
     # Add Helix Code configuration if --code flag is set
     if [[ -n "$CODE" ]]; then
-        # Generate TURN password, moonlight credentials, and pairing PIN
-        TURN_PASSWORD=$(generate_password)
-        MOONLIGHT_CREDENTIALS=$(generate_password)
-        MOONLIGHT_PIN=$(generate_moonlight_pin)
-
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
@@ -1511,13 +1621,48 @@ EOF
         echo "Moonlight-web and Wolf config directories created (configs will be generated by containers)"
         echo "Note: config.json and config.toml will be created by container init scripts on first startup"
 
+        # Force regeneration of moonlight-web config.json on hostname change
+        # (data.json is preserved to keep pairing state)
+        MOONLIGHT_CONFIG_CHANGED=false
+        if [ -f "$INSTALL_DIR/moonlight-web-config/config.json" ]; then
+            # Check if hostname in existing config differs from new hostname
+            if grep -q "turn:$TURN_HOST:" "$INSTALL_DIR/moonlight-web-config/config.json"; then
+                echo "Moonlight-web config.json hostname matches, preserving existing config"
+            else
+                echo "Hostname changed - removing config.json to force regeneration (data.json preserved for pairing state)"
+                rm -f "$INSTALL_DIR/moonlight-web-config/config.json"
+                MOONLIGHT_CONFIG_CHANGED=true
+            fi
+        fi
+
         # Wolf config.toml.template and init script are baked into the container
         # The container's /etc/cont-init.d/05-init-wolf-config.sh will handle initialization on startup
         # Template is at: /opt/wolf-defaults/config.toml.template (in container image)
         # Init script will copy template → /etc/wolf/cfg/config.toml on first run
         echo "Wolf will use containerized template and init script"
+        WOLF_CONFIG_CHANGED=false
         if [ ! -f "$INSTALL_DIR/wolf/config.toml" ]; then
             echo "Note: config.toml will be created by container init script on first startup"
+        else
+            # Update hostname in existing config.toml if it differs
+            if grep -q "hostname = 'Helix ($TURN_HOST)'" "$INSTALL_DIR/wolf/config.toml"; then
+                echo "Wolf config.toml hostname matches, preserving existing config"
+            else
+                echo "Hostname changed - updating Wolf config.toml hostname field"
+                sed -i "s/^hostname = .*/hostname = 'Helix ($TURN_HOST)'/" "$INSTALL_DIR/wolf/config.toml"
+                WOLF_CONFIG_CHANGED=true
+            fi
+        fi
+
+        # Update moonlight-web data.json hostname (preserve pairing state)
+        if [ -f "$INSTALL_DIR/moonlight-web-config/data.json" ]; then
+            if grep -q "\"name\": \"Helix ($TURN_HOST)\"" "$INSTALL_DIR/moonlight-web-config/data.json"; then
+                echo "Moonlight-web data.json hostname matches, preserving existing config"
+            else
+                echo "Hostname changed - updating moonlight-web data.json hostname field"
+                sed -i "s/\"name\": \"Helix ([^\"]*)\"/\"name\": \"Helix ($TURN_HOST)\"/" "$INSTALL_DIR/moonlight-web-config/data.json"
+                MOONLIGHT_CONFIG_CHANGED=true
+            fi
         fi
 
 
@@ -1685,6 +1830,27 @@ EOF"
     echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
     echo "│ This will take a minute or so to boot."
     echo "└───────────────────────────────────────────────────────────────────────────"
+
+    # Auto-restart services if configs were changed and services are running
+    if [[ -n "$CODE" ]] && ([[ "$WOLF_CONFIG_CHANGED" = true ]] || [[ "$MOONLIGHT_CONFIG_CHANGED" = true ]]); then
+        # Check if wolf or moonlight-web containers are running
+        if $DOCKER_CMD ps --format '{{.Names}}' | grep -qE '^(wolf-1|moonlight-web-1)$'; then
+            echo
+            echo "Hostname configuration changed - restarting Wolf and Moonlight Web to apply..."
+            cd "$INSTALL_DIR"
+            if [ "$NEED_SUDO" = "true" ]; then
+                sudo docker compose down wolf moonlight-web
+                sudo docker compose up -d wolf moonlight-web
+            else
+                docker compose down wolf moonlight-web
+                docker compose up -d wolf moonlight-web
+            fi
+            echo "✓ Services restarted with new hostname configuration"
+        else
+            echo
+            echo "Note: Hostname configuration updated. Start services with: docker compose up -d"
+        fi
+    fi
 fi
 
 # Install runner if requested or in AUTO mode with GPU
@@ -1717,6 +1883,7 @@ if [ "$RUNNER" = true ]; then
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
+SPLIT_RUNNERS="${SPLIT_RUNNERS}"
 
 # HF_TOKEN is now managed by the control plane and distributed to runners automatically
 # No longer setting HF_TOKEN on runners to avoid confusion
@@ -1736,15 +1903,97 @@ else
     echo "helix_default network already exists."
 fi
 
-# Run the docker container
-docker run --privileged --gpus all --shm-size=10g \\
-    --restart=always -d \\
-    --name helix-runner --ipc=host --ulimit memlock=-1 \\
-    --ulimit stack=67108864 \\
-    --network="helix_default" \\
-    registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
-    --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
-    --runner-id \$(hostname)
+# Detect total number of GPUs
+TOTAL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+if [ "\$TOTAL_GPUS" -eq 0 ]; then
+    echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+    exit 1
+fi
+
+echo "Detected \$TOTAL_GPUS GPUs on this system"
+
+# Validate SPLIT_RUNNERS
+if [ "\$SPLIT_RUNNERS" -lt 1 ]; then
+    echo "Error: --split-runners must be at least 1"
+    exit 1
+fi
+
+if [ "\$SPLIT_RUNNERS" -gt "\$TOTAL_GPUS" ]; then
+    echo "Error: --split-runners (\$SPLIT_RUNNERS) cannot be greater than total GPUs (\$TOTAL_GPUS)"
+    exit 1
+fi
+
+# Check if TOTAL_GPUS is evenly divisible by SPLIT_RUNNERS
+if [ \$((\$TOTAL_GPUS % \$SPLIT_RUNNERS)) -ne 0 ]; then
+    echo "Error: Total GPUs (\$TOTAL_GPUS) must be evenly divisible by --split-runners (\$SPLIT_RUNNERS)"
+    echo "Please choose a value that divides evenly into \$TOTAL_GPUS"
+    exit 1
+fi
+
+GPUS_PER_RUNNER=\$((\$TOTAL_GPUS / \$SPLIT_RUNNERS))
+echo "Creating \$SPLIT_RUNNERS runner container(s) with \$GPUS_PER_RUNNER GPU(s) each"
+
+# Stop and remove any existing runner containers
+# First, always clean up the old non-numbered container (upgrade path)
+if docker ps -a --format '{{.Names}}' | grep -q "^helix-runner\$"; then
+    echo "Stopping and removing existing container: helix-runner"
+    docker stop helix-runner >/dev/null 2>&1 || true
+    docker rm helix-runner >/dev/null 2>&1 || true
+fi
+
+# Then clean up numbered containers if SPLIT_RUNNERS > 1
+if [ "\$SPLIT_RUNNERS" -gt 1 ]; then
+    for i in \$(seq 1 \$SPLIT_RUNNERS); do
+        CONTAINER_NAME="helix-runner-\$i"
+        if docker ps -a --format '{{.Names}}' | grep -q "^\${CONTAINER_NAME}\$"; then
+            echo "Stopping and removing existing container: \$CONTAINER_NAME"
+            docker stop \$CONTAINER_NAME >/dev/null 2>&1 || true
+            docker rm \$CONTAINER_NAME >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+# Create runner containers
+for i in \$(seq 1 \$SPLIT_RUNNERS); do
+    # Calculate GPU device IDs for this container
+    START_GPU=\$(( (\$i - 1) * \$GPUS_PER_RUNNER ))
+    END_GPU=\$(( \$START_GPU + \$GPUS_PER_RUNNER - 1 ))
+
+    # Build device list (e.g., "0,1" or "2,3,4,5")
+    GPU_DEVICES=""
+    for gpu_id in \$(seq \$START_GPU \$END_GPU); do
+        if [ -z "\$GPU_DEVICES" ]; then
+            GPU_DEVICES="\$gpu_id"
+        else
+            GPU_DEVICES="\$GPU_DEVICES,\$gpu_id"
+        fi
+    done
+
+    # Set container name
+    if [ "\$SPLIT_RUNNERS" -eq 1 ]; then
+        CONTAINER_NAME="helix-runner"
+        RUNNER_ID="\$(hostname)"
+    else
+        CONTAINER_NAME="helix-runner-\$i"
+        RUNNER_ID="\$(hostname)-\$i"
+    fi
+
+    echo "Starting \$CONTAINER_NAME with GPU(s): \$GPU_DEVICES (runner ID: \$RUNNER_ID)"
+
+    # Run the docker container with specific GPU devices
+    # Note: --privileged removed to properly enforce GPU isolation via --gpus device=X
+    # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
+    docker run --gpus '"'device=\$GPU_DEVICES'"' \\
+        --shm-size=10g --restart=always -d \\
+        --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
+        --ulimit stack=67108864 \\
+        --network="helix_default" \\
+        registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
+        --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
+        --runner-id \$RUNNER_ID
+done
+
+echo "Successfully started \$SPLIT_RUNNERS runner container(s)"
 EOF
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then

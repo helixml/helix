@@ -655,6 +655,32 @@ type GStreamerPipelineStats struct {
 	TotalPipelines    int `json:"total_pipelines"`
 }
 
+// ThreadHealthInfo represents health information for a single thread
+type ThreadHealthInfo struct {
+	TID                    int32  `json:"tid"`
+	Name                   string `json:"name"`
+	Details                string `json:"details"`
+	SecondsSinceHeartbeat  int64  `json:"seconds_since_heartbeat"`
+	SecondsAlive           int64  `json:"seconds_alive"`
+	HeartbeatCount         int64  `json:"heartbeat_count"`
+	IsStuck                bool   `json:"is_stuck"`
+	CurrentRequestPath     string `json:"current_request_path"`
+	RequestDurationSeconds int64  `json:"request_duration_seconds"`
+	HasActiveRequest       bool   `json:"has_active_request"`
+	StackTrace             string `json:"stack_trace"`
+}
+
+// SystemHealthResponse represents Wolf system health status
+type SystemHealthResponse struct {
+	Success                 bool               `json:"success"`
+	ProcessUptimeSeconds    int64              `json:"process_uptime_seconds"`
+	Threads                 []ThreadHealthInfo `json:"threads"`
+	StuckThreadCount        int32              `json:"stuck_thread_count"`
+	TotalThreadCount        int32              `json:"total_thread_count"`
+	CanCreateNewPipelines   bool               `json:"can_create_new_pipelines"`   // Tests if GStreamer type lock is available
+	OverallStatus           string             `json:"overall_status"`
+}
+
 // GetSystemMemory retrieves Wolf system memory and resource usage statistics
 func (c *Client) GetSystemMemory(ctx context.Context) (*SystemMemoryResponse, error) {
 	resp, err := c.Get(ctx, "/api/v1/system/memory")
@@ -682,4 +708,29 @@ func (c *Client) GetSystemMemory(ctx context.Context) (*SystemMemoryResponse, er
 	}
 
 	return result.SystemMemoryResponse, nil
+}
+
+// GetSystemHealth retrieves Wolf system health and thread heartbeat status
+func (c *Client) GetSystemHealth(ctx context.Context) (*SystemHealthResponse, error) {
+	resp, err := c.Get(ctx, "/api/v1/system/health")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system health: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Wolf API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result SystemHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("Wolf API returned success=false")
+	}
+
+	return &result, nil
 }

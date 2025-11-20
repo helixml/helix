@@ -314,6 +314,14 @@ func (m *MockWolfClient) ListSessions(ctx context.Context) ([]wolf.WolfStreamSes
 	return args.Get(0).([]wolf.WolfStreamSession), args.Error(1)
 }
 
+func (m *MockWolfClient) GetSystemHealth(ctx context.Context) (*wolf.SystemHealthResponse, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*wolf.SystemHealthResponse), args.Error(1)
+}
+
 func TestCleanupIdleExternalAgents_NoIdleAgents(t *testing.T) {
 	ctx := context.Background()
 	mockStore := new(MockStoreForWolf)

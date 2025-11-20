@@ -8,7 +8,8 @@ import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import Paper from "@mui/material/Paper/Paper";
 import Switch from "@mui/material/Switch";
-
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import React, { FC, useCallback, useEffect, useRef, useState } from "react";
@@ -41,6 +42,7 @@ import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedul
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import AgentSandboxes from "../components/admin/AgentSandboxes";
 import MoonlightMonitor from "../components/admin/MoonlightMonitor";
+import WolfHealthPanel from "../components/wolf/WolfHealthPanel";
 import UsersTable from "../components/dashboard/UsersTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -62,6 +64,7 @@ const Dashboard: FC = () => {
     const [viewingSession, setViewingSession] = useState<TypesSession>();
     const [active, setActive] = useState(START_ACTIVE);
     const [sessionFilter, setSessionFilter] = useState("");
+    const [agentSandboxSubTab, setAgentSandboxSubTab] = useState("overview");
 
     const { session_id, tab, filter_sessions } = router.params;
 
@@ -626,15 +629,22 @@ const Dashboard: FC = () => {
                 )}
 
                 {tab === "agent_sandboxes" && account.admin && (
-                    <Box
-                        sx={{
-                            width: "100%",
-                        }}
-                    >
-                        <AgentSandboxes />
-                        <Box sx={{ mt: 4 }}>
-                            <MoonlightMonitor />
-                        </Box>
+                    <Box sx={{ width: "100%" }}>
+                        <Paper sx={{ mb: 2 }}>
+                            <Tabs
+                                value={agentSandboxSubTab}
+                                onChange={(_, newValue) => setAgentSandboxSubTab(newValue)}
+                                sx={{ borderBottom: 1, borderColor: 'divider' }}
+                            >
+                                <Tab label="Overview" value="overview" />
+                                <Tab label="Wolf Health" value="wolf_health" />
+                                <Tab label="Moonlight Monitor" value="moonlight" />
+                            </Tabs>
+                        </Paper>
+
+                        {agentSandboxSubTab === "overview" && <AgentSandboxes />}
+                        {agentSandboxSubTab === "wolf_health" && <WolfHealthPanel />}
+                        {agentSandboxSubTab === "moonlight" && <MoonlightMonitor />}
                     </Box>
                 )}
 

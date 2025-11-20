@@ -605,6 +605,7 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 			log.Info().Msg("Configuring Ollama for CPU-only mode")
 		} else {
 			// Default to all available GPUs if no specific selection
+			// For --split-runners, Docker's --gpus device=X handles isolation at container level
 			log.Debug().Msg("Ollama will use all available GPUs (no CUDA_VISIBLE_DEVICES set)")
 		}
 	}

@@ -58,6 +58,32 @@ else
     echo "ℹ️  moonlight-web config.json already exists, skipping initialization"
 fi
 
+# ALWAYS sync credentials from environment variables (fixes upgrade issues)
+# On upgrades, install.sh preserves existing .env credentials but config.json may have old values
+if [ -f "$CONFIG_FILE" ]; then
+    echo "🔄 Syncing credentials from environment variables to config.json..."
+
+    if [ -n "$MOONLIGHT_CREDENTIALS" ]; then
+        # Update credentials in config.json (using | as delimiter since credentials don't contain |)
+        sed -i "s|\"credentials\": \"[^\"]*\"|\"credentials\": \"$MOONLIGHT_CREDENTIALS\"|g" "$CONFIG_FILE"
+        echo "✅ Updated MOONLIGHT_CREDENTIALS in config.json"
+    fi
+
+    if [ -n "$TURN_PASSWORD" ]; then
+        # Update TURN credential in config.json
+        sed -i "s|\"credential\": \"[^\"]*\"|\"credential\": \"$TURN_PASSWORD\"|g" "$CONFIG_FILE"
+        echo "✅ Updated TURN_PASSWORD in config.json"
+    fi
+
+    if [ -n "$TURN_PUBLIC_IP" ]; then
+        # Update TURN server URLs in config.json
+        sed -i "s|turn:[^:]*:3478|turn:$TURN_PUBLIC_IP:3478|g" "$CONFIG_FILE"
+        echo "✅ Updated TURN_PUBLIC_IP in config.json"
+    fi
+
+    echo "✅ Credentials synced successfully"
+fi
+
 # Start the web server in background
 echo "🚀 Starting moonlight-web server..."
 /app/web-server &
