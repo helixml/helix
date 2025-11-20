@@ -591,19 +591,6 @@ function up() {
     esac
   done
 
-  # Build moonlight-web if wolf profile is enabled
-  if [[ "$HAS_WOLF_PROFILE" == "true" ]]; then
-    echo "🐺 Wolf profile detected, ensuring moonlight-web image is built..."
-    if ! docker image inspect helix-moonlight-web:helix-fixed &>/dev/null; then
-      echo "📦 moonlight-web image not found, building it now..."
-      build-moonlight-web || {
-        echo "❌ Failed to build moonlight-web. Continuing without wolf profile."
-        PROFILES=()
-      }
-    else
-      echo "✅ moonlight-web image already exists"
-    fi
-  fi
 
   # Run docker compose with profiles before 'up'
   docker compose -f docker-compose.dev.yaml "${PROFILES[@]}" up -d "${ARGS[@]}"
@@ -666,6 +653,31 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
+  # Parse arguments to check for wolf profile
+  local HAS_WOLF_PROFILE=false
+  for arg in "$@"; do
+    if [[ "$arg" == "--profile" ]]; then
+      shift
+      if [[ "$1" == "wolf" ]]; then
+        HAS_WOLF_PROFILE=true
+      fi
+      shift
+    fi
+  done
+
+  # Build wolf and moonlight-web if wolf profile is enabled
+  if [[ "$HAS_WOLF_PROFILE" == "true" ]]; then
+    echo "🐺 Wolf profile detected, building wolf and moonlight-web images..."
+    rebuild-wolf || {
+      echo "❌ Failed to build wolf"
+      return 1
+    }
+    build-moonlight-web || {
+      echo "❌ Failed to build moonlight-web"
+      return 1
+    }
+  fi
+
   docker compose -f docker-compose.dev.yaml up -d --build $@
 }
 
