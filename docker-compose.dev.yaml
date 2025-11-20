@@ -90,7 +90,7 @@ services:
             - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
             # Wolf integration for external agents
             - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-            - WOLF_MODE=${WOLF_MODE:-apps}  # "apps" (default) or "lobbies" (multi-user with PIN support)
+            - WOLF_MODE=${WOLF_MODE:-lobbies}  # "lobbies" (default, multi-user with PIN support) or "apps" (legacy)
             - ZED_IMAGE=${ZED_IMAGE:-helix-sway:latest}
             - HELIX_HOST_HOME=${HELIX_HOST_HOME}
             - HELIX_DEV_MODE=true  # Enable dev file bind-mounts for hot-reloading
@@ -247,8 +247,8 @@ services:
       profiles: [wolf]
       # Using public upstream image for ARM64 compatibility (local build not available on Apple Silicon)
       # For local dev builds: uncomment wolf:helix-fixed and comment this out, but requires x86_64
-      # image: wolf:helix-fixed
-      image: ghcr.io/games-on-whales/wolf:wolf-ui
+      image: wolf:helix-fixed
+      # image: ghcr.io/games-on-whales/wolf:wolf-ui
       networks:
         default:
           ipv4_address: 172.19.0.50
@@ -292,6 +292,8 @@ services:
         - /run/udev:/run/udev:rw
         # Bind-mount to host so wolf-ui containers can bind-mount it
         - /var/run/wolf:/var/run/wolf:rw
+        # Debug dumps directory (watchdog writes core dumps + thread dumps here on deadlock)
+        - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
@@ -313,7 +315,15 @@ services:
           reservations:
             devices:
               - capabilities: [gpu]
+      cap_add:
+        - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/stack for thread diagnostics
       restart: unless-stopped
+      healthcheck:
+        test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 10s
 
     # Moonlight Web Stream - Browser-based Moonlight streaming
     moonlight-web:

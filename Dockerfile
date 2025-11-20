@@ -65,7 +65,7 @@ RUN yarn build
 ### Production Image ###
 #-----------------------
 FROM alpine:3.21
-RUN apk --update add --no-cache ca-certificates git
+RUN apk --update add --no-cache ca-certificates git git-daemon
 
 COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www

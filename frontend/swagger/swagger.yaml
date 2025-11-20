@@ -7630,6 +7630,48 @@ definitions:
       zed_instance_id:
         type: string
     type: object
+  wolf.SystemHealthResponse:
+    properties:
+      overall_status:
+        type: string
+      process_uptime_seconds:
+        type: integer
+      stuck_thread_count:
+        type: integer
+      success:
+        type: boolean
+      threads:
+        items:
+          $ref: '#/definitions/wolf.ThreadHealthInfo'
+        type: array
+      total_thread_count:
+        type: integer
+    type: object
+  wolf.ThreadHealthInfo:
+    properties:
+      current_request_path:
+        type: string
+      details:
+        type: string
+      has_active_request:
+        type: boolean
+      heartbeat_count:
+        type: integer
+      is_stuck:
+        type: boolean
+      name:
+        type: string
+      request_duration_seconds:
+        type: integer
+      seconds_alive:
+        type: integer
+      seconds_since_heartbeat:
+        type: integer
+      stack_trace:
+        type: string
+      tid:
+        type: integer
+    type: object
 host: app.helix.ml
 info:
   contact:
@@ -14422,6 +14464,28 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
+  /api/v1/wolf/health:
+    get:
+      description: Get Wolf system health status including thread heartbeat monitoring
+        and deadlock detection
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wolf.SystemHealthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "503":
+          description: Wolf not available
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Get Wolf system health
+      tags:
+      - Wolf
   /api/v1/wolf/ui-app-id:
     get:
       description: Get the Wolf UI app ID for lobbies mode streaming

@@ -38,5 +38,11 @@ export {
   projectExploratorySessionQueryKey,
 } from './projectService';
 
+// Wolf Service
+export {
+  useWolfHealth,
+  WOLF_HEALTH_QUERY_KEY,
+} from './wolfService';
+
 // Re-export types for convenience
 export type { TypesDynamicModelInfo, TypesModelInfo, TypesPricing, TypesProject, TypesProjectCreateRequest, TypesProjectUpdateRequest, TypesSampleProject } from '../api/api';
