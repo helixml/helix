@@ -20,6 +20,7 @@ import {
   Select,
   MenuItem,
   FormControl,
+  InputLabel,
   InputAdornment,
   Tabs,
   Tab,
@@ -66,6 +67,7 @@ import {
   useListRepositoryCommits,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
+  useCreateBranch,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -116,6 +118,7 @@ const GitRepoDetail: FC = () => {
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
   const pushPullMutation = usePushPullGitRepository()
+  const createBranchMutation = useCreateBranch()
 
   // Kodit code intelligence enrichments
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
@@ -159,6 +162,11 @@ const GitRepoDetail: FC = () => {
   const [newFilePath, setNewFilePath] = useState('')
   const [newFileContent, setNewFileContent] = useState('')
   const [creatingFile, setCreatingFile] = useState(false)
+
+  // Create Branch Dialog State
+  const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false)
+  const [newBranchName, setNewBranchName] = useState('')
+  const [newBranchBase, setNewBranchBase] = useState('')
 
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
@@ -349,6 +357,31 @@ const GitRepoDetail: FC = () => {
     const newPath = parts.length === 0 ? '.' : parts.join('/')
     setCurrentPath(newPath)
     setSelectedFile(null)
+  }
+
+  const handleCreateBranch = async () => {
+    if (!repoId || !newBranchName.trim()) return
+
+    try {
+      await createBranchMutation.mutateAsync({
+        repositoryId: repoId,
+        request: {
+          branch_name: newBranchName.trim(),
+          base_branch: newBranchBase || undefined,
+        }
+      })
+
+      snackbar.success('Branch created successfully')
+      setCreateBranchDialogOpen(false)
+      setNewBranchName('')
+      setNewBranchBase('')
+      setCurrentBranch(newBranchName.trim())
+      setCurrentPath('.')
+      setSelectedFile(null)
+    } catch (error) {
+      console.error('Failed to create branch:', error)
+      snackbar.error('Failed to create branch')
+    }
   }
 
   const handleCreateFile = async () => {
@@ -624,7 +657,20 @@ const GitRepoDetail: FC = () => {
                           </MenuItem>
                         ))}
                       </Select>
-                    </FormControl>                    
+                    </FormControl>
+                    <Button
+                      startIcon={<Plus size={16} />}
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        setNewBranchName('')
+                        setNewBranchBase(currentBranch || repository?.default_branch || 'main')
+                        setCreateBranchDialogOpen(true)
+                      }}
+                      sx={{ height: 40, whiteSpace: 'nowrap' }}
+                    >
+                      New Branch
+                    </Button>
                     <Button
                       startIcon={<Plus size={16} />}
                       variant="outlined"
@@ -1444,6 +1490,96 @@ const GitRepoDetail: FC = () => {
           </DialogActions>
         </Dialog>
 
+        {/* Create Branch Dialog */}
+        <Dialog 
+          open={createBranchDialogOpen} 
+          onClose={() => {
+            setCreateBranchDialogOpen(false)
+            setNewBranchName('')
+            setNewBranchBase('')
+          }} 
+          maxWidth="sm" 
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Create New Branch
+            </Typography>
+            <IconButton 
+              onClick={() => {
+                setCreateBranchDialogOpen(false)
+                setNewBranchName('')
+                setNewBranchBase('')
+              }} 
+              edge="end" 
+              size="small"
+            >
+              <CloseIcon size={20} />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 4, px: 3, pb: 2 }}>
+            <Stack spacing={3} pt={2}>
+              <TextField
+                label="Branch Name"
+                fullWidth
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="feature/my-feature"
+                helperText="Enter a name for the new branch"
+                InputProps={{
+                  sx: { fontFamily: 'monospace' }
+                }}
+                autoFocus
+              />
+              <FormControl fullWidth>
+                <InputLabel>Base Branch</InputLabel>
+                <Select
+                  value={newBranchBase}
+                  onChange={(e) => setNewBranchBase(e.target.value)}
+                  label="Base Branch"
+                  renderValue={(value) => (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <GitBranch size={14} />
+                      <span>{value}</span>
+                    </Box>
+                  )}
+                >
+                  <MenuItem value={repository?.default_branch || 'main'}>
+                    {repository?.default_branch || 'main'}
+                  </MenuItem>
+                  {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+                    <MenuItem key={branch} value={branch}>
+                      {branch}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  The branch to create from
+                </Typography>
+              </FormControl>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button
+              onClick={() => {
+                setCreateBranchDialogOpen(false)
+                setNewBranchName('')
+                setNewBranchBase('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateBranch}
+              color="secondary"
+              variant="contained"
+              disabled={!newBranchName.trim() || createBranchMutation.isPending}
+            >
+              {createBranchMutation.isPending ? <CircularProgress size={20} /> : 'Create Branch'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         {/* Create/Edit File Dialog */}
         <Dialog 
           open={createFileDialogOpen} 
@@ -1475,7 +1611,7 @@ const GitRepoDetail: FC = () => {
           </DialogTitle>
 
           <DialogContent sx={{ p: 3, height: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' , pt: 2}}>
               <TextField
                 label="Filename"
                 fullWidth
