@@ -653,25 +653,57 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  # If no arguments provided, build wolf and moonlight-web
-  if [[ $# -eq 0 ]]; then
-    echo "🔨 Rebuilding wolf and moonlight-web images..."
+  # Parse arguments to check what to rebuild
+  local REBUILD_WOLF=false
+  local REBUILD_MOONLIGHT=false
+  local DOCKER_COMPOSE_ARGS=()
 
+  # If no arguments, rebuild everything
+  if [[ $# -eq 0 ]]; then
+    REBUILD_WOLF=true
+    REBUILD_MOONLIGHT=true
+    DOCKER_COMPOSE_ARGS=()
+  else
+    # Parse arguments
+    for arg in "$@"; do
+      case "$arg" in
+        wolf)
+          REBUILD_WOLF=true
+          ;;
+        moonlight-web)
+          REBUILD_MOONLIGHT=true
+          ;;
+        *)
+          DOCKER_COMPOSE_ARGS+=("$arg")
+          ;;
+      esac
+    done
+  fi
+
+  # Build wolf if requested
+  if [[ "$REBUILD_WOLF" == "true" ]]; then
+    echo "🐺 Rebuilding wolf..."
     rebuild-wolf || {
       echo "❌ Failed to build wolf"
       return 1
     }
+  fi
 
+  # Build moonlight-web if requested
+  if [[ "$REBUILD_MOONLIGHT" == "true" ]]; then
+    echo "🌙 Rebuilding moonlight-web..."
     build-moonlight-web || {
       echo "❌ Failed to build moonlight-web"
       return 1
     }
+  fi
 
-    echo "✅ Wolf and moonlight-web images built successfully"
-    echo "💡 To start with wolf profile: ./stack up --profile wolf"
-  else
-    # If arguments provided, rebuild specific services with docker compose
-    docker compose -f docker-compose.dev.yaml up -d --build $@
+  # Rebuild other services with docker compose if specified
+  if [[ ${#DOCKER_COMPOSE_ARGS[@]} -gt 0 ]]; then
+    docker compose -f docker-compose.dev.yaml up -d --build "${DOCKER_COMPOSE_ARGS[@]}"
+  elif [[ $# -eq 0 ]]; then
+    # No arguments = rebuild everything
+    docker compose -f docker-compose.dev.yaml up -d --build
   fi
 }
 
