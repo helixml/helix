@@ -47,6 +47,7 @@ import {
   EyeOff,
   Plus,
   Pencil,
+  ArrowUpDown,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -62,6 +63,7 @@ import {
   useGetRepositoryFile,
   useListRepositoryBranches,
   useCreateOrUpdateRepositoryFile,
+  usePushPullGitRepository,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -99,6 +101,7 @@ const GitRepoDetail: FC = () => {
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
+  const pushPullMutation = usePushPullGitRepository()
 
   // Kodit code intelligence enrichments
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
@@ -249,6 +252,19 @@ const GitRepoDetail: FC = () => {
     setTimeout(() => setCopiedClone(false), 2000)
   }
 
+  const handlePushPull = async () => {
+    if (!repoId) return
+
+    try {
+      const branch = currentBranch || repository?.default_branch || undefined
+      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch })
+      snackbar.success('Repository synchronized successfully')
+    } catch (error) {
+      console.error('Failed to push/pull repository:', error)
+      snackbar.error('Failed to synchronize repository')
+    }
+  }
+
   const handleCreateAccessGrant = async (request: any) => {
     try {
       const result = await createAccessGrantMutation.mutateAsync(request)
@@ -395,7 +411,7 @@ const GitRepoDetail: FC = () => {
   // Generate proper clone URL
   // External repos: use their external URL
   // Helix repos: use the git server URL format
-  const isExternal = repository.metadata?.is_external || false
+  const isExternal = repository.external_url !== '' || false
   const cloneUrl = isExternal
     ? (repository.metadata?.external_url || '')
     : (repository.clone_url || `${window.location.origin}/git/${repoId}`)
@@ -575,6 +591,18 @@ const GitRepoDetail: FC = () => {
                     >
                       Add File
                     </Button>
+                    {isExternal && (
+                      <Button
+                        startIcon={<ArrowUpDown size={16} />}
+                        variant="outlined"
+                        size="small"
+                        onClick={handlePushPull}
+                        disabled={pushPullMutation.isPending}
+                        sx={{ height: 40, whiteSpace: 'nowrap' }}
+                      >
+                        {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                      </Button>
+                    )}
 
                     {/* Breadcrumb navigation */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>

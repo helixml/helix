@@ -252,6 +252,26 @@ export function useCreateOrUpdateRepositoryFile() {
   });
 }
 
+export function usePushPullGitRepository() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, branch }: { repositoryId: string; branch?: string }) => {
+      const response = await api.getApiClient().pushPullGitRepository(repositoryId, branch ? { branch } : undefined);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch || '') 
+      });
+    },
+  });
+}
+
 // Helper functions
 
 export function getRepositoryTypeColor(repoType: string): string {
@@ -403,6 +423,7 @@ const gitRepositoryService = {
   useCreateSampleRepository,
   useInitializeSampleRepositories,
   useCreateOrUpdateRepositoryFile,
+  usePushPullGitRepository,
 
   // Helper functions
   getRepositoryTypeColor,

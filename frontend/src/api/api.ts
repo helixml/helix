@@ -703,6 +703,13 @@ export interface ServerPhaseProgress {
   status?: string;
 }
 
+export interface ServerPushPullResponse {
+  branch?: string;
+  message?: string;
+  repository_id?: string;
+  success?: boolean;
+}
+
 export interface ServerSampleProject {
   /** "web", "api", "mobile", "data", "ai" */
   category?: string;
@@ -4229,11 +4236,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6218,6 +6225,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, any>, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Pulls latest commits from remote and pushes local commits. Automatically merges if needed.
+     *
+     * @tags git-repositories
+     * @name PushPullGitRepository
+     * @summary Push and pull repository
+     * @request POST:/api/v1/git/repositories/{id}/push-pull
+     * @secure
+     */
+    pushPullGitRepository: (
+      id: string,
+      query?: {
+        /** Branch name (defaults to repository default branch) */
+        branch?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerPushPullResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/push-pull`,
+        method: "POST",
+        query: query,
         secure: true,
         format: "json",
         ...params,
