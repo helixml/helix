@@ -931,7 +931,7 @@ function build-moonlight-web() {
   fi
 
   # Check if git submodules are initialized
-  if [ ! -f "../moonlight-web-stream/moonlight-common-c/src/Limelight.h" ]; then
+  if [ ! -f "../moonlight-web-stream/moonlight-common-sys/moonlight-common-c/src/Limelight.h" ]; then
     echo "❌ ERROR: moonlight-web-stream git submodules not initialized"
     echo ""
     echo "The moonlight-common-c submodule is required for building."
