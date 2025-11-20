@@ -80,6 +80,18 @@ import {
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 
+const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
+type TabName = typeof TAB_NAMES[number]
+
+const tabNameToIndex = (name: string | undefined): number => {
+  const index = TAB_NAMES.indexOf(name as TabName)
+  return index >= 0 ? index : 0
+}
+
+const indexToTabName = (index: number): TabName => {
+  return TAB_NAMES[index] || TAB_NAMES[0]
+}
+
 const GitRepoDetail: FC = () => {
   const router = useRouter()
   const repoId = router.params.repoId
@@ -111,7 +123,7 @@ const GitRepoDetail: FC = () => {
   const groupedEnrichments = groupEnrichmentsByType(enrichments)
 
   // UI State
-  const [currentTab, setCurrentTab] = useState(0)
+  const [currentTab, setCurrentTab] = useState(() => tabNameToIndex(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
@@ -156,6 +168,14 @@ const GitRepoDetail: FC = () => {
     currentBranch,
     !!selectedFile
   )
+
+  // Sync tab state with query parameter
+  React.useEffect(() => {
+    const tabIndex = tabNameToIndex(router.params.tab)
+    if (tabIndex !== currentTab) {
+      setCurrentTab(tabIndex)
+    }
+  }, [router.params.tab, currentTab])
 
   // Initialize edit fields when repository loads
   React.useEffect(() => {
@@ -501,7 +521,10 @@ const GitRepoDetail: FC = () => {
 
           {/* Navigation tabs */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
+            <Tabs value={currentTab} onChange={(_, newValue) => {
+              setCurrentTab(newValue)
+              router.mergeParams({ tab: indexToTabName(newValue) })
+            }}>
               <Tab
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
