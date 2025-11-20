@@ -150,8 +150,8 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	env := []string{
 		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
-		"WLR_BACKENDS=drm",     // Force wlroots to use DRM backend for headless NVIDIA GPU operation
-		"LIBSEAT_BACKEND=noop", // Disable libseat session management (not needed in headless containers)
+		"WLR_BACKENDS=drm", // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		// Note: We run seatd in the container for GPU device access management
 	}
 
 	// Auto-detect NVIDIA DRM device and set WLR_DRM_DEVICES if found

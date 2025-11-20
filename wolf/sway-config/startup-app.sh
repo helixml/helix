@@ -210,32 +210,31 @@ EOF
     # Start sway with DRM backend (required for headless NVIDIA GPU operation)
     # WLR_BACKENDS=drm forces wlroots to use direct GPU access instead of nested Wayland
 
-    # Only start seatd if LIBSEAT_BACKEND is not set to noop
-    # In headless/cloud environments, LIBSEAT_BACKEND=noop is required
-    if [ "${LIBSEAT_BACKEND}" != "noop" ]; then
-        # Start seatd manually with -n (no VT switching) for container environments
-        # This fixes "Could not open target tty" errors in Azure/cloud containers
-        export SEATD_SOCK=$XDG_RUNTIME_DIR/seatd.sock
-        seatd -n -u $(whoami) &
-        SEATD_PID=$!
+    # In headless containers without TTYs, seatd's VT-based session management doesn't work
+    # Instead, we'll run Sway with direct device access using LIBSEAT_BACKEND=noop
+    # This requires the container to have proper device permissions and capabilities
+    echo "🔍 Configuring direct GPU access (no seat management)..."
+    export LIBSEAT_BACKEND=noop
 
-        # Wait for seatd socket
-        while [ ! -S "$SEATD_SOCK" ]; do
-            sleep 0.1
-        done
-        echo "✅ seatd started successfully"
-    else
-        echo "✅ LIBSEAT_BACKEND=noop, skipping seatd (headless mode)"
-    fi
+    # Ensure retro user has access to DRI devices
+    echo "   Adding retro user to video and render groups..."
+    sudo usermod -aG video retro 2>/dev/null || true
+    sudo usermod -aG render retro 2>/dev/null || true
+
+    # Make DRI devices accessible
+    echo "   Setting DRI device permissions..."
+    sudo chmod 666 /dev/dri/* 2>/dev/null || true
+
+    echo "   Device permissions:"
+    ls -l /dev/dri/ 2>/dev/null || echo "   /dev/dri not available"
 
     # Start Sway
-    # We keep --unsupported-gpu as it is required for Nvidia, but we don't add other flags
+    # We keep --unsupported-gpu as it is required for Nvidia
+    echo "   Starting Sway with direct GPU access..."
+    echo "   WLR_BACKENDS=$WLR_BACKENDS"
+    echo "   WLR_DRM_DEVICES=$WLR_DRM_DEVICES"
+    echo "   LIBSEAT_BACKEND=$LIBSEAT_BACKEND"
     WLR_BACKENDS=drm sway --unsupported-gpu
-
-    # Cleanup seatd when Sway exits (if it was started)
-    if [ "${LIBSEAT_BACKEND}" != "noop" ] && [ -n "${SEATD_PID}" ]; then
-        kill $SEATD_PID
-    fi
   else
     echo "[exec] Starting: $@"
     exec $@
