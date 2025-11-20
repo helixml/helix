@@ -1,0 +1,29 @@
+# Wolf configuration for Helix
+#
+# IMPORTANT: This file intentionally has NO [[profiles]] section
+# to prevent static Wolf apps (especially Wolf UI app) from being loaded.
+#
+# Helix creates dynamic sessions via Wolf's API instead.
+#
+# Why this matters:
+# - Wolf UI app uses video/x-raw(memory:CUDAMemory) buffer caps
+# - CUDA memory doesn't work with headless wlroots backend (uses renderD128)
+# - Blank screen results when Wolf UI interferes with Helix sessions
+#
+# The init script at /etc/cont-init.d/05-init-wolf-config.sh will populate
+# this file from config.toml.template on first run if empty.
+# This minimal config prevents that by being non-empty.
+
+# A unique identifier for this host (will be auto-generated on first run)
+uuid = ""
+
+# The name that will be displayed in Moonlight
+hostname = "Helix ({{HELIX_HOSTNAME}})"
+
+# The version of this config file
+config_version = 6
+
+# A list of paired clients that will be allowed to stream
+paired_clients = []
+
+# NO [[profiles]] SECTION - Helix uses dynamic API-created sessions instead
