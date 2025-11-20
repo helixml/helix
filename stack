@@ -685,7 +685,7 @@ function rebuild-wolf() {
     echo ""
     echo "Please run:"
     echo "  cd .."
-    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  git clone https://github.com/helixml/wolf.git"
     echo "  cd helix"
     echo "  ./stack rebuild-wolf"
     exit 1
