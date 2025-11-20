@@ -3,17 +3,25 @@ package services
 import (
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 )
 
 // Note: These are simplified unit tests focusing on testable functions
 // Full integration tests with store/wolf mocking should be in integration test suite
 
 func TestBuildPlanningPrompt_MultiRepo(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	store := store.NewMockStore(ctrl)
 	orchestrator := &SpecTaskOrchestrator{
 		testMode: true,
+		store:    store,
 	}
+
+	store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil)
 
 	// Task with multiple repositories
 	task := &types.SpecTask{
@@ -36,19 +44,25 @@ func TestBuildPlanningPrompt_MultiRepo(t *testing.T) {
 
 	// Verify prompt contains key elements
 	assert.Contains(t, prompt, "Add authentication feature") // Original prompt
-	assert.Contains(t, prompt, "helix-specs") // Worktree setup
-	assert.Contains(t, prompt, "requirements.md") // Design doc files
-	assert.Contains(t, prompt, "tasks.md") // Task list
-	assert.Contains(t, prompt, "task-metadata.json") // Metadata extraction
+	assert.Contains(t, prompt, "helix-specs")                // Worktree setup
+	assert.Contains(t, prompt, "requirements.md")            // Design doc files
+	assert.Contains(t, prompt, "tasks.md")                   // Task list
+	assert.Contains(t, prompt, "task-metadata.json")         // Metadata extraction
 
 	// Note: Repo-specific git clone commands require a mock store with GetProjectRepositories
 	// This test verifies basic prompt structure without repos
 }
 
 func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	store := store.NewMockStore(ctrl)
 	orchestrator := &SpecTaskOrchestrator{
 		testMode: true,
+		store:    store,
 	}
+
+	store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil)
 
 	task := &types.SpecTask{
 		ID:             "spec_no_repo",
@@ -74,17 +88,23 @@ func TestBuildPlanningPrompt_NoRepos(t *testing.T) {
 }
 
 func TestBuildImplementationPrompt_IncludesSpecs(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	store := store.NewMockStore(ctrl)
 	orchestrator := &SpecTaskOrchestrator{
 		testMode: true,
+		store:    store,
 	}
 
+	store.EXPECT().ListGitRepositories(gomock.Any(), gomock.Any()).Return([]*types.GitRepository{}, nil)
+
 	task := &types.SpecTask{
-		ID:             "spec_impl_prompt",
-		Name:           "User Auth Feature",
-		Description:    "Implement user authentication",
-		OriginalPrompt: "Add user auth",
-		RequirementsSpec: "User story: As a user, I want to login securely",
-		TechnicalDesign: "Architecture: Use JWT tokens with refresh mechanism",
+		ID:                 "spec_impl_prompt",
+		Name:               "User Auth Feature",
+		Description:        "Implement user authentication",
+		OriginalPrompt:     "Add user auth",
+		RequirementsSpec:   "User story: As a user, I want to login securely",
+		TechnicalDesign:    "Architecture: Use JWT tokens with refresh mechanism",
 		ImplementationPlan: "- [ ] Create user model\n- [ ] Add login endpoint\n- [ ] Implement JWT generation",
 	}
 
@@ -102,16 +122,16 @@ func TestBuildImplementationPrompt_IncludesSpecs(t *testing.T) {
 	prompt := orchestrator.buildImplementationPrompt(task, app)
 
 	// Verify prompt contains all context
-	assert.Contains(t, prompt, "User Auth Feature") // Task name
-	assert.Contains(t, prompt, "Implement user authentication") // Description
-	assert.Contains(t, prompt, "User story: As a user, I want to login") // Requirements
-	assert.Contains(t, prompt, "Architecture: Use JWT tokens") // Design
-	assert.Contains(t, prompt, "Create user model") // Implementation plan
-	assert.Contains(t, prompt, "helix-specs") // Worktree reference
-	assert.Contains(t, prompt, "feature/spec_impl_prompt") // Feature branch
+	assert.Contains(t, prompt, "User Auth Feature")                         // Task name
+	assert.Contains(t, prompt, "Implement user authentication")             // Description
+	assert.Contains(t, prompt, "User story: As a user, I want to login")    // Requirements
+	assert.Contains(t, prompt, "Architecture: Use JWT tokens")              // Design
+	assert.Contains(t, prompt, "Create user model")                         // Implementation plan
+	assert.Contains(t, prompt, "helix-specs")                               // Worktree reference
+	assert.Contains(t, prompt, "feature/spec_impl_prompt")                  // Feature branch
 	assert.Contains(t, prompt, "SAME Zed instance from the planning phase") // Multi-session context
-	assert.Contains(t, prompt, "[ ] -> [~]") // Task markers
-	assert.Contains(t, prompt, "[~] -> [x]") // Completion markers
+	assert.Contains(t, prompt, "[ ] -> [~]")                                // Task markers
+	assert.Contains(t, prompt, "[~] -> [x]")                                // Completion markers
 }
 
 func TestSanitizeForBranchName(t *testing.T) {
