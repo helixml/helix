@@ -885,7 +885,23 @@ function build-moonlight-web() {
     echo "Please run:"
     echo "  cd .."
     echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
-    echo "  cd helix"
+    echo "  cd moonlight-web-stream"
+    echo "  git submodule update --init --recursive"
+    echo "  cd ../helix"
+    echo "  ./stack build-moonlight-web"
+    exit 1
+  fi
+
+  # Check if git submodules are initialized
+  if [ ! -f "../moonlight-web-stream/moonlight-common-c/src/Limelight.h" ]; then
+    echo "❌ ERROR: moonlight-web-stream git submodules not initialized"
+    echo ""
+    echo "The moonlight-common-c submodule is required for building."
+    echo ""
+    echo "Please run:"
+    echo "  cd ../moonlight-web-stream"
+    echo "  git submodule update --init --recursive"
+    echo "  cd ../helix"
     echo "  ./stack build-moonlight-web"
     exit 1
   fi
