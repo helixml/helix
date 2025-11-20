@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,6 +140,8 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 	// Create repository path
 	repoPath := filepath.Join(s.gitRepoBase, repoID)
 
+	isExternal := request.ExternalURL != ""
+
 	// Create repository object
 	gitRepo := &types.GitRepository{
 		ID:             repoID,
@@ -150,7 +153,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		RepoType:       request.RepoType,
 		Status:         types.GitRepositoryStatusActive,
 		CloneURL:       s.generateCloneURL(repoID),
-		IsExternal:     request.IsExternal,
+		IsExternal:     isExternal,
 		ExternalURL:    request.ExternalURL,
 		ExternalType:   request.ExternalType,
 		Username:       request.Username,
@@ -697,30 +700,17 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				Progress: os.Stdout,
 			}
 
-			if gitRepo.Username != "" && gitRepo.Password != "" {
-				cloneOptions.Auth = &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+			if gitRepo.Password != "" {
+				username := gitRepo.Username
+				if username == "" {
+					username = "PAT"
+				}
+				cloneOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
 			}
 
 			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
 			if err != nil {
 				return fmt.Errorf("failed to clone git repository: %w", err)
-			}
-		} else {
-			// Repository exists locally - check if we should pull latest changes
-			if time.Since(gitRepo.LastActivity) > time.Minute {
-				worktree, err := repo.Worktree()
-				if err == nil {
-					pullOptions := &git.PullOptions{
-						RemoteName: "origin",
-					}
-					if gitRepo.Username != "" && gitRepo.Password != "" {
-						pullOptions.Auth = &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
-					}
-					err = worktree.Pull(pullOptions)
-					if err != nil && err != git.NoErrAlreadyUpToDate {
-						log.Warn().Err(err).Str("repo_id", gitRepo.ID).Msg("Failed to pull latest changes")
-					}
-				}
 			}
 		}
 	} else {
@@ -1915,6 +1905,131 @@ func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID strin
 	return content, nil
 }
 
+func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
+	log.Info().Str("repo_id", gitRepo.ID).Msg("Checking for new commits")
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	pullOptions := &git.PullOptions{
+		RemoteName: "origin",
+	}
+	if gitRepo.Password != "" {
+		username := gitRepo.Username
+		if username == "" {
+			username = "PAT"
+		}
+		pullOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
+	}
+
+	err = worktree.Pull(pullOptions)
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("failed to pull changes: %w", err)
+	}
+
+	log.Info().Str("repo_id", gitRepo.ID).Msg("Pulled latest changes")
+
+	return nil
+}
+
+func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository) error {
+	log.Info().Str("repo_id", gitRepo.ID).Msg("Pushing changes to external repository")
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
+	}
+
+	pushOptions := &git.PushOptions{
+		RemoteName: "origin",
+		Progress:   os.Stdout,
+	}
+	if gitRepo.Password != "" {
+		username := gitRepo.Username
+		if username == "" {
+			username = "PAT"
+		}
+		pushOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
+	}
+
+	err = repo.Push(pushOptions)
+	if err != nil {
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			log.Info().Str("repo_id", gitRepo.ID).Msg("External repository already up to date")
+			return nil
+		}
+		return fmt.Errorf("failed to push changes: %w", err)
+	}
+
+	log.Info().Str("repo_id", gitRepo.ID).Msg("Pushed changes to external repository")
+
+	return nil
+}
+
+// PushPullRequest pulls from external repository all commits and pushes any commits from the local repository to the external repository (upstream)
+// This is used to update the external repository with the latest commits from the local repository that we have made changes to
+func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string) error {
+	gitRepo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return fmt.Errorf("repository not found: %w", err)
+	}
+
+	if !gitRepo.IsExternal {
+		return fmt.Errorf("repository is not external, cannot push/pull")
+	}
+
+	// If branchName is specified, checkout that branch first
+	if branchName != "" {
+		repo, err := git.PlainOpen(gitRepo.LocalPath)
+		if err != nil {
+			return fmt.Errorf("failed to open git repository: %w", err)
+		}
+
+		w, err := repo.Worktree()
+		if err != nil {
+			return fmt.Errorf("failed to get worktree: %w", err)
+		}
+
+		head, err := repo.Head()
+		if err != nil {
+			return fmt.Errorf("failed to get HEAD: %w", err)
+		}
+
+		if head.Name().Short() != branchName {
+			// Try to find the branch
+			branchRef := plumbing.NewBranchReferenceName(branchName)
+			err = w.Checkout(&git.CheckoutOptions{
+				Branch: branchRef,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+			}
+		}
+	}
+
+	// 1. call pullChanges
+	err = s.pullChanges(gitRepo)
+	if err != nil {
+		// Return error on merge conflict or other pull errors
+		return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+	}
+
+	// 2. call pushChangesToExternal
+	err = s.pushChangesToExternal(gitRepo)
+	if err != nil {
+		return fmt.Errorf("failed to push changes: %w", err)
+	}
+
+	return nil
+}
+
 // CreateBranch creates a new branch in the repository
 func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchName, baseBranch string) error {
 	repo, err := s.store.GetGitRepository(ctx, repoID)
@@ -2014,9 +2129,13 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		cloneOptions := &git.CloneOptions{
 			URL: repo.ExternalURL,
 		}
-		if repo.Username != "" && repo.Password != "" {
+		if repo.Password != "" {
+			username := repo.Username
+			if username == "" {
+				username = "PAT"
+			}
 			cloneOptions.Auth = &http.BasicAuth{
-				Username: repo.Username,
+				Username: username,
 				Password: repo.Password,
 			}
 		}
@@ -2114,9 +2233,13 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
 		},
 	}
-	if repo.IsExternal && repo.Username != "" && repo.Password != "" {
+	if repo.IsExternal && repo.Password != "" {
+		username := repo.Username
+		if username == "" {
+			username = "PAT"
+		}
 		pushOptions.Auth = &http.BasicAuth{
-			Username: repo.Username,
+			Username: username,
 			Password: repo.Password,
 		}
 	}
