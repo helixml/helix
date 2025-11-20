@@ -2746,6 +2746,69 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new branch in a repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create branch",
+                "operationId": "createGitRepositoryBranch",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Create branch request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateBranchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreateBranchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/git/repositories/{id}/clone-command": {
@@ -16078,6 +16141,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateBranchRequest": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreateBranchResponse": {
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "type": "string"
+                },
+                "branch_name": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateSampleRepositoryRequest": {
             "type": "object",
             "properties": {
@@ -22169,18 +22260,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
