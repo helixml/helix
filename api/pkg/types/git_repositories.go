@@ -169,3 +169,15 @@ type Commit struct {
 	Email     string    `json:"email"`
 	Timestamp time.Time `json:"timestamp"`
 }
+
+type CreateBranchRequest struct {
+	BranchName string `json:"branch_name"`
+	BaseBranch string `json:"base_branch,omitempty"`
+}
+
+type CreateBranchResponse struct {
+	RepositoryID string `json:"repository_id"`
+	BranchName   string `json:"branch_name"`
+	BaseBranch   string `json:"base_branch"`
+	Message      string `json:"message"`
+}

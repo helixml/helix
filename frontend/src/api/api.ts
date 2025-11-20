@@ -1796,6 +1796,18 @@ export interface TypesCreateAccessGrantRequest {
   user_reference?: string;
 }
 
+export interface TypesCreateBranchRequest {
+  base_branch?: string;
+  branch_name?: string;
+}
+
+export interface TypesCreateBranchResponse {
+  base_branch?: string;
+  branch_name?: string;
+  message?: string;
+  repository_id?: string;
+}
+
 export interface TypesCreateSampleRepositoryRequest {
   description?: string;
   /** Enable Kodit code intelligence indexing */
@@ -4248,11 +4260,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6149,6 +6161,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new branch in a repository
+     *
+     * @tags git-repositories
+     * @name CreateGitRepositoryBranch
+     * @summary Create branch
+     * @request POST:/api/v1/git/repositories/{id}/branches
+     * @secure
+     */
+    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
+      this.request<TypesCreateBranchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/branches`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
