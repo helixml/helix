@@ -1754,6 +1754,14 @@ export interface TypesClipboardData {
   type?: string;
 }
 
+export interface TypesCommit {
+  author?: string;
+  email?: string;
+  message?: string;
+  sha?: string;
+  timestamp?: string;
+}
+
 export interface TypesContextMenuAction {
   /** Forms the grouping in the UI */
   action_label?: string;
@@ -2481,6 +2489,10 @@ export enum TypesLLMCallStep {
   LLMCallStepInterpretResponse = "interpret_response",
   LLMCallStepGenerateTitle = "generate_title",
   LLMCallStepSummarizeConversation = "summarize_conversation",
+}
+
+export interface TypesListCommitsResponse {
+  commits?: TypesCommit[];
 }
 
 export interface TypesLoginRequest {
@@ -6160,6 +6172,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     ) =>
       this.request<ServerCloneCommandResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/clone-command`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all commits in a repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryCommits
+     * @summary List repository commits
+     * @request GET:/api/v1/git/repositories/{id}/commits
+     * @secure
+     */
+    listGitRepositoryCommits: (
+      id: string,
+      query?: {
+        /** Branch name (defaults to repository default branch) */
+        branch?: string;
+        /** Filter commits since this date (RFC3339 format) */
+        since?: string;
+        /** Filter commits until this date (RFC3339 format) */
+        until?: string;
+        /** Number of commits per page (default: 30) */
+        per_page?: number;
+        /** Page number (default: 1) */
+        page?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesListCommitsResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/commits`,
         method: "GET",
         query: query,
         secure: true,
