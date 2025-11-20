@@ -1016,3 +1016,85 @@ func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
+
+// createGitRepositoryBranch creates a new branch in the repository
+// @Summary Create branch
+// @Description Create a new branch in a repository
+// @ID createGitRepositoryBranch
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body types.CreateBranchRequest true "Create branch request"
+// @Success 200 {object} types.CreateBranchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/branches [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	var request types.CreateBranchRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if request.BranchName == "" {
+		http.Error(w, "Branch name is required", http.StatusBadRequest)
+		return
+	}
+
+	baseBranch := request.BaseBranch
+	if baseBranch == "" {
+		baseBranch = repository.DefaultBranch
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+	}
+
+	err = s.gitRepositoryService.CreateBranch(r.Context(), repoID, request.BranchName, baseBranch)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", request.BranchName).Msg("Failed to create branch")
+		http.Error(w, fmt.Sprintf("Failed to create branch: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &types.CreateBranchResponse{
+		RepositoryID: repoID,
+		BranchName:   request.BranchName,
+		BaseBranch:   baseBranch,
+		Message:      "Branch created successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
