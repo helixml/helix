@@ -209,7 +209,24 @@ EOF
 
     # Start sway with DRM backend (required for headless NVIDIA GPU operation)
     # WLR_BACKENDS=drm forces wlroots to use direct GPU access instead of nested Wayland
-    WLR_BACKENDS=drm dbus-run-session -- sway --unsupported-gpu
+    
+    # Start seatd manually with -n (no VT switching) for container environments
+    # This fixes "Could not open target tty" errors in Azure/cloud containers
+    export SEATD_SOCK=$XDG_RUNTIME_DIR/seatd.sock
+    seatd -n -u $(whoami) &
+    SEATD_PID=$!
+    
+    # Wait for seatd socket
+    while [ ! -S "$SEATD_SOCK" ]; do
+        sleep 0.1
+    done
+
+    # Start Sway
+    # We keep --unsupported-gpu as it is required for Nvidia, but we don't add other flags
+    WLR_BACKENDS=drm sway --unsupported-gpu
+    
+    # Cleanup seatd when Sway exits
+    kill $SEATD_PID
   else
     echo "[exec] Starting: $@"
     exec $@

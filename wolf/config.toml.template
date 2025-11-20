@@ -35,7 +35,7 @@ video_producer_buffer_caps = 'video/x-raw(memory:CUDAMemory)'
     "IpcMode": "host",
     "CapAdd": ["NET_RAW", "MKNOD", "NET_ADMIN", "SYS_ADMIN", "SYS_NICE"],
     "Privileged": false,
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"]
+    "DeviceCgroupRules": ["c 13:* rmw", "c 195:* rmw", "c 226:* rmw", "c 244:* rmw"]
   }
 }'''
 
