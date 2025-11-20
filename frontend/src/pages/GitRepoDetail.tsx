@@ -48,6 +48,7 @@ import {
   Plus,
   Pencil,
   ArrowUpDown,
+  GitCommit,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -62,6 +63,7 @@ import {
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
+  useListRepositoryCommits,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
 } from '../services/gitRepositoryService'
@@ -77,6 +79,18 @@ import {
   getEnrichmentTypeIcon,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
+
+const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
+type TabName = typeof TAB_NAMES[number]
+
+const tabNameToIndex = (name: string | undefined): number => {
+  const index = TAB_NAMES.indexOf(name as TabName)
+  return index >= 0 ? index : 0
+}
+
+const indexToTabName = (index: number): TabName => {
+  return TAB_NAMES[index] || TAB_NAMES[0]
+}
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -109,7 +123,7 @@ const GitRepoDetail: FC = () => {
   const groupedEnrichments = groupEnrichmentsByType(enrichments)
 
   // UI State
-  const [currentTab, setCurrentTab] = useState(0)
+  const [currentTab, setCurrentTab] = useState(() => tabNameToIndex(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
@@ -124,10 +138,20 @@ const GitRepoDetail: FC = () => {
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
+  const [copiedSha, setCopiedSha] = useState<string | null>(null)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
+
+  // List commits
+  const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
+    repoId || '',
+    currentBranch || undefined,
+    1,
+    100
+  )
+  const commits = commitsData?.commits || []
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -144,6 +168,14 @@ const GitRepoDetail: FC = () => {
     currentBranch,
     !!selectedFile
   )
+
+  // Sync tab state with query parameter
+  React.useEffect(() => {
+    const tabIndex = tabNameToIndex(router.params.tab)
+    if (tabIndex !== currentTab) {
+      setCurrentTab(tabIndex)
+    }
+  }, [router.params.tab, currentTab])
 
   // Initialize edit fields when repository loads
   React.useEffect(() => {
@@ -250,6 +282,13 @@ const GitRepoDetail: FC = () => {
     setCopiedClone(true)
     snackbar.success('Clone URL copied to clipboard')
     setTimeout(() => setCopiedClone(false), 2000)
+  }
+
+  const handleCopySha = (sha: string) => {
+    navigator.clipboard.writeText(sha)
+    setCopiedSha(sha)
+    snackbar.success('SHA copied to clipboard')
+    setTimeout(() => setCopiedSha(null), 2000)
   }
 
   const handlePushPull = async () => {
@@ -482,7 +521,10 @@ const GitRepoDetail: FC = () => {
 
           {/* Navigation tabs */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
+            <Tabs value={currentTab} onChange={(_, newValue) => {
+              setCurrentTab(newValue)
+              router.mergeParams({ tab: indexToTabName(newValue) })
+            }}>
               <Tab
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
@@ -499,6 +541,12 @@ const GitRepoDetail: FC = () => {
                 icon={<Users size={16} />}
                 iconPosition="start"
                 label="Access"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                icon={<GitCommit size={16} />}
+                iconPosition="start"
+                label="Commits"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
             </Tabs>
@@ -1057,6 +1105,128 @@ const GitRepoDetail: FC = () => {
                     <Typography variant="body2" color="text.secondary">
                       This repository is not associated with an organization. Only the owner can access it.
                     </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          )}
+
+          {/* Commits Tab */}
+          {currentTab === 3 && (
+            <Box>
+              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                {commitsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : commits.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 8 }}>
+                    <GitCommit size={48} color="#656d76" style={{ marginBottom: 16 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      No commits found in this repository.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box>
+                    {commits.map((commit, index) => (
+                      <Box
+                        key={commit.sha || index}
+                        sx={{
+                          borderBottom: index < commits.length - 1 ? '1px solid' : 'none',
+                          borderColor: 'divider',
+                          p: 2,
+                          '&:hover': {
+                            backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                          },
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Tooltip
+                              title={commit.message || ''}
+                              placement="top"
+                              arrow
+                            >
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: 'text.primary',
+                                  fontWeight: 500,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  mb: 0.5,
+                                }}
+                              >
+                                {commit.message || 'No commit message'}
+                              </Typography>
+                            </Tooltip>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                              <Tooltip
+                                title={commit.email ? `Email: ${commit.email}` : ''}
+                                placement="top"
+                                arrow
+                              >
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: 'text.secondary',
+                                    fontSize: '0.8125rem',
+                                    cursor: 'default',
+                                  }}
+                                >
+                                  {commit.author || 'Unknown'}
+                                </Typography>
+                              </Tooltip>
+                              {commit.timestamp && (
+                                <>
+                                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8125rem' }}>
+                                    •
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8125rem' }}>
+                                    {new Date(commit.timestamp).toLocaleString()}
+                                  </Typography>
+                                </>
+                              )}
+                            </Box>
+                          </Box>
+                          {commit.sha && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.8125rem',
+                                  color: 'text.secondary',
+                                }}
+                              >
+                                {commit.sha.substring(0, 7)}
+                              </Typography>
+                              <Tooltip
+                                title={copiedSha === commit.sha ? 'Copied!' : 'Copy full SHA'}
+                                placement="top"
+                                arrow
+                              >
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleCopySha(commit.sha!)}
+                                  sx={{
+                                    p: 0.5,
+                                    color: 'text.secondary',
+                                    '&:hover': {
+                                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                                      color: 'text.primary',
+                                    },
+                                  }}
+                                >
+                                  <Copy size={14} />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    ))}
                   </Box>
                 )}
               </Paper>
