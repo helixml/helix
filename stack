@@ -653,32 +653,20 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  # Parse arguments to check for wolf profile
-  local HAS_WOLF_PROFILE=false
-  for arg in "$@"; do
-    if [[ "$arg" == "--profile" ]]; then
-      shift
-      if [[ "$1" == "wolf" ]]; then
-        HAS_WOLF_PROFILE=true
-      fi
-      shift
-    fi
-  done
+  echo "🔨 Rebuilding wolf and moonlight-web images..."
 
-  # Build wolf and moonlight-web if wolf profile is enabled
-  if [[ "$HAS_WOLF_PROFILE" == "true" ]]; then
-    echo "🐺 Wolf profile detected, building wolf and moonlight-web images..."
-    rebuild-wolf || {
-      echo "❌ Failed to build wolf"
-      return 1
-    }
-    build-moonlight-web || {
-      echo "❌ Failed to build moonlight-web"
-      return 1
-    }
-  fi
+  rebuild-wolf || {
+    echo "❌ Failed to build wolf"
+    return 1
+  }
 
-  docker compose -f docker-compose.dev.yaml up -d --build $@
+  build-moonlight-web || {
+    echo "❌ Failed to build moonlight-web"
+    return 1
+  }
+
+  echo "✅ Wolf and moonlight-web images built successfully"
+  echo "💡 To start with wolf profile: ./stack up --profile wolf"
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
