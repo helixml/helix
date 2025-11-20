@@ -22532,6 +22532,10 @@ const docTemplate = `{
         "wolf.SystemHealthResponse": {
             "type": "object",
             "properties": {
+                "can_create_new_pipelines": {
+                    "description": "Tests if GStreamer type lock is available",
+                    "type": "boolean"
+                },
                 "overall_status": {
                     "type": "string"
                 },

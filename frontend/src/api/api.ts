@@ -4428,6 +4428,8 @@ export interface TypesZedInstanceStatus {
 }
 
 export interface WolfSystemHealthResponse {
+  /** Tests if GStreamer type lock is available */
+  can_create_new_pipelines?: boolean;
   overall_status?: string;
   process_uptime_seconds?: number;
   stuck_thread_count?: number;
