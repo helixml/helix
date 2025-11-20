@@ -135,6 +135,7 @@ EXTERNAL_ZED_RUNNER_ID=""
 EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
+EXCLUDE_GPUS=""
 
 # Enhanced environment detection
 detect_environment() {
@@ -258,6 +259,7 @@ Options:
   --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
   --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   --split-runners <n>      Split GPUs across N runner containers (default: 1, must divide evenly into total GPU count)
+  --exclude-gpu <id>       Exclude specific GPU(s) from runner (can be specified multiple times, e.g., --exclude-gpu 0 --exclude-gpu 1)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -306,6 +308,9 @@ Examples:
 
 14. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
+
+15. Install runner excluding GPU 0 (use GPUs 1-7 only):
+   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
 EOF
 }
@@ -503,6 +508,24 @@ while [[ $# -gt 0 ]]; do
             ;;
         --split-runners)
             SPLIT_RUNNERS="$2"
+            shift 2
+            ;;
+        --exclude-gpu=*)
+            # Can be specified multiple times, build comma-separated list
+            if [ -z "$EXCLUDE_GPUS" ]; then
+                EXCLUDE_GPUS="${1#*=}"
+            else
+                EXCLUDE_GPUS="$EXCLUDE_GPUS,${1#*=}"
+            fi
+            shift
+            ;;
+        --exclude-gpu)
+            # Can be specified multiple times, build comma-separated list
+            if [ -z "$EXCLUDE_GPUS" ]; then
+                EXCLUDE_GPUS="$2"
+            else
+                EXCLUDE_GPUS="$EXCLUDE_GPUS,$2"
+            fi
             shift 2
             ;;
         *)
@@ -1884,6 +1907,7 @@ RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 SPLIT_RUNNERS="${SPLIT_RUNNERS}"
+EXCLUDE_GPUS="${EXCLUDE_GPUS}"
 
 # HF_TOKEN is now managed by the control plane and distributed to runners automatically
 # No longer setting HF_TOKEN on runners to avoid confusion
@@ -1904,13 +1928,49 @@ else
 fi
 
 # Detect total number of GPUs
-TOTAL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
-if [ "\$TOTAL_GPUS" -eq 0 ]; then
+ALL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+if [ "\$ALL_GPUS" -eq 0 ]; then
     echo "Error: No NVIDIA GPUs detected. Cannot start runner."
     exit 1
 fi
 
-echo "Detected \$TOTAL_GPUS GPUs on this system"
+echo "Detected \$ALL_GPUS total GPUs on this system"
+
+# Build list of available GPUs (excluding any specified in EXCLUDE_GPUS)
+AVAILABLE_GPUS=""
+for gpu_id in \$(seq 0 \$((\$ALL_GPUS - 1))); do
+    # Check if this GPU is in the exclude list
+    EXCLUDED=false
+    if [ -n "\$EXCLUDE_GPUS" ]; then
+        IFS=',' read -ra EXCLUDE_ARRAY <<< "\$EXCLUDE_GPUS"
+        for exclude_id in "\${EXCLUDE_ARRAY[@]}"; do
+            if [ "\$gpu_id" -eq "\$exclude_id" ]; then
+                EXCLUDED=true
+                echo "Excluding GPU \$gpu_id (--exclude-gpu)"
+                break
+            fi
+        done
+    fi
+
+    if [ "\$EXCLUDED" = false ]; then
+        if [ -z "\$AVAILABLE_GPUS" ]; then
+            AVAILABLE_GPUS="\$gpu_id"
+        else
+            AVAILABLE_GPUS="\$AVAILABLE_GPUS \$gpu_id"
+        fi
+    fi
+done
+
+# Convert space-separated list to array for easier processing
+IFS=' ' read -ra AVAILABLE_GPU_ARRAY <<< "\$AVAILABLE_GPUS"
+TOTAL_GPUS=\${#AVAILABLE_GPU_ARRAY[@]}
+
+if [ "\$TOTAL_GPUS" -eq 0 ]; then
+    echo "Error: All GPUs excluded. No GPUs available for runner."
+    exit 1
+fi
+
+echo "Using \$TOTAL_GPUS available GPU(s): \$AVAILABLE_GPUS"
 
 # Validate SPLIT_RUNNERS
 if [ "\$SPLIT_RUNNERS" -lt 1 ]; then
@@ -1955,13 +2015,14 @@ fi
 
 # Create runner containers
 for i in \$(seq 1 \$SPLIT_RUNNERS); do
-    # Calculate GPU device IDs for this container
-    START_GPU=\$(( (\$i - 1) * \$GPUS_PER_RUNNER ))
-    END_GPU=\$(( \$START_GPU + \$GPUS_PER_RUNNER - 1 ))
+    # Calculate indices into the available GPU array
+    START_IDX=\$(( (\$i - 1) * \$GPUS_PER_RUNNER ))
+    END_IDX=\$(( \$START_IDX + \$GPUS_PER_RUNNER - 1 ))
 
-    # Build device list (e.g., "0,1" or "2,3,4,5")
+    # Build device list from available GPUs (e.g., "1,2" if GPU 0 excluded)
     GPU_DEVICES=""
-    for gpu_id in \$(seq \$START_GPU \$END_GPU); do
+    for array_idx in \$(seq \$START_IDX \$END_IDX); do
+        gpu_id=\${AVAILABLE_GPU_ARRAY[\$array_idx]}
         if [ -z "\$GPU_DEVICES" ]; then
             GPU_DEVICES="\$gpu_id"
         else
