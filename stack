@@ -568,12 +568,16 @@ function up() {
   # Parse arguments to separate profiles from other args
   local PROFILES=()
   local ARGS=()
+  local HAS_WOLF_PROFILE=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
       --profile)
         if [[ -n "$2" ]]; then
           PROFILES+=(--profile "$2")
+          if [[ "$2" == "wolf" ]]; then
+            HAS_WOLF_PROFILE=true
+          fi
           shift 2
         else
           echo "❌ Error: --profile requires an argument"
@@ -586,6 +590,20 @@ function up() {
         ;;
     esac
   done
+
+  # Build moonlight-web if wolf profile is enabled
+  if [[ "$HAS_WOLF_PROFILE" == "true" ]]; then
+    echo "🐺 Wolf profile detected, ensuring moonlight-web image is built..."
+    if ! docker image inspect helix-moonlight-web:helix-fixed &>/dev/null; then
+      echo "📦 moonlight-web image not found, building it now..."
+      build-moonlight-web || {
+        echo "❌ Failed to build moonlight-web. Continuing without wolf profile."
+        PROFILES=()
+      }
+    else
+      echo "✅ moonlight-web image already exists"
+    fi
+  fi
 
   # Run docker compose with profiles before 'up'
   docker compose -f docker-compose.dev.yaml "${PROFILES[@]}" up -d "${ARGS[@]}"
