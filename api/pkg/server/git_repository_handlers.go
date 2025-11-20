@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -928,4 +929,90 @@ type PushPullResponse struct {
 	Branch       string `json:"branch"`
 	Success      bool   `json:"success"`
 	Message      string `json:"message"`
+}
+
+// listGitRepositoryCommits lists all commits in a repository
+// @Summary List repository commits
+// @Description List all commits in a repository
+// @ID listGitRepositoryCommits
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param branch query string false "Branch name (defaults to repository default branch)"
+// @Param since query string false "Filter commits since this date (RFC3339 format)"
+// @Param until query string false "Filter commits until this date (RFC3339 format)"
+// @Param per_page query int false "Number of commits per page (default: 30)"
+// @Param page query int false "Page number (default: 1)"
+// @Success 200 {object} types.ListCommitsResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/commits [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	branch := r.URL.Query().Get("branch")
+	since := r.URL.Query().Get("since")
+	until := r.URL.Query().Get("until")
+
+	perPage := 0
+	if perPageStr := r.URL.Query().Get("per_page"); perPageStr != "" {
+		if parsed, err := strconv.Atoi(perPageStr); err == nil && parsed > 0 {
+			perPage = parsed
+		}
+	}
+
+	page := 0
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if parsed, err := strconv.Atoi(pageStr); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	req := &types.ListCommitsRequest{
+		RepoID:  repoID,
+		Branch:  branch,
+		Since:   since,
+		Until:   until,
+		PerPage: perPage,
+		Page:    page,
+	}
+
+	response, err := s.gitRepositoryService.ListCommits(r.Context(), req)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository commits")
+		http.Error(w, fmt.Sprintf("Failed to list commits: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
