@@ -2,7 +2,7 @@ import React, { FC, useState } from 'react'
 import Container from '@mui/material/Container'
 import {
   Box,
-  Typography,  
+  Typography,
   CircularProgress,
   Alert,
   Button,
@@ -31,7 +31,7 @@ import {
   GitBranch,
   Copy,
   ExternalLink,
-  ArrowLeft, 
+  ArrowLeft,
   Brain,
   Link,
   Trash2,
@@ -333,7 +333,7 @@ const GitRepoDetail: FC = () => {
 
       // Calculate parent directory of the file being created
       const filePathParts = newFilePath.split('/').filter(p => p)
-      const parentDir = filePathParts.length > 1 
+      const parentDir = filePathParts.length > 1
         ? filePathParts.slice(0, -1).join('/')
         : '.'
 
@@ -348,15 +348,15 @@ const GitRepoDetail: FC = () => {
       }
 
       for (const path of pathsToInvalidate) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch] 
+        queryClient.invalidateQueries({
+          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch]
         })
       }
 
       // Invalidate the file query if we're editing
       if (isEditingFile) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch] 
+        queryClient.invalidateQueries({
+          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch]
         })
       }
 
@@ -539,309 +539,309 @@ const GitRepoDetail: FC = () => {
               <Box sx={{ display: 'flex', gap: 3 }}>
                 {/* Main content - File browser */}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-                  {/* Branch selector bar */}
-                  <Box sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 2,
-                    p: 2,
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    bgcolor: 'rgba(0, 0, 0, 0.02)'
-                  }}>
-                    <FormControl size="small" sx={{ minWidth: 200 }}>
-                      <Select
-                        value={currentBranch}
-                        onChange={(e) => {
-                          setCurrentBranch(e.target.value)
-                          setCurrentPath('.') // Reset to root when switching branches
-                          setSelectedFile(null) // Clear selected file
-                        }}
-                        displayEmpty
-                        renderValue={(value) => (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <GitBranch size={14} />
-                            <span>{value || repository?.default_branch || 'main'}</span>
-                          </Box>
-                        )}
-                        sx={{ fontWeight: 500 }}
-                      >
-                        <MenuItem value="">
-                          {repository?.default_branch || 'main'}
-                        </MenuItem>
-                        {branches.filter(b => b !== repository?.default_branch).map((branch) => (
-                          <MenuItem key={branch} value={branch}>
-                            {branch}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>                    
-                    <Button
-                      startIcon={<Plus size={16} />}
-                      variant="outlined"
-                      size="small"
-                      onClick={() => {
-                        setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
-                        setNewFileContent('')
-                        setIsEditingFile(false)
-                        setCreateFileDialogOpen(true)
-                      }}
-                      sx={{  height: 40, whiteSpace: 'nowrap' }}
-                    >
-                      Add File
-                    </Button>
-                    {isExternal && (
-                      <Button
-                        startIcon={<ArrowUpDown size={16} />}
-                        variant="outlined"
-                        size="small"
-                        onClick={handlePushPull}
-                        disabled={pushPullMutation.isPending}
-                        sx={{ height: 40, whiteSpace: 'nowrap' }}
-                      >
-                        {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                      </Button>
-                    )}
-
-                    {/* Breadcrumb navigation */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
-                      
-                      {getPathBreadcrumbs().map((part, index, arr) => {
-                        const path = arr.slice(0, index + 1).join('/')
-                        const isLast = index === arr.length - 1
-                        return (
-                          <React.Fragment key={path}>
-                            <ChevronRight size={14} color="#656d76" />
-                            <Chip
-                              label={part}
-                              size="small"
-                              onClick={() => handleNavigateToDirectory(path)}
-                              sx={{ cursor: 'pointer', fontWeight: 500 }}
-                              variant={isLast ? 'filled' : 'outlined'}
-                            />
-                          </React.Fragment>
-                        )
-                      })}
-                    </Box>
-                  </Box>
-
-                  {/* File tree */}
-                  <Box>
-                    {treeLoading ? (
-                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                        <CircularProgress size={24} />
-                      </Box>
-                    ) : (
-                      <>
-                        {currentPath !== '.' && (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 2,
-                              px: 3,
-                              py: 1.5,
-                              cursor: 'pointer',
-                              borderBottom: 1,
-                              borderColor: 'divider',
-                              '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                              },
-                            }}
-                            onClick={handleNavigateUp}
-                          >
-                            <Folder size={18} color="#54aeff" />
-                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                              ..
-                            </Typography>
-                          </Box>
-                        )}
-
-                        {treeData?.entries && treeData.entries.length > 0 ? (
-                          treeData.entries
-                            .sort((a, b) => {
-                              // Directories first, then files
-                              if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-                              return (a.name || '').localeCompare(b.name || '')
-                            })
-                            .map((entry) => (
-                              <Box
-                                key={entry.path}
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 2,
-                                  px: 3,
-                                  py: 1.5,
-                                  cursor: 'pointer',
-                                  borderBottom: 1,
-                                  borderColor: 'divider',
-                                  backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
-                                  '&:hover': {
-                                    backgroundColor: selectedFile === entry.path
-                                      ? 'rgba(25, 118, 210, 0.12)'
-                                      : 'rgba(0, 0, 0, 0.02)',
-                                  },
-                                  '&:last-child': {
-                                    borderBottom: 0,
-                                  },
-                                }}
-                                onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
-                              >
-                                {entry.is_dir ? (
-                                  <Folder size={18} color="#54aeff" />
-                                ) : (
-                                  <FileText size={18} color="#656d76" />
-                                )}
-                                <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
-                                  {entry.name}
-                                </Typography>
-                                {!entry.is_dir && entry.size !== undefined && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {entry.size > 1024
-                                      ? `${Math.round(entry.size / 1024)} KB`
-                                      : `${entry.size} B`}
-                                  </Typography>
-                                )}
-                              </Box>
-                            ))
-                        ) : (
-                          <Box sx={{ py: 8, textAlign: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Empty directory
-                            </Typography>
-                          </Box>
-                        )}
-                      </>
-                    )}
-                  </Box>
-                </Paper>
-
-                {/* File viewer */}
-                {selectedFile && (
-                  <Paper variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
+                  <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+                    {/* Branch selector bar */}
                     <Box sx={{
                       display: 'flex',
-                      justifyContent: 'space-between',
                       alignItems: 'center',
-                      px: 3,
-                      py: 2,
+                      gap: 2,
+                      p: 2,
                       borderBottom: 1,
                       borderColor: 'divider',
                       bgcolor: 'rgba(0, 0, 0, 0.02)'
                     }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                        {selectedFile.split('/').pop()}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Tooltip title="Edit file">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => {
-                              if (selectedFile && fileData?.content) {
-                                setNewFilePath(selectedFile)
-                                setNewFileContent(fileData.content)
-                                setIsEditingFile(true)
-                                setCreateFileDialogOpen(true)
-                              }
-                            }}
-                          >
-                            <Pencil size={16} />
-                          </IconButton>
-                        </Tooltip>
-                        <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                          <CloseIcon size={16} />
-                        </IconButton>
-                      </Box>
-                    </Box>
-                    {fileLoading ? (
-                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                        <CircularProgress size={24} />
-                      </Box>
-                    ) : (
-                      <Box
-                        component="pre"
-                        sx={{
-                          fontFamily: 'monospace',
-                          fontSize: '0.875rem',
-                          color: 'text.primary',
-                          p: 3,
-                          overflow: 'auto',
-                          maxHeight: '600px',
-                          whiteSpace: 'pre',
-                          margin: 0,
-                        }}
-                      >
-                        {fileData?.content || 'No content'}
-                      </Box>
-                    )}
-                  </Paper>
-                )}
-              </Box>
-
-              {/* Sidebar - About */}
-              <Box sx={{ width: 300, flexShrink: 0 }}>
-                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
-                    About
-                  </Typography>
-
-                  <Stack spacing={2}>
-                    {repository.description && (
-                      <Typography variant="body2" color="text.secondary">
-                        {repository.description}
-                      </Typography>
-                    )}
-
-                    <Divider />
-
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                        Type
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {repository.repo_type || 'project'}
-                      </Typography>
-                    </Box>
-
-                    {repository.default_branch && (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Default Branch
-                        </Typography>
-                        <Chip
-                          icon={<GitBranch size={12} />}
-                          label={repository.default_branch}
-                          size="small"
+                      <FormControl size="small" sx={{ minWidth: 200 }}>
+                        <Select
+                          value={currentBranch}
+                          onChange={(e) => {
+                            setCurrentBranch(e.target.value)
+                            setCurrentPath('.') // Reset to root when switching branches
+                            setSelectedFile(null) // Clear selected file
+                          }}
+                          displayEmpty
+                          renderValue={(value) => (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <GitBranch size={14} />
+                              <span>{value || repository?.default_branch || 'main'}</span>
+                            </Box>
+                          )}
                           sx={{ fontWeight: 500 }}
-                        />
-                      </Box>
-                    )}
+                        >
+                          <MenuItem value="">
+                            {repository?.default_branch || 'main'}
+                          </MenuItem>
+                          {branches?.filter(b => b !== repository?.default_branch).map((branch) => (
+                            <MenuItem key={branch} value={branch}>
+                              {branch}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <Button
+                        startIcon={<Plus size={16} />}
+                        variant="outlined"
+                        size="small"
+                        onClick={() => {
+                          setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
+                          setNewFileContent('')
+                          setIsEditingFile(false)
+                          setCreateFileDialogOpen(true)
+                        }}
+                        sx={{ height: 40, whiteSpace: 'nowrap' }}
+                      >
+                        Add File
+                      </Button>
+                      {isExternal && (
+                        <Button
+                          startIcon={<ArrowUpDown size={16} />}
+                          variant="outlined"
+                          size="small"
+                          onClick={handlePushPull}
+                          disabled={pushPullMutation.isPending}
+                          sx={{ height: 40, whiteSpace: 'nowrap' }}
+                        >
+                          {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                        </Button>
+                      )}
 
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                        Created
-                      </Typography>
-                      <Typography variant="body2">
-                        {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
-                      </Typography>
+                      {/* Breadcrumb navigation */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
+
+                        {getPathBreadcrumbs().map((part, index, arr) => {
+                          const path = arr.slice(0, index + 1).join('/')
+                          const isLast = index === arr.length - 1
+                          return (
+                            <React.Fragment key={path}>
+                              <ChevronRight size={14} color="#656d76" />
+                              <Chip
+                                label={part}
+                                size="small"
+                                onClick={() => handleNavigateToDirectory(path)}
+                                sx={{ cursor: 'pointer', fontWeight: 500 }}
+                                variant={isLast ? 'filled' : 'outlined'}
+                              />
+                            </React.Fragment>
+                          )
+                        })}
+                      </Box>
                     </Box>
 
-                    {repository.updated_at && (
+                    {/* File tree */}
+                    <Box>
+                      {treeLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                          <CircularProgress size={24} />
+                        </Box>
+                      ) : (
+                        <>
+                          {currentPath !== '.' && (
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2,
+                                px: 3,
+                                py: 1.5,
+                                cursor: 'pointer',
+                                borderBottom: 1,
+                                borderColor: 'divider',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                                },
+                              }}
+                              onClick={handleNavigateUp}
+                            >
+                              <Folder size={18} color="#54aeff" />
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                ..
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {treeData?.entries && treeData.entries.length > 0 ? (
+                            treeData.entries
+                              .sort((a, b) => {
+                                // Directories first, then files
+                                if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
+                                return (a.name || '').localeCompare(b.name || '')
+                              })
+                              .map((entry) => (
+                                <Box
+                                  key={entry.path}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 2,
+                                    px: 3,
+                                    py: 1.5,
+                                    cursor: 'pointer',
+                                    borderBottom: 1,
+                                    borderColor: 'divider',
+                                    backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
+                                    '&:hover': {
+                                      backgroundColor: selectedFile === entry.path
+                                        ? 'rgba(25, 118, 210, 0.12)'
+                                        : 'rgba(0, 0, 0, 0.02)',
+                                    },
+                                    '&:last-child': {
+                                      borderBottom: 0,
+                                    },
+                                  }}
+                                  onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
+                                >
+                                  {entry.is_dir ? (
+                                    <Folder size={18} color="#54aeff" />
+                                  ) : (
+                                    <FileText size={18} color="#656d76" />
+                                  )}
+                                  <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
+                                    {entry.name}
+                                  </Typography>
+                                  {!entry.is_dir && entry.size !== undefined && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      {entry.size > 1024
+                                        ? `${Math.round(entry.size / 1024)} KB`
+                                        : `${entry.size} B`}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              ))
+                          ) : (
+                            <Box sx={{ py: 8, textAlign: 'center' }}>
+                              <Typography variant="body2" color="text.secondary">
+                                Empty directory
+                              </Typography>
+                            </Box>
+                          )}
+                        </>
+                      )}
+                    </Box>
+                  </Paper>
+
+                  {/* File viewer */}
+                  {selectedFile && (
+                    <Paper variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
+                      <Box sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        px: 3,
+                        py: 2,
+                        borderBottom: 1,
+                        borderColor: 'divider',
+                        bgcolor: 'rgba(0, 0, 0, 0.02)'
+                      }}>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                          {selectedFile.split('/').pop()}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Tooltip title="Edit file">
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                if (selectedFile && fileData?.content) {
+                                  setNewFilePath(selectedFile)
+                                  setNewFileContent(fileData.content)
+                                  setIsEditingFile(true)
+                                  setCreateFileDialogOpen(true)
+                                }
+                              }}
+                            >
+                              <Pencil size={16} />
+                            </IconButton>
+                          </Tooltip>
+                          <IconButton size="small" onClick={() => setSelectedFile(null)}>
+                            <CloseIcon size={16} />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                      {fileLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                          <CircularProgress size={24} />
+                        </Box>
+                      ) : (
+                        <Box
+                          component="pre"
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontSize: '0.875rem',
+                            color: 'text.primary',
+                            p: 3,
+                            overflow: 'auto',
+                            maxHeight: '600px',
+                            whiteSpace: 'pre',
+                            margin: 0,
+                          }}
+                        >
+                          {fileData?.content || 'No content'}
+                        </Box>
+                      )}
+                    </Paper>
+                  )}
+                </Box>
+
+                {/* Sidebar - About */}
+                <Box sx={{ width: 300, flexShrink: 0 }}>
+                  <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
+                      About
+                    </Typography>
+
+                    <Stack spacing={2}>
+                      {repository.description && (
+                        <Typography variant="body2" color="text.secondary">
+                          {repository.description}
+                        </Typography>
+                      )}
+
+                      <Divider />
+
                       <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Last Updated
+                          Type
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {repository.repo_type || 'project'}
+                        </Typography>
+                      </Box>
+
+                      {repository.default_branch && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            Default Branch
+                          </Typography>
+                          <Chip
+                            icon={<GitBranch size={12} />}
+                            label={repository.default_branch}
+                            size="small"
+                            sx={{ fontWeight: 500 }}
+                          />
+                        </Box>
+                      )}
+
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Created
                         </Typography>
                         <Typography variant="body2">
-                          {new Date(repository.updated_at).toLocaleDateString()}
+                          {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
                         </Typography>
                       </Box>
-                    )}
-                  </Stack>
-                </Paper>
+
+                      {repository.updated_at && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            Last Updated
+                          </Typography>
+                          <Typography variant="body2">
+                            {new Date(repository.updated_at).toLocaleDateString()}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Paper>
+                </Box>
               </Box>
-            </Box>
             </Box>
           )}
 
@@ -977,7 +977,7 @@ const GitRepoDetail: FC = () => {
                       disabled={updating}
                     >
                       {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>                    
+                    </Button>
                   </Box>
 
                   <Divider sx={{ my: 2 }} />
@@ -1275,29 +1275,29 @@ const GitRepoDetail: FC = () => {
         </Dialog>
 
         {/* Create/Edit File Dialog */}
-        <Dialog 
-          open={createFileDialogOpen} 
+        <Dialog
+          open={createFileDialogOpen}
           onClose={() => {
             setCreateFileDialogOpen(false)
             setIsEditingFile(false)
             setNewFilePath('')
             setNewFileContent('')
-          }} 
-          maxWidth="lg" 
+          }}
+          maxWidth="lg"
           fullWidth
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
               {isEditingFile ? 'Edit File' : 'Create New File'}
             </Typography>
-            <IconButton 
+            <IconButton
               onClick={() => {
                 setCreateFileDialogOpen(false)
                 setIsEditingFile(false)
                 setNewFilePath('')
                 setNewFileContent('')
-              }} 
-              edge="end" 
+              }}
+              edge="end"
               size="small"
             >
               <CloseIcon size={20} />
@@ -1318,11 +1318,11 @@ const GitRepoDetail: FC = () => {
                   sx: { fontFamily: 'monospace' }
                 }}
               />
-              <Box sx={{ 
-                flex: 1, 
-                minHeight: 0, 
-                border: '1px solid', 
-                borderColor: 'divider', 
+              <Box sx={{
+                flex: 1,
+                minHeight: 0,
+                border: '1px solid',
+                borderColor: 'divider',
                 borderRadius: 1,
                 display: 'flex',
                 flexDirection: 'column',
@@ -1335,16 +1335,16 @@ const GitRepoDetail: FC = () => {
                     onChange={setNewFileContent}
                     language={
                       newFilePath.endsWith('.json') ? 'json' :
-                      newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
-                      newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
-                      newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
-                      newFilePath.endsWith('.go') ? 'go' :
-                      newFilePath.endsWith('.py') ? 'python' :
-                      newFilePath.endsWith('.md') ? 'markdown' :
-                      newFilePath.endsWith('.css') ? 'css' :
-                      newFilePath.endsWith('.html') ? 'html' :
-                      newFilePath.endsWith('.sh') ? 'shell' :
-                      'plaintext'
+                        newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
+                          newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
+                            newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
+                              newFilePath.endsWith('.go') ? 'go' :
+                                newFilePath.endsWith('.py') ? 'python' :
+                                  newFilePath.endsWith('.md') ? 'markdown' :
+                                    newFilePath.endsWith('.css') ? 'css' :
+                                      newFilePath.endsWith('.html') ? 'html' :
+                                        newFilePath.endsWith('.sh') ? 'shell' :
+                                          'plaintext'
                     }
                     height="100%"
                     autoHeight={false}
@@ -1361,7 +1361,7 @@ const GitRepoDetail: FC = () => {
               </Box>
             </Box>
           </DialogContent>
-          <DialogActions sx={{ px: 3, py: 2 }}>                        
+          <DialogActions sx={{ px: 3, py: 2 }}>
             <Button
               onClick={handleCreateFile}
               color="secondary"
