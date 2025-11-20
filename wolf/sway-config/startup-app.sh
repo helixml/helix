@@ -210,31 +210,43 @@ EOF
     # Start sway with DRM backend (required for headless NVIDIA GPU operation)
     # WLR_BACKENDS=drm forces wlroots to use direct GPU access instead of nested Wayland
 
-    # In headless containers without TTYs, seatd's VT-based session management doesn't work
-    # Instead, we'll run Sway with direct device access using LIBSEAT_BACKEND=noop
-    # This requires the container to have proper device permissions and capabilities
-    echo "🔍 Configuring direct GPU access (no seat management)..."
-    export LIBSEAT_BACKEND=noop
+    # In headless containers without TTYs, standard seat management doesn't work
+    # Configure wlroots to run without session management
+    echo "🔍 Configuring headless GPU access (no session management)..."
 
-    # Ensure retro user has access to DRI devices
-    echo "   Adding retro user to video and render groups..."
+    # Ensure retro user has access to DRI and video devices
+    echo "   Adding retro to video and render groups..."
     sudo usermod -aG video retro 2>/dev/null || true
     sudo usermod -aG render retro 2>/dev/null || true
 
     # Make DRI devices accessible
     echo "   Setting DRI device permissions..."
     sudo chmod 666 /dev/dri/* 2>/dev/null || true
+    sudo chmod 666 /dev/nvidia* 2>/dev/null || true
 
-    echo "   Device permissions:"
+    echo "   Available devices:"
     ls -l /dev/dri/ 2>/dev/null || echo "   /dev/dri not available"
 
-    # Start Sway
-    # We keep --unsupported-gpu as it is required for Nvidia
-    echo "   Starting Sway with direct GPU access..."
+    echo "   Current user groups:"
+    id
+
+    # Configure wlroots and libseat for headless operation
+    # LIBSEAT_BACKEND=noop tells libseat to not use any seat management backend
+    # This allows direct device access without VT/session management
+    export LIBSEAT_BACKEND=noop
+
+    echo "   Starting Sway with headless GPU access..."
     echo "   WLR_BACKENDS=$WLR_BACKENDS"
     echo "   WLR_DRM_DEVICES=$WLR_DRM_DEVICES"
     echo "   LIBSEAT_BACKEND=$LIBSEAT_BACKEND"
-    WLR_BACKENDS=drm sway --unsupported-gpu
+
+    # Run Sway as root for DRM master access (required for NVIDIA proprietary driver)
+    # LIBSEAT_BACKEND=noop means we bypass seat management entirely
+    echo "   Attempting to start Sway as root..."
+    export WLR_BACKENDS=drm
+    export LIBSEAT_BACKEND=noop
+    export WLR_DRM_DEVICES=/dev/dri/card1
+    sudo -E sway --unsupported-gpu
   else
     echo "[exec] Starting: $@"
     exec $@
