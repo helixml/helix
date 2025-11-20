@@ -80,12 +80,35 @@ type KoditEnrichmentData struct {
 }
 
 type KoditEnrichmentAttributes struct {
-	Type      string    `json:"type"`
-	Subtype   *string   `json:"subtype"`
+	Type      string    `json:"type"`      // High-level type: usage, developer, living_documentation
+	Subtype   *string   `json:"subtype"`   // Specific type: snippet, example, api_docs, architecture, cookbook, commit_description, etc.
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Kodit enrichment type constants (high-level)
+const (
+	KoditEnrichmentTypeUsage               = "usage"                // How to use the code (snippets, examples, cookbooks)
+	KoditEnrichmentTypeDeveloper           = "developer"            // Development docs (architecture, API docs, schemas)
+	KoditEnrichmentTypeLivingDocumentation = "living_documentation" // Dynamic docs (commit descriptions, changes)
+)
+
+// Kodit enrichment subtype constants (specific types)
+const (
+	// Usage subtypes
+	KoditEnrichmentSubtypeSnippet  = "snippet"  // Code snippets extracted from codebase
+	KoditEnrichmentSubtypeExample  = "example"  // Full example files and documentation code blocks
+	KoditEnrichmentSubtypeCookbook = "cookbook" // How-to guides and usage patterns
+
+	// Developer subtypes
+	KoditEnrichmentSubtypeArchitecture   = "architecture"    // High-level architecture documentation
+	KoditEnrichmentSubtypeAPIDocs        = "api_docs"        // API documentation and interfaces
+	KoditEnrichmentSubtypeDatabaseSchema = "database_schema" // Database schemas and ORM models
+
+	// Living documentation subtypes
+	KoditEnrichmentSubtypeCommitDescription = "commit_description" // Human-readable commit descriptions
+)
 
 // RegisterRepository registers a repository with Kodit for indexing
 func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) (*KoditRepositoryResponse, error) {
@@ -171,6 +194,30 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	var response KoditEnrichmentListResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Filter out internal summary enrichments (these are only used by MCP)
+	filteredData := make([]KoditEnrichmentData, 0, len(response.Data))
+	for _, enrichment := range response.Data {
+		subtype := ""
+		if enrichment.Attributes.Subtype != nil {
+			subtype = *enrichment.Attributes.Subtype
+		}
+		// Exclude internal summary types
+		if subtype == "snippet_summary" || subtype == "example_summary" {
+			continue
+		}
+		filteredData = append(filteredData, enrichment)
+	}
+	response.Data = filteredData
+
+	// Truncate content to reduce data transfer and improve UI display
+	// Keep first 500 characters with ellipsis if truncated
+	const maxContentLength = 500
+	for i := range response.Data {
+		if len(response.Data[i].Attributes.Content) > maxContentLength {
+			response.Data[i].Attributes.Content = response.Data[i].Attributes.Content[:maxContentLength] + "..."
+		}
 	}
 
 	return &response, nil

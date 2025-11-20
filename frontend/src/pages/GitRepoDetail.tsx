@@ -1,4 +1,5 @@
 import React, { FC, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import Container from '@mui/material/Container'
 import {
   Box,
@@ -26,6 +27,11 @@ import {
   Tooltip,
   Paper,
   Collapse,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Avatar,
 } from '@mui/material'
 import {
   GitBranch,
@@ -72,9 +78,13 @@ import {
 } from '../services/repositoryAccessGrantService'
 import {
   useKoditEnrichments,
+  useKoditStatus,
   groupEnrichmentsByType,
   getEnrichmentTypeName,
-  getEnrichmentTypeIcon,
+  getEnrichmentSubtypeName,
+  KODIT_TYPE_USAGE,
+  KODIT_TYPE_DEVELOPER,
+  KODIT_TYPE_LIVING_DOCUMENTATION,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 
@@ -103,10 +113,11 @@ const GitRepoDetail: FC = () => {
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
   const pushPullMutation = usePushPullGitRepository()
 
-  // Kodit code intelligence enrichments
+  // Kodit code intelligence enrichments (internal summary types filtered in backend)
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
   const enrichments = enrichmentsData?.data || []
-  const groupedEnrichments = groupEnrichmentsByType(enrichments)
+  const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
+  const { data: koditStatusData } = useKoditStatus(repoId || '', { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
 
   // UI State
   const [currentTab, setCurrentTab] = useState(0)
@@ -484,6 +495,12 @@ const GitRepoDetail: FC = () => {
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
               <Tab
+                icon={<Brain size={16} />}
+                iconPosition="start"
+                label="Code Intelligence"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
@@ -507,34 +524,199 @@ const GitRepoDetail: FC = () => {
 
         {/* Tab panels */}
         <Box sx={{ mt: 3 }}>
-          {/* Code Tab */}
+          {/* Code Intelligence Tab */}
           {currentTab === 0 && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {/* Code Intelligence - Architecture enrichments from Kodit */}
-              {enrichments.length > 0 && groupedEnrichments['architecture'] && (
-                <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
-                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, fontWeight: 600 }}>
-                    {getEnrichmentTypeIcon('architecture')} {getEnrichmentTypeName('architecture')} Insights
-                  </Typography>
-                  <Stack spacing={2}>
-                    {groupedEnrichments['architecture'].map((enrichment: any, index: number) => (
-                      <Box key={enrichment.id || index}>
-                        {enrichment.attributes?.subtype && (
-                          <Chip
-                            label={enrichment.attributes.subtype}
-                            size="small"
-                            sx={{ mb: 1, bgcolor: 'rgba(0, 213, 255, 0.15)', color: '#00d5ff', fontWeight: 600 }}
-                          />
-                        )}
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                          {enrichment.attributes?.content}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Paper>
+            <Box sx={{ maxWidth: 1200 }}>
+              {/* Kodit Status Display */}
+              {repository.metadata?.kodit_indexing ? (
+                <Box sx={{ mb: 4 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Brain size={24} />
+                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                      Code Intelligence
+                    </Typography>
+                    <Chip
+                      label={koditStatusData?.status || 'Active'}
+                      size="small"
+                      color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
+                      sx={{ ml: 1 }}
+                    />
+                  </Box>
+
+                  {koditStatusData?.message && (
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                      {koditStatusData.message}
+                    </Alert>
+                  )}
+                </Box>
+              ) : (
+                <Alert severity="info" sx={{ mb: 4 }}>
+                  Code Intelligence is not enabled for this repository. Enable it in the Settings tab to start indexing.
+                </Alert>
               )}
 
+              {/* Enrichments Cards - Sectioned by Type */}
+              {enrichments.length > 0 && Object.keys(groupedEnrichmentsByType).length > 0 ? (
+                <Stack spacing={4}>
+                  {/* Define the order of sections - also include any other types that exist */}
+                  {[KODIT_TYPE_DEVELOPER, KODIT_TYPE_USAGE, KODIT_TYPE_LIVING_DOCUMENTATION, ...Object.keys(groupedEnrichmentsByType).filter(t =>
+                    t !== KODIT_TYPE_DEVELOPER && t !== KODIT_TYPE_USAGE && t !== KODIT_TYPE_LIVING_DOCUMENTATION
+                  )].map((type) => {
+                    const typeEnrichments = groupedEnrichmentsByType[type]
+                    if (!typeEnrichments || typeEnrichments.length === 0) return null
+
+                    const typeName = getEnrichmentTypeName(type)
+                    const typeDescription = type === KODIT_TYPE_DEVELOPER
+                      ? 'Architecture, APIs, and technical documentation'
+                      : type === KODIT_TYPE_USAGE
+                      ? 'How-to guides and usage examples'
+                      : 'Recent changes and commit descriptions'
+
+                    return (
+                      <Box key={type}>
+                        {/* Section Header */}
+                        <Box sx={{ mb: 3 }}>
+                          <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            {typeName}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {typeDescription}
+                          </Typography>
+                        </Box>
+
+                        {/* Cards Grid */}
+                        <Grid container spacing={2}>
+                          {typeEnrichments.map((enrichment: any, index: number) => {
+                            const subtype = enrichment.attributes?.subtype
+                            const subtypeName = getEnrichmentSubtypeName(subtype)
+
+                            // Choose color scheme based on type
+                            const borderColor = type === KODIT_TYPE_DEVELOPER
+                              ? 'primary.main'
+                              : type === KODIT_TYPE_USAGE
+                              ? 'success.main'
+                              : 'info.main'
+                            const iconColor = type === KODIT_TYPE_DEVELOPER
+                              ? '#1976d2'
+                              : type === KODIT_TYPE_USAGE
+                              ? '#2e7d32'
+                              : '#0288d1'
+
+                            return (
+                              <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>
+                                <Card
+                                  sx={{
+                                    height: 280,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    boxShadow: 1,
+                                    borderStyle: 'dashed',
+                                    borderWidth: 1,
+                                    borderColor: 'divider',
+                                    transition: 'all 0.2s',
+                                    '&:hover': {
+                                      boxShadow: 3,
+                                      transform: 'translateY(-2px)',
+                                      borderColor: borderColor,
+                                    },
+                                  }}
+                                >
+                                  <CardHeader
+                                    avatar={
+                                      <Avatar sx={{ bgcolor: 'white', width: 40, height: 40, border: '2px solid', borderColor: borderColor }}>
+                                        {type === KODIT_TYPE_DEVELOPER ? (
+                                          <Brain size={24} color={iconColor} />
+                                        ) : type === KODIT_TYPE_USAGE ? (
+                                          <FileText size={24} color={iconColor} />
+                                        ) : (
+                                          <CodeIcon size={24} color={iconColor} />
+                                        )}
+                                      </Avatar>
+                                    }
+                                    title={subtypeName}
+                                    titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
+                                    subheader={enrichment.attributes?.updated_at ? new Date(enrichment.attributes.updated_at).toLocaleDateString() : ''}
+                                    subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
+                                    sx={{ pb: 1 }}
+                                  />
+                                  <CardContent sx={{
+                                    flexGrow: 1,
+                                    pt: 0,
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                  }}>
+                                    <Box
+                                      sx={{
+                                        fontSize: '0.8rem',
+                                        lineHeight: 1.5,
+                                        overflow: 'hidden',
+                                        color: 'text.secondary',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 8,
+                                        WebkitBoxOrient: 'vertical',
+                                        '& p': {
+                                          margin: '0 0 0.5em 0',
+                                          '&:last-child': { margin: 0 }
+                                        },
+                                        '& ul, & ol': {
+                                          margin: '0 0 0.5em 0',
+                                          paddingLeft: '1.2em'
+                                        },
+                                        '& li': {
+                                          margin: '0.2em 0'
+                                        },
+                                        '& code': {
+                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                          padding: '0.1em 0.3em',
+                                          borderRadius: '3px',
+                                          fontSize: '0.9em',
+                                          fontFamily: 'monospace'
+                                        },
+                                        '& pre': {
+                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                          padding: '0.5em',
+                                          borderRadius: '4px',
+                                          overflow: 'auto',
+                                          fontSize: '0.85em'
+                                        },
+                                        '& h1, & h2, & h3, & h4, & h5, & h6': {
+                                          margin: '0.5em 0 0.3em 0',
+                                          fontWeight: 600
+                                        }
+                                      }}
+                                    >
+                                      <ReactMarkdown>
+                                        {enrichment.attributes?.content || 'No content available'}
+                                      </ReactMarkdown>
+                                    </Box>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                            )
+                          })}
+                        </Grid>
+                      </Box>
+                    )
+                  })}
+                </Stack>
+              ) : repository.metadata?.kodit_indexing ? (
+                <Box sx={{ textAlign: 'center', py: 8 }}>
+                  <Brain size={48} color="#656d76" style={{ marginBottom: 16, opacity: 0.5 }} />
+                  <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
+                    No insights available yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Kodit is analyzing your repository. Check back soon!
+                  </Typography>
+                </Box>
+              ) : null}
+            </Box>
+          )}
+
+          {/* Code Tab */}
+          {currentTab === 1 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {/* File browser and file viewer */}
               <Box sx={{ display: 'flex', gap: 3 }}>
                 {/* Main content - File browser */}
@@ -846,7 +1028,7 @@ const GitRepoDetail: FC = () => {
           )}
 
           {/* Settings Tab */}
-          {currentTab === 1 && (
+          {currentTab === 2 && (
             <Box sx={{ maxWidth: 800 }}>
               <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
@@ -1032,7 +1214,7 @@ const GitRepoDetail: FC = () => {
           )}
 
           {/* Access Tab */}
-          {currentTab === 2 && (
+          {currentTab === 3 && (
             <Box sx={{ maxWidth: 800 }}>
               <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
