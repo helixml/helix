@@ -2420,6 +2420,12 @@ const docTemplate = `{
                         "description": "Filter by repository type",
                         "name": "repo_type",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by organization ID",
+                        "name": "organization_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2428,7 +2434,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/services.GitRepository"
+                                "$ref": "#/definitions/types.GitRepository"
                             }
                         }
                     },
@@ -2464,7 +2470,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepositoryCreateRequest"
+                            "$ref": "#/definitions/types.GitRepositoryCreateRequest"
                         }
                     }
                 ],
@@ -2472,7 +2478,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
+                            "$ref": "#/definitions/types.GitRepository"
                         }
                     },
                     "400": {
@@ -2518,7 +2524,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
+                            "$ref": "#/definitions/types.GitRepository"
                         }
                     },
                     "404": {
@@ -2566,7 +2572,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepositoryUpdateRequest"
+                            "$ref": "#/definitions/types.GitRepositoryUpdateRequest"
                         }
                     }
                 ],
@@ -2574,7 +2580,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
+                            "$ref": "#/definitions/types.GitRepository"
                         }
                     },
                     "400": {
@@ -2794,53 +2800,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/git/repositories/{id}/enrichments": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get code intelligence enrichments for a repository from Kodit",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Get repository enrichments",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Repository ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/services.KoditEnrichmentListResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/{id}/file": {
+        "/api/v1/git/repositories/{id}/contents": {
             "get": {
                 "security": [
                     {
@@ -2882,7 +2842,110 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepositoryFileResponse"
+                            "$ref": "#/definitions/types.GitRepositoryFileResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create or update the contents of a file in a repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create or update file contents",
+                "operationId": "createOrUpdateGitRepositoryFileContents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update file contents request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.UpdateGitRepositoryFileContentsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GitRepositoryFileResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/git/repositories/{id}/enrichments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get code intelligence enrichments for a repository from Kodit",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Get repository enrichments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/services.KoditEnrichmentListResponse"
                         }
                     },
                     "404": {
@@ -2947,6 +3010,65 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/push-pull": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pulls latest commits from remote and pushes local commits. Automatically merges if needed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Push and pull repository",
+                "operationId": "pushPullGitRepository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Branch name (defaults to repository default branch)",
+                        "name": "branch",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.PushPullResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/tree": {
             "get": {
                 "security": [
@@ -2988,7 +3110,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepositoryTreeResponse"
+                            "$ref": "#/definitions/types.GitRepositoryTreeResponse"
                         }
                     },
                     "404": {
@@ -5080,7 +5202,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/store.GitRepository"
+                                "$ref": "#/definitions/types.GitRepository"
                             }
                         }
                     },
@@ -6316,7 +6438,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/server.CreateSampleRepositoryRequest"
+                            "$ref": "#/definitions/types.CreateSampleRepositoryRequest"
                         }
                     }
                 ],
@@ -6324,7 +6446,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
+                            "$ref": "#/definitions/types.GitRepository"
                         }
                     },
                     "400": {
@@ -12647,27 +12769,6 @@ const docTemplate = `{
                 }
             }
         },
-        "server.CreateSampleRepositoryRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "kodit_indexing": {
-                    "description": "Enable Kodit code intelligence indexing",
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "sample_type": {
-                    "type": "string"
-                }
-            }
-        },
         "server.CreateSpecTaskFromDemoRequest": {
             "type": "object",
             "required": [
@@ -12676,6 +12777,9 @@ const docTemplate = `{
             ],
             "properties": {
                 "demo_repo": {
+                    "type": "string"
+                },
+                "organization_id": {
                     "type": "string"
                 },
                 "priority": {
@@ -12870,6 +12974,9 @@ const docTemplate = `{
         "server.InitializeSampleRepositoriesRequest": {
             "type": "object",
             "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
                 "owner_id": {
                     "type": "string"
                 },
@@ -12891,7 +12998,7 @@ const docTemplate = `{
                 "created_repositories": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/services.GitRepository"
+                        "$ref": "#/definitions/types.GitRepository"
                     }
                 },
                 "errors": {
@@ -13016,6 +13123,23 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                }
+            }
+        },
+        "server.PushPullResponse": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
                 }
             }
         },
@@ -13798,174 +13922,6 @@ const docTemplate = `{
                 }
             }
         },
-        "services.GitRepository": {
-            "type": "object",
-            "properties": {
-                "branches": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "clone_url": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "default_branch": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "local_path": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "repo_type": {
-                    "$ref": "#/definitions/services.GitRepositoryType"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/services.GitRepositoryStatus"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.GitRepositoryCreateRequest": {
-            "type": "object",
-            "properties": {
-                "default_branch": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "initial_files": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "description": "Organization ID - required for access control",
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "repo_type": {
-                    "$ref": "#/definitions/services.GitRepositoryType"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.GitRepositoryFileResponse": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.GitRepositoryStatus": {
-            "type": "string",
-            "enum": [
-                "active",
-                "archived",
-                "deleted"
-            ],
-            "x-enum-varnames": [
-                "GitRepositoryStatusActive",
-                "GitRepositoryStatusArchived",
-                "GitRepositoryStatusDeleted"
-            ]
-        },
-        "services.GitRepositoryTreeResponse": {
-            "type": "object",
-            "properties": {
-                "entries": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/services.TreeEntry"
-                    }
-                },
-                "path": {
-                    "type": "string"
-                }
-            }
-        },
-        "services.GitRepositoryType": {
-            "type": "string",
-            "enum": [
-                "internal",
-                "code"
-            ],
-            "x-enum-comments": {
-                "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
-                "GitRepositoryTypeInternal": "Internal project config repository"
-            },
-            "x-enum-varnames": [
-                "GitRepositoryTypeInternal",
-                "GitRepositoryTypeCode"
-            ]
-        },
-        "services.GitRepositoryUpdateRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
-        },
         "services.HandoffResult": {
             "type": "object",
             "properties": {
@@ -14273,23 +14229,6 @@ const docTemplate = `{
                 }
             }
         },
-        "services.TreeEntry": {
-            "type": "object",
-            "properties": {
-                "is_dir": {
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                }
-            }
-        },
         "services.ZedSessionCreationResult": {
             "type": "object",
             "properties": {
@@ -14389,92 +14328,6 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if String is not NULL",
                     "type": "boolean"
-                }
-            }
-        },
-        "store.GitRepository": {
-            "type": "object",
-            "properties": {
-                "clone_url": {
-                    "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "credential_ref": {
-                    "description": "Reference to stored credentials (SSH key, OAuth token, etc.)",
-                    "type": "string"
-                },
-                "default_branch": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "external_repo_id": {
-                    "description": "External platform's repository ID",
-                    "type": "string"
-                },
-                "external_type": {
-                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
-                    "type": "string"
-                },
-                "external_url": {
-                    "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_external": {
-                    "description": "External repository fields",
-                    "type": "boolean"
-                },
-                "kodit_indexing": {
-                    "description": "Code intelligence fields",
-                    "type": "boolean"
-                },
-                "last_activity": {
-                    "type": "string"
-                },
-                "local_path": {
-                    "description": "Local filesystem path for Helix-hosted repos (empty for external)",
-                    "type": "string"
-                },
-                "metadata": {
-                    "description": "Transient field, not persisted (used by services)",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "metadata_json": {
-                    "description": "Stores Metadata as JSON",
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "organization_id": {
-                    "description": "Organization ID - will be backfilled for existing repos",
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "project_id": {
-                    "type": "string"
-                },
-                "repo_type": {
-                    "type": "string"
-                },
-                "spec_task_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
                 }
             }
         },
@@ -16122,6 +15975,30 @@ const docTemplate = `{
                 }
             }
         },
+        "types.CreateSampleRepositoryRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing",
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "sample_type": {
+                    "type": "string"
+                }
+            }
+        },
         "types.CreateTeamRequest": {
             "type": "object",
             "properties": {
@@ -16385,6 +16262,21 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "types.ExternalRepositoryType": {
+            "type": "string",
+            "enum": [
+                "github",
+                "gitlab",
+                "ado",
+                "bitbucket"
+            ],
+            "x-enum-varnames": [
+                "ExternalRepositoryTypeGitHub",
+                "ExternalRepositoryTypeGitLab",
+                "ExternalRepositoryTypeADO",
+                "ExternalRepositoryTypeBitbucket"
+            ]
         },
         "types.Feedback": {
             "type": "string",
@@ -16755,6 +16647,240 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "repo_owner": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitRepository": {
+            "type": "object",
+            "properties": {
+                "branches": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "clone_url": {
+                    "description": "For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "external_url": {
+                    "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_external": {
+                    "description": "External repository fields",
+                    "type": "boolean"
+                },
+                "kodit_indexing": {
+                    "description": "Code intelligence fields",
+                    "type": "boolean"
+                },
+                "last_activity": {
+                    "type": "string"
+                },
+                "local_path": {
+                    "description": "Local filesystem path for Helix-hosted repos (empty for external)",
+                    "type": "string"
+                },
+                "metadata": {
+                    "description": "Stores Metadata as JSON",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID - will be backfilled for existing repos",
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "password": {
+                    "description": "Password for the repository",
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_type": {
+                    "$ref": "#/definitions/types.GitRepositoryType"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.GitRepositoryStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "username": {
+                    "description": "Authentication fields",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitRepositoryCreateRequest": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
+                },
+                "external_url": {
+                    "description": "Full URL to external repo (e.g., https://github.com/org/repo)",
+                    "type": "string"
+                },
+                "initial_files": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "is_external": {
+                    "description": "True for GitHub/GitLab/ADO, false for Helix-hosted",
+                    "type": "boolean"
+                },
+                "kodit_indexing": {
+                    "description": "Enable Kodit code intelligence indexing",
+                    "type": "boolean"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID - required for access control",
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "password": {
+                    "description": "Password for the repository",
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "repo_type": {
+                    "$ref": "#/definitions/types.GitRepositoryType"
+                },
+                "username": {
+                    "description": "Username for the repository",
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitRepositoryFileResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitRepositoryStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "archived",
+                "deleted"
+            ],
+            "x-enum-varnames": [
+                "GitRepositoryStatusActive",
+                "GitRepositoryStatusArchived",
+                "GitRepositoryStatusDeleted"
+            ]
+        },
+        "types.GitRepositoryTreeResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.TreeEntry"
+                    }
+                },
+                "path": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GitRepositoryType": {
+            "type": "string",
+            "enum": [
+                "internal",
+                "code"
+            ],
+            "x-enum-comments": {
+                "GitRepositoryTypeCode": "Code repository (user projects, samples, external repos)",
+                "GitRepositoryTypeInternal": "Internal project config repository"
+            },
+            "x-enum-varnames": [
+                "GitRepositoryTypeInternal",
+                "GitRepositoryTypeCode"
+            ]
+        },
+        "types.GitRepositoryUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "default_branch": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_url": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -21750,6 +21876,23 @@ const docTemplate = `{
                 }
             }
         },
+        "types.TreeEntry": {
+            "type": "object",
+            "properties": {
+                "is_dir": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Trigger": {
             "type": "object",
             "properties": {
@@ -21925,6 +22068,35 @@ const docTemplate = `{
                 "TriggerTypeAzureDevOps",
                 "TriggerTypeCron"
             ]
+        },
+        "types.UpdateGitRepositoryFileContentsRequest": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "description": "Author name",
+                    "type": "string"
+                },
+                "branch": {
+                    "description": "Branch name",
+                    "type": "string"
+                },
+                "content": {
+                    "description": "Base64 encoded content",
+                    "type": "string"
+                },
+                "email": {
+                    "description": "Author email",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "Commit message",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "File path",
+                    "type": "string"
+                }
+            }
         },
         "types.UpdateOrganizationMemberRequest": {
             "type": "object",
@@ -22360,6 +22532,10 @@ const docTemplate = `{
         "wolf.SystemHealthResponse": {
             "type": "object",
             "properties": {
+                "can_create_new_pipelines": {
+                    "description": "Tests if GStreamer type lock is available",
+                    "type": "boolean"
+                },
                 "overall_status": {
                     "type": "string"
                 },

@@ -101,11 +101,14 @@ func (apiServer *HelixAPIServer) createSpecTaskFromDemo(_ http.ResponseWriter, r
 	repoName := fmt.Sprintf("%s-%d", demoReq.DemoRepo, req.Context().Value("request_time"))
 	repo, err := gitService.CreateSampleRepository(
 		ctx,
-		repoName,
-		fmt.Sprintf("Demo repository for SpecTask"),
-		user.ID,
-		demoReq.DemoRepo,
-		true, // Enable Kodit indexing by default for demo repos
+		&types.CreateSampleRepositoryRequest{
+			Name:           repoName,
+			Description:    fmt.Sprintf("Demo repository for SpecTask"),
+			OwnerID:        user.ID,
+			OrganizationID: demoReq.OrganizationID,
+			SampleType:     demoReq.DemoRepo,
+			KoditIndexing:  true,
+		},
 	)
 	if err != nil {
 		log.Error().Err(err).Str("demo_repo", demoReq.DemoRepo).Msg("Failed to create sample repository")
@@ -197,8 +200,8 @@ func (apiServer *HelixAPIServer) getSpecTaskDesignDocs(_ http.ResponseWriter, re
 	}
 
 	response := &DesignDocsResponse{
-		TaskID:     task.ID,
-		Documents:  designDocs,
+		TaskID:    task.ID,
+		Documents: designDocs,
 	}
 
 	return response, nil
@@ -276,14 +279,14 @@ type LiveAgentFleetProgressResponse struct {
 }
 
 type AgentProgressItem struct {
-	AgentID     string         `json:"agent_id"`
-	TaskID      string         `json:"task_id"`
-	TaskName    string         `json:"task_name"`
-	CurrentTask *TaskItemDTO   `json:"current_task"`
-	TasksBefore []TaskItemDTO  `json:"tasks_before"`
-	TasksAfter  []TaskItemDTO  `json:"tasks_after"`
-	LastUpdate  string         `json:"last_update"`
-	Phase       string         `json:"phase"`
+	AgentID     string        `json:"agent_id"`
+	TaskID      string        `json:"task_id"`
+	TaskName    string        `json:"task_name"`
+	CurrentTask *TaskItemDTO  `json:"current_task"`
+	TasksBefore []TaskItemDTO `json:"tasks_before"`
+	TasksAfter  []TaskItemDTO `json:"tasks_after"`
+	LastUpdate  string        `json:"last_update"`
+	Phase       string        `json:"phase"`
 }
 
 type TaskItemDTO struct {
@@ -293,10 +296,11 @@ type TaskItemDTO struct {
 }
 
 type CreateSpecTaskFromDemoRequest struct {
-	Prompt   string `json:"prompt" validate:"required"`
-	DemoRepo string `json:"demo_repo" validate:"required"`
-	Type     string `json:"type"`
-	Priority string `json:"priority"`
+	Prompt         string `json:"prompt" validate:"required"`
+	DemoRepo       string `json:"demo_repo" validate:"required"`
+	Type           string `json:"type"`
+	Priority       string `json:"priority"`
+	OrganizationID string `json:"organization_id"`
 }
 
 type DesignDocsResponse struct {
@@ -646,14 +650,14 @@ func (apiServer *HelixAPIServer) getSpecTaskExternalAgentStatus(res http.Respons
 
 // SpecTaskExternalAgentStatusResponse represents external agent status
 type SpecTaskExternalAgentStatusResponse struct {
-	Exists            bool     `json:"exists"`
-	ExternalAgentID   string   `json:"external_agent_id,omitempty"`
-	Status            string   `json:"status,omitempty"`
-	WolfAppID         string   `json:"wolf_app_id,omitempty"`
-	WorkspaceDir      string   `json:"workspace_dir,omitempty"`
-	HelixSessionIDs   []string `json:"helix_session_ids,omitempty"`
-	SessionCount      int      `json:"session_count,omitempty"`
-	IdleMinutes       int      `json:"idle_minutes,omitempty"`
-	WillTerminateIn   int      `json:"will_terminate_in,omitempty"`
-	WarningThreshold  bool     `json:"warning_threshold,omitempty"`
+	Exists           bool     `json:"exists"`
+	ExternalAgentID  string   `json:"external_agent_id,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	WolfAppID        string   `json:"wolf_app_id,omitempty"`
+	WorkspaceDir     string   `json:"workspace_dir,omitempty"`
+	HelixSessionIDs  []string `json:"helix_session_ids,omitempty"`
+	SessionCount     int      `json:"session_count,omitempty"`
+	IdleMinutes      int      `json:"idle_minutes,omitempty"`
+	WillTerminateIn  int      `json:"will_terminate_in,omitempty"`
+	WarningThreshold bool     `json:"warning_threshold,omitempty"`
 }

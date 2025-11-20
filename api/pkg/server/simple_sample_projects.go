@@ -811,7 +811,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 	// Create GitRepository entry for internal repo
 	internalRepoID := fmt.Sprintf("%s-internal", createdProject.ID)
-	internalRepo := &store.GitRepository{
+	internalRepo := &types.GitRepository{
 		ID:             internalRepoID,
 		Name:           fmt.Sprintf("%s-internal", data.SlugifyName(createdProject.Name)),
 		Description:    "Internal project repository for configuration and metadata",
@@ -822,7 +822,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Status:         "ready",
 		LocalPath:      internalRepoPath,
 		DefaultBranch:  "main",
-		MetadataJSON:   "{}",
+		Metadata:       map[string]interface{}{},
 	}
 
 	log.Info().
@@ -865,7 +865,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Create GitRepository entry for code repo
 		codeRepoID := fmt.Sprintf("%s-code", createdProject.ID)
-		codeRepo := &store.GitRepository{
+		codeRepo := &types.GitRepository{
 			ID:             codeRepoID,
 			Name:           data.SlugifyName(createdProject.Name),
 			Description:    fmt.Sprintf("Helix codebase for %s", createdProject.Name),
@@ -876,7 +876,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
+			Metadata:       map[string]interface{}{},
 		}
 
 		log.Info().
@@ -916,7 +916,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize notebooks repository: %v", repoErr))
 		}
 
-		notebooksRepo := &store.GitRepository{
+		notebooksRepo := &types.GitRepository{
 			ID:             notebooksRepoID,
 			Name:           fmt.Sprintf("%s-notebooks", data.SlugifyName(createdProject.Name)),
 			Description:    "Jupyter notebooks for financial analysis",
@@ -927,7 +927,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      notebooksPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   `{"repo_purpose": "notebooks"}`,
+			Metadata:       map[string]interface{}{"repo_purpose": "notebooks"},
 		}
 
 		err = s.Store.CreateGitRepository(ctx, notebooksRepo)
@@ -951,7 +951,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to initialize pyforest repository: %v", repoErr))
 		}
 
-		pyforestRepo := &store.GitRepository{
+		pyforestRepo := &types.GitRepository{
 			ID:             pyforestRepoID,
 			Name:           "pyforest",
 			Description:    "Python library for financial analysis and portfolio management",
@@ -962,7 +962,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      pyforestPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   `{"repo_purpose": "library"}`,
+			Metadata:       map[string]interface{}{"repo_purpose": "library"},
 		}
 
 		err = s.Store.CreateGitRepository(ctx, pyforestRepo)
@@ -995,7 +995,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		}
 
 		// Create GitRepository entry for code repo
-		codeRepo := &store.GitRepository{
+		codeRepo := &types.GitRepository{
 			ID:             codeRepoID,
 			Name:           data.SlugifyName(createdProject.Name),
 			Description:    fmt.Sprintf("Code repository for %s", createdProject.Name),
@@ -1006,7 +1006,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 			Status:         "ready",
 			LocalPath:      codeRepoPath,
 			DefaultBranch:  "main",
-			MetadataJSON:   "{}",
+			Metadata:       map[string]interface{}{},
 		}
 
 		log.Info().

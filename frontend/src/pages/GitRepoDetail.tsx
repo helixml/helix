@@ -2,9 +2,7 @@ import React, { FC, useState } from 'react'
 import Container from '@mui/material/Container'
 import {
   Box,
-  Typography,
-  Card,
-  CardContent,
+  Typography,  
   CircularProgress,
   Alert,
   Button,
@@ -22,31 +20,34 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
+  InputAdornment,
   Tabs,
   Tab,
   Tooltip,
   Paper,
+  Collapse,
 } from '@mui/material'
 import {
   GitBranch,
   Copy,
   ExternalLink,
-  ArrowLeft,
-  Edit,
+  ArrowLeft, 
   Brain,
   Link,
   Trash2,
-  Plus,
   Folder,
-  File,
   FileText,
   ChevronRight,
+  ChevronDown,
   X as CloseIcon,
   Settings,
   Users,
   Code as CodeIcon,
-  Download,
+  Eye,
+  EyeOff,
+  Plus,
+  Pencil,
+  ArrowUpDown,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -61,6 +62,8 @@ import {
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
+  useCreateOrUpdateRepositoryFile,
+  usePushPullGitRepository,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -73,6 +76,7 @@ import {
   getEnrichmentTypeName,
   getEnrichmentTypeIcon,
 } from '../services/koditService'
+import MonacoEditor from '../components/widgets/MonacoEditor'
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -90,12 +94,14 @@ const GitRepoDetail: FC = () => {
   const { data: repository, isLoading, error } = useGitRepository(repoId || '')
 
   // List branches for branch switcher
-  const { data: branches = [] } = useListRepositoryBranches(repoId || '')
+  const { data: branches = [], isLoading: branchesLoading } = useListRepositoryBranches(repoId || '')
 
   // Access grants for RBAC
   const { data: accessGrants = [], isLoading: accessGrantsLoading } = useListRepositoryAccessGrants(repoId || '', !!repoId)
   const createAccessGrantMutation = useCreateRepositoryAccessGrant(repoId || '')
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
+  const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
+  const pushPullMutation = usePushPullGitRepository()
 
   // Kodit code intelligence enrichments
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
@@ -109,13 +115,26 @@ const GitRepoDetail: FC = () => {
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
+  const [editExternalUrl, setEditExternalUrl] = useState('')
+  const [editUsername, setEditUsername] = useState('')
+  const [editPassword, setEditPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
+  const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
+
+  // Create/Edit File Dialog State
+  const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
+  const [isEditingFile, setIsEditingFile] = useState(false)
+  const [newFilePath, setNewFilePath] = useState('')
+  const [newFileContent, setNewFileContent] = useState('')
+  const [creatingFile, setCreatingFile] = useState(false)
 
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
@@ -125,6 +144,19 @@ const GitRepoDetail: FC = () => {
     currentBranch,
     !!selectedFile
   )
+
+  // Initialize edit fields when repository loads
+  React.useEffect(() => {
+    if (repository) {
+      setEditName(repository.name || '')
+      setEditDescription(repository.description || '')
+      setEditDefaultBranch(repository.default_branch || '')
+      setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditExternalUrl(repository.external_url || '')
+      setEditUsername(repository.username || '')
+      setEditPassword('')
+    }
+  }, [repository])
 
   // Auto-load README.md when repository loads
   React.useEffect(() => {
@@ -142,7 +174,11 @@ const GitRepoDetail: FC = () => {
     if (repository) {
       setEditName(repository.name || '')
       setEditDescription(repository.description || '')
+      setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
+      setEditExternalUrl(repository.external_url || '')
+      setEditUsername(repository.username || '')
+      setEditPassword('')
       setEditDialogOpen(true)
     }
   }
@@ -153,20 +189,32 @@ const GitRepoDetail: FC = () => {
     setUpdating(true)
     try {
       const apiClient = api.getApiClient()
-      await apiClient.v1GitRepositoriesUpdate(repoId, {
+      const updateData: any = {
         name: editName,
         description: editDescription,
+        default_branch: editDefaultBranch || undefined,
         metadata: {
           ...repository.metadata,
           kodit_indexing: editKoditIndexing,
         },
-      })
+      }
+
+      if (repository.is_external || repository.external_url) {
+        updateData.external_url = editExternalUrl || undefined
+        updateData.username = editUsername || undefined
+      }
+      if (editPassword && editPassword !== '') {
+        updateData.password = editPassword
+      }
+
+      await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
 
       // Invalidate queries
       await queryClient.invalidateQueries({ queryKey: ['git-repository', repoId] })
       await queryClient.invalidateQueries({ queryKey: ['git-repositories', ownerId] })
 
       setEditDialogOpen(false)
+      setEditPassword('')
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
@@ -202,6 +250,19 @@ const GitRepoDetail: FC = () => {
     setCopiedClone(true)
     snackbar.success('Clone URL copied to clipboard')
     setTimeout(() => setCopiedClone(false), 2000)
+  }
+
+  const handlePushPull = async () => {
+    if (!repoId) return
+
+    try {
+      const branch = currentBranch || repository?.default_branch || undefined
+      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch })
+      snackbar.success('Repository synchronized successfully')
+    } catch (error) {
+      console.error('Failed to push/pull repository:', error)
+      snackbar.error('Failed to synchronize repository')
+    }
   }
 
   const handleCreateAccessGrant = async (request: any) => {
@@ -251,6 +312,67 @@ const GitRepoDetail: FC = () => {
     setSelectedFile(null)
   }
 
+  const handleCreateFile = async () => {
+    if (!repoId || !newFilePath) return
+
+    setCreatingFile(true)
+    try {
+      // Base64 encode content (handling unicode)
+      const encodedContent = btoa(unescape(encodeURIComponent(newFileContent)))
+      const branch = currentBranch || repository.default_branch || 'main'
+
+      await createOrUpdateFileMutation.mutateAsync({
+        repositoryId: repoId,
+        request: {
+          path: newFilePath,
+          branch: branch,
+          content: encodedContent,
+          message: isEditingFile ? `Update ${newFilePath}` : `Create ${newFilePath}`,
+        }
+      })
+
+      // Calculate parent directory of the file being created
+      const filePathParts = newFilePath.split('/').filter(p => p)
+      const parentDir = filePathParts.length > 1 
+        ? filePathParts.slice(0, -1).join('/')
+        : '.'
+
+      // Use the same branch value as the query (currentBranch, which can be empty string)
+      const queryBranch = currentBranch || ''
+
+      // Invalidate tree queries for the parent directory and current path
+      // This ensures the file list refreshes whether viewing the parent dir or a subdirectory
+      const pathsToInvalidate = [parentDir]
+      if (currentPath !== parentDir) {
+        pathsToInvalidate.push(currentPath)
+      }
+
+      for (const path of pathsToInvalidate) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch] 
+        })
+      }
+
+      // Invalidate the file query if we're editing
+      if (isEditingFile) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch] 
+        })
+      }
+
+      snackbar.success(isEditingFile ? 'File updated successfully' : 'File created successfully')
+      setCreateFileDialogOpen(false)
+      setNewFilePath('')
+      setNewFileContent('')
+      setIsEditingFile(false)
+    } catch (error) {
+      console.error('Failed to create/update file:', error)
+      snackbar.error(isEditingFile ? 'Failed to update file' : 'Failed to create file')
+    } finally {
+      setCreatingFile(false)
+    }
+  }
+
   const getPathBreadcrumbs = () => {
     if (currentPath === '.') return []
     return currentPath.split('/').filter(p => p !== '.')
@@ -289,7 +411,7 @@ const GitRepoDetail: FC = () => {
   // Generate proper clone URL
   // External repos: use their external URL
   // Helix repos: use the git server URL format
-  const isExternal = repository.metadata?.is_external || false
+  const isExternal = repository.external_url !== '' || false
   const cloneUrl = isExternal
     ? (repository.metadata?.external_url || '')
     : (repository.clone_url || `${window.location.origin}/git/${repoId}`)
@@ -355,28 +477,6 @@ const GitRepoDetail: FC = () => {
                   variant="outlined"
                 />
               </Box>
-            </Box>
-
-            {/* Action buttons */}
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<Download size={16} />}
-                onClick={() => setCloneDialogOpen(true)}
-                sx={{ textTransform: 'none' }}
-              >
-                Code
-              </Button>
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                startIcon={<Plus size={16} />}
-                onClick={() => navigate('spec-tasks', { new: 'true', repo_id: repoId })}
-              >
-                New Spec Task
-              </Button>
             </Box>
           </Box>
 
@@ -476,17 +576,37 @@ const GitRepoDetail: FC = () => {
                           </MenuItem>
                         ))}
                       </Select>
-                    </FormControl>
+                    </FormControl>                    
+                    <Button
+                      startIcon={<Plus size={16} />}
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
+                        setNewFileContent('')
+                        setIsEditingFile(false)
+                        setCreateFileDialogOpen(true)
+                      }}
+                      sx={{  height: 40, whiteSpace: 'nowrap' }}
+                    >
+                      Add File
+                    </Button>
+                    {isExternal && (
+                      <Button
+                        startIcon={<ArrowUpDown size={16} />}
+                        variant="outlined"
+                        size="small"
+                        onClick={handlePushPull}
+                        disabled={pushPullMutation.isPending}
+                        sx={{ height: 40, whiteSpace: 'nowrap' }}
+                      >
+                        {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                      </Button>
+                    )}
 
                     {/* Breadcrumb navigation */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
-                      <Chip
-                        label={repository.name}
-                        size="small"
-                        onClick={() => handleNavigateToDirectory('.')}
-                        sx={{ cursor: 'pointer', fontWeight: 500 }}
-                        variant={currentPath === '.' ? 'filled' : 'outlined'}
-                      />
+                      
                       {getPathBreadcrumbs().map((part, index, arr) => {
                         const path = arr.slice(0, index + 1).join('/')
                         const isLast = index === arr.length - 1
@@ -614,9 +734,26 @@ const GitRepoDetail: FC = () => {
                       <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                         {selectedFile.split('/').pop()}
                       </Typography>
-                      <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                        <CloseIcon size={16} />
-                      </IconButton>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Tooltip title="Edit file">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => {
+                              if (selectedFile && fileData?.content) {
+                                setNewFilePath(selectedFile)
+                                setNewFileContent(fileData.content)
+                                setIsEditingFile(true)
+                                setCreateFileDialogOpen(true)
+                              }
+                            }}
+                          >
+                            <Pencil size={16} />
+                          </IconButton>
+                        </Tooltip>
+                        <IconButton size="small" onClick={() => setSelectedFile(null)}>
+                          <CloseIcon size={16} />
+                        </IconButton>
+                      </Box>
                     </Box>
                     {fileLoading ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -735,6 +872,21 @@ const GitRepoDetail: FC = () => {
                     helperText="A short description of what this repository contains"
                   />
 
+                  <TextField
+                    label="Default Branch"
+                    fullWidth
+                    value={editDefaultBranch || repository.default_branch || ''}
+                    onChange={(e) => setEditDefaultBranch(e.target.value)}
+                    helperText="The default branch for this repository"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
                   <FormControlLabel
                     control={
                       <Switch
@@ -760,43 +912,119 @@ const GitRepoDetail: FC = () => {
 
                   <Divider />
 
+                  {(repository.is_external || repository.external_url) && (
+                    <>
+                      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
+                        External Repository Settings
+                      </Typography>
+
+                      <TextField
+                        label="External URL"
+                        fullWidth
+                        value={editExternalUrl || repository.external_url || ''}
+                        onChange={(e) => setEditExternalUrl(e.target.value)}
+                        helperText="Full URL to the external repository (e.g., https://github.com/org/repo)"
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+
+                      <TextField
+                        label="Username"
+                        fullWidth
+                        value={editUsername || repository.username || ''}
+                        onChange={(e) => setEditUsername(e.target.value)}
+                        helperText="Username for authenticating with the external repository"
+                      />
+
+                      <TextField
+                        label="Password"
+                        fullWidth
+                        type={showPassword ? 'text' : 'password'}
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => setShowPassword(!showPassword)}
+                                edge="end"
+                                size="small"
+                              >
+                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </>
+                  )}
+
+                  <Divider />
+
                   <Box sx={{ display: 'flex', gap: 2 }}>
+                    {/* Add spacing between buttons */}
+                    <Box sx={{ flex: 1 }} />
                     <Button
+                      color="secondary"
                       onClick={handleUpdateRepository}
                       variant="contained"
                       disabled={updating}
                     >
                       {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setEditName('')
-                        setEditDescription('')
-                        setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
-                      }}
-                      variant="outlined"
-                    >
-                      Reset
-                    </Button>
+                    </Button>                    
                   </Box>
 
                   <Divider sx={{ my: 2 }} />
 
                   <Box>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'error.main' }}>
-                      Danger Zone
-                    </Typography>
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                      Once you delete a repository, there is no going back. This action cannot be undone.
-                    </Alert>
-                    <Button
-                      onClick={() => setDeleteDialogOpen(true)}
-                      variant="outlined"
-                      color="error"
-                      startIcon={<Trash2 size={16} />}
+                    <Box
+                      onClick={() => setDangerZoneExpanded(!dangerZoneExpanded)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        mb: dangerZoneExpanded ? 2 : 0,
+                        '&:hover': {
+                          opacity: 0.8,
+                        },
+                      }}
                     >
-                      Delete Repository
-                    </Button>
+                      <Typography variant="h6" sx={{ fontWeight: 600, color: 'error.main' }}>
+                        Danger Zone
+                      </Typography>
+                      <ChevronDown
+                        size={20}
+                        style={{
+                          color: 'var(--mui-palette-error-main)',
+                          transform: dangerZoneExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s',
+                        }}
+                      />
+                    </Box>
+                    <Collapse in={dangerZoneExpanded}>
+                      <Box>
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                          Once you delete a repository, there is no going back. This action cannot be undone.
+                        </Alert>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button
+                            onClick={() => setDeleteDialogOpen(true)}
+                            variant="outlined"
+                            color="error"
+                            startIcon={<Trash2 size={16} />}
+                          >
+                            Delete Repository
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Collapse>
                   </Box>
                 </Stack>
               </Paper>
@@ -819,7 +1047,7 @@ const GitRepoDetail: FC = () => {
                     appId={repoId || ''}
                     accessGrants={accessGrants}
                     isLoading={accessGrantsLoading}
-                    isReadOnly={repository.owner_id !== account.user?.id && !account.user?.admin}
+                    isReadOnly={repository.owner_id !== account.user?.id && !account.admin}
                     onCreateGrant={handleCreateAccessGrant}
                     onDeleteGrant={handleDeleteAccessGrant}
                   />
@@ -933,6 +1161,21 @@ const GitRepoDetail: FC = () => {
                 onChange={(e) => setEditDescription(e.target.value)}
               />
 
+              <TextField
+                label="Default Branch"
+                fullWidth
+                value={editDefaultBranch}
+                onChange={(e) => setEditDefaultBranch(e.target.value)}
+                helperText="The default branch for this repository"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
               <FormControlLabel
                 control={
                   <Switch
@@ -950,6 +1193,49 @@ const GitRepoDetail: FC = () => {
                   </Box>
                 }
               />
+
+              {(repository?.is_external || repository?.external_url) && (
+                <>
+                  <Divider />
+                  <TextField
+                    label="External URL"
+                    fullWidth
+                    value={editExternalUrl}
+                    onChange={(e) => setEditExternalUrl(e.target.value)}
+                    helperText="Full URL to the external repository"
+                  />
+
+                  <TextField
+                    label="Username"
+                    fullWidth
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    helperText="Username for authenticating with the external repository"
+                  />
+
+                  <TextField
+                    label="Password"
+                    fullWidth
+                    type={showPassword ? 'text' : 'password'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    helperText={repository?.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPassword(!showPassword)}
+                            edge="end"
+                            size="small"
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </>
+              )}
             </Stack>
           </DialogContent>
           <DialogActions>
@@ -984,6 +1270,105 @@ const GitRepoDetail: FC = () => {
               disabled={deleting}
             >
               {deleting ? <CircularProgress size={20} /> : 'Delete Repository'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Create/Edit File Dialog */}
+        <Dialog 
+          open={createFileDialogOpen} 
+          onClose={() => {
+            setCreateFileDialogOpen(false)
+            setIsEditingFile(false)
+            setNewFilePath('')
+            setNewFileContent('')
+          }} 
+          maxWidth="lg" 
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {isEditingFile ? 'Edit File' : 'Create New File'}
+            </Typography>
+            <IconButton 
+              onClick={() => {
+                setCreateFileDialogOpen(false)
+                setIsEditingFile(false)
+                setNewFilePath('')
+                setNewFileContent('')
+              }} 
+              edge="end" 
+              size="small"
+            >
+              <CloseIcon size={20} />
+            </IconButton>
+          </DialogTitle>
+
+          <DialogContent sx={{ p: 3, height: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' }}>
+              <TextField
+                label="Filename"
+                fullWidth
+                value={newFilePath}
+                onChange={(e) => setNewFilePath(e.target.value)}
+                placeholder="path/to/file.txt"
+                disabled={isEditingFile}
+                helperText={`${isEditingFile ? 'Editing' : 'Creating'} in branch ${currentBranch || repository.default_branch || 'main'}`}
+                InputProps={{
+                  sx: { fontFamily: 'monospace' }
+                }}
+              />
+              <Box sx={{ 
+                flex: 1, 
+                minHeight: 0, 
+                border: '1px solid', 
+                borderColor: 'divider', 
+                borderRadius: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                position: 'relative'
+              }}>
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+                  <MonacoEditor
+                    value={newFileContent}
+                    onChange={setNewFileContent}
+                    language={
+                      newFilePath.endsWith('.json') ? 'json' :
+                      newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
+                      newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
+                      newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
+                      newFilePath.endsWith('.go') ? 'go' :
+                      newFilePath.endsWith('.py') ? 'python' :
+                      newFilePath.endsWith('.md') ? 'markdown' :
+                      newFilePath.endsWith('.css') ? 'css' :
+                      newFilePath.endsWith('.html') ? 'html' :
+                      newFilePath.endsWith('.sh') ? 'shell' :
+                      'plaintext'
+                    }
+                    height="100%"
+                    autoHeight={false}
+                    theme="helix-dark"
+                    options={{
+                      minimap: { enabled: true },
+                      scrollBeyondLastLine: false,
+                      fontSize: 14,
+                      padding: { top: 16, bottom: 16 },
+                      automaticLayout: true,
+                    }}
+                  />
+                </Box>
+              </Box>
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>                        
+            <Button
+              onClick={handleCreateFile}
+              color="secondary"
+              variant="contained"
+              disabled={!newFilePath.trim() || creatingFile}
+            >
+              {creatingFile ? <CircularProgress size={20} /> : (isEditingFile ? 'Update File' : 'Create File')}
             </Button>
           </DialogActions>
         </Dialog>

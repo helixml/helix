@@ -867,23 +867,11 @@ definitions:
       total_events:
         type: integer
     type: object
-  server.CreateSampleRepositoryRequest:
-    properties:
-      description:
-        type: string
-      kodit_indexing:
-        description: Enable Kodit code intelligence indexing
-        type: boolean
-      name:
-        type: string
-      owner_id:
-        type: string
-      sample_type:
-        type: string
-    type: object
   server.CreateSpecTaskFromDemoRequest:
     properties:
       demo_repo:
+        type: string
+      organization_id:
         type: string
       priority:
         type: string
@@ -1014,6 +1002,8 @@ definitions:
     type: object
   server.InitializeSampleRepositoriesRequest:
     properties:
+      organization_id:
+        type: string
       owner_id:
         type: string
       sample_types:
@@ -1028,7 +1018,7 @@ definitions:
         type: integer
       created_repositories:
         items:
-          $ref: '#/definitions/services.GitRepository'
+          $ref: '#/definitions/types.GitRepository'
         type: array
       errors:
         items:
@@ -1111,6 +1101,17 @@ definitions:
         type: string
       status:
         type: string
+    type: object
+  server.PushPullResponse:
+    properties:
+      branch:
+        type: string
+      message:
+        type: string
+      repository_id:
+        type: string
+      success:
+        type: boolean
     type: object
   server.SampleProject:
     properties:
@@ -1633,120 +1634,6 @@ definitions:
       spec_task_id:
         type: string
     type: object
-  services.GitRepository:
-    properties:
-      branches:
-        items:
-          type: string
-        type: array
-      clone_url:
-        type: string
-      created_at:
-        type: string
-      default_branch:
-        type: string
-      description:
-        type: string
-      id:
-        type: string
-      last_activity:
-        type: string
-      local_path:
-        type: string
-      metadata:
-        additionalProperties: true
-        type: object
-      name:
-        type: string
-      organization_id:
-        type: string
-      owner_id:
-        type: string
-      project_id:
-        type: string
-      repo_type:
-        $ref: '#/definitions/services.GitRepositoryType'
-      spec_task_id:
-        type: string
-      status:
-        $ref: '#/definitions/services.GitRepositoryStatus'
-      updated_at:
-        type: string
-    type: object
-  services.GitRepositoryCreateRequest:
-    properties:
-      default_branch:
-        type: string
-      description:
-        type: string
-      initial_files:
-        additionalProperties:
-          type: string
-        type: object
-      metadata:
-        additionalProperties: true
-        type: object
-      name:
-        type: string
-      organization_id:
-        description: Organization ID - required for access control
-        type: string
-      owner_id:
-        type: string
-      project_id:
-        type: string
-      repo_type:
-        $ref: '#/definitions/services.GitRepositoryType'
-      spec_task_id:
-        type: string
-    type: object
-  services.GitRepositoryFileResponse:
-    properties:
-      content:
-        type: string
-      path:
-        type: string
-    type: object
-  services.GitRepositoryStatus:
-    enum:
-    - active
-    - archived
-    - deleted
-    type: string
-    x-enum-varnames:
-    - GitRepositoryStatusActive
-    - GitRepositoryStatusArchived
-    - GitRepositoryStatusDeleted
-  services.GitRepositoryTreeResponse:
-    properties:
-      entries:
-        items:
-          $ref: '#/definitions/services.TreeEntry'
-        type: array
-      path:
-        type: string
-    type: object
-  services.GitRepositoryType:
-    enum:
-    - internal
-    - code
-    type: string
-    x-enum-comments:
-      GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
-      GitRepositoryTypeInternal: Internal project config repository
-    x-enum-varnames:
-    - GitRepositoryTypeInternal
-    - GitRepositoryTypeCode
-  services.GitRepositoryUpdateRequest:
-    properties:
-      description:
-        type: string
-      metadata:
-        additionalProperties: true
-        type: object
-      name:
-        type: string
-    type: object
   services.HandoffResult:
     properties:
       branch_name:
@@ -1952,17 +1839,6 @@ definitions:
       timestamp:
         type: string
     type: object
-  services.TreeEntry:
-    properties:
-      is_dir:
-        type: boolean
-      name:
-        type: string
-      path:
-        type: string
-      size:
-        type: integer
-    type: object
   services.ZedSessionCreationResult:
     properties:
       creation_method:
@@ -2030,67 +1906,6 @@ definitions:
       valid:
         description: Valid is true if String is not NULL
         type: boolean
-    type: object
-  store.GitRepository:
-    properties:
-      clone_url:
-        description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
-        type: string
-      created_at:
-        type: string
-      credential_ref:
-        description: Reference to stored credentials (SSH key, OAuth token, etc.)
-        type: string
-      default_branch:
-        type: string
-      description:
-        type: string
-      external_repo_id:
-        description: External platform's repository ID
-        type: string
-      external_type:
-        description: '"github", "gitlab", "ado", "bitbucket", etc.'
-        type: string
-      external_url:
-        description: Full URL to external repo (e.g., https://github.com/org/repo)
-        type: string
-      id:
-        type: string
-      is_external:
-        description: External repository fields
-        type: boolean
-      kodit_indexing:
-        description: Code intelligence fields
-        type: boolean
-      last_activity:
-        type: string
-      local_path:
-        description: Local filesystem path for Helix-hosted repos (empty for external)
-        type: string
-      metadata:
-        additionalProperties: true
-        description: Transient field, not persisted (used by services)
-        type: object
-      metadata_json:
-        description: Stores Metadata as JSON
-        type: string
-      name:
-        type: string
-      organization_id:
-        description: Organization ID - will be backfilled for existing repos
-        type: string
-      owner_id:
-        type: string
-      project_id:
-        type: string
-      repo_type:
-        type: string
-      spec_task_id:
-        type: string
-      status:
-        type: string
-      updated_at:
-        type: string
     type: object
   stripe.SubscriptionStatus:
     enum:
@@ -3246,6 +3061,22 @@ definitions:
         description: User ID or email
         type: string
     type: object
+  types.CreateSampleRepositoryRequest:
+    properties:
+      description:
+        type: string
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing
+        type: boolean
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner_id:
+        type: string
+      sample_type:
+        type: string
+    type: object
   types.CreateTeamRequest:
     properties:
       name:
@@ -3423,6 +3254,18 @@ definitions:
       status:
         type: string
     type: object
+  types.ExternalRepositoryType:
+    enum:
+    - github
+    - gitlab
+    - ado
+    - bitbucket
+    type: string
+    x-enum-varnames:
+    - ExternalRepositoryTypeGitHub
+    - ExternalRepositoryTypeGitLab
+    - ExternalRepositoryTypeADO
+    - ExternalRepositoryTypeBitbucket
   types.Feedback:
     enum:
     - like
@@ -3673,6 +3516,166 @@ definitions:
       repo_name:
         type: string
       repo_owner:
+        type: string
+    type: object
+  types.GitRepository:
+    properties:
+      branches:
+        items:
+          type: string
+        type: array
+      clone_url:
+        description: 'For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git'
+        type: string
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      description:
+        type: string
+      external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
+      external_url:
+        description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      id:
+        type: string
+      is_external:
+        description: External repository fields
+        type: boolean
+      kodit_indexing:
+        description: Code intelligence fields
+        type: boolean
+      last_activity:
+        type: string
+      local_path:
+        description: Local filesystem path for Helix-hosted repos (empty for external)
+        type: string
+      metadata:
+        additionalProperties: true
+        description: Stores Metadata as JSON
+        type: object
+      name:
+        type: string
+      organization_id:
+        description: Organization ID - will be backfilled for existing repos
+        type: string
+      owner_id:
+        type: string
+      password:
+        description: Password for the repository
+        type: string
+      project_id:
+        type: string
+      repo_type:
+        $ref: '#/definitions/types.GitRepositoryType'
+      status:
+        $ref: '#/definitions/types.GitRepositoryStatus'
+      updated_at:
+        type: string
+      username:
+        description: Authentication fields
+        type: string
+    type: object
+  types.GitRepositoryCreateRequest:
+    properties:
+      default_branch:
+        type: string
+      description:
+        type: string
+      external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
+      external_url:
+        description: Full URL to external repo (e.g., https://github.com/org/repo)
+        type: string
+      initial_files:
+        additionalProperties:
+          type: string
+        type: object
+      is_external:
+        description: True for GitHub/GitLab/ADO, false for Helix-hosted
+        type: boolean
+      kodit_indexing:
+        description: Enable Kodit code intelligence indexing
+        type: boolean
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      organization_id:
+        description: Organization ID - required for access control
+        type: string
+      owner_id:
+        type: string
+      password:
+        description: Password for the repository
+        type: string
+      project_id:
+        type: string
+      repo_type:
+        $ref: '#/definitions/types.GitRepositoryType'
+      username:
+        description: Username for the repository
+        type: string
+    type: object
+  types.GitRepositoryFileResponse:
+    properties:
+      content:
+        type: string
+      path:
+        type: string
+    type: object
+  types.GitRepositoryStatus:
+    enum:
+    - active
+    - archived
+    - deleted
+    type: string
+    x-enum-varnames:
+    - GitRepositoryStatusActive
+    - GitRepositoryStatusArchived
+    - GitRepositoryStatusDeleted
+  types.GitRepositoryTreeResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/types.TreeEntry'
+        type: array
+      path:
+        type: string
+    type: object
+  types.GitRepositoryType:
+    enum:
+    - internal
+    - code
+    type: string
+    x-enum-comments:
+      GitRepositoryTypeCode: Code repository (user projects, samples, external repos)
+      GitRepositoryTypeInternal: Internal project config repository
+    x-enum-varnames:
+    - GitRepositoryTypeInternal
+    - GitRepositoryTypeCode
+  types.GitRepositoryUpdateRequest:
+    properties:
+      default_branch:
+        type: string
+      description:
+        type: string
+      external_url:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      password:
+        type: string
+      username:
         type: string
     type: object
   types.GlobalAllocationDecision:
@@ -7185,6 +7188,17 @@ definitions:
       model:
         type: string
     type: object
+  types.TreeEntry:
+    properties:
+      is_dir:
+        type: boolean
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
   types.Trigger:
     properties:
       agent_work_queue:
@@ -7308,6 +7322,27 @@ definitions:
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+  types.UpdateGitRepositoryFileContentsRequest:
+    properties:
+      author:
+        description: Author name
+        type: string
+      branch:
+        description: Branch name
+        type: string
+      content:
+        description: Base64 encoded content
+        type: string
+      email:
+        description: Author email
+        type: string
+      message:
+        description: Commit message
+        type: string
+      path:
+        description: File path
+        type: string
+    type: object
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -7597,6 +7632,9 @@ definitions:
     type: object
   wolf.SystemHealthResponse:
     properties:
+      can_create_new_pipelines:
+        description: Tests if GStreamer type lock is available
+        type: boolean
       overall_status:
         type: string
       process_uptime_seconds:
@@ -9164,6 +9202,10 @@ paths:
         in: query
         name: repo_type
         type: string
+      - description: Filter by organization ID
+        in: query
+        name: organization_id
+        type: string
       produces:
       - application/json
       responses:
@@ -9171,7 +9213,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/services.GitRepository'
+              $ref: '#/definitions/types.GitRepository'
             type: array
         "500":
           description: Internal Server Error
@@ -9192,14 +9234,14 @@ paths:
         name: repository
         required: true
         schema:
-          $ref: '#/definitions/services.GitRepositoryCreateRequest'
+          $ref: '#/definitions/types.GitRepositoryCreateRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/services.GitRepository'
+            $ref: '#/definitions/types.GitRepository'
         "400":
           description: Bad Request
           schema:
@@ -9252,7 +9294,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.GitRepository'
+            $ref: '#/definitions/types.GitRepository'
         "404":
           description: Not Found
           schema:
@@ -9281,14 +9323,14 @@ paths:
         name: repository
         required: true
         schema:
-          $ref: '#/definitions/services.GitRepositoryUpdateRequest'
+          $ref: '#/definitions/types.GitRepositoryUpdateRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.GitRepository'
+            $ref: '#/definitions/types.GitRepository'
         "400":
           description: Bad Request
           schema:
@@ -9407,6 +9449,82 @@ paths:
       summary: Get clone command
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/contents:
+    get:
+      description: Get the contents of a file at a specific path in a repository
+      operationId: getGitRepositoryFile
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File path
+        in: query
+        name: path
+        required: true
+        type: string
+      - description: Branch name (defaults to HEAD if not specified)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitRepositoryFileResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get file contents
+      tags:
+      - git-repositories
+    put:
+      consumes:
+      - application/json
+      description: Create or update the contents of a file in a repository
+      operationId: createOrUpdateGitRepositoryFileContents
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update file contents request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateGitRepositoryFileContentsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GitRepositoryFileResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create or update file contents
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/enrichments:
     get:
       description: Get code intelligence enrichments for a repository from Kodit
@@ -9434,45 +9552,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository enrichments
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/{id}/file:
-    get:
-      description: Get the contents of a file at a specific path in a repository
-      operationId: getGitRepositoryFile
-      parameters:
-      - description: Repository ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: File path
-        in: query
-        name: path
-        required: true
-        type: string
-      - description: Branch name (defaults to HEAD if not specified)
-        in: query
-        name: branch
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/services.GitRepositoryFileResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Get file contents
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:
@@ -9505,6 +9584,45 @@ paths:
       summary: Get repository indexing status
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/push-pull:
+    post:
+      description: Pulls latest commits from remote and pushes local commits. Automatically
+        merges if needed.
+      operationId: pushPullGitRepository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name (defaults to repository default branch)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.PushPullResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Push and pull repository
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/tree:
     get:
       description: Get list of files and directories at a specific path in a repository
@@ -9529,7 +9647,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/services.GitRepositoryTreeResponse'
+            $ref: '#/definitions/types.GitRepositoryTreeResponse'
         "404":
           description: Not Found
           schema:
@@ -10846,7 +10964,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/store.GitRepository'
+              $ref: '#/definitions/types.GitRepository'
             type: array
         "401":
           description: Unauthorized
@@ -11626,14 +11744,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/server.CreateSampleRepositoryRequest'
+          $ref: '#/definitions/types.CreateSampleRepositoryRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/services.GitRepository'
+            $ref: '#/definitions/types.GitRepository'
         "400":
           description: Bad Request
           schema:

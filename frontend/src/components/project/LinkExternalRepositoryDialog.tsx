@@ -6,7 +6,6 @@ import {
   DialogActions,
   Button,
   TextField,
-  Alert,
   Stack,
   FormControlLabel,
   Switch,
@@ -17,13 +16,15 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Link,
+  Tooltip,
 } from '@mui/material'
 import { Brain } from 'lucide-react'
 
 interface LinkExternalRepositoryDialogProps {
   open: boolean
   onClose: () => void
-  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean) => Promise<void>
+  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string) => Promise<void>
   isCreating: boolean
 }
 
@@ -37,6 +38,8 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
   const [name, setName] = useState('')
   const [type, setType] = useState<'github' | 'gitlab' | 'ado' | 'other'>('github')
   const [koditIndexing, setKoditIndexing] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -45,11 +48,13 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
       setName('')
       setType('github')
       setKoditIndexing(true)
+      setUsername('')
+      setPassword('')
     }
   }, [open])
 
   const handleSubmit = async () => {
-    await onSubmit(url, name, type, koditIndexing)
+    await onSubmit(url, name, type, koditIndexing, username || undefined, password || undefined)
   }
 
   return (
@@ -86,6 +91,43 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
           />
 
           <TextField
+            label="Username"
+            fullWidth
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Repository username"
+            helperText="Username for repository authentication (optional)"
+          />
+
+          <TextField
+            label="Password"
+            fullWidth
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password or Personal Access Token"
+            helperText={
+              type === 'ado' ? (
+                <Box>
+                  <Typography variant="caption" component="span">
+                    Personal Access Token for Azure DevOps authentication.{' '}
+                  </Typography>
+                  <Link
+                    href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="caption"
+                  >
+                    Learn how to create one
+                  </Link>
+                </Box>
+              ) : (
+                'Password or Personal Access Token for the repository (optional)'
+              )
+            }
+          />
+
+          <TextField
             label="Repository Name (Optional)"
             fullWidth
             value={name}
@@ -93,40 +135,38 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
             helperText="Display name (auto-extracted from URL if empty)"
           />
 
-          <FormControlLabel
-            control={
-              <Switch
-                checked={koditIndexing}
-                onChange={(e) => setKoditIndexing(e.target.checked)}
-                color="primary"
-              />
+          <Tooltip
+            title={
+              koditIndexing
+                ? 'Code Intelligence enabled: Kodit will index this external repository to provide code snippets and architectural summaries via MCP server.'
+                : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
             }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Brain size={18} />
-                <Typography variant="body2">
-                  Enable Code Intelligence
-                </Typography>
-              </Box>
-            }
-          />
-
-          <Alert severity="warning">
-            Authentication to external repositories is not yet implemented. You can link repositories for reference, but cloning and syncing will require manual setup.
-          </Alert>
-
-          <Alert severity="info">
-            {koditIndexing
-              ? 'Code Intelligence enabled: Kodit will index this external repository to provide code snippets and architectural summaries via MCP server.'
-              : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
-            }
-          </Alert>
+            arrow
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={koditIndexing}
+                  onChange={(e) => setKoditIndexing(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Brain size={18} />
+                  <Typography variant="body2">
+                    Code Intelligence
+                  </Typography>
+                </Box>
+              }
+            />
+          </Tooltip>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      <DialogActions>        
         <Button
           onClick={handleSubmit}
+          color="secondary"
           variant="contained"
           disabled={!url.trim() || isCreating}
         >

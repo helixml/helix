@@ -1,4 +1,4 @@
-package azuredevops
+package git
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
+	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/rs/zerolog/log"
-
 	"github.com/sourcegraph/go-diff/diff"
 )
 
@@ -345,4 +345,37 @@ func (g *GitManager) parseDiffLine(line string, hunk *DiffHunk) *DiffLine { //no
 	}
 
 	return &diffLine
+}
+
+// PullRequestDiffResult contains the diff information for a pull request
+type PullRequestDiffResult struct {
+	Changes     []*PullRequestChange      `json:"changes"`
+	PullRequest vcsclient.PullRequestInfo `json:"pull_request"`
+}
+
+type PullRequestChange struct {
+	Path          string       `json:"path"`
+	ChangeType    string       `json:"change_type"`
+	Content       string       `json:"content"`
+	ContentLength int          `json:"content_length"`
+	ContentType   string       `json:"content_type"`
+	Encoding      string       `json:"encoding"`
+	IsBinary      bool         `json:"is_binary"`
+	Hunks         []*diff.Hunk `json:"hunks,omitempty"`
+}
+
+type DiffHunk struct {
+	Header   string      `json:"header"`
+	OldStart int         `json:"old_start"`
+	OldLines int         `json:"old_lines"`
+	NewStart int         `json:"new_start"`
+	NewLines int         `json:"new_lines"`
+	Lines    []*DiffLine `json:"lines"`
+}
+
+type DiffLine struct {
+	Type    string `json:"type"`    // "added", "deleted", "context", "unchanged"
+	Content string `json:"content"` // The actual line content
+	OldNum  int    `json:"old_num"` // Line number in old file (0 if added)
+	NewNum  int    `json:"new_num"` // Line number in new file (0 if deleted)
 }

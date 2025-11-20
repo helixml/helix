@@ -42,15 +42,15 @@ type WolfExecutorInterface interface {
 
 // OrchestratedTask represents a task being orchestrated
 type OrchestratedTask struct {
-	SpecTask          *types.SpecTask           `json:"spec_task"`
-	Agent             *ExternalAgentInstance    `json:"agent"`
-	CurrentSessionID  string                    `json:"current_session_id"`
-	DesignDocsPath    string                    `json:"design_docs_path"`
-	RepoPath          string                    `json:"repo_path"`
-	CurrentTaskIndex  int                       `json:"current_task_index"`
-	TaskList          []TaskItem                `json:"task_list"`
-	LastUpdate        time.Time                 `json:"last_update"`
-	Phase             string                    `json:"phase"`
+	SpecTask         *types.SpecTask        `json:"spec_task"`
+	Agent            *ExternalAgentInstance `json:"agent"`
+	CurrentSessionID string                 `json:"current_session_id"`
+	DesignDocsPath   string                 `json:"design_docs_path"`
+	RepoPath         string                 `json:"repo_path"`
+	CurrentTaskIndex int                    `json:"current_task_index"`
+	TaskList         []TaskItem             `json:"task_list"`
+	LastUpdate       time.Time              `json:"last_update"`
+	Phase            string                 `json:"phase"`
 }
 
 // LiveProgressHandler handles live progress updates for dashboard
@@ -58,14 +58,14 @@ type LiveProgressHandler func(progress *LiveAgentProgress)
 
 // LiveAgentProgress represents current agent progress for dashboard
 type LiveAgentProgress struct {
-	AgentID      string      `json:"agent_id"`
-	TaskID       string      `json:"task_id"`
-	TaskName     string      `json:"task_name"`
-	CurrentTask  *TaskItem   `json:"current_task"`
-	TasksBefore  []TaskItem  `json:"tasks_before"`
-	TasksAfter   []TaskItem  `json:"tasks_after"`
-	LastUpdate   time.Time   `json:"last_update"`
-	Phase        string      `json:"phase"`
+	AgentID     string     `json:"agent_id"`
+	TaskID      string     `json:"task_id"`
+	TaskName    string     `json:"task_name"`
+	CurrentTask *TaskItem  `json:"current_task"`
+	TasksBefore []TaskItem `json:"tasks_before"`
+	TasksAfter  []TaskItem `json:"tasks_after"`
+	LastUpdate  time.Time  `json:"last_update"`
+	Phase       string     `json:"phase"`
 }
 
 // NewSpecTaskOrchestrator creates a new orchestrator
@@ -428,14 +428,12 @@ func (o *SpecTaskOrchestrator) buildImplementationPrompt(task *types.SpecTask, a
 	}
 
 	// Get repositories from parent project - repos are now managed at project level
-	var projectRepos []*store.GitRepository
-	if o.store != nil {
-		var err error
-		projectRepos, err = o.store.GetProjectRepositories(context.Background(), task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
-			projectRepos = nil
-		}
+	projectRepos, err := o.store.ListGitRepositories(context.Background(), &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for prompt building")
+		projectRepos = nil
 	}
 
 	// Find primary repo path (use first repo as fallback)
@@ -703,10 +701,11 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 	}
 
 	// Get all repositories for this project
-	repos, err := o.store.GetProjectRepositories(ctx, task.ProjectID)
+	repos, err := o.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get project repositories, continuing without git")
-		repos = nil
 	}
 
 	// Extract repository IDs
@@ -742,10 +741,10 @@ func (o *SpecTaskOrchestrator) getOrCreateExternalAgent(ctx context.Context, tas
 		SessionID:           agentID, // Agent-level session ID (not tied to specific Helix session)
 		UserID:              task.CreatedBy,
 		WorkDir:             workspaceDir,
-		ProjectPath:         "backend",         // Default primary repo path
-		RepositoryIDs:       repositoryIDs,     // Repositories to clone
-		PrimaryRepositoryID: primaryRepoID,     // Primary repository for design docs
-		SpecTaskID:          task.ID,           // Link to SpecTask
+		ProjectPath:         "backend",     // Default primary repo path
+		RepositoryIDs:       repositoryIDs, // Repositories to clone
+		PrimaryRepositoryID: primaryRepoID, // Primary repository for design docs
+		SpecTaskID:          task.ID,       // Link to SpecTask
 		DisplayWidth:        2560,
 		DisplayHeight:       1600,
 		DisplayRefreshRate:  60,
@@ -848,14 +847,12 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 	}
 
 	// Get repositories from parent project - repos are now managed at project level
-	var projectRepos []*store.GitRepository
-	if o.store != nil {
-		var err error
-		projectRepos, err = o.store.GetProjectRepositories(context.Background(), task.ProjectID)
-		if err != nil {
-			log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
-			projectRepos = nil
-		}
+	projectRepos, err := o.store.ListGitRepositories(context.Background(), &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories for planning prompt")
+		projectRepos = nil
 	}
 
 	// Note which repositories are available (already cloned by API server)
@@ -870,31 +867,6 @@ func (o *SpecTaskOrchestrator) buildPlanningPrompt(task *types.SpecTask, app *ty
 			repoInstructions += fmt.Sprintf("- `%s` at `~/work/%s`\n", repo.Name, repoPath)
 		}
 		repoInstructions += "\n"
-	}
-
-	// Get project's primary repo (or use first repo as fallback)
-	primaryRepoPath := "backend" // Default fallback
-	if o.store != nil {
-		project, projErr := o.store.GetProject(context.Background(), task.ProjectID)
-		if projErr == nil && len(projectRepos) > 0 {
-		// Find the primary repo
-		for _, repo := range projectRepos {
-			if repo.ID == project.DefaultRepoID {
-				primaryRepoPath = repo.LocalPath
-				if primaryRepoPath == "" {
-					primaryRepoPath = "backend"
-				}
-				break
-			}
-		}
-		// If no primary set or not found, use first repo
-		if primaryRepoPath == "backend" && len(projectRepos) > 0 {
-			primaryRepoPath = projectRepos[0].LocalPath
-			if primaryRepoPath == "" {
-				primaryRepoPath = "backend"
-			}
-		}
-		}
 	}
 
 	// Generate task directory name

@@ -106,15 +106,15 @@ type SwayWolfAppConfig struct {
 	WolfAppID         string
 	Title             string
 	ContainerHostname string
-	UserID            string   // User ID for SSH key mounting
-	SessionID         string   // Session ID for settings sync daemon
+	UserID            string // User ID for SSH key mounting
+	SessionID         string // Session ID for settings sync daemon
 	WorkspaceDir      string
 	ExtraEnv          []string
 	ExtraMounts       []string // Additional directory mounts (e.g., internal project repo)
 	// NOTE: Startup script is executed from cloned internal Git repo, not passed as config
-	DisplayWidth      int
-	DisplayHeight     int
-	DisplayFPS        int
+	DisplayWidth  int
+	DisplayHeight int
+	DisplayFPS    int
 }
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
@@ -283,7 +283,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		workspaceBasePathForCloning:  "/filestore/workspaces",                          // Path inside API container for git clone operations
 		workspaceBasePathForMounting: filepath.Join(filestoreVolumePath, "workspaces"), // Absolute host path for Wolf to mount
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
-		lobbyCacheTTL:                5 * time.Second, // Cache lobby lookups for 5 seconds to prevent Wolf API spam
+		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
 	}
 
@@ -304,7 +304,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 
 	return executor
 }
-
 
 // StartZedAgent implements the Executor interface for external agent sessions
 func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
@@ -626,7 +625,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
 		MultiUser:              true,
-		StopWhenEveryoneLeaves: false, // CRITICAL: Agent must keep running when no Moonlight clients connected!
+		StopWhenEveryoneLeaves: false,    // CRITICAL: Agent must keep running when no Moonlight clients connected!
 		PIN:                    lobbyPIN, // NEW: Require PIN to join lobby
 		VideoSettings: &wolf.LobbyVideoSettings{
 			Width:                   displayWidth,
@@ -730,7 +729,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Status:        "running", // Lobby starts immediately
 		ContainerName: containerHostname,
 		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString, // NEW: Return PIN for storage in Helix session
+		WolfLobbyPIN:  lobbyPINString,    // NEW: Return PIN for storage in Helix session
 	}
 
 	log.Info().
@@ -755,8 +754,8 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		LastInteraction: time.Now(),
 		AgentType:       agentType,
 		WolfAppID:       response.WolfAppID,
-		WolfLobbyID:     response.WolfLobbyID,   // Store lobby ID for cleanup even after session deleted
-		WolfLobbyPIN:    response.WolfLobbyPIN,  // Store lobby PIN for cleanup
+		WolfLobbyID:     response.WolfLobbyID,  // Store lobby ID for cleanup even after session deleted
+		WolfLobbyPIN:    response.WolfLobbyPIN, // Store lobby PIN for cleanup
 		WorkspaceDir:    workspaceDir,
 		UserID:          agent.UserID,
 	})
@@ -1312,18 +1311,6 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	return nil
 }
 
-// NOTE: Background session creation has been moved to Wolf's native auto_persistent_sessions feature.
-// Wolf now handles container lifecycle directly through auto_start_containers = true configuration.
-// No need for Helix to create fake background sessions - Wolf automatically starts containers
-// when apps are added, and real Moonlight clients can connect to running containers seamlessly.
-
-// generateRandomIP generates a unique fake IP address for RTSP routing
-func generateRandomIP() string {
-	// Generate a random IP in the 192.168.1.x range to avoid conflicts
-	// Wolf uses fake IPs to route RTSP connections back to the correct session
-	return fmt.Sprintf("192.168.1.%d", 100+time.Now().UnixNano()%155) // 100-254 range
-}
-
 // checkWolfAppExists checks if a Wolf app with the given ID already exists
 func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
 	apps, err := w.wolfClient.ListApps(ctx)
@@ -1437,7 +1424,6 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 
 	return "", fmt.Errorf("no external agent container found for Helix session ID: %s", helixSessionID)
 }
-
 
 // idleExternalAgentCleanupLoop runs periodically to cleanup idle SpecTask external agents
 // Terminates external agents after 1min of inactivity (for testing, will be 30min in production)
@@ -1903,273 +1889,6 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 			Int("stopped_count", stoppedCount).
 			Msg("Completed orphaned Wolf-UI session cleanup")
 	}
-}
-
-// setupGitRepositories clones git repositories and sets up design docs worktree for SpecTask agents
-func (w *WolfExecutor) setupGitRepositories(ctx context.Context, workspaceDir string, repositoryIDs []string, primaryRepositoryID string, userAPIToken string) error {
-	log.Info().
-		Str("workspace_dir", workspaceDir).
-		Strs("repository_ids", repositoryIDs).
-		Str("primary_repository_id", primaryRepositoryID).
-		Msg("Setting up git repositories for external agent")
-
-	// Create debug log file in workspace for easier troubleshooting
-	debugLogPath := filepath.Join(workspaceDir, "repo-setup-debug.log")
-	debugLog, err := os.OpenFile(debugLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to create debug log file (non-fatal)")
-	} else {
-		defer debugLog.Close()
-		debugLog.WriteString(fmt.Sprintf("\n=== Repository Setup Started: %s ===\n", time.Now().Format(time.RFC3339)))
-		debugLog.WriteString(fmt.Sprintf("Workspace Dir: %s\n", workspaceDir))
-		debugLog.WriteString(fmt.Sprintf("Repository IDs: %v\n", repositoryIDs))
-		debugLog.WriteString(fmt.Sprintf("Primary Repo ID: %s\n\n", primaryRepositoryID))
-	}
-
-	// Clone each repository
-	for _, repoID := range repositoryIDs {
-		if repoID == "" {
-			continue // Skip empty repository IDs
-		}
-
-		// Get repository details from database
-		repo, err := w.store.GetGitRepository(ctx, repoID)
-		if err != nil {
-			log.Error().Err(err).Str("repository_id", repoID).Msg("Failed to get repository details")
-			return fmt.Errorf("failed to get repository %s: %w", repoID, err)
-		}
-
-		// Determine clone directory
-		// Internal repos (project config) go to .helix-project for predictable access
-		// Regular code repos use their repository name
-		var cloneDir string
-		if repo.RepoType == "internal" {
-			cloneDir = filepath.Join(workspaceDir, ".helix-project")
-		} else {
-			cloneDir = filepath.Join(workspaceDir, repo.Name)
-		}
-
-		// Check if repository already exists
-		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); err == nil {
-			log.Info().
-				Str("repository_id", repoID).
-				Str("clone_dir", cloneDir).
-				Msg("Repository already cloned, skipping")
-
-			// Note: Design docs worktree will be created inside Wolf container during startup
-			// to ensure paths are correct for the container environment
-			continue
-		}
-
-		// For Helix-hosted repos (not external), clone from LocalPath
-		isExternal := false
-		if repo.Metadata != nil {
-			if val, ok := repo.Metadata["is_external"].(bool); ok {
-				isExternal = val
-			}
-		}
-
-		if !isExternal && repo.LocalPath != "" {
-			if debugLog != nil {
-				debugLog.WriteString(fmt.Sprintf("[%s] Cloning Helix-hosted repo: %s\n", repoID, repo.Name))
-				debugLog.WriteString(fmt.Sprintf("  Local Path: %s\n", repo.LocalPath))
-				debugLog.WriteString(fmt.Sprintf("  Clone Dir: %s\n", cloneDir))
-			}
-
-			log.Info().
-				Str("repository_id", repoID).
-				Str("local_path", repo.LocalPath).
-				Str("clone_dir", cloneDir).
-				Msg("Cloning Helix-hosted repository from local filesystem")
-
-			// Use HTTP git clone with user's API token for RBAC enforcement
-			// This allows agents to push changes AND respects user's repository permissions
-			httpCloneURL := fmt.Sprintf("http://api:%s@api:8080/git/%s", userAPIToken, repoID)
-			cloneCmd := fmt.Sprintf("git clone %q %q", httpCloneURL, cloneDir)
-			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
-			if err != nil {
-				if debugLog != nil {
-					debugLog.WriteString(fmt.Sprintf("  ❌ FAILED: %v\n", err))
-					debugLog.WriteString(fmt.Sprintf("  Output: %s\n\n", output))
-				}
-				log.Error().
-					Err(err).
-					Str("output", output).
-					Str("repository_id", repoID).
-					Str("local_path", repo.LocalPath).
-					Str("clone_dir", cloneDir).
-					Msg("Failed to clone Helix-hosted repository")
-				return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
-			}
-
-			if debugLog != nil {
-				debugLog.WriteString(fmt.Sprintf("  ✅ Successfully cloned\n\n"))
-			}
-
-			log.Info().
-				Str("repository_id", repoID).
-				Str("clone_dir", cloneDir).
-				Msg("Successfully cloned Helix-hosted repository")
-		} else {
-			// For external repos, use git clone with CloneURL
-			log.Info().
-				Str("repository_id", repoID).
-				Str("repository_url", repo.CloneURL).
-				Str("clone_dir", cloneDir).
-				Msg("Cloning external git repository")
-
-			if repo.CloneURL == "" {
-				// Create empty directory for unconfigured external repo
-				mkdirCmd := fmt.Sprintf("mkdir -p %q", cloneDir)
-				output, err := execCommand(ctx, workspaceDir, "bash", "-c", mkdirCmd)
-				if err != nil {
-					log.Error().
-						Err(err).
-						Str("output", output).
-						Str("repository_id", repoID).
-						Msg("Failed to create empty directory for repository")
-					return fmt.Errorf("failed to create directory for repository %s: %w", repo.Name, err)
-				}
-				log.Info().
-					Str("repository_id", repoID).
-					Str("clone_dir", cloneDir).
-					Msg("Created empty directory for unconfigured repository")
-				continue
-			}
-
-			cloneCmd := fmt.Sprintf("git clone %q %q", repo.CloneURL, cloneDir)
-			output, err := execCommand(ctx, workspaceDir, "bash", "-c", cloneCmd)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("output", output).
-					Str("repository_id", repoID).
-					Msg("Failed to clone repository")
-				return fmt.Errorf("failed to clone repository %s: %w", repo.Name, err)
-			}
-
-			log.Info().
-				Str("repository_id", repoID).
-				Str("clone_dir", cloneDir).
-				Msg("Successfully cloned git repository")
-		}
-
-		// For primary repository, ensure design docs branch exists
-		// (Worktree will be created inside Wolf container during startup)
-		if repoID == primaryRepositoryID {
-			err := w.setupDesignDocsWorktree(cloneDir, repo.Name)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to setup design docs branch")
-				// Continue - not fatal, branch can be created manually
-			}
-		}
-	}
-
-	return nil
-}
-
-// setupDesignDocsWorktree creates the helix-specs branch if it doesn't exist
-// Note: The actual worktree is created inside the Wolf container during startup
-// to ensure paths are correct for the container environment
-func (w *WolfExecutor) setupDesignDocsWorktree(repoPath, repoName string) error {
-	log.Info().
-		Str("repo_path", repoPath).
-		Msg("Ensuring helix-specs branch exists")
-
-	ctx := context.Background()
-
-	// Check if helix-specs branch exists remotely
-	checkBranchCmd := "git ls-remote --heads origin helix-specs"
-	output, err := execCommand(ctx, repoPath, "bash", "-c", checkBranchCmd)
-	branchExists := err == nil && output != ""
-
-	if !branchExists {
-		// Create orphan branch for design docs (forward-only, no shared history)
-		log.Info().
-			Str("repo_name", repoName).
-			Msg("Creating new helix-specs orphan branch")
-
-		// Configure git user for commit operations (required for command-line git)
-		configGitCmd := `
-			git config user.name "Helix System" && \
-			git config user.email "system@helix.ml"
-		`
-		_, err := execCommand(ctx, repoPath, "bash", "-c", configGitCmd)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to configure git user")
-			return fmt.Errorf("failed to configure git user: %w", err)
-		}
-
-		// CRITICAL: Save current branch name to restore it after creating design docs branch
-		// This prevents destroying the code files when we checkout the orphan branch
-		getCurrentBranchCmd := "git rev-parse --abbrev-ref HEAD"
-		currentBranch, err := execCommand(ctx, repoPath, "bash", "-c", getCurrentBranchCmd)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to get current branch")
-			return fmt.Errorf("failed to get current branch: %w", err)
-		}
-		currentBranch = strings.TrimSpace(currentBranch)
-
-		log.Info().
-			Str("current_branch", currentBranch).
-			Msg("Saved current branch name to restore after design docs setup")
-
-		// Check if repository has a remote configured
-		checkRemoteCmd := "git remote"
-		remoteOutput, err := execCommand(ctx, repoPath, "bash", "-c", checkRemoteCmd)
-		hasRemote := err == nil && strings.TrimSpace(remoteOutput) != ""
-
-		// Create branch commands (with or without push depending on remote)
-		var createBranchCmd string
-		if hasRemote {
-			createBranchCmd = fmt.Sprintf(`
-				git checkout --orphan helix-specs && \
-				git rm -rf . && \
-				echo "# Helix Design Documents" > README.md && \
-				echo "" >> README.md && \
-				echo "This branch contains design documents generated by Helix agents." >> README.md && \
-				echo "Documents are organized by task in tasks/ directory." >> README.md && \
-				mkdir -p tasks && \
-				git add README.md && \
-				git commit -m "Initialize helix-specs branch" && \
-				git push -u origin helix-specs && \
-				git checkout %s
-			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
-		} else {
-			// No remote - create branch locally only (for Helix-hosted repos)
-			createBranchCmd = fmt.Sprintf(`
-				git checkout --orphan helix-specs && \
-				git rm -rf . && \
-				echo "# Helix Design Documents" > README.md && \
-				echo "" >> README.md && \
-				echo "This branch contains design documents generated by Helix agents." >> README.md && \
-				echo "Documents are organized by task in tasks/ directory." >> README.md && \
-				mkdir -p tasks && \
-				git add README.md && \
-				git commit -m "Initialize helix-specs branch" && \
-				git checkout %s
-			`, currentBranch) // CRITICAL: Restore original branch, not hardcoded "main"
-			log.Info().Msg("Repository has no remote - creating design docs branch locally only")
-		}
-
-		_, err = execCommand(ctx, repoPath, "bash", "-c", createBranchCmd)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to create helix-specs branch")
-			return fmt.Errorf("failed to create helix-specs branch: %w", err)
-		}
-
-		log.Info().
-			Bool("has_remote", hasRemote).
-			Str("restored_branch", currentBranch).
-			Msg("Successfully created helix-specs branch and restored original branch")
-	}
-
-	// Worktree will be created inside Wolf container during startup
-	log.Info().
-		Str("repo_name", repoName).
-		Msg("helix-specs branch ready (worktree will be created in container)")
-
-	return nil
 }
 
 // execCommand executes a command in the specified directory and returns output
