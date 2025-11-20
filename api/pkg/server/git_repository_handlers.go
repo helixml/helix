@@ -1,12 +1,14 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/services"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -16,17 +18,27 @@ import (
 // @Tags git-repositories
 // @Accept json
 // @Produce json
-// @Param repository body services.GitRepositoryCreateRequest true "Repository creation request"
-// @Success 201 {object} services.GitRepository
+// @Param repository body types.GitRepositoryCreateRequest true "Repository creation request"
+// @Success 201 {object} types.GitRepository
 // @Failure 400 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories [post]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Request) {
-	var request services.GitRepositoryCreateRequest
+func (s *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *http.Request) {
+	var request types.GitRepositoryCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
 		return
+	}
+
+	user := getRequestUser(r)
+
+	if request.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
 	}
 
 	// Validate required fields
@@ -39,11 +51,11 @@ func (apiServer *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *h
 		return
 	}
 	if request.RepoType == "" {
-		request.RepoType = services.GitRepositoryTypeCode
+		request.RepoType = types.GitRepositoryTypeCode
 	}
 
 	// Create repository
-	repository, err := apiServer.gitRepositoryService.CreateRepository(r.Context(), &request)
+	repository, err := s.gitRepositoryService.CreateRepository(r.Context(), &request)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create git repository")
 		http.Error(w, fmt.Sprintf("Failed to create repository: %s", err.Error()), http.StatusInternalServerError)
@@ -61,12 +73,12 @@ func (apiServer *HelixAPIServer) createGitRepository(w http.ResponseWriter, r *h
 // @Tags git-repositories
 // @Produce json
 // @Param id path string true "Repository ID"
-// @Success 200 {object} services.GitRepository
+// @Success 200 {object} types.GitRepository
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories/{id} [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["id"]
 	if repoID == "" {
@@ -74,10 +86,25 @@ func (apiServer *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http
 		return
 	}
 
-	repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
 		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
 		return
 	}
 
@@ -92,14 +119,14 @@ func (apiServer *HelixAPIServer) getGitRepository(w http.ResponseWriter, r *http
 // @Accept json
 // @Produce json
 // @Param id path string true "Repository ID"
-// @Param repository body services.GitRepositoryUpdateRequest true "Repository update request"
-// @Success 200 {object} services.GitRepository
+// @Param repository body types.GitRepositoryUpdateRequest true "Repository update request"
+// @Success 200 {object} types.GitRepository
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories/{id} [put]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["id"]
 	if repoID == "" {
@@ -107,13 +134,36 @@ func (apiServer *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *h
 		return
 	}
 
-	var request services.GitRepositoryUpdateRequest
+	user := getRequestUser(r)
+
+	var request types.GitRepositoryUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
-	repository, err := apiServer.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request)
+	// Get existing one
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	repository, err := s.gitRepositoryService.UpdateRepository(r.Context(), repoID, &request)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to update git repository")
 		http.Error(w, fmt.Sprintf("Failed to update repository: %s", err.Error()), http.StatusInternalServerError)
@@ -134,7 +184,7 @@ func (apiServer *HelixAPIServer) updateGitRepository(w http.ResponseWriter, r *h
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories/{id} [delete]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["id"]
 	if repoID == "" {
@@ -142,7 +192,30 @@ func (apiServer *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *h
 		return
 	}
 
-	err := apiServer.gitRepositoryService.DeleteRepository(r.Context(), repoID)
+	user := getRequestUser(r)
+
+	// Get existing one
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	err = s.gitRepositoryService.DeleteRepository(r.Context(), repoID)
 	if err != nil {
 		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to delete git repository")
 		http.Error(w, fmt.Sprintf("Failed to delete repository: %s", err.Error()), http.StatusInternalServerError)
@@ -159,15 +232,32 @@ func (apiServer *HelixAPIServer) deleteGitRepository(w http.ResponseWriter, r *h
 // @Produce json
 // @Param owner_id query string false "Filter by owner ID"
 // @Param repo_type query string false "Filter by repository type"
-// @Success 200 {array} services.GitRepository
+// @Param organization_id query string false "Filter by organization ID"
+// @Success 200 {array} types.GitRepository
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	ownerID := r.URL.Query().Get("owner_id")
 	repoType := r.URL.Query().Get("repo_type")
+	orgID := r.URL.Query().Get("organization_id")
 
-	repositories, err := apiServer.gitRepositoryService.ListRepositories(r.Context(), ownerID)
+	user := getRequestUser(r)
+
+	if orgID != "" {
+		_, err := s.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	repositories, err := s.Store.ListGitRepositories(r.Context(), &types.ListGitRepositoriesRequest{
+		OwnerID:        ownerID,
+		OrganizationID: orgID,
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list git repositories")
 		http.Error(w, fmt.Sprintf("Failed to list repositories: %s", err.Error()), http.StatusInternalServerError)
@@ -176,7 +266,7 @@ func (apiServer *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *h
 
 	// Filter by repo type if specified
 	if repoType != "" {
-		filtered := make([]*services.GitRepository, 0)
+		filtered := make([]*types.GitRepository, 0)
 		for _, repo := range repositories {
 			if string(repo.RepoType) == repoType {
 				filtered = append(filtered, repo)
@@ -189,21 +279,22 @@ func (apiServer *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(repositories)
 }
 
-
 // createSampleRepository creates a sample/demo repository
 // @Summary Create sample repository
 // @Description Create a sample/demo git repository from available templates
 // @Tags samples
 // @Accept json
 // @Produce json
-// @Param request body CreateSampleRepositoryRequest true "Sample repository creation request"
-// @Success 201 {object} services.GitRepository
+// @Param request body types.CreateSampleRepositoryRequest true "Sample repository creation request"
+// @Success 201 {object} types.GitRepository
 // @Failure 400 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/samples/repositories [post]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.Request) {
-	var request CreateSampleRepositoryRequest
+func (s *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+
+	var request types.CreateSampleRepositoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
 		return
@@ -222,13 +313,17 @@ func (apiServer *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r
 		return
 	}
 
-	repository, err := apiServer.gitRepositoryService.CreateSampleRepository(
+	if request.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, request.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	repository, err := s.gitRepositoryService.CreateSampleRepository(
 		r.Context(),
-		request.Name,
-		request.Description,
-		request.OwnerID,
-		request.SampleType,
-		request.KoditIndexing,
+		&request,
 	)
 	if err != nil {
 		log.Error().Err(err).Str("sample_type", request.SampleType).Msg("Failed to create sample repository")
@@ -331,8 +426,8 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 		},
 	}
 
-	createdRepositories := make([]*services.GitRepository, 0)
-	errors := make([]string, 0)
+	var createdRepositories []*types.GitRepository
+	var errors []string
 
 	for _, sample := range sampleTypes {
 		// Skip if this sample type is disabled
@@ -351,11 +446,13 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 
 		repository, err := apiServer.gitRepositoryService.CreateSampleRepository(
 			r.Context(),
-			sample.Name,
-			sample.Description,
-			request.OwnerID,
-			sample.SampleType,
-			true, // Enable Kodit indexing by default for sample repos
+			&types.CreateSampleRepositoryRequest{
+				Name:           sample.Name,
+				Description:    sample.Description,
+				OwnerID:        request.OwnerID,
+				OrganizationID: request.OrganizationID,
+				SampleType:     sample.SampleType,
+			},
 		)
 		if err != nil {
 			log.Error().Err(err).Str("sample_type", sample.SampleType).Msg("Failed to create sample repository")
@@ -497,16 +594,6 @@ type SampleTypesResponse struct {
 	Count       int          `json:"count"`
 }
 
-
-// CreateSampleRepositoryRequest represents a request to create a sample repository
-type CreateSampleRepositoryRequest struct {
-	Name           string `json:"name"`
-	Description    string `json:"description"`
-	OwnerID        string `json:"owner_id"`
-	SampleType     string `json:"sample_type"`
-	KoditIndexing  bool   `json:"kodit_indexing"`  // Enable Kodit code intelligence indexing
-}
-
 // CloneCommandResponse represents the response for clone command request
 type CloneCommandResponse struct {
 	RepositoryID string `json:"repository_id"`
@@ -517,16 +604,17 @@ type CloneCommandResponse struct {
 
 // InitializeSampleRepositoriesRequest represents a request to initialize sample repositories
 type InitializeSampleRepositoriesRequest struct {
-	OwnerID     string   `json:"owner_id"`
-	SampleTypes []string `json:"sample_types,omitempty"` // If empty, creates all samples
+	OwnerID        string   `json:"owner_id"`
+	OrganizationID string   `json:"organization_id"`
+	SampleTypes    []string `json:"sample_types,omitempty"` // If empty, creates all samples
 }
 
 // InitializeSampleRepositoriesResponse represents the response for initializing sample repositories
 type InitializeSampleRepositoriesResponse struct {
-	CreatedRepositories []*services.GitRepository `json:"created_repositories"`
-	CreatedCount        int                       `json:"created_count"`
-	Errors              []string                  `json:"errors,omitempty"`
-	Success             bool                      `json:"success"`
+	CreatedRepositories []*types.GitRepository `json:"created_repositories"`
+	CreatedCount        int                    `json:"created_count"`
+	Errors              []string               `json:"errors,omitempty"`
+	Success             bool                   `json:"success"`
 }
 
 // browseGitRepositoryTree browses files and directories at a path
@@ -538,7 +626,7 @@ type InitializeSampleRepositoriesResponse struct {
 // @Param id path string true "Repository ID"
 // @Param path query string false "Path to browse (default: root)"
 // @Param branch query string false "Branch to browse (default: HEAD)"
-// @Success 200 {object} services.GitRepositoryTreeResponse
+// @Success 200 {object} types.GitRepositoryTreeResponse
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
 // @Router /api/v1/git/repositories/{id}/tree [get]
@@ -565,7 +653,7 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 		return
 	}
 
-	response := &services.GitRepositoryTreeResponse{
+	response := &types.GitRepositoryTreeResponse{
 		Path:    path,
 		Entries: entries,
 	}
@@ -614,12 +702,12 @@ func (apiServer *HelixAPIServer) listGitRepositoryBranches(w http.ResponseWriter
 // @Param id path string true "Repository ID"
 // @Param path query string true "File path"
 // @Param branch query string false "Branch name (defaults to HEAD if not specified)"
-// @Success 200 {object} services.GitRepositoryFileResponse
+// @Success 200 {object} types.GitRepositoryFileResponse
 // @Failure 404 {object} types.APIError
 // @Failure 500 {object} types.APIError
-// @Router /api/v1/git/repositories/{id}/file [get]
+// @Router /api/v1/git/repositories/{id}/contents [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *http.Request) {
+func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoID := vars["id"]
 	if repoID == "" {
@@ -642,11 +730,202 @@ func (apiServer *HelixAPIServer) getGitRepositoryFile(w http.ResponseWriter, r *
 		return
 	}
 
-	response := &services.GitRepositoryFileResponse{
+	response := &types.GitRepositoryFileResponse{
 		Path:    path,
 		Content: content,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// createOrUpdateGitRepositoryFileContents creates or updates a file in a repository
+// @Summary Create or update file contents
+// @Description Create or update the contents of a file in a repository
+// @ID createOrUpdateGitRepositoryFileContents
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body types.UpdateGitRepositoryFileContentsRequest true "Update file contents request"
+// @Success 200 {object} types.GitRepositoryFileResponse
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/contents [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	var request types.UpdateGitRepositoryFileContentsRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	// Get existing one
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	if request.Path == "" {
+		http.Error(w, "File path is required", http.StatusBadRequest)
+		return
+	}
+
+	if request.Branch == "" {
+		request.Branch = existing.DefaultBranch
+		if request.Branch == "" {
+			request.Branch = "main"
+		}
+	}
+
+	if request.Message == "" {
+		request.Message = fmt.Sprintf("Update %s", request.Path)
+	}
+
+	authorName := request.Author
+	authorEmail := request.Email
+
+	if authorName == "" {
+		authorName = user.FullName
+	}
+
+	if authorEmail == "" {
+		authorEmail = user.Email
+	}
+
+	content := []byte(request.Content)
+	if request.Content != "" {
+		decoded, err := base64.StdEncoding.DecodeString(request.Content)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to decode base64 content, treating as plain text")
+		} else {
+			content = decoded
+		}
+	}
+
+	fileContent, err := s.gitRepositoryService.CreateOrUpdateFileContents(
+		r.Context(),
+		repoID,
+		request.Path,
+		request.Branch,
+		content,
+		request.Message,
+		authorName,
+		authorEmail,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", request.Path).Msg("Failed to create/update file")
+		http.Error(w, fmt.Sprintf("Failed to create/update file: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &types.GitRepositoryFileResponse{
+		Path:    request.Path,
+		Content: fileContent,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// pushPullGitRepository pulls latest commits and pushes local commits to the remote repository
+// @Summary Push and pull repository
+// @Description Pulls latest commits from remote and pushes local commits. Automatically merges if needed.
+// @ID pushPullGitRepository
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param branch query string false "Branch name (defaults to repository default branch)"
+// @Success 200 {object} PushPullResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/push-pull [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	existing, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get existing git repository")
+		http.Error(w, fmt.Sprintf("Failed to get existing repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	if existing.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, existing.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if existing.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	branchName := r.URL.Query().Get("branch")
+	if branchName == "" {
+		branchName = existing.DefaultBranch
+		if branchName == "" {
+			branchName = "main"
+		}
+	}
+
+	err = s.gitRepositoryService.PushPullRequest(r.Context(), repoID, branchName)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Msg("Failed to push/pull repository")
+		http.Error(w, fmt.Sprintf("Failed to push/pull repository: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := PushPullResponse{
+		RepositoryID: repoID,
+		Branch:       branchName,
+		Success:      true,
+		Message:      "Successfully pulled and pushed repository",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// PushPullResponse represents the response for push/pull request
+type PushPullResponse struct {
+	RepositoryID string `json:"repository_id"`
+	Branch       string `json:"branch"`
+	Success      bool   `json:"success"`
+	Message      string `json:"message"`
 }

@@ -1,24 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Api } from '../api/api';
 import useApi from '../hooks/useApi';
+import type { TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest } from '../api/api';
 
 // Re-export generated types for convenience
 export type {
-  ServicesGitRepository as GitRepository,
-  ServicesGitRepositoryCreateRequest as GitRepositoryCreateRequest,
-  ServicesGitRepositoryType as GitRepositoryType,
-  ServicesGitRepositoryStatus as GitRepositoryStatus,
-  ServerSampleType as SampleType,
-  ServerSampleTypesResponse as SampleTypesResponse,
-  ServerCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
-  ServerCreateSpecTaskRepositoryRequest as CreateSpecTaskRepositoryRequest,
-  ServerCloneCommandResponse as CloneCommandResponse,
-  ServerInitializeSampleRepositoriesRequest as InitializeSampleRepositoriesRequest,
-  ServerInitializeSampleRepositoriesResponse as InitializeSampleRepositoriesResponse,
+  TypesGitRepository as GitRepository,
+  TypesGitRepositoryCreateRequest as GitRepositoryCreateRequest,
+  TypesGitRepositoryType as GitRepositoryType,
+  TypesGitRepositoryStatus as GitRepositoryStatus,
+  TypesCreateSampleRepositoryRequest as CreateSampleRepositoryRequest,
+  TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest,
+  TypesGitRepositoryFileResponse as GitRepositoryFileResponse,
 } from '../api/api';
 
 // Query keys
-const QUERY_KEYS = {
+export const QUERY_KEYS = {
   gitRepositories: ['git-repositories'] as const,
   gitRepository: (id: string) => ['git-repositories', id] as const,
   sampleTypes: ['git-repositories', 'sample-types'] as const,
@@ -228,6 +224,54 @@ export function useInitializeSampleRepositories() {
   });
 }
 
+export function useCreateOrUpdateRepositoryFile() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, request }: { repositoryId: string; request: UpdateGitRepositoryFileContentsRequest }) => {
+      const response = await api.getApiClient().createOrUpdateGitRepositoryFileContents(repositoryId, request);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate the specific file query to refresh the file content
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryFile(variables.repositoryId, variables.request.path || '', variables.request.branch || '') 
+      });
+      // Calculate parent directory of the file being created/updated
+      const filePath = variables.request.path || ''
+      const filePathParts = filePath.split('/').filter(p => p)
+      const parentDir = filePathParts.length > 1 
+        ? filePathParts.slice(0, -1).join('/')
+        : '.'
+      // Invalidate the tree query for the parent directory to refresh the file listing
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, parentDir, variables.request.branch || '') 
+      });
+    },
+  });
+}
+
+export function usePushPullGitRepository() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, branch }: { repositoryId: string; branch?: string }) => {
+      const response = await api.getApiClient().pushPullGitRepository(repositoryId, branch ? { branch } : undefined);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch || '') 
+      });
+    },
+  });
+}
+
 // Helper functions
 
 export function getRepositoryTypeColor(repoType: string): string {
@@ -378,6 +422,8 @@ const gitRepositoryService = {
   useCreateGitRepository,
   useCreateSampleRepository,
   useInitializeSampleRepositories,
+  useCreateOrUpdateRepositoryFile,
+  usePushPullGitRepository,
 
   // Helper functions
   getRepositoryTypeColor,

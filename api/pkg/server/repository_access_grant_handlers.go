@@ -16,7 +16,7 @@ import (
 )
 
 // authorizeUserToRepositoryAccessGrants checks if the user can manage access grants for a repository
-func (apiServer *HelixAPIServer) authorizeUserToRepositoryAccessGrants(ctx context.Context, user *types.User, repository *store.GitRepository) error {
+func (apiServer *HelixAPIServer) authorizeUserToRepositoryAccessGrants(ctx context.Context, user *types.User, repository *types.GitRepository) error {
 	// Repository owner always has access
 	if user.ID == repository.OwnerID {
 		return nil

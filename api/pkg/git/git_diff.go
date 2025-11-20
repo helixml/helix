@@ -1,4 +1,4 @@
-package azuredevops
+package git
 
 import (
 	"context"

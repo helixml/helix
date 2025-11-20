@@ -302,7 +302,9 @@ func (s *SpecDrivenTaskService) StartSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Get all project repositories - repos are now managed entirely at project level
-	projectRepos, err := s.store.GetProjectRepositories(ctx, task.ProjectID)
+	projectRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
+		ProjectID: task.ProjectID,
+	})
 	if err != nil {
 		log.Warn().Err(err).Str("project_id", task.ProjectID).Msg("Failed to get project repositories")
 		projectRepos = nil
