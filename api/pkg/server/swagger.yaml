@@ -3008,6 +3008,19 @@ definitions:
         description: '"text" or "image"'
         type: string
     type: object
+  types.Commit:
+    properties:
+      author:
+        type: string
+      email:
+        type: string
+      message:
+        type: string
+      sha:
+        type: string
+      timestamp:
+        type: string
+    type: object
   types.ContextMenuAction:
     properties:
       action_label:
@@ -4254,6 +4267,13 @@ definitions:
     - LLMCallStepInterpretResponse
     - LLMCallStepGenerateTitle
     - LLMCallStepSummarizeConversation
+  types.ListCommitsResponse:
+    properties:
+      commits:
+        items:
+          $ref: '#/definitions/types.Commit'
+        type: array
+    type: object
   types.LoginRequest:
     properties:
       email:
@@ -9447,6 +9467,60 @@ paths:
       security:
       - BearerAuth: []
       summary: Get clone command
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/commits:
+    get:
+      description: List all commits in a repository
+      operationId: listGitRepositoryCommits
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Branch name (defaults to repository default branch)
+        in: query
+        name: branch
+        type: string
+      - description: Filter commits since this date (RFC3339 format)
+        in: query
+        name: since
+        type: string
+      - description: Filter commits until this date (RFC3339 format)
+        in: query
+        name: until
+        type: string
+      - description: 'Number of commits per page (default: 30)'
+        in: query
+        name: per_page
+        type: integer
+      - description: 'Page number (default: 1)'
+        in: query
+        name: page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListCommitsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List repository commits
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/contents:

@@ -148,3 +148,24 @@ type UpdateGitRepositoryFileContentsRequest struct {
 	Email   string `json:"email"`   // Author email
 	Content string `json:"content"` // Base64 encoded content
 }
+
+type ListCommitsRequest struct {
+	RepoID  string `json:"repo_id"`
+	Branch  string `json:"branch"`
+	Since   string `json:"since"`
+	Until   string `json:"until"`
+	PerPage int    `json:"per_page"`
+	Page    int    `json:"page"`
+}
+
+type ListCommitsResponse struct {
+	Commits []*Commit `json:"commits"`
+}
+
+type Commit struct {
+	SHA       string    `json:"sha"`
+	Message   string    `json:"message"`
+	Author    string    `json:"author"`
+	Email     string    `json:"email"`
+	Timestamp time.Time `json:"timestamp"`
+}
