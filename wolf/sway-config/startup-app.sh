@@ -230,23 +230,20 @@ EOF
     echo "   Current user groups:"
     id
 
-    # Configure wlroots and libseat for headless operation
-    # LIBSEAT_BACKEND=noop tells libseat to not use any seat management backend
-    # This allows direct device access without VT/session management
+    # Configure wlroots for headless operation with renderD128
+    # Use headless backend instead of drm - this uses /dev/dri/renderD128 (unprivileged)
+    # instead of trying to acquire drm master on /dev/dri/card* (which Wolf already has)
+    export WLR_BACKENDS=headless
     export LIBSEAT_BACKEND=noop
+    export WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
 
-    echo "   Starting Sway with headless GPU access..."
+    echo "   Starting Sway with headless backend (renderD128)..."
     echo "   WLR_BACKENDS=$WLR_BACKENDS"
-    echo "   WLR_DRM_DEVICES=$WLR_DRM_DEVICES"
+    echo "   WLR_RENDER_DRM_DEVICE=$WLR_RENDER_DRM_DEVICE"
     echo "   LIBSEAT_BACKEND=$LIBSEAT_BACKEND"
 
-    # Run Sway as root for DRM master access (required for NVIDIA proprietary driver)
-    # LIBSEAT_BACKEND=noop means we bypass seat management entirely
-    echo "   Attempting to start Sway as root..."
-    export WLR_BACKENDS=drm
-    export LIBSEAT_BACKEND=noop
-    export WLR_DRM_DEVICES=/dev/dri/card1
-    sudo -E sway --unsupported-gpu
+    # Run Sway with headless backend (doesn't need root or drm master)
+    sway --unsupported-gpu
   else
     echo "[exec] Starting: $@"
     exec $@
