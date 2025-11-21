@@ -136,6 +136,7 @@ EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
+GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
 
 # Enhanced environment detection
 detect_environment() {
@@ -820,7 +821,23 @@ check_nvidia_gpu() {
     fi
 }
 
+# Function to check for AMD GPU specifically (for Helix Code with ROCm)
+check_amd_gpu() {
+    # Check for AMD GPU via lspci
+    if command -v lspci &> /dev/null; then
+        if lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+            # Verify /dev/kfd (ROCm Kernel Fusion Driver) and /dev/dri exist
+            if [ -e "/dev/kfd" ] && [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
 # Function to check for Intel/AMD GPU (for Helix Code)
+# Note: This checks for /dev/dri but doesn't distinguish between Intel and AMD
+# Use check_amd_gpu() for specific AMD detection with ROCm support
 check_intel_amd_gpu() {
     # Check for /dev/dri devices, but only if NVIDIA is NOT present
     # (NVIDIA also creates /dev/dri, so we check NVIDIA first in the calling code)
@@ -1128,6 +1145,7 @@ if [ "$CODE" = true ]; then
     # Check NVIDIA first (most specific detection via nvidia-smi)
     if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="nvidia"
 
         if check_nvidia_runtime_needed; then
             # Check if toolkit already installed or needs fresh install
@@ -1137,9 +1155,14 @@ if [ "$CODE" = true ]; then
                 echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
             fi
         fi
+    elif check_amd_gpu; then
+        # AMD GPU with ROCm support
+        echo "AMD GPU detected with ROCm support (/dev/kfd + /dev/dri). Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="amd"
     elif check_intel_amd_gpu; then
-        # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
-        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+        # No NVIDIA/AMD, but /dev/dri exists - assume Intel GPU
+        echo "Intel GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="intel"
     else
         # No GPU detected
         echo "┌───────────────────────────────────────────────────────────────────────────"
@@ -1459,7 +1482,12 @@ EOF
         COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
     fi
     if [[ -n "$CODE" ]]; then
-        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
+        # Use code-amd profile for AMD GPUs, code profile for NVIDIA/Intel
+        if [[ "$GPU_VENDOR" == "amd" ]]; then
+            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code-amd"
+        else
+            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
+        fi
     fi
 
     # Set RAG provider
@@ -1482,6 +1510,9 @@ SERVER_URL=${API_HOST}
 
 # Docker Compose profiles
 COMPOSE_PROFILES=$COMPOSE_PROFILES
+
+# GPU vendor (nvidia, amd, intel, or empty)
+GPU_VENDOR=${GPU_VENDOR:-}
 
 # Haystack features
 RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}

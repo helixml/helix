@@ -290,6 +290,84 @@ services:
       retries: 3
       start_period: 10s
 
+  # Wolf for AMD GPUs (no nvidia runtime, use device pass-through)
+  wolf-amd:
+    profiles: [code-amd]
+    image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
+    networks:
+      default:
+        ipv4_address: 172.19.0.50
+    environment:
+      # No NVIDIA environment variables for AMD
+      # Wolf-UI required environment variables
+      - XDG_RUNTIME_DIR=/tmp/sockets
+      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
+      # Debug logging for HTTPS connection issues and UDP/RTP activity
+      - WOLF_LOG_LEVEL=DEBUG
+      # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
+      # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
+      - GST_DEBUG=1
+      # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
+      # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
+      # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
+      - WOLF_INTERNAL_MAC=00:11:22:33:44:55
+      - WOLF_INTERNAL_IP=172.19.0.50
+      # SSL certificate paths
+      - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
+      - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
+      # GPU zero-copy optimization (required for lobbies mode format consistency)
+      - WOLF_USE_ZERO_COPY=TRUE
+      # Render node: Set via .env (auto-detected in install.sh), fallback to renderD128
+      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+      # Internal moonlight-web pairing PIN (secure random, shared via env)
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      # GOP size (keyframe interval): frames between I-frames
+      - GOP_SIZE=${GOP_SIZE:-120}
+      # Helix hostname (for Moonlight client display name)
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+    volumes:
+      - ./wolf/:/etc/wolf/cfg/
+      - /tmp/sockets:/tmp/sockets:rw
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - /dev/:/dev/:rw
+      - /run/udev:/run/udev:rw
+      # Bind-mount to host so wolf-ui containers can bind-mount it
+      - /var/run/wolf:/var/run/wolf:rw
+    device_cgroup_rules:
+      - 'c 13:* rmw'
+    devices:
+      - /dev/dri
+      - /dev/kfd  # AMD ROCm Kernel Fusion Driver
+      - /dev/uinput
+      - /dev/uhid
+    ports:
+      # Moonlight protocol ports
+      - "47984:47984"     # HTTPS
+      - "47989:47989"     # HTTP (pairing, serverinfo)
+      - "48010:48010"     # RTSP
+      - "47415:47415/udp" # Discovery
+      - "47999:47999/udp" # Control
+      - "48100:48100/udp" # Video RTP
+      - "48200:48200/udp" # Audio RTP
+    # No nvidia runtime for AMD - use device pass-through instead
+    security_opt:
+      - seccomp=unconfined  # Required for AMD GPU access
+    group_add:
+      - video  # Grant access to /dev/dri
+      - render # Grant access to GPU rendering
+    cap_add:
+      - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
+    restart: unless-stopped
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c 'cat < /dev/null > /dev/tcp/localhost/47989' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Moonlight Web Stream - Browser-based Moonlight streaming
   moonlight-web:
     profiles: [code]
@@ -318,6 +396,35 @@ services:
     restart: unless-stopped
     depends_on:
       - wolf
+
+  # Moonlight Web Stream for AMD profile
+  moonlight-web-amd:
+    profiles: [code-amd]
+    image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
+    command: bash -c "/app/init-moonlight-config.sh"
+    ports:
+      - "8081:8080"  # Web interface
+      - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
+    networks:
+      - default
+    environment:
+      # Production logging
+      - RUST_LOG=moonlight_common=info,moonlight_web=info
+      # Internal pairing PIN (shared with Wolf, secure random in production)
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      # Moonlight credentials for API authentication (must match config.json)
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      # TURN server credentials (must match config.json)
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
+      # TURN server public IP (auto-detected if not set)
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+      # Helix hostname (for display name in Moonlight client)
+      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+    volumes:
+      - ./moonlight-web-config:/app/server:rw
+    restart: unless-stopped
+    depends_on:
+      - wolf-amd
 
 volumes:
   helix-postgres-db:
