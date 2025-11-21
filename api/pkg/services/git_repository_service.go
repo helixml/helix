@@ -1939,17 +1939,29 @@ func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
 	return nil
 }
 
-func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pushing changes to external repository")
+func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository, force bool) error {
+	log.Info().Str("repo_id", gitRepo.ID).Bool("force", force).Msg("Pushing changes to external repository")
 
 	repo, err := git.PlainOpen(gitRepo.LocalPath)
 	if err != nil {
 		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
 	}
 
+	head, err := repo.Head()
+	if err != nil {
+		return fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	branchName := head.Name().Short()
+
 	pushOptions := &git.PushOptions{
 		RemoteName: "origin",
 		Progress:   os.Stdout,
+	}
+	if force {
+		pushOptions.RefSpecs = []config.RefSpec{
+			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName)),
+		}
 	}
 	if gitRepo.Password != "" {
 		username := gitRepo.Username
@@ -1975,7 +1987,7 @@ func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepositor
 
 // PushPullRequest pulls from external repository all commits and pushes any commits from the local repository to the external repository (upstream)
 // This is used to update the external repository with the latest commits from the local repository that we have made changes to
-func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string) error {
+func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
@@ -2014,15 +2026,17 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		}
 	}
 
-	// 1. call pullChanges
-	err = s.pullChanges(gitRepo)
-	if err != nil {
-		// Return error on merge conflict or other pull errors
-		return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+	// 1. call pullChanges (skip if force push)
+	if !force {
+		err = s.pullChanges(gitRepo)
+		if err != nil {
+			// Return error on merge conflict or other pull errors
+			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+		}
 	}
 
 	// 2. call pushChangesToExternal
-	err = s.pushChangesToExternal(gitRepo)
+	err = s.pushChangesToExternal(gitRepo, force)
 	if err != nil {
 		return fmt.Errorf("failed to push changes: %w", err)
 	}
