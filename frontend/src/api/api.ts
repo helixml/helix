@@ -1708,6 +1708,11 @@ export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
 
+export interface TypesAzureDevopsRepository {
+  organization_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesBoardSettings {
   wip_limits?: Record<string, number>;
 }
@@ -2077,6 +2082,7 @@ export interface TypesGitHubWorkConfig {
 }
 
 export interface TypesGitRepository {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
@@ -2112,6 +2118,7 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -2158,6 +2165,7 @@ export enum TypesGitRepositoryType {
 }
 
 export interface TypesGitRepositoryUpdateRequest {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   default_branch?: string;
   description?: string;
   external_url?: string;

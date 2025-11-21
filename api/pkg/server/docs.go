@@ -15931,6 +15931,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AzureDevopsRepository": {
+            "type": "object",
+            "properties": {
+                "organization_url": {
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.BoardSettings": {
             "type": "object",
             "properties": {
@@ -16848,6 +16859,9 @@ const docTemplate = `{
         "types.GitRepository": {
             "type": "object",
             "properties": {
+                "azure_devops_repository": {
+                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                },
                 "branches": {
                     "type": "array",
                     "items": {
@@ -16937,6 +16951,9 @@ const docTemplate = `{
         "types.GitRepositoryCreateRequest": {
             "type": "object",
             "properties": {
+                "azure_devops_repository": {
+                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                },
                 "default_branch": {
                     "type": "string"
                 },
@@ -17055,6 +17072,9 @@ const docTemplate = `{
         "types.GitRepositoryUpdateRequest": {
             "type": "object",
             "properties": {
+                "azure_devops_repository": {
+                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                },
                 "default_branch": {
                     "type": "string"
                 },
