@@ -217,8 +217,8 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
 			toolName = "nvidia-smi"
 		case "amd":
-			// rocm-smi --showmeminfo vram --csv returns used memory in bytes
-			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+			// rocm-smi --showmeminfo vram returns: "GPU[X]  : VRAM Total Used Memory (B): <bytes>"
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram")
 			toolName = "rocm-smi"
 		default:
 			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot query memory usage")
@@ -396,8 +396,8 @@ func (g *GPUManager) getActualTotalMemoryAndCount() (uint64, int) {
 		case "nvidia":
 			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
 		case "amd":
-			// rocm-smi --showmeminfo vram --csv returns total memory
-			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+			// rocm-smi --showmeminfo vram returns: "GPU[X]  : VRAM Total Memory (B): <bytes>"
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram")
 		default:
 			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot query total memory")
 			return 0, 0
@@ -559,51 +559,38 @@ func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 // parseAndSumGPUMemoryWithCount parses GPU monitoring tool output and returns both total memory and GPU count
 // Handles both NVIDIA (nvidia-smi) and AMD (rocm-smi) output formats
 func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (uint64, int) {
+	if g.gpuVendor == "nvidia" {
+		return g.parseNVIDIAMemory(output, memoryType)
+	} else if g.gpuVendor == "amd" {
+		return g.parseAMDMemory(output, memoryType)
+	}
+
+	log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor in memory parsing")
+	return 0, 0
+}
+
+// parseNVIDIAMemory parses nvidia-smi output (simple MiB values, one per line)
+// Example output:
+//   16384
+//   32768
+func (g *GPUManager) parseNVIDIAMemory(output, memoryType string) (uint64, int) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var totalMemory uint64
 	var gpuCount int
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "GPU") || strings.HasPrefix(line, "device,") {
-			// Skip empty lines and headers (CSV header or GPU info)
+		if line == "" {
 			continue
 		}
 
-		var memoryMiB uint64
-		var err error
-
-		if g.gpuVendor == "amd" {
-			// AMD rocm-smi CSV format: "device,vram_total,vram_used"
-			// Example: "card0,16384,8192" (values in MiB)
-			parts := strings.Split(line, ",")
-			if len(parts) < 3 {
-				log.Error().
-					Str("line", line).
-					Str("memory_type", memoryType).
-					Msg("Error parsing rocm-smi CSV output - expected 3 columns")
-				continue
-			}
-
-			// vram_total is column 1, vram_used is column 2 (0-indexed)
-			valueIdx := 1 // total
-			if memoryType == "used" {
-				valueIdx = 2
-			}
-
-			memoryMiB, err = strconv.ParseUint(strings.TrimSpace(parts[valueIdx]), 10, 64)
-		} else {
-			// NVIDIA nvidia-smi format: simple numbers in MiB, one per line
-			memoryMiB, err = strconv.ParseUint(line, 10, 64)
-		}
-
+		memoryMiB, err := strconv.ParseUint(line, 10, 64)
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("line", line).
 				Str("memory_type", memoryType).
-				Str("gpu_vendor", g.gpuVendor).
-				Msg("Error parsing GPU memory output line")
+				Msg("Error parsing nvidia-smi memory output line")
 			continue
 		}
 
@@ -615,16 +602,101 @@ func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (u
 			Uint64("memory_mib", memoryMiB).
 			Uint64("memory_bytes", memoryBytes).
 			Str("memory_type", memoryType).
-			Str("gpu_vendor", g.gpuVendor).
-			Msg("Parsed GPU memory for individual GPU")
+			Msg("Parsed NVIDIA GPU memory")
 	}
 
 	log.Trace().
 		Int("gpu_count", gpuCount).
 		Uint64("total_memory_bytes", totalMemory).
 		Str("memory_type", memoryType).
-		Str("gpu_vendor", g.gpuVendor).
-		Msg("Successfully summed GPU memory across all GPUs")
+		Msg("Successfully summed NVIDIA GPU memory across all GPUs")
+
+	return totalMemory, gpuCount
+}
+
+// parseAMDMemory parses rocm-smi --showmeminfo vram output (structured text, bytes)
+// Example output:
+//   ======================= ROCm System Management Interface =======================
+//   ============================= Memory Usage (Bytes) =============================
+//   GPU[0]  : VRAM Total Memory (B): 4278190080
+//   GPU[0]  : VRAM Total Used Memory (B): 108814336
+//   GPU[1]  : VRAM Total Memory (B): 8556380160
+//   GPU[1]  : VRAM Total Used Memory (B): 217628672
+//   ================================================================================
+func (g *GPUManager) parseAMDMemory(output, memoryType string) (uint64, int) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// Map to store memory values per GPU index
+	gpuMemoryMap := make(map[int]uint64)
+
+	// Determine which field to look for based on memoryType
+	var searchPattern string
+	if memoryType == "total" {
+		searchPattern = "VRAM Total Memory (B):"
+	} else if memoryType == "used" {
+		searchPattern = "VRAM Total Used Memory (B):"
+	} else {
+		log.Error().Str("memory_type", memoryType).Msg("CRITICAL: Unknown memory type for AMD parsing")
+		return 0, 0
+	}
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Look for pattern like "GPU[0]  : VRAM Total Memory (B): 4278190080"
+		if !strings.Contains(line, searchPattern) {
+			continue
+		}
+
+		// Extract GPU index: "GPU[0]  : ..." → index 0
+		gpuIndexStart := strings.Index(line, "GPU[")
+		gpuIndexEnd := strings.Index(line, "]")
+		if gpuIndexStart == -1 || gpuIndexEnd == -1 {
+			log.Error().Str("line", line).Msg("Error extracting GPU index from AMD output")
+			continue
+		}
+
+		gpuIndexStr := line[gpuIndexStart+4 : gpuIndexEnd]
+		gpuIndex, err := strconv.Atoi(gpuIndexStr)
+		if err != nil {
+			log.Error().Err(err).Str("index_str", gpuIndexStr).Msg("Error parsing AMD GPU index")
+			continue
+		}
+
+		// Extract memory value in bytes: "... (B): 4278190080"
+		parts := strings.Split(line, ":")
+		if len(parts) < 3 {
+			log.Error().Str("line", line).Msg("Error splitting AMD memory line")
+			continue
+		}
+
+		memoryStr := strings.TrimSpace(parts[len(parts)-1])
+		memoryBytes, err := strconv.ParseUint(memoryStr, 10, 64)
+		if err != nil {
+			log.Error().Err(err).Str("memory_str", memoryStr).Msg("Error parsing AMD memory value")
+			continue
+		}
+
+		gpuMemoryMap[gpuIndex] = memoryBytes
+		log.Trace().
+			Int("gpu_index", gpuIndex).
+			Uint64("memory_bytes", memoryBytes).
+			Str("memory_type", memoryType).
+			Msg("Parsed AMD GPU memory")
+	}
+
+	// Sum up total memory across all GPUs
+	var totalMemory uint64
+	for _, mem := range gpuMemoryMap {
+		totalMemory += mem
+	}
+
+	gpuCount := len(gpuMemoryMap)
+	log.Trace().
+		Int("gpu_count", gpuCount).
+		Uint64("total_memory_bytes", totalMemory).
+		Str("memory_type", memoryType).
+		Msg("Successfully summed AMD GPU memory across all GPUs")
 
 	return totalMemory, gpuCount
 }
@@ -871,49 +943,87 @@ func (g *GPUManager) updateGPUMemoryMap() {
 			return
 		}
 
-		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		gpuIdx := 0
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "GPU") || strings.HasPrefix(line, "device,") {
-				// Skip empty lines and headers
-				continue
-			}
-
-			var usedMemoryMiB uint64
-			var err error
-
-			if g.gpuVendor == "amd" {
-				// AMD rocm-smi CSV format: "device,vram_total,vram_used"
-				parts := strings.Split(line, ",")
-				if len(parts) < 3 {
-					log.Error().Str("line", line).Msg("Error parsing AMD GPU used memory - expected 3 columns")
+		// Parse output based on vendor
+		if g.gpuVendor == "nvidia" {
+			// NVIDIA: Simple MiB values, one per line
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			gpuIdx := 0
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
 					continue
 				}
-				usedMemoryMiB, err = strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
-			} else {
-				// NVIDIA format: simple number in MiB
-				usedMemoryMiB, err = strconv.ParseUint(line, 10, 64)
-			}
 
-			if err != nil {
-				log.Error().Err(err).Str("line", line).Str("gpu_vendor", g.gpuVendor).Msg("Error parsing GPU used memory")
-				continue
-			}
+				usedMemoryMiB, err := strconv.ParseUint(line, 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("line", line).Msg("Error parsing NVIDIA GPU used memory")
+					continue
+				}
 
-			usedMemoryBytes := usedMemoryMiB * 1024 * 1024 // Convert MiB to bytes
-			if gpuInfo, exists := g.gpuMemoryMap[gpuIdx]; exists {
-				gpuInfo.UsedMemory = usedMemoryBytes
-				gpuInfo.FreeMemory = gpuInfo.TotalMemory - usedMemoryBytes
+				usedMemoryBytes := usedMemoryMiB * 1024 * 1024 // Convert MiB to bytes
+				if gpuInfo, exists := g.gpuMemoryMap[gpuIdx]; exists {
+					gpuInfo.UsedMemory = usedMemoryBytes
+					gpuInfo.FreeMemory = gpuInfo.TotalMemory - usedMemoryBytes
 
-				log.Trace().
-					Int("gpu_index", gpuIdx).
-					Uint64("used_memory_bytes", usedMemoryBytes).
-					Uint64("free_memory_bytes", gpuInfo.FreeMemory).
-					Str("gpu_vendor", g.gpuVendor).
-					Msg("Updated GPU memory usage")
+					log.Trace().
+						Int("gpu_index", gpuIdx).
+						Uint64("used_memory_bytes", usedMemoryBytes).
+						Uint64("free_memory_bytes", gpuInfo.FreeMemory).
+						Msg("Updated NVIDIA GPU memory usage")
+				}
+				gpuIdx++
 			}
-			gpuIdx++
+		} else if g.gpuVendor == "amd" {
+			// AMD: Structured text format with "GPU[X]  : VRAM Total Used Memory (B): <bytes>"
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+
+				// Look for "GPU[X]  : VRAM Total Used Memory (B): <bytes>"
+				if !strings.Contains(line, "VRAM Total Used Memory (B):") {
+					continue
+				}
+
+				// Extract GPU index
+				gpuIndexStart := strings.Index(line, "GPU[")
+				gpuIndexEnd := strings.Index(line, "]")
+				if gpuIndexStart == -1 || gpuIndexEnd == -1 {
+					continue
+				}
+
+				gpuIndexStr := line[gpuIndexStart+4 : gpuIndexEnd]
+				gpuIndex, err := strconv.Atoi(gpuIndexStr)
+				if err != nil {
+					log.Error().Err(err).Str("index_str", gpuIndexStr).Msg("Error parsing AMD GPU index")
+					continue
+				}
+
+				// Extract memory value in bytes
+				parts := strings.Split(line, ":")
+				if len(parts) < 3 {
+					continue
+				}
+
+				memoryStr := strings.TrimSpace(parts[len(parts)-1])
+				usedMemoryBytes, err := strconv.ParseUint(memoryStr, 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("memory_str", memoryStr).Msg("Error parsing AMD memory value")
+					continue
+				}
+
+				if gpuInfo, exists := g.gpuMemoryMap[gpuIndex]; exists {
+					gpuInfo.UsedMemory = usedMemoryBytes
+					gpuInfo.FreeMemory = gpuInfo.TotalMemory - usedMemoryBytes
+
+					log.Trace().
+						Int("gpu_index", gpuIndex).
+						Uint64("used_memory_bytes", usedMemoryBytes).
+						Uint64("free_memory_bytes", gpuInfo.FreeMemory).
+						Msg("Updated AMD GPU memory usage")
+				}
+			}
+		} else {
+			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor in updateGPUMemoryMap")
 		}
 	default:
 		// For non-Linux systems, we can't track per-GPU memory accurately
