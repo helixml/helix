@@ -565,7 +565,35 @@ function up() {
   # Wolf services are optional via --profile wolf flag
   # To enable Wolf and Moonlight Web: ./stack up --profile wolf
 
-  docker compose -f docker-compose.dev.yaml up -d $@
+  # Parse arguments to separate profiles from other args
+  local PROFILES=()
+  local ARGS=()
+  local HAS_WOLF_PROFILE=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --profile)
+        if [[ -n "$2" ]]; then
+          PROFILES+=(--profile "$2")
+          if [[ "$2" == "wolf" ]]; then
+            HAS_WOLF_PROFILE=true
+          fi
+          shift 2
+        else
+          echo "❌ Error: --profile requires an argument"
+          return 1
+        fi
+        ;;
+      *)
+        ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+
+  # Run docker compose with profiles before 'up'
+  docker compose -f docker-compose.dev.yaml "${PROFILES[@]}" up -d "${ARGS[@]}"
 }
 
 function build-zed-agent() {
@@ -625,7 +653,58 @@ function zed-agent-logs() {
 }
 
 function rebuild() {
-  docker compose -f docker-compose.dev.yaml up -d --build $@
+  # Parse arguments to check what to rebuild
+  local REBUILD_WOLF=false
+  local REBUILD_MOONLIGHT=false
+  local DOCKER_COMPOSE_ARGS=()
+
+  # If no arguments, rebuild everything
+  if [[ $# -eq 0 ]]; then
+    REBUILD_WOLF=true
+    REBUILD_MOONLIGHT=true
+    DOCKER_COMPOSE_ARGS=()
+  else
+    # Parse arguments
+    for arg in "$@"; do
+      case "$arg" in
+        wolf)
+          REBUILD_WOLF=true
+          ;;
+        moonlight-web)
+          REBUILD_MOONLIGHT=true
+          ;;
+        *)
+          DOCKER_COMPOSE_ARGS+=("$arg")
+          ;;
+      esac
+    done
+  fi
+
+  # Build wolf if requested
+  if [[ "$REBUILD_WOLF" == "true" ]]; then
+    echo "🐺 Rebuilding wolf..."
+    rebuild-wolf || {
+      echo "❌ Failed to build wolf"
+      return 1
+    }
+  fi
+
+  # Build moonlight-web if requested
+  if [[ "$REBUILD_MOONLIGHT" == "true" ]]; then
+    echo "🌙 Rebuilding moonlight-web..."
+    build-moonlight-web || {
+      echo "❌ Failed to build moonlight-web"
+      return 1
+    }
+  fi
+
+  # Rebuild other services with docker compose if specified
+  if [[ ${#DOCKER_COMPOSE_ARGS[@]} -gt 0 ]]; then
+    docker compose -f docker-compose.dev.yaml up -d --build "${DOCKER_COMPOSE_ARGS[@]}"
+  elif [[ $# -eq 0 ]]; then
+    # No arguments = rebuild everything
+    docker compose -f docker-compose.dev.yaml up -d --build
+  fi
 }
 
 # Helper function to build image tags string (commit hash + git tag if available)
@@ -685,7 +764,7 @@ function rebuild-wolf() {
     echo ""
     echo "Please run:"
     echo "  cd .."
-    echo "  git clone https://github.com/games-on-whales/wolf.git"
+    echo "  git clone https://github.com/helixml/wolf.git"
     echo "  cd helix"
     echo "  ./stack rebuild-wolf"
     exit 1
@@ -844,7 +923,23 @@ function build-moonlight-web() {
     echo "Please run:"
     echo "  cd .."
     echo "  git clone https://github.com/helixml/moonlight-web-stream.git"
-    echo "  cd helix"
+    echo "  cd moonlight-web-stream"
+    echo "  git submodule update --init --recursive"
+    echo "  cd ../helix"
+    echo "  ./stack build-moonlight-web"
+    exit 1
+  fi
+
+  # Check if git submodules are initialized
+  if [ ! -f "../moonlight-web-stream/moonlight-common-sys/moonlight-common-c/src/Limelight.h" ]; then
+    echo "❌ ERROR: moonlight-web-stream git submodules not initialized"
+    echo ""
+    echo "The moonlight-common-c submodule is required for building."
+    echo ""
+    echo "Please run:"
+    echo "  cd ../moonlight-web-stream"
+    echo "  git submodule update --init --recursive"
+    echo "  cd ../helix"
     echo "  ./stack build-moonlight-web"
     exit 1
   fi

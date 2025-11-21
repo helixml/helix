@@ -1,6 +1,6 @@
 {
   "bind_address": "0.0.0.0:8080",
-  "credentials": "helix",
+  "credentials": "eJxU2s5BGnfjmXku",
   "webrtc_ice_servers": [
     {
       "urls": [
@@ -14,11 +14,11 @@
     },
     {
       "urls": [
-        "turn:212.82.90.199:3478?transport=udp",
-        "turn:212.82.90.199:3478?transport=tcp"
+        "turn:priyaazurecode.helix.ml:3478?transport=udp",
+        "turn:priyaazurecode.helix.ml:3478?transport=tcp"
       ],
       "username": "helix",
-      "credential": "helix-turn-secret"
+      "credential": "0GdURv9Jm52tZ8"
     }
   ],
   "webrtc_port_range": {

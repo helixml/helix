@@ -207,8 +207,43 @@ EOF
     #   echo -n " && killall sway" >> $HOME/.config/sway/config
     # fi
 
-    # Start sway
-    dbus-run-session -- sway --unsupported-gpu
+    # Start sway with DRM backend (required for headless NVIDIA GPU operation)
+    # WLR_BACKENDS=drm forces wlroots to use direct GPU access instead of nested Wayland
+
+    # In headless containers without TTYs, standard seat management doesn't work
+    # Configure wlroots to run without session management
+    echo "🔍 Configuring headless GPU access (no session management)..."
+
+    # Ensure retro user has access to DRI and video devices
+    echo "   Adding retro to video and render groups..."
+    sudo usermod -aG video retro 2>/dev/null || true
+    sudo usermod -aG render retro 2>/dev/null || true
+
+    # Make DRI devices accessible
+    echo "   Setting DRI device permissions..."
+    sudo chmod 666 /dev/dri/* 2>/dev/null || true
+    sudo chmod 666 /dev/nvidia* 2>/dev/null || true
+
+    echo "   Available devices:"
+    ls -l /dev/dri/ 2>/dev/null || echo "   /dev/dri not available"
+
+    echo "   Current user groups:"
+    id
+
+    # Configure wlroots for headless operation with renderD128
+    # Use headless backend instead of drm - this uses /dev/dri/renderD128 (unprivileged)
+    # instead of trying to acquire drm master on /dev/dri/card* (which Wolf already has)
+    export WLR_BACKENDS=headless
+    export LIBSEAT_BACKEND=noop
+    export WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
+
+    echo "   Starting Sway with headless backend (renderD128)..."
+    echo "   WLR_BACKENDS=$WLR_BACKENDS"
+    echo "   WLR_RENDER_DRM_DEVICE=$WLR_RENDER_DRM_DEVICE"
+    echo "   LIBSEAT_BACKEND=$LIBSEAT_BACKEND"
+
+    # Run Sway with headless backend (doesn't need root or drm master)
+    sway --unsupported-gpu
   else
     echo "[exec] Starting: $@"
     exec $@

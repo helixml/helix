@@ -20,6 +20,33 @@ import (
 	"github.com/helixml/helix/api/pkg/wolf"
 )
 
+// detectNVIDIADRMDevice finds the DRM card device for NVIDIA GPU
+// Returns the card path (e.g., "/dev/dri/card1") or empty string if not found
+func detectNVIDIADRMDevice() string {
+	// Check /sys/class/drm/card*/device/vendor for NVIDIA vendor ID (0x10de)
+	for i := 0; i < 10; i++ {
+		vendorPath := fmt.Sprintf("/sys/class/drm/card%d/device/vendor", i)
+
+		vendor, err := os.ReadFile(vendorPath)
+		if err != nil {
+			continue // Card doesn't exist or no vendor file
+		}
+
+		// NVIDIA vendor ID is 0x10de
+		if strings.TrimSpace(string(vendor)) == "0x10de" {
+			cardPath := fmt.Sprintf("/dev/dri/card%d", i)
+			log.Info().
+				Str("nvidia_card", cardPath).
+				Int("card_index", i).
+				Msg("Detected NVIDIA DRM device for desktop streaming")
+			return cardPath
+		}
+	}
+
+	log.Warn().Msg("No NVIDIA DRM device found, wlroots will auto-detect GPU")
+	return "" // Let wlroots auto-detect
+}
+
 // lobbyCacheEntry represents a cached lobby lookup result
 type lobbyCacheEntry struct {
 	lobbyID   string
@@ -121,8 +148,19 @@ type SwayWolfAppConfig struct {
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/dma_heap/system",
 		"RUN_SWAY=1",
+		"WLR_BACKENDS=drm", // Force wlroots to use DRM backend for headless NVIDIA GPU operation
+		// Note: We run seatd in the container for GPU device access management
+	}
+
+	// Auto-detect NVIDIA DRM device and set WLR_DRM_DEVICES if found
+	// This handles systems with multiple GPUs (e.g., Azure VMs with Hyper-V + NVIDIA)
+	if nvidiaCard := detectNVIDIADRMDevice(); nvidiaCard != "" {
+		env = append(env, fmt.Sprintf("WLR_DRM_DEVICES=%s", nvidiaCard))
+	}
+
+	env = append(env,
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
 		"ZED_HELIX_URL=api:8080",
@@ -135,7 +173,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"HELIX_API_URL=http://api:8080",
 		fmt.Sprintf("HELIX_API_TOKEN=%s", w.helixAPIToken),
 		"SETTINGS_SYNC_PORT=9877",
-	}
+	)
 
 	// Startup script is executed directly from cloned internal Git repo
 	// No need to pass as environment variable - start-zed-helix.sh will execute from disk
@@ -190,7 +228,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
     "Privileged": false,
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
-    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw", "c 249:* rwm"],
     "Ulimits": [
       {
         "Name": "nofile",
@@ -633,7 +671,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			RefreshRate:             displayRefreshRate,
 			WaylandRenderNode:       "/dev/dri/renderD128",
 			RunnerRenderNode:        "/dev/dri/renderD128",
-			VideoProducerBufferCaps: "video/x-raw(memory:CUDAMemory)", // Match Wolf UI's CUDA memory type
+			VideoProducerBufferCaps: "video/x-raw", // System memory for headless wlroots (CUDA memory doesn't work with headless backend)
 		},
 		AudioSettings: &wolf.LobbyAudioSettings{
 			ChannelCount: 2,

@@ -56,7 +56,7 @@ RUN apt-get update \
 # Install grim, lsof, git, bash, OnlyOffice, Ghostty, and emoji fonts
 RUN apt-get update && apt-get install -y \
     # Screenshot tool for Wayland and debugging utilities
-    grim lsof \
+    grim lsof seatd \
     # Clipboard tools for Wayland clipboard sync
     wl-clipboard \
     # Shell and Git for repository access
