@@ -54,7 +54,7 @@ type WolfExecutor struct {
 	creationLocks      map[string]*sync.Mutex
 	creationLocksMutex sync.Mutex
 
-	// Track if nvidia-smi has ever worked (avoid false alarms on non-NVIDIA systems)
+	// Track if GPU monitoring (nvidia-smi/rocm-smi) has ever worked (avoid false alarms on systems without GPU monitoring)
 	hasSeenValidGPUStats bool
 	gpuStatsMutex        sync.RWMutex
 }
@@ -121,7 +121,7 @@ type SwayWolfAppConfig struct {
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd",  // Include both NVIDIA and AMD GPU devices
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -1222,7 +1222,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 
 	// Create Wolf app using the same Sway configuration as the main creation function
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd",  // Include both NVIDIA and AMD GPU devices
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
@@ -1652,9 +1652,9 @@ func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
 			w.gpuStatsMutex.Unlock()
 		}
 
-		// CRITICAL: Detect when GPU monitoring is broken (nvidia-smi failure)
-		// Only log scary error if we've previously seen valid GPU stats (NVIDIA system)
-		// This avoids false alarms on AMD/Intel GPU or CPU-only systems
+		// CRITICAL: Detect when GPU monitoring is broken (nvidia-smi/rocm-smi failure)
+		// Only log scary error if we've previously seen valid GPU stats (system with GPU monitoring)
+		// This avoids false alarms on systems without GPU monitoring tools
 		if memory.GPUStats.GPUName == "" || memory.GPUStats.MemoryTotalMB == 0 {
 			w.gpuStatsMutex.RLock()
 			hasSeenValid := w.hasSeenValidGPUStats
@@ -1664,10 +1664,10 @@ func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
 				// GPU monitoring was working before but now broken - CRITICAL ALERT!
 				log.Error().
 					Int("active_lobbies", len(memory.Lobbies)).
-					Msg("⚠️ GPU MONITORING FAILED - nvidia-smi stopped working! NVML may be exhausted. Approaching resource limits!")
+					Msg("⚠️ GPU MONITORING FAILED - GPU monitoring tool stopped working! Approaching resource limits!")
 			} else {
-				// Never seen valid GPU stats - probably non-NVIDIA system, no alert needed
-				log.Debug().Msg("GPU stats not available (likely non-NVIDIA system)")
+				// Never seen valid GPU stats - probably system without GPU monitoring tools, no alert needed
+				log.Debug().Msg("GPU stats not available (likely system without GPU monitoring tools)")
 			}
 		}
 	} else {

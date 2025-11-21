@@ -25,11 +25,11 @@ type AgentSandboxesDebugResponse struct {
 	Sessions           []WolfSessionInfo       `json:"sessions"`
 	MoonlightClients   []MoonlightClientInfo   `json:"moonlight_clients"`             // moonlight-web client connections
 	WolfMode           string                  `json:"wolf_mode"`                     // Current Wolf mode ("apps" or "lobbies")
-	GPUStats           *GPUStats               `json:"gpu_stats,omitempty"`           // GPU encoder stats from Wolf (via nvidia-smi)
+	GPUStats           *GPUStats               `json:"gpu_stats,omitempty"`           // GPU encoder stats from Wolf (via nvidia-smi or rocm-smi)
 	GStreamerPipelines *GStreamerPipelineStats `json:"gstreamer_pipelines,omitempty"` // Actual pipeline count from Wolf
 }
 
-// GPUStats represents real-time GPU metrics from Wolf (via nvidia-smi)
+// GPUStats represents real-time GPU metrics from Wolf (via nvidia-smi or rocm-smi)
 type GPUStats struct {
 	GPUName               string  `json:"gpu_name"`
 	EncoderSessionCount   int     `json:"encoder_session_count"`
@@ -76,7 +76,7 @@ type WolfSystemMemory struct {
 	Apps                 []WolfAppMemory         `json:"apps,omitempty"`    // Apps mode
 	Lobbies              []WolfLobbyMemory       `json:"lobbies,omitempty"` // Lobbies mode
 	Clients              []WolfClientConnection  `json:"clients"`
-	GPUStats             *GPUStats               `json:"gpu_stats,omitempty"`           // From Wolf's nvidia-smi query
+	GPUStats             *GPUStats               `json:"gpu_stats,omitempty"`           // From Wolf's GPU monitoring query (nvidia-smi or rocm-smi)
 	GStreamerPipelines   *GStreamerPipelineStats `json:"gstreamer_pipelines,omitempty"` // From Wolf's state
 }
 
