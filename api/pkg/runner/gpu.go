@@ -119,11 +119,13 @@ func (g *GPUManager) detectGPU() bool {
 			return true
 		}
 
-		// Fallback: check for /dev/kfd (AMD ROCm Kernel Fusion Driver)
+		// Fallback: Check for /dev/kfd (AMD ROCm Kernel Fusion Driver) without rocm-smi
+		// This can happen if:
+		// 1. Running CUDA-only runner image on AMD hardware (suboptimal but works for CPU inference)
+		// 2. ROCm drivers installed but rocm-smi not in PATH
 		if _, err := exec.Command("test", "-e", "/dev/kfd").Output(); err == nil {
-			g.gpuVendor = "amd"
-			log.Error().Msg("CRITICAL: Detected AMD GPU via /dev/kfd but rocm-smi not found! Install rocm-smi for GPU monitoring. Runner will report 0 GPU memory.")
-			// Return false to prevent runner from claiming AMD GPU support without monitoring tools
+			log.Warn().Msg("Detected AMD GPU via /dev/kfd but rocm-smi not found. Falling back to CPU-only mode. For AMD GPU support, use ROCm-enabled runner image.")
+			// Return false - treat as CPU-only rather than claiming AMD GPU support without monitoring
 			return false
 		}
 
