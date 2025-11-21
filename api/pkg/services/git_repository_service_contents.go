@@ -11,10 +11,101 @@ import (
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// BrowseTree lists files and directories at a given path in a specific branch
+func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]types.TreeEntry, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return nil, fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get reference for specified branch, default to HEAD
+	var ref *plumbing.Reference
+	if branch != "" {
+		// Try to resolve the branch
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		ref, err = gitRepo.Reference(branchRef, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
+		}
+	} else {
+		// Default to HEAD
+		ref, err = gitRepo.Head()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HEAD: %w", err)
+		}
+	}
+
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Navigate to the requested path
+	if path != "." && path != "" {
+		tree, err = tree.Tree(path)
+		if err != nil {
+			return nil, fmt.Errorf("path not found in repository: %w", err)
+		}
+	}
+
+	// Build tree entries
+	result := make([]types.TreeEntry, 0, len(tree.Entries))
+	for _, entry := range tree.Entries {
+		entryPath := path
+		if entryPath == "." || entryPath == "" {
+			entryPath = entry.Name
+		} else {
+			entryPath = filepath.Join(path, entry.Name)
+		}
+
+		// Determine if entry is a directory
+		isDir := entry.Mode == filemode.Dir
+
+		// Get size (only available for files/blobs)
+		var size int64
+		if !isDir {
+			// Get blob to read size
+			blob, err := gitRepo.BlobObject(entry.Hash)
+			if err == nil {
+				size = blob.Size
+			}
+		}
+
+		result = append(result, types.TreeEntry{
+			Name:  entry.Name,
+			Path:  entryPath,
+			IsDir: isDir,
+			Size:  size,
+		})
+	}
+
+	return result, nil
+}
 
 // CreateOrUpdateFileContents creates or updates a file in a repository and commits it
 func (s *GitRepositoryService) CreateOrUpdateFileContents(
