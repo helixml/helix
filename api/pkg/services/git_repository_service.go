@@ -208,19 +208,19 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 				if gitRepo.Metadata == nil {
 					gitRepo.Metadata = make(map[string]interface{})
 				}
-				gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.ID
+				gitRepo.Metadata["kodit_repo_id"] = koditResp.Data.Id
 
 				// Update repository metadata with Kodit ID
 				if err := s.store.UpdateGitRepository(context.Background(), gitRepo); err != nil {
 					log.Warn().
 						Err(err).
 						Str("repo_id", repoID).
-						Str("kodit_repo_id", koditResp.Data.ID).
+						Str("kodit_repo_id", koditResp.Data.Id).
 						Msg("Failed to update repository with Kodit ID")
 				} else {
 					log.Info().
 						Str("repo_id", repoID).
-						Str("kodit_repo_id", koditResp.Data.ID).
+						Str("kodit_repo_id", koditResp.Data.Id).
 						Str("external_url", gitRepo.ExternalURL).
 						Msg("Registered repository with Kodit for code intelligence")
 				}
