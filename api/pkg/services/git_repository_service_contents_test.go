@@ -70,7 +70,7 @@ func TestCreateFileAndBrowseTree(t *testing.T) {
 	fileContent := "Hello, World!"
 	commitMessage := "Add test file"
 
-	content, err := service.CreateOrUpdateFileContents(
+	commitHash, err := service.CreateOrUpdateFileContents(
 		context.Background(),
 		repoID,
 		filePath,
@@ -81,7 +81,7 @@ func TestCreateFileAndBrowseTree(t *testing.T) {
 		"test@example.com",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, fileContent, content)
+	assert.NotEmpty(t, commitHash)
 
 	entries, err := service.BrowseTree(context.Background(), repoID, ".", "master")
 	require.NoError(t, err)

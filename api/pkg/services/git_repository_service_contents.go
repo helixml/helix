@@ -102,7 +102,8 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 	return result, nil
 }
 
-// CreateOrUpdateFileContents creates or updates a file in a repository and commits it
+// CreateOrUpdateFileContents creates or updates a file in a repository and commits it.
+// Returns the commit hash.
 func (s *GitRepositoryService) CreateOrUpdateFileContents(
 	ctx context.Context,
 	repoID string,
