@@ -80,6 +80,7 @@ import {
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
+import CommitsTab from '../components/git/CommitsTab'
 
 const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -142,9 +143,27 @@ const GitRepoDetail: FC = () => {
   const [copiedSha, setCopiedSha] = useState<string | null>(null)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
-  const [commitsBranch, setCommitsBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
+
+  const branchFromQuery = router.params.branch || ''
+  const currentBranch = branchFromQuery
+  const commitsBranch = branchFromQuery
+
+  const setCurrentBranch = (branch: string) => {
+    if (branch) {
+      router.mergeParams({ branch })
+    } else {
+      router.removeParams(['branch'])
+    }
+  }
+
+  const setCommitsBranch = (branch: string) => {
+    if (branch) {
+      router.mergeParams({ branch })
+    } else {
+      router.removeParams(['branch'])
+    }
+  }
 
   // List commits
   const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
@@ -865,158 +884,16 @@ const GitRepoDetail: FC = () => {
 
           {/* Commits Tab */}
           {currentTab === 'commits' && (
-            <Box>
-              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
-                <Box sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  p: 2,
-                  borderBottom: 1,
-                  borderColor: 'divider',
-                  bgcolor: 'rgba(0, 0, 0, 0.02)'
-                }}>
-                  <FormControl size="small" sx={{ minWidth: 200 }}>
-                    <InputLabel>Branch</InputLabel>
-                    <Select
-                      value={commitsBranch}
-                      onChange={(e) => setCommitsBranch(e.target.value)}
-                      label="Branch"
-                      renderValue={(value) => (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <GitBranch size={14} />
-                          <span>{value || repository?.default_branch || 'main'}</span>
-                        </Box>
-                      )}
-                      sx={{ fontWeight: 500 }}
-                    >
-                      <MenuItem value="">
-                        {repository?.default_branch || 'main'}
-                      </MenuItem>
-                      {branches.filter(b => b !== repository?.default_branch).map((branch) => (
-                        <MenuItem key={branch} value={branch}>
-                          {branch}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-                {commitsLoading ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
-                    <CircularProgress />
-                  </Box>
-                ) : commits.length === 0 ? (
-                  <Box sx={{ textAlign: 'center', py: 8 }}>
-                    <GitCommit size={48} color="#656d76" style={{ marginBottom: 16 }} />
-                    <Typography variant="body2" color="text.secondary">
-                      No commits found in this repository.
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Box>
-                    {commits.map((commit, index) => (
-                      <Box
-                        key={commit.sha || index}
-                        sx={{
-                          borderBottom: index < commits.length - 1 ? '1px solid' : 'none',
-                          borderColor: 'divider',
-                          p: 2,
-                          '&:hover': {
-                            backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                          },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Tooltip
-                              title={commit.message || ''}
-                              placement="top"
-                              arrow
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  color: 'text.primary',
-                                  fontWeight: 500,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  mb: 0.5,
-                                }}
-                              >
-                                {commit.message || 'No commit message'}
-                              </Typography>
-                            </Tooltip>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                              <Tooltip
-                                title={commit.email ? `Email: ${commit.email}` : ''}
-                                placement="top"
-                                arrow
-                              >
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    color: 'text.secondary',
-                                    fontSize: '0.8125rem',
-                                    cursor: 'default',
-                                  }}
-                                >
-                                  {commit.author || 'Unknown'}
-                                </Typography>
-                              </Tooltip>
-                              {commit.timestamp && (
-                                <>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8125rem' }}>
-                                    •
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8125rem' }}>
-                                    {new Date(commit.timestamp).toLocaleString()}
-                                  </Typography>
-                                </>
-                              )}
-                            </Box>
-                          </Box>
-                          {commit.sha && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                              <Typography
-                                variant="body2"
-                                sx={{
-                                  fontFamily: 'monospace',
-                                  fontSize: '0.8125rem',
-                                  color: 'text.secondary',
-                                }}
-                              >
-                                {commit.sha.substring(0, 7)}
-                              </Typography>
-                              <Tooltip
-                                title={copiedSha === commit.sha ? 'Copied!' : 'Copy full SHA'}
-                                placement="top"
-                                arrow
-                              >
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleCopySha(commit.sha!)}
-                                  sx={{
-                                    p: 0.5,
-                                    color: 'text.secondary',
-                                    '&:hover': {
-                                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                                      color: 'text.primary',
-                                    },
-                                  }}
-                                >
-                                  <Copy size={14} />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          )}
-                        </Box>
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </Paper>
-            </Box>
+            <CommitsTab
+              repository={repository}
+              commitsBranch={commitsBranch}
+              setCommitsBranch={setCommitsBranch}
+              branches={branches}
+              commits={commits}
+              commitsLoading={commitsLoading}
+              handleCopySha={handleCopySha}
+              copiedSha={copiedSha}
+            />
           )}
         </Box>
 
