@@ -141,35 +141,35 @@ export function useListRepositoryCommits(
 
 export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
   const api = useApi();
+  const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
+
+  const effectiveBranch = branch || repository?.default_branch || 'main';
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, branch),
+    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, effectiveBranch),
     queryFn: async () => {
-      const params: any = { path };
-      if (branch) {
-        params.branch = branch;
-      }
+      const params: any = { path, branch: effectiveBranch };
       const response = await api.getApiClient().browseGitRepositoryTree(repositoryId, params);
       return response.data;
     },
-    enabled: !!repositoryId,
+    enabled: !!repositoryId && (!branch || !repositoryLoading),
   });
 }
 
 export function useGetRepositoryFile(repositoryId: string, path: string, branch: string = '', enabled: boolean = false) {
   const api = useApi();
+  const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
+
+  const effectiveBranch = branch || repository?.default_branch || 'main';
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, branch),
+    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, effectiveBranch),
     queryFn: async () => {
-      const params: any = { path };
-      if (branch) {
-        params.branch = branch;
-      }
+      const params: any = { path, branch: effectiveBranch };
       const response = await api.getApiClient().getGitRepositoryFile(repositoryId, params);
       return response.data;
     },
-    enabled: enabled && !!repositoryId && !!path,
+    enabled: enabled && !!repositoryId && !!path && (!branch || !repositoryLoading),
   });
 }
 
