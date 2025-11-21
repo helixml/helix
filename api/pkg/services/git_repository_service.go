@@ -233,12 +233,13 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
-	log.Info().Str("repo_id", repoID).Msg("Getting repository metadata from store")
 
 	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
 	}
+
+	log.Info().Str("repo_id", repoID).Str("local_path", gitRepo.LocalPath).Msg("Got repository metadata from store")
 
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {

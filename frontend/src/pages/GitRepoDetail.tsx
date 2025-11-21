@@ -216,6 +216,14 @@ const GitRepoDetail: FC = () => {
     }
   }, [repository])
 
+  // Auto-select default branch when repository loads and no branch is specified
+  React.useEffect(() => {
+    if (repository && !branchFromQuery) {
+      const defaultBranch = repository.default_branch || 'main'
+      setCurrentBranch(defaultBranch)
+    }
+  }, [repository, branchFromQuery])
+
   // Auto-load README.md when repository loads
   React.useEffect(() => {
     if (treeData?.entries && !selectedFile) {
