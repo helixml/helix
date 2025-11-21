@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 )
@@ -34,8 +35,27 @@ func (s *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		
+		// Set cache headers based on file type
+		if strings.HasSuffix(path, ".html") {
+			// HTML files should not be cached to ensure fresh content loads
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		} else if strings.Contains(path, "-") && (strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".woff") || strings.HasSuffix(path, ".woff2") || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") || strings.HasSuffix(path, ".jpeg") || strings.HasSuffix(path, ".gif") || strings.HasSuffix(path, ".svg")) {
+			// Hashed assets can be cached for a long time since they have content-based names
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			// Other static assets get moderate caching
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+		}
+		
 		s.fileServer.ServeHTTP(w, r)
 	} else if os.IsNotExist(err) {
+		// When serving the fallback index.html for SPA routes, don't cache it
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		r.URL.Path = ""
 		s.fileServer.ServeHTTP(w, r)
 		return
