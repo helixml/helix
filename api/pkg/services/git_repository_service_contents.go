@@ -17,6 +17,10 @@ import (
 
 // BrowseTree lists files and directories at a given path in a specific branch
 func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]types.TreeEntry, error) {
+	if branch == "" {
+		return nil, fmt.Errorf("branch is required")
+	}
+
 	// Get repository to find local path
 	repo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -24,7 +28,7 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 	}
 
 	if repo.LocalPath == "" {
-		return nil, fmt.Errorf("repository has no local path")
+		return nil, fmt.Errorf("repository %s has no local path", repoID)
 	}
 
 	// Open the bare repository
@@ -35,19 +39,13 @@ func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, pa
 
 	// Get reference for specified branch, default to HEAD
 	var ref *plumbing.Reference
-	if branch != "" {
-		// Try to resolve the branch
-		branchRef := plumbing.NewBranchReferenceName(branch)
-		ref, err = gitRepo.Reference(branchRef, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
-		}
-	} else {
-		// Default to HEAD
-		ref, err = gitRepo.Head()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HEAD: %w", err)
-		}
+
+	// Try to resolve the branch
+	branchRef := plumbing.NewBranchReferenceName(branch)
+
+	ref, err = gitRepo.Reference(branchRef, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
 	}
 
 	// Get the commit
@@ -132,10 +130,7 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 	}
 
 	if branch == "" {
-		branch = repo.DefaultBranch
-		if branch == "" {
-			branch = "main"
-		}
+		return "", fmt.Errorf("branch is required")
 	}
 
 	if commitMessage == "" {
