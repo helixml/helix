@@ -154,6 +154,36 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		return "", fmt.Errorf("failed to get worktree: %w", err)
 	}
 
+	branchRef := plumbing.NewBranchReferenceName(branch)
+	head, err := gitRepo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	if head.Name() != branchRef {
+		err = w.Checkout(&git.CheckoutOptions{
+			Branch: branchRef,
+		})
+		if err != nil {
+			err = w.Checkout(&git.CheckoutOptions{
+				Branch: branchRef,
+				Create: true,
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to checkout or create branch %s: %w", branch, err)
+			}
+			log.Info().
+				Str("repo_id", repoID).
+				Str("branch", branch).
+				Msg("Created and checked out new branch")
+		} else {
+			log.Info().
+				Str("repo_id", repoID).
+				Str("branch", branch).
+				Msg("Checked out existing branch")
+		}
+	}
+
 	filename := filepath.Join(repo.LocalPath, path)
 
 	fileDir := filepath.Dir(filename)
