@@ -18,6 +18,7 @@ import (
 
 type GPUManager struct {
 	hasGPU        bool
+	gpuVendor     string              // "nvidia", "amd", or "" for CPU-only/Mac
 	gpuMemory     uint64
 	freeMemory    uint64
 	usedMemory    uint64
@@ -32,9 +33,9 @@ type GPUInfo struct {
 	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
 	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
 	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
-	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
-	DriverVersion string `json:"driver_version"` // NVIDIA driver version
-	CUDAVersion   string `json:"cuda_version"`   // CUDA version
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900 XTX")
+	DriverVersion string `json:"driver_version"` // GPU driver version (NVIDIA or AMD)
+	SDKVersion    string `json:"sdk_version"`    // GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
@@ -104,11 +105,30 @@ func (g *GPUManager) detectGPU() bool {
 
 	switch runtime.GOOS {
 	case "linux":
-		// Check for nvidia-smi
+		// Check for NVIDIA GPU first (nvidia-smi)
 		if _, err := exec.LookPath("nvidia-smi"); err == nil {
+			g.gpuVendor = "nvidia"
+			log.Info().Str("vendor", "nvidia").Msg("Detected NVIDIA GPU via nvidia-smi")
 			return true
 		}
+
+		// Check for AMD GPU (rocm-smi)
+		if _, err := exec.LookPath("rocm-smi"); err == nil {
+			g.gpuVendor = "amd"
+			log.Info().Str("vendor", "amd").Msg("Detected AMD GPU via rocm-smi")
+			return true
+		}
+
+		// Fallback: check for /dev/kfd (AMD ROCm Kernel Fusion Driver)
+		if _, err := exec.Command("test", "-e", "/dev/kfd").Output(); err == nil {
+			g.gpuVendor = "amd"
+			log.Warn().Msg("Detected /dev/kfd but rocm-smi not found - AMD GPU may not be fully configured")
+			return true
+		}
+
+		return false
 	case "darwin":
+		// Mac uses unified memory, no vendor distinction needed
 		return true
 	case "windows":
 		log.Error().Msg("Windows not yet supported, please get in touch if you need this")
@@ -188,15 +208,31 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 	case "linux":
 		// We can't use memory.free because it's based on the actual GPU memory. The user may have
 		// chosen to specify a lesser value, so we need to calculate the virtual free memory.
-		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+
+		var cmd *exec.Cmd
+		var toolName string
+
+		switch g.gpuVendor {
+		case "nvidia":
+			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+			toolName = "nvidia-smi"
+		case "amd":
+			// rocm-smi --showmeminfo vram --csv returns used memory in bytes
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+			toolName = "rocm-smi"
+		default:
+			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot query memory usage")
+			return 0
+		}
+
 		connectCmdStdErrToLogger(cmd)
-		log.Trace().Msg("Running nvidia-smi to get used memory")
+		log.Trace().Str("tool", toolName).Msg("Running GPU monitoring tool to get used memory")
 		output, err := cmd.Output()
 		if err != nil {
-			log.Error().Err(err).Msg("Error running nvidia-smi to get used memory")
+			log.Error().Err(err).Str("tool", toolName).Msg("Error running GPU monitoring tool to get used memory")
 			g.usedMemory = 0
 		} else {
-			log.Trace().Str("nvidia_smi_output", string(output)).Msg("nvidia-smi output for used memory")
+			log.Trace().Str("output", string(output)).Str("tool", toolName).Msg("GPU tool output for used memory")
 			actualUsedMemory := g.parseAndSumGPUMemory(string(output), "used")
 			if actualUsedMemory == 0 {
 				g.usedMemory = 0
@@ -355,11 +391,25 @@ func (g *GPUManager) getActualTotalMemoryAndCount() (uint64, int) {
 
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+		var cmd *exec.Cmd
+		switch g.gpuVendor {
+		case "nvidia":
+			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+		case "amd":
+			// rocm-smi --showmeminfo vram --csv returns total memory
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+		default:
+			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot query total memory")
+			return 0, 0
+		}
+
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err == nil {
 			return g.parseAndSumGPUMemoryWithCount(string(output), "total")
+		} else {
+			log.Error().Err(err).Str("gpu_vendor", g.gpuVendor).Msg("Failed to query GPU total memory")
+			return 0, 0
 		}
 	case "darwin":
 		arch, err := getMacArchitecture()
@@ -499,14 +549,15 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 	}()
 }
 
-// parseAndSumGPUMemory parses nvidia-smi output that may contain multiple lines (one per GPU)
+// parseAndSumGPUMemory parses GPU monitoring tool output that may contain multiple lines (one per GPU)
 // and sums the memory values across all GPUs
 func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 	totalMemory, _ := g.parseAndSumGPUMemoryWithCount(output, memoryType)
 	return totalMemory
 }
 
-// parseAndSumGPUMemoryWithCount parses nvidia-smi output and returns both total memory and GPU count
+// parseAndSumGPUMemoryWithCount parses GPU monitoring tool output and returns both total memory and GPU count
+// Handles both NVIDIA (nvidia-smi) and AMD (rocm-smi) output formats
 func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (uint64, int) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var totalMemory uint64
@@ -514,28 +565,57 @@ func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (u
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" || strings.HasPrefix(line, "GPU") || strings.HasPrefix(line, "device,") {
+			// Skip empty lines and headers (CSV header or GPU info)
 			continue
 		}
 
-		memory, err := strconv.ParseUint(line, 10, 64)
+		var memoryMiB uint64
+		var err error
+
+		if g.gpuVendor == "amd" {
+			// AMD rocm-smi CSV format: "device,vram_total,vram_used"
+			// Example: "card0,16384,8192" (values in MiB)
+			parts := strings.Split(line, ",")
+			if len(parts) < 3 {
+				log.Error().
+					Str("line", line).
+					Str("memory_type", memoryType).
+					Msg("Error parsing rocm-smi CSV output - expected 3 columns")
+				continue
+			}
+
+			// vram_total is column 1, vram_used is column 2 (0-indexed)
+			valueIdx := 1 // total
+			if memoryType == "used" {
+				valueIdx = 2
+			}
+
+			memoryMiB, err = strconv.ParseUint(strings.TrimSpace(parts[valueIdx]), 10, 64)
+		} else {
+			// NVIDIA nvidia-smi format: simple numbers in MiB, one per line
+			memoryMiB, err = strconv.ParseUint(line, 10, 64)
+		}
+
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("line", line).
 				Str("memory_type", memoryType).
-				Msg("Error parsing nvidia-smi memory output line")
+				Str("gpu_vendor", g.gpuVendor).
+				Msg("Error parsing GPU memory output line")
 			continue
 		}
 
-		memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+		memoryBytes := memoryMiB * 1024 * 1024 // Convert MiB to bytes
 		totalMemory += memoryBytes
 		gpuCount++
 		log.Trace().
 			Int("gpu_index", gpuCount-1).
-			Uint64("memory_mib", memory).
+			Uint64("memory_mib", memoryMiB).
 			Uint64("memory_bytes", memoryBytes).
 			Str("memory_type", memoryType).
+			Str("gpu_vendor", g.gpuVendor).
 			Msg("Parsed GPU memory for individual GPU")
 	}
 
@@ -543,6 +623,7 @@ func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (u
 		Int("gpu_count", gpuCount).
 		Uint64("total_memory_bytes", totalMemory).
 		Str("memory_type", memoryType).
+		Str("gpu_vendor", g.gpuVendor).
 		Msg("Successfully summed GPU memory across all GPUs")
 
 	return totalMemory, gpuCount
@@ -556,67 +637,88 @@ func (g *GPUManager) initializeGPUMemoryMap() {
 
 	switch runtime.GOOS {
 	case "linux":
-		// Get comprehensive GPU information including model name, driver version, and memory
-		cmd := exec.Command("nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader,nounits")
-		connectCmdStdErrToLogger(cmd)
-		output, err := cmd.Output()
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to get GPU information, using fallback")
+		var cmd *exec.Cmd
+		switch g.gpuVendor {
+		case "nvidia":
+			cmd = exec.Command("nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader,nounits")
+		case "amd":
+			// rocm-smi doesn't have a single command to get all info, so we'll get what we can
+			// For now, just use basic info - we'll populate model/driver separately
+			cmd = exec.Command("rocm-smi", "--showid", "--showproductname", "--csv")
+		default:
+			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot initialize GPU map")
 			g.initializeFallbackGPUMap()
 			return
 		}
 
-		// Get CUDA version separately
-		cudaVersion := g.getCUDAVersion()
+		connectCmdStdErrToLogger(cmd)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Warn().Err(err).Str("gpu_vendor", g.gpuVendor).Msg("Failed to get GPU information, using fallback")
+			g.initializeFallbackGPUMap()
+			return
+		}
+
+		// Get SDK version (CUDA for NVIDIA, ROCm for AMD)
+		sdkVersion := g.getSDKVersion()
 
 		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "" {
+			if line == "" || strings.HasPrefix(line, "GPU") || strings.HasPrefix(line, "device,") {
 				continue
 			}
 
-			// Parse CSV line: index,name,memory.total,driver_version
-			parts := strings.Split(line, ", ")
-			if len(parts) < 4 {
-				log.Error().Str("line", line).Msg("Invalid GPU info format")
-				continue
+			if g.gpuVendor == "nvidia" {
+				// Parse NVIDIA CSV line: index,name,memory.total,driver_version
+				parts := strings.Split(line, ", ")
+				if len(parts) < 4 {
+					log.Error().Str("line", line).Msg("Invalid NVIDIA GPU info format")
+					continue
+				}
+
+				index, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+				if err != nil {
+					log.Error().Err(err).Str("index", parts[0]).Msg("Error parsing GPU index")
+					continue
+				}
+
+				modelName := strings.TrimSpace(parts[1])
+
+				memory, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
+				if err != nil {
+					log.Error().Err(err).Str("memory", parts[2]).Msg("Error parsing GPU memory")
+					continue
+				}
+
+				driverVersion := strings.TrimSpace(parts[3])
+
+				memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+				g.gpuMemoryMap[index] = &GPUInfo{
+					Index:         index,
+					TotalMemory:   memoryBytes,
+					FreeMemory:    memoryBytes,
+					UsedMemory:    0,
+					ModelName:     modelName,
+					DriverVersion: driverVersion,
+					SDKVersion:    sdkVersion,
+				}
+
+				log.Info().
+					Int("gpu_index", index).
+					Str("model_name", modelName).
+					Str("driver_version", driverVersion).
+					Str("sdk_version", sdkVersion).
+					Uint64("total_memory_bytes", memoryBytes).
+					Msg("Initialized NVIDIA GPU with model information")
+			} else if g.gpuVendor == "amd" {
+				// Parse AMD CSV line: "device,GPU ID,Card series,Card model,Card vendor,Card SKU"
+				// Example: "card0,0x1002,Radeon RX,7900 XTX,Advanced Micro Devices Inc,0x744c"
+				// Note: AMD rocm-smi CSV format varies, so we'll use fallback for AMD
+				log.Warn().Str("line", line).Msg("AMD GPU info parsing - using fallback initialization")
+				g.initializeFallbackGPUMap()
+				return
 			}
-
-			index, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-			if err != nil {
-				log.Error().Err(err).Str("index", parts[0]).Msg("Error parsing GPU index")
-				continue
-			}
-
-			modelName := strings.TrimSpace(parts[1])
-
-			memory, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("memory", parts[2]).Msg("Error parsing GPU memory")
-				continue
-			}
-
-			driverVersion := strings.TrimSpace(parts[3])
-
-			memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
-			g.gpuMemoryMap[index] = &GPUInfo{
-				Index:         index,
-				TotalMemory:   memoryBytes,
-				FreeMemory:    memoryBytes, // Initially assume all memory is free
-				UsedMemory:    0,
-				ModelName:     modelName,
-				DriverVersion: driverVersion,
-				CUDAVersion:   cudaVersion,
-			}
-
-			log.Info().
-				Int("gpu_index", index).
-				Str("model_name", modelName).
-				Str("driver_version", driverVersion).
-				Str("cuda_version", cudaVersion).
-				Uint64("total_memory_bytes", memoryBytes).
-				Msg("Initialized GPU with model information")
 		}
 	default:
 		// For non-Linux systems, use fallback
@@ -627,55 +729,87 @@ func (g *GPUManager) initializeGPUMemoryMap() {
 	g.updateGPUMemoryMap()
 }
 
-// getCUDAVersion retrieves the CUDA version from nvidia-smi header
-func (g *GPUManager) getCUDAVersion() string {
-	// Get CUDA version from nvidia-smi header output
-	cmd := exec.Command("nvidia-smi")
-	connectCmdStdErrToLogger(cmd)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Debug().Err(err).Msg("Failed to get CUDA version from nvidia-smi")
-		// Try alternative method using nvcc if available
-		cmd = exec.Command("nvcc", "--version")
+// getSDKVersion retrieves the GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
+func (g *GPUManager) getSDKVersion() string {
+	switch g.gpuVendor {
+	case "nvidia":
+		// Get CUDA version from nvidia-smi header output
+		cmd := exec.Command("nvidia-smi")
 		connectCmdStdErrToLogger(cmd)
-		nvccOutput, nvccErr := cmd.Output()
-		if nvccErr != nil {
-			log.Debug().Err(nvccErr).Msg("Failed to get CUDA version from nvcc")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get CUDA version from nvidia-smi")
+			// Try alternative method using nvcc if available
+			cmd = exec.Command("nvcc", "--version")
+			connectCmdStdErrToLogger(cmd)
+			nvccOutput, nvccErr := cmd.Output()
+			if nvccErr != nil {
+				log.Debug().Err(nvccErr).Msg("Failed to get CUDA version from nvcc")
+				return "unknown"
+			}
+
+			// Parse nvcc output to extract version
+			lines := strings.Split(string(nvccOutput), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "release") {
+					// Example: "Cuda compilation tools, release 12.2, V12.2.140"
+					parts := strings.Split(line, "release ")
+					if len(parts) > 1 {
+						versionPart := strings.Split(parts[1], ",")[0]
+						return "CUDA " + strings.TrimSpace(versionPart)
+					}
+				}
+			}
 			return "unknown"
 		}
 
-		// Parse nvcc output to extract version
-		lines := strings.Split(string(nvccOutput), "\n")
+		// Parse nvidia-smi header to extract CUDA version
+		// Header format: "| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |"
+		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
-			if strings.Contains(line, "release") {
-				// Example: "Cuda compilation tools, release 12.2, V12.2.140"
-				parts := strings.Split(line, "release ")
+			if strings.Contains(line, "CUDA Version:") {
+				parts := strings.Split(line, "CUDA Version:")
 				if len(parts) > 1 {
-					versionPart := strings.Split(parts[1], ",")[0]
-					return strings.TrimSpace(versionPart)
+					// Extract version number and clean up
+					versionPart := strings.TrimSpace(parts[1])
+					versionPart = strings.Split(versionPart, " ")[0]  // Take first part before any spaces
+					versionPart = strings.TrimRight(versionPart, "|") // Remove trailing |
+					return "CUDA " + strings.TrimSpace(versionPart)
 				}
 			}
 		}
-		return "unknown"
-	}
 
-	// Parse nvidia-smi header to extract CUDA version
-	// Header format: "| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |"
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "CUDA Version:") {
-			parts := strings.Split(line, "CUDA Version:")
-			if len(parts) > 1 {
-				// Extract version number and clean up
-				versionPart := strings.TrimSpace(parts[1])
-				versionPart = strings.Split(versionPart, " ")[0]  // Take first part before any spaces
-				versionPart = strings.TrimRight(versionPart, "|") // Remove trailing |
-				return strings.TrimSpace(versionPart)
+		return "unknown"
+
+	case "amd":
+		// Get ROCm version from rocm-smi --showdriverversion
+		cmd := exec.Command("rocm-smi", "--showdriverversion")
+		connectCmdStdErrToLogger(cmd)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get ROCm version from rocm-smi")
+			return "unknown"
+		}
+
+		// Parse rocm-smi output to find ROCm version
+		// Example output: "ROCm version: 6.0.2" or "Driver version: 6.0"
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "ROCm") || strings.Contains(line, "version") {
+				// Extract version number from the line
+				parts := strings.Split(line, ":")
+				if len(parts) > 1 {
+					version := strings.TrimSpace(parts[1])
+					return "ROCm " + version
+				}
 			}
 		}
-	}
 
-	return "unknown"
+		return "unknown"
+
+	default:
+		return "unknown"
+	}
 }
 
 // initializeFallbackGPUMap creates a fallback GPU memory map when nvidia-smi is not available
@@ -700,7 +834,7 @@ func (g *GPUManager) initializeFallbackGPUMap() {
 			UsedMemory:    0,
 			ModelName:     "unknown",
 			DriverVersion: "unknown",
-			CUDAVersion:   "unknown",
+			SDKVersion:    "unknown",
 		}
 	}
 
@@ -719,38 +853,67 @@ func (g *GPUManager) updateGPUMemoryMap() {
 	switch runtime.GOOS {
 	case "linux":
 		// Get per-GPU used memory
-		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+		var cmd *exec.Cmd
+		switch g.gpuVendor {
+		case "nvidia":
+			cmd = exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+		case "amd":
+			cmd = exec.Command("rocm-smi", "--showmeminfo", "vram", "--csv")
+		default:
+			log.Error().Str("gpu_vendor", g.gpuVendor).Msg("CRITICAL: Unknown GPU vendor - cannot update GPU memory map")
+			return
+		}
+
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err != nil {
-			log.Trace().Err(err).Msg("Failed to update per-GPU used memory")
+			log.Trace().Err(err).Str("gpu_vendor", g.gpuVendor).Msg("Failed to update per-GPU used memory")
 			return
 		}
 
 		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		for i, line := range lines {
+		gpuIdx := 0
+		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "" {
+			if line == "" || strings.HasPrefix(line, "GPU") || strings.HasPrefix(line, "device,") {
+				// Skip empty lines and headers
 				continue
 			}
 
-			usedMemory, err := strconv.ParseUint(line, 10, 64)
+			var usedMemoryMiB uint64
+			var err error
+
+			if g.gpuVendor == "amd" {
+				// AMD rocm-smi CSV format: "device,vram_total,vram_used"
+				parts := strings.Split(line, ",")
+				if len(parts) < 3 {
+					log.Error().Str("line", line).Msg("Error parsing AMD GPU used memory - expected 3 columns")
+					continue
+				}
+				usedMemoryMiB, err = strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
+			} else {
+				// NVIDIA format: simple number in MiB
+				usedMemoryMiB, err = strconv.ParseUint(line, 10, 64)
+			}
+
 			if err != nil {
-				log.Error().Err(err).Str("line", line).Msg("Error parsing GPU used memory")
+				log.Error().Err(err).Str("line", line).Str("gpu_vendor", g.gpuVendor).Msg("Error parsing GPU used memory")
 				continue
 			}
 
-			usedMemoryBytes := usedMemory * 1024 * 1024 // Convert MiB to bytes
-			if gpuInfo, exists := g.gpuMemoryMap[i]; exists {
+			usedMemoryBytes := usedMemoryMiB * 1024 * 1024 // Convert MiB to bytes
+			if gpuInfo, exists := g.gpuMemoryMap[gpuIdx]; exists {
 				gpuInfo.UsedMemory = usedMemoryBytes
 				gpuInfo.FreeMemory = gpuInfo.TotalMemory - usedMemoryBytes
 
 				log.Trace().
-					Int("gpu_index", i).
+					Int("gpu_index", gpuIdx).
 					Uint64("used_memory_bytes", usedMemoryBytes).
 					Uint64("free_memory_bytes", gpuInfo.FreeMemory).
+					Str("gpu_vendor", g.gpuVendor).
 					Msg("Updated GPU memory usage")
 			}
+			gpuIdx++
 		}
 	default:
 		// For non-Linux systems, we can't track per-GPU memory accurately

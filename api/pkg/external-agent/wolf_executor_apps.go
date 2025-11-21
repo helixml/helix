@@ -875,8 +875,17 @@ input * {
 }
 
 func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPIToken string) *wolf.App {
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd",  // Include both NVIDIA and AMD GPU devices
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
