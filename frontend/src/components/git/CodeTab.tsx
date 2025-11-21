@@ -402,6 +402,20 @@ const CodeTab: FC<CodeTabProps> = ({
                 </Box>
               )}
 
+              {/* If repository is external, show the external URL */}
+              {repository.is_external && repository.external_url && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Upstream URL
+                  </Typography>
+                  <Typography variant="body2">
+                    <a href={repository.external_url} target="_blank" rel="noopener noreferrer">
+                      {repository.external_url}
+                    </a>
+                  </Typography>
+                </Box>
+              )}
+
               <Box>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                   Created
