@@ -103,7 +103,7 @@ ARG VLLM_VERSION
 
 # Install ollama (keeping independent version for upgrade flexibility)
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
-    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.12.5/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
+    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.13.0/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
     tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
     mv $TEMP_DIR/bin/ollama /usr/bin/ollama && \
     chmod +x /usr/bin/ollama && \
