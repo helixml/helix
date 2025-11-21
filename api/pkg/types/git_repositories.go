@@ -97,18 +97,21 @@ type GitRepositoryCreateRequest struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
+	AzureDevopsRepository *AzureDevopsRepository `json:"azure_devops_repository"`
+
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 }
 
 // GitRepositoryUpdateRequest represents a request to update a repository
 type GitRepositoryUpdateRequest struct {
-	Name          string                 `json:"name,omitempty"`
-	Description   string                 `json:"description,omitempty"`
-	DefaultBranch string                 `json:"default_branch,omitempty"`
-	Username      string                 `json:"username,omitempty"`
-	Password      string                 `json:"password,omitempty"`
-	ExternalURL   string                 `json:"external_url,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Name                  string                 `json:"name,omitempty"`
+	Description           string                 `json:"description,omitempty"`
+	DefaultBranch         string                 `json:"default_branch,omitempty"`
+	Username              string                 `json:"username,omitempty"`
+	Password              string                 `json:"password,omitempty"`
+	ExternalURL           string                 `json:"external_url,omitempty"`
+	AzureDevopsRepository *AzureDevopsRepository `json:"azure_devops_repository"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type ListGitRepositoriesRequest struct {
