@@ -77,21 +77,18 @@ import {
 import {
   useKoditEnrichments,
   groupEnrichmentsByType,
-  getEnrichmentTypeName,
-  getEnrichmentTypeIcon,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
+import CodeTab from '../components/git/CodeTab'
 
 const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
 type TabName = typeof TAB_NAMES[number]
 
-const tabNameToIndex = (name: string | undefined): number => {
-  const index = TAB_NAMES.indexOf(name as TabName)
-  return index >= 0 ? index : 0
-}
-
-const indexToTabName = (index: number): TabName => {
-  return TAB_NAMES[index] || TAB_NAMES[0]
+const getTabName = (name: string | undefined): TabName => {
+  if (name && TAB_NAMES.includes(name as TabName)) {
+    return name as TabName
+  }
+  return TAB_NAMES[0]
 }
 
 const GitRepoDetail: FC = () => {
@@ -126,10 +123,11 @@ const GitRepoDetail: FC = () => {
   const groupedEnrichments = groupEnrichmentsByType(enrichments)
 
   // UI State
-  const [currentTab, setCurrentTab] = useState(() => tabNameToIndex(router.params.tab))
+  const [currentTab, setCurrentTab] = useState<TabName>(() => getTabName(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
+  const [forcePushDialogOpen, setForcePushDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
@@ -145,12 +143,13 @@ const GitRepoDetail: FC = () => {
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
+  const [commitsBranch, setCommitsBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
 
   // List commits
   const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
     repoId || '',
-    currentBranch || undefined,
+    commitsBranch || undefined,
     1,
     100
   )
@@ -179,9 +178,9 @@ const GitRepoDetail: FC = () => {
 
   // Sync tab state with query parameter
   React.useEffect(() => {
-    const tabIndex = tabNameToIndex(router.params.tab)
-    if (tabIndex !== currentTab) {
-      setCurrentTab(tabIndex)
+    const tabName = getTabName(router.params.tab)
+    if (tabName !== currentTab) {
+      setCurrentTab(tabName)
     }
   }, [router.params.tab, currentTab])
 
@@ -299,16 +298,23 @@ const GitRepoDetail: FC = () => {
     setTimeout(() => setCopiedSha(null), 2000)
   }
 
-  const handlePushPull = async () => {
+  const handlePushPull = async (force = false) => {
     if (!repoId) return
 
     try {
       const branch = currentBranch || repository?.default_branch || undefined
-      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch })
-      snackbar.success('Repository synchronized successfully')
-    } catch (error) {
+      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch, force })
+      snackbar.success(force ? 'Repository force pushed successfully' : 'Repository synchronized successfully')
+      setForcePushDialogOpen(false)
+    } catch (error: any) {
       console.error('Failed to push/pull repository:', error)
-      snackbar.error('Failed to synchronize repository')
+      const errorMessage = error?.response?.data?.error || error?.response?.data?.message || error?.message || String(error)
+      const errorLower = errorMessage.toLowerCase()
+      if (errorLower.includes('non-fast-forward') || errorLower.includes('non fast forward')) {
+        setForcePushDialogOpen(true)
+      } else {
+        snackbar.error('Failed to synchronize repository')
+      }
     }
   }
 
@@ -555,33 +561,38 @@ const GitRepoDetail: FC = () => {
           {/* Navigation tabs */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs value={currentTab} onChange={(_, newValue) => {
-              setCurrentTab(newValue)
-              router.mergeParams({ tab: indexToTabName(newValue) })
+              const tabName = newValue as TabName
+              setCurrentTab(tabName)
+              router.mergeParams({ tab: tabName })
             }}>
               <Tab
+                value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="commits"
+                icon={<GitCommit size={16} />}
+                iconPosition="start"
+                label="Commits"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                value="settings"
                 icon={<Settings size={16} />}
                 iconPosition="start"
                 label="Settings"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="access"
                 icon={<Users size={16} />}
                 iconPosition="start"
                 label="Access"
                 sx={{ textTransform: 'none', minHeight: 48 }}
-              />
-              <Tab
-                icon={<GitCommit size={16} />}
-                iconPosition="start"
-                label="Commits"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
+              />              
             </Tabs>
           </Box>
         </Box>
@@ -589,358 +600,53 @@ const GitRepoDetail: FC = () => {
         {/* Tab panels */}
         <Box sx={{ mt: 3 }}>
           {/* Code Tab */}
-          {currentTab === 0 && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {/* Code Intelligence - Architecture enrichments from Kodit */}
-              {enrichments.length > 0 && groupedEnrichments['architecture'] && (
-                <Paper variant="outlined" sx={{ borderRadius: 2, p: 3, bgcolor: 'rgba(0, 213, 255, 0.04)', borderColor: 'rgba(0, 213, 255, 0.2)' }}>
-                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, fontWeight: 600 }}>
-                    {getEnrichmentTypeIcon('architecture')} {getEnrichmentTypeName('architecture')} Insights
-                  </Typography>
-                  <Stack spacing={2}>
-                    {groupedEnrichments['architecture'].map((enrichment: any, index: number) => (
-                      <Box key={enrichment.id || index}>
-                        {enrichment.attributes?.subtype && (
-                          <Chip
-                            label={enrichment.attributes.subtype}
-                            size="small"
-                            sx={{ mb: 1, bgcolor: 'rgba(0, 213, 255, 0.15)', color: '#00d5ff', fontWeight: 600 }}
-                          />
-                        )}
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                          {enrichment.attributes?.content}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Paper>
-              )}
-
-              {/* File browser and file viewer */}
-              <Box sx={{ display: 'flex', gap: 3 }}>
-                {/* Main content - File browser */}
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-                  {/* Branch selector bar */}
-                  <Box sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 2,
-                    p: 2,
-                    borderBottom: 1,
-                    borderColor: 'divider',
-                    bgcolor: 'rgba(0, 0, 0, 0.02)'
-                  }}>
-                    <FormControl size="small" sx={{ minWidth: 200 }}>
-                      <Select
-                        value={currentBranch}
-                        onChange={(e) => {
-                          setCurrentBranch(e.target.value)
-                          setCurrentPath('.') // Reset to root when switching branches
-                          setSelectedFile(null) // Clear selected file
-                        }}
-                        displayEmpty
-                        renderValue={(value) => (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <GitBranch size={14} />
-                            <span>{value || repository?.default_branch || 'main'}</span>
-                          </Box>
-                        )}
-                        sx={{ fontWeight: 500 }}
-                      >
-                        <MenuItem value="">
-                          {repository?.default_branch || 'main'}
-                        </MenuItem>
-                        {branches.filter(b => b !== repository?.default_branch).map((branch) => (
-                          <MenuItem key={branch} value={branch}>
-                            {branch}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <Button
-                      startIcon={<Plus size={16} />}
-                      variant="outlined"
-                      size="small"
-                      onClick={() => {
-                        setNewBranchName('')
-                        setNewBranchBase(currentBranch || repository?.default_branch || 'main')
-                        setCreateBranchDialogOpen(true)
-                      }}
-                      sx={{ height: 40, whiteSpace: 'nowrap' }}
-                    >
-                      New Branch
-                    </Button>
-                    <Button
-                      startIcon={<Plus size={16} />}
-                      variant="outlined"
-                      size="small"
-                      onClick={() => {
-                        setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
-                        setNewFileContent('')
-                        setIsEditingFile(false)
-                        setCreateFileDialogOpen(true)
-                      }}
-                      sx={{  height: 40, whiteSpace: 'nowrap' }}
-                    >
-                      Add File
-                    </Button>
-                    {isExternal && (
-                      <Button
-                        startIcon={<ArrowUpDown size={16} />}
-                        variant="outlined"
-                        size="small"
-                        onClick={handlePushPull}
-                        disabled={pushPullMutation.isPending}
-                        sx={{ height: 40, whiteSpace: 'nowrap' }}
-                      >
-                        {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                      </Button>
-                    )}
-
-                    {/* Breadcrumb navigation */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
-                      
-                      {getPathBreadcrumbs().map((part, index, arr) => {
-                        const path = arr.slice(0, index + 1).join('/')
-                        const isLast = index === arr.length - 1
-                        return (
-                          <React.Fragment key={path}>
-                            <ChevronRight size={14} color="#656d76" />
-                            <Chip
-                              label={part}
-                              size="small"
-                              onClick={() => handleNavigateToDirectory(path)}
-                              sx={{ cursor: 'pointer', fontWeight: 500 }}
-                              variant={isLast ? 'filled' : 'outlined'}
-                            />
-                          </React.Fragment>
-                        )
-                      })}
-                    </Box>
-                  </Box>
-
-                  {/* File tree */}
-                  <Box>
-                    {treeLoading ? (
-                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                        <CircularProgress size={24} />
-                      </Box>
-                    ) : (
-                      <>
-                        {currentPath !== '.' && (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 2,
-                              px: 3,
-                              py: 1.5,
-                              cursor: 'pointer',
-                              borderBottom: 1,
-                              borderColor: 'divider',
-                              '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                              },
-                            }}
-                            onClick={handleNavigateUp}
-                          >
-                            <Folder size={18} color="#54aeff" />
-                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                              ..
-                            </Typography>
-                          </Box>
-                        )}
-
-                        {treeData?.entries && treeData.entries.length > 0 ? (
-                          treeData.entries
-                            .sort((a, b) => {
-                              // Directories first, then files
-                              if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-                              return (a.name || '').localeCompare(b.name || '')
-                            })
-                            .map((entry) => (
-                              <Box
-                                key={entry.path}
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 2,
-                                  px: 3,
-                                  py: 1.5,
-                                  cursor: 'pointer',
-                                  borderBottom: 1,
-                                  borderColor: 'divider',
-                                  backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
-                                  '&:hover': {
-                                    backgroundColor: selectedFile === entry.path
-                                      ? 'rgba(25, 118, 210, 0.12)'
-                                      : 'rgba(0, 0, 0, 0.02)',
-                                  },
-                                  '&:last-child': {
-                                    borderBottom: 0,
-                                  },
-                                }}
-                                onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
-                              >
-                                {entry.is_dir ? (
-                                  <Folder size={18} color="#54aeff" />
-                                ) : (
-                                  <FileText size={18} color="#656d76" />
-                                )}
-                                <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
-                                  {entry.name}
-                                </Typography>
-                                {!entry.is_dir && entry.size !== undefined && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {entry.size > 1024
-                                      ? `${Math.round(entry.size / 1024)} KB`
-                                      : `${entry.size} B`}
-                                  </Typography>
-                                )}
-                              </Box>
-                            ))
-                        ) : (
-                          <Box sx={{ py: 8, textAlign: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Empty directory
-                            </Typography>
-                          </Box>
-                        )}
-                      </>
-                    )}
-                  </Box>
-                </Paper>
-
-                {/* File viewer */}
-                {selectedFile && (
-                  <Paper variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
-                    <Box sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      px: 3,
-                      py: 2,
-                      borderBottom: 1,
-                      borderColor: 'divider',
-                      bgcolor: 'rgba(0, 0, 0, 0.02)'
-                    }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                        {selectedFile.split('/').pop()}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Tooltip title="Edit file">
-                          <IconButton 
-                            size="small" 
-                            onClick={() => {
-                              if (selectedFile && fileData?.content) {
-                                setNewFilePath(selectedFile)
-                                setNewFileContent(fileData.content)
-                                setIsEditingFile(true)
-                                setCreateFileDialogOpen(true)
-                              }
-                            }}
-                          >
-                            <Pencil size={16} />
-                          </IconButton>
-                        </Tooltip>
-                        <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                          <CloseIcon size={16} />
-                        </IconButton>
-                      </Box>
-                    </Box>
-                    {fileLoading ? (
-                      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                        <CircularProgress size={24} />
-                      </Box>
-                    ) : (
-                      <Box
-                        component="pre"
-                        sx={{
-                          fontFamily: 'monospace',
-                          fontSize: '0.875rem',
-                          color: 'text.primary',
-                          p: 3,
-                          overflow: 'auto',
-                          maxHeight: '600px',
-                          whiteSpace: 'pre',
-                          margin: 0,
-                        }}
-                      >
-                        {fileData?.content || 'No content'}
-                      </Box>
-                    )}
-                  </Paper>
-                )}
-              </Box>
-
-              {/* Sidebar - About */}
-              <Box sx={{ width: 300, flexShrink: 0 }}>
-                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
-                    About
-                  </Typography>
-
-                  <Stack spacing={2}>
-                    {repository.description && (
-                      <Typography variant="body2" color="text.secondary">
-                        {repository.description}
-                      </Typography>
-                    )}
-
-                    <Divider />
-
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                        Type
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {repository.repo_type || 'project'}
-                      </Typography>
-                    </Box>
-
-                    {repository.default_branch && (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Default Branch
-                        </Typography>
-                        <Chip
-                          icon={<GitBranch size={12} />}
-                          label={repository.default_branch}
-                          size="small"
-                          sx={{ fontWeight: 500 }}
-                        />
-                      </Box>
-                    )}
-
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                        Created
-                      </Typography>
-                      <Typography variant="body2">
-                        {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
-                      </Typography>
-                    </Box>
-
-                    {repository.updated_at && (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Last Updated
-                        </Typography>
-                        <Typography variant="body2">
-                          {new Date(repository.updated_at).toLocaleDateString()}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Stack>
-                </Paper>
-              </Box>
-            </Box>
-            </Box>
+          {currentTab === 'code' && (
+            <CodeTab
+              repository={repository}
+              enrichments={enrichments}
+              groupedEnrichments={groupedEnrichments}
+              treeData={treeData}
+              treeLoading={treeLoading}
+              fileData={fileData}
+              fileLoading={fileLoading}
+              selectedFile={selectedFile}
+              setSelectedFile={setSelectedFile}
+              currentPath={currentPath}
+              setCurrentPath={setCurrentPath}
+              currentBranch={currentBranch}
+              setCurrentBranch={setCurrentBranch}
+              branches={branches}
+              isExternal={isExternal}
+              pushPullMutation={pushPullMutation}
+              handleNavigateToDirectory={handleNavigateToDirectory}
+              handleSelectFile={handleSelectFile}
+              handleNavigateUp={handleNavigateUp}
+              handlePushPull={handlePushPull}
+              handleCreateBranch={handleCreateBranch}
+              handleCreateFile={handleCreateFile}
+              getPathBreadcrumbs={getPathBreadcrumbs}
+              createBranchDialogOpen={createBranchDialogOpen}
+              setCreateBranchDialogOpen={setCreateBranchDialogOpen}
+              newBranchName={newBranchName}
+              setNewBranchName={setNewBranchName}
+              newBranchBase={newBranchBase}
+              setNewBranchBase={setNewBranchBase}
+              createFileDialogOpen={createFileDialogOpen}
+              setCreateFileDialogOpen={setCreateFileDialogOpen}
+              newFilePath={newFilePath}
+              setNewFilePath={setNewFilePath}
+              newFileContent={newFileContent}
+              setNewFileContent={setNewFileContent}
+              isEditingFile={isEditingFile}
+              setIsEditingFile={setIsEditingFile}
+              creatingFile={creatingFile}
+              createBranchMutation={createBranchMutation}
+              createOrUpdateFileMutation={createOrUpdateFileMutation}
+            />
           )}
 
           {/* Settings Tab */}
-          {currentTab === 1 && (
+          {currentTab === 'settings' && (
             <Box sx={{ maxWidth: 800 }}>
               <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
@@ -1126,7 +832,7 @@ const GitRepoDetail: FC = () => {
           )}
 
           {/* Access Tab */}
-          {currentTab === 2 && (
+          {currentTab === 'access' && (
             <Box sx={{ maxWidth: 800 }}>
               <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
@@ -1158,9 +864,43 @@ const GitRepoDetail: FC = () => {
           )}
 
           {/* Commits Tab */}
-          {currentTab === 3 && (
+          {currentTab === 'commits' && (
             <Box>
               <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  p: 2,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                  bgcolor: 'rgba(0, 0, 0, 0.02)'
+                }}>
+                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Branch</InputLabel>
+                    <Select
+                      value={commitsBranch}
+                      onChange={(e) => setCommitsBranch(e.target.value)}
+                      label="Branch"
+                      renderValue={(value) => (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <GitBranch size={14} />
+                          <span>{value || repository?.default_branch || 'main'}</span>
+                        </Box>
+                      )}
+                      sx={{ fontWeight: 500 }}
+                    >
+                      <MenuItem value="">
+                        {repository?.default_branch || 'main'}
+                      </MenuItem>
+                      {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+                        <MenuItem key={branch} value={branch}>
+                          {branch}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
                 {commitsLoading ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
                     <CircularProgress />
@@ -1486,6 +1226,33 @@ const GitRepoDetail: FC = () => {
               disabled={deleting}
             >
               {deleting ? <CircularProgress size={20} /> : 'Delete Repository'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Force Push Dialog */}
+        <Dialog open={forcePushDialogOpen} onClose={() => setForcePushDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Non-Fast-Forward Update</DialogTitle>
+          <DialogContent>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              The remote branch has commits that your local branch doesn't have. A regular push cannot be performed.
+            </Alert>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              You can force push to overwrite the remote branch with your local changes. This will discard any commits on the remote branch that aren't in your local branch.
+            </Typography>
+            <Typography variant="body2" color="error">
+              <strong>Warning:</strong> Force pushing can cause data loss if others are working on this branch. Only proceed if you're sure you want to overwrite the remote branch.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setForcePushDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => handlePushPull(true)}
+              variant="contained"
+              color="error"
+              disabled={pushPullMutation.isPending}
+            >
+              {pushPullMutation.isPending ? <CircularProgress size={20} /> : 'Force Push'}
             </Button>
           </DialogActions>
         </Dialog>
