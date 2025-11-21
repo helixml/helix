@@ -119,9 +119,19 @@ type SwayWolfAppConfig struct {
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+	// Intel GPUs only need /dev/dri (already included)
+
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd",  // Include both NVIDIA and AMD GPU devices
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -1221,8 +1231,17 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
 
 	// Create Wolf app using the same Sway configuration as the main creation function
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia* /dev/kfd",  // Include both NVIDIA and AMD GPU devices
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),

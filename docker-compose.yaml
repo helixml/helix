@@ -368,9 +368,9 @@ services:
       retries: 3
       start_period: 10s
 
-  # Moonlight Web Stream - Browser-based Moonlight streaming
+  # Moonlight Web Stream - Browser-based Moonlight streaming (GPU-agnostic, works with both NVIDIA and AMD)
   moonlight-web:
-    profiles: [code]
+    profiles: [code, code-amd]
     image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
     command: bash -c "/app/init-moonlight-config.sh"
     ports:
@@ -394,37 +394,7 @@ services:
     volumes:
       - ./moonlight-web-config:/app/server:rw
     restart: unless-stopped
-    depends_on:
-      - wolf
-
-  # Moonlight Web Stream for AMD profile
-  moonlight-web-amd:
-    profiles: [code-amd]
-    image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
-    command: bash -c "/app/init-moonlight-config.sh"
-    ports:
-      - "8081:8080"  # Web interface
-      - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
-    networks:
-      - default
-    environment:
-      # Production logging
-      - RUST_LOG=moonlight_common=info,moonlight_web=info
-      # Internal pairing PIN (shared with Wolf, secure random in production)
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-      # Moonlight credentials for API authentication (must match config.json)
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
-      # TURN server credentials (must match config.json)
-      - TURN_PASSWORD=${TURN_PASSWORD:-}
-      # TURN server public IP (auto-detected if not set)
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-      # Helix hostname (for display name in Moonlight client)
-      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-    volumes:
-      - ./moonlight-web-config:/app/server:rw
-    restart: unless-stopped
-    depends_on:
-      - wolf-amd
+    # No depends_on - can start independently of Wolf
 
 volumes:
   helix-postgres-db:
