@@ -176,31 +176,73 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 		}
 	}
 
-	branchRef := plumbing.NewBranchReferenceName(branch)
-	_, err = gitRepo.Reference(branchRef, true)
-	if err != nil {
-		headRef, headErr := gitRepo.Head()
-		if headErr != nil {
-			return "", fmt.Errorf("failed to get HEAD and branch %s does not exist: %w", branch, err)
-		}
-		branchRef = plumbing.NewBranchReferenceName(branch)
-		err = gitRepo.Storer.SetReference(plumbing.NewHashReference(branchRef, headRef.Hash()))
-		if err != nil {
-			return "", fmt.Errorf("failed to create branch %s: %w", branch, err)
-		}
-	}
-
 	worktree, err := gitRepo.Worktree()
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: branchRef,
-		Create: false,
-	})
+	// Try to find and checkout the branch
+	branchRef := plumbing.NewBranchReferenceName(branch)
+	_, err = gitRepo.Reference(branchRef, true)
 	if err != nil {
-		return "", fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+		// Branch does not exist locally. Try to find it on remote.
+		var remoteRef *plumbing.Reference
+		remoteBranchName := plumbing.NewRemoteReferenceName("origin", branch)
+
+		// Check if we already have it in remotes (from clone)
+		remoteRef, err = gitRepo.Reference(remoteBranchName, true)
+
+		// If not found, try to fetch it explicitly
+		if err != nil {
+			remote, remoteErr := gitRepo.Remote("origin")
+			if remoteErr == nil {
+				fetchErr := remote.Fetch(&git.FetchOptions{
+					RefSpecs: []config.RefSpec{
+						config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/remotes/origin/%s", branch, branch)),
+					},
+				})
+				// Accept success or AlreadyUpToDate
+				if fetchErr == nil || fetchErr == git.NoErrAlreadyUpToDate {
+					remoteRef, _ = gitRepo.Reference(remoteBranchName, true)
+				}
+			}
+		}
+
+		if remoteRef != nil {
+			// Found on remote, create local tracking branch
+			err = gitRepo.Storer.SetReference(plumbing.NewHashReference(branchRef, remoteRef.Hash()))
+			if err != nil {
+				return "", fmt.Errorf("failed to create local branch ref from remote: %w", err)
+			}
+		} else {
+			// Not found on remote either, create new branch from HEAD
+			headRef, headErr := gitRepo.Head()
+			if headErr != nil {
+				return "", fmt.Errorf("failed to get HEAD and branch %s does not exist: %w", branch, err)
+			}
+			err = gitRepo.Storer.SetReference(plumbing.NewHashReference(branchRef, headRef.Hash()))
+			if err != nil {
+				return "", fmt.Errorf("failed to create new branch %s: %w", branch, err)
+			}
+		}
+
+		// Now checkout the branch
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: branchRef,
+			Create: false,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+		}
+	} else {
+		// Branch exists locally, just checkout
+		err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: branchRef,
+			Create: false,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+		}
 	}
 
 	fullPath := filepath.Join(tempClone, path)
