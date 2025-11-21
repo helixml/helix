@@ -53,8 +53,15 @@ type GitRepository struct {
 	// TODO: OAuth support using our providers
 	// TODO: SSH key
 
+	AzureDevopsRepository *AzureDevopsRepository `gorm:"type:jsonb;serializer:json" json:"azure_devops_repository"`
+
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
+}
+
+type AzureDevopsRepository struct {
+	OrganizationURL     string `json:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token"`
 }
 
 // TableName overrides the table name
