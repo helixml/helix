@@ -5,9 +5,6 @@ import {
   CircularProgress,
   Button,
   Chip,
-  Select,
-  MenuItem,
-  FormControl,
   Paper,
   Stack,
   Divider,
@@ -28,6 +25,7 @@ import {
   getEnrichmentTypeIcon,
   getEnrichmentTypeName,
 } from '../../services/koditService'
+import BranchSelect from './BranchSelect'
 
 interface CodeTabProps {
   repository: any
@@ -152,46 +150,22 @@ const CodeTab: FC<CodeTabProps> = ({
               borderColor: 'divider',
               bgcolor: 'rgba(0, 0, 0, 0.02)'
             }}>
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <Select
-                  value={currentBranch}
-                  onChange={(e) => {
-                    setCurrentBranch(e.target.value)
-                    setCurrentPath('.')
-                    setSelectedFile(null)
-                  }}
-                  displayEmpty
-                  renderValue={(value) => (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <GitBranch size={14} />
-                      <span>{value || repository?.default_branch || 'main'}</span>
-                    </Box>
-                  )}
-                  sx={{ fontWeight: 500 }}
-                >
-                  <MenuItem value="">
-                    {repository?.default_branch || 'main'}
-                  </MenuItem>
-                  {branches.filter(b => b !== repository?.default_branch).map((branch) => (
-                    <MenuItem key={branch} value={branch}>
-                      {branch}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Button
-                startIcon={<Plus size={16} />}
-                variant="outlined"
-                size="small"
-                onClick={() => {
+              <BranchSelect
+                repository={repository}
+                currentBranch={currentBranch}
+                setCurrentBranch={setCurrentBranch}
+                branches={branches}
+                showNewBranchButton={true}
+                onBranchChange={(branch) => {
+                  setCurrentPath('.')
+                  setSelectedFile(null)
+                }}
+                onNewBranchClick={() => {
                   setNewBranchName('')
                   setNewBranchBase(currentBranch || repository?.default_branch || 'main')
                   setCreateBranchDialogOpen(true)
                 }}
-                sx={{ height: 40, whiteSpace: 'nowrap' }}
-              >
-                New Branch
-              </Button>
+              />
               <Button
                 startIcon={<Plus size={16} />}
                 variant="outlined"

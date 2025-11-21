@@ -279,8 +279,15 @@ export function usePushPullGitRepository() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ repositoryId, branch }: { repositoryId: string; branch?: string }) => {
-      const response = await api.getApiClient().pushPullGitRepository(repositoryId, branch ? { branch } : undefined);
+    mutationFn: async ({ repositoryId, branch, force }: { repositoryId: string; branch?: string; force?: boolean }) => {
+      const query: { branch?: string; force?: string } = {};
+      if (branch) {
+        query.branch = branch;
+      }
+      if (force) {
+        query.force = 'true';
+      }
+      const response = await api.getApiClient().pushPullGitRepository(repositoryId, Object.keys(query).length > 0 ? query : undefined);
       return response.data;
     },
     onSuccess: (_, variables) => {
