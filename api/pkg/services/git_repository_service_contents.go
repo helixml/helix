@@ -185,3 +185,62 @@ func (s *GitRepositoryService) CreateOrUpdateFileContents(
 
 	return string(content), nil
 }
+
+// GetFileContents reads the contents of a file from a specific branch
+func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string, branch string) (string, error) {
+	// Get repository to find local path
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return "", fmt.Errorf("repository not found: %w", err)
+	}
+
+	if repo.LocalPath == "" {
+		return "", fmt.Errorf("repository has no local path")
+	}
+
+	// Open the bare repository
+	gitRepo, err := git.PlainOpen(repo.LocalPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Get branch reference - use HEAD if no branch specified
+	var ref *plumbing.Reference
+	if branch == "" {
+		ref, err = gitRepo.Head()
+		if err != nil {
+			return "", fmt.Errorf("failed to get HEAD: %w", err)
+		}
+	} else {
+		ref, err = gitRepo.Reference(plumbing.NewBranchReferenceName(branch), true)
+		if err != nil {
+			return "", fmt.Errorf("failed to get branch reference: %w", err)
+		}
+	}
+
+	// Get the commit
+	commit, err := gitRepo.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit: %w", err)
+	}
+
+	// Get the tree
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get tree: %w", err)
+	}
+
+	// Get the file
+	file, err := tree.File(path)
+	if err != nil {
+		return "", fmt.Errorf("file not found in repository: %w", err)
+	}
+
+	// Read file contents
+	content, err := file.Contents()
+	if err != nil {
+		return "", fmt.Errorf("failed to read file contents: %w", err)
+	}
+
+	return content, nil
+}
