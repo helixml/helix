@@ -152,7 +152,7 @@ RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
     git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git /tmp/vllm-rocm-src && \
     cd /tmp/vllm-rocm-src && \
     VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
-    PYTORCH_ROCM_ARCH="gfx90a;gfx942;gfx1100" \
+    PYTORCH_ROCM_ARCH="gfx908;gfx90a;gfx942;gfx1100;gfx1101;gfx1030" \
     /workspace/vllm-rocm/venv/bin/python setup.py develop && \
     cd /workspace && rm -rf /tmp/vllm-rocm-src
 
