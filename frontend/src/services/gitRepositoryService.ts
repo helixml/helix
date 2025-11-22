@@ -141,35 +141,35 @@ export function useListRepositoryCommits(
 
 export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
   const api = useApi();
+  const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
+
+  const effectiveBranch = branch || repository?.default_branch || 'main';
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, branch),
+    queryKey: QUERY_KEYS.repositoryTree(repositoryId, path, effectiveBranch),
     queryFn: async () => {
-      const params: any = { path };
-      if (branch) {
-        params.branch = branch;
-      }
+      const params: any = { path, branch: effectiveBranch };
       const response = await api.getApiClient().browseGitRepositoryTree(repositoryId, params);
       return response.data;
     },
-    enabled: !!repositoryId,
+    enabled: !!repositoryId && (!branch || !repositoryLoading),
   });
 }
 
 export function useGetRepositoryFile(repositoryId: string, path: string, branch: string = '', enabled: boolean = false) {
   const api = useApi();
+  const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
+
+  const effectiveBranch = branch || repository?.default_branch || 'main';
 
   return useQuery({
-    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, branch),
+    queryKey: QUERY_KEYS.repositoryFile(repositoryId, path, effectiveBranch),
     queryFn: async () => {
-      const params: any = { path };
-      if (branch) {
-        params.branch = branch;
-      }
+      const params: any = { path, branch: effectiveBranch };
       const response = await api.getApiClient().getGitRepositoryFile(repositoryId, params);
       return response.data;
     },
-    enabled: enabled && !!repositoryId && !!path,
+    enabled: enabled && !!repositoryId && !!path && (!branch || !repositoryLoading),
   });
 }
 
@@ -279,8 +279,15 @@ export function usePushPullGitRepository() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ repositoryId, branch }: { repositoryId: string; branch?: string }) => {
-      const response = await api.getApiClient().pushPullGitRepository(repositoryId, branch ? { branch } : undefined);
+    mutationFn: async ({ repositoryId, branch, force }: { repositoryId: string; branch?: string; force?: boolean }) => {
+      const query: { branch?: string; force?: string } = {};
+      if (branch) {
+        query.branch = branch;
+      }
+      if (force) {
+        query.force = 'true';
+      }
+      const response = await api.getApiClient().pushPullGitRepository(repositoryId, Object.keys(query).length > 0 ? query : undefined);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -289,6 +296,26 @@ export function usePushPullGitRepository() {
       });
       queryClient.invalidateQueries({ 
         queryKey: QUERY_KEYS.repositoryTree(variables.repositoryId, '.', variables.branch || '') 
+      });
+    },
+  });
+}
+
+export function useCreateBranch() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, request }: { repositoryId: string; request: { branch_name: string; base_branch?: string } }) => {
+      const response = await api.getApiClient().createGitRepositoryBranch(repositoryId, request);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: ['git-repositories', variables.repositoryId, 'branches'] 
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: QUERY_KEYS.gitRepository(variables.repositoryId) 
       });
     },
   });
@@ -447,6 +474,7 @@ const gitRepositoryService = {
   useInitializeSampleRepositories,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
+  useCreateBranch,
 
   // Helper functions
   getRepositoryTypeColor,

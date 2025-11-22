@@ -2932,6 +2932,13 @@ definitions:
       enabled:
         type: boolean
     type: object
+  types.AzureDevopsRepository:
+    properties:
+      organization_url:
+        type: string
+      personal_access_token:
+        type: string
+    type: object
   types.BoardSettings:
     properties:
       wip_limits:
@@ -3072,6 +3079,24 @@ definitions:
         type: string
       user_reference:
         description: User ID or email
+        type: string
+    type: object
+  types.CreateBranchRequest:
+    properties:
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+    type: object
+  types.CreateBranchResponse:
+    properties:
+      base_branch:
+        type: string
+      branch_name:
+        type: string
+      message:
+        type: string
+      repository_id:
         type: string
     type: object
   types.CreateSampleRepositoryRequest:
@@ -3533,6 +3558,8 @@ definitions:
     type: object
   types.GitRepository:
     properties:
+      azure_devops_repository:
+        $ref: '#/definitions/types.AzureDevopsRepository'
       branches:
         items:
           type: string
@@ -3594,6 +3621,8 @@ definitions:
     type: object
   types.GitRepositoryCreateRequest:
     properties:
+      azure_devops_repository:
+        $ref: '#/definitions/types.AzureDevopsRepository'
       default_branch:
         type: string
       description:
@@ -3675,6 +3704,8 @@ definitions:
     - GitRepositoryTypeCode
   types.GitRepositoryUpdateRequest:
     properties:
+      azure_devops_repository:
+        $ref: '#/definitions/types.AzureDevopsRepository'
       default_branch:
         type: string
       description:
@@ -7330,18 +7361,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -9434,6 +9465,47 @@ paths:
       security:
       - BearerAuth: []
       summary: List repository branches
+      tags:
+      - git-repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new branch in a repository
+      operationId: createGitRepositoryBranch
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Create branch request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CreateBranchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create branch
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/clone-command:
