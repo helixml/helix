@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -727,27 +728,63 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		Str("user_id", user.ID).
 		Str("session_id", sessionID).
 		Str("container_name", containerName).
-		Msg("Requesting screenshot from external agent container screenshot server")
+		Msg("Requesting screenshot from external agent container screenshot server via RevDial")
 
-	// Make HTTP request to screenshot server inside the container
-	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 
-	screenshotReq, err := http.NewRequestWithContext(req.Context(), "GET", screenshotURL, nil)
+	// Try RevDial connection first, fallback to direct HTTP (for backward compatibility)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	var screenshotResp *http.Response
+
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create screenshot request")
-		http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
-		return
-	}
+		// RevDial not available - try direct HTTP (dev mode with network routing)
+		log.Warn().Err(err).Str("runner_id", runnerID).Msg("RevDial not available, trying direct HTTP")
 
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+		screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
+		screenshotReq, err := http.NewRequestWithContext(req.Context(), "GET", screenshotURL, nil)
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create screenshot request")
+			http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
+			return
+		}
 
-	screenshotResp, err := httpClient.Do(screenshotReq)
-	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get screenshot from container")
-		http.Error(res, "Failed to retrieve screenshot", http.StatusInternalServerError)
-		return
+		httpClient := &http.Client{Timeout: 10 * time.Second}
+		screenshotResp, err = httpClient.Do(screenshotReq)
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get screenshot from container")
+			http.Error(res, "Failed to retrieve screenshot", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Use RevDial connection
+		log.Info().Str("runner_id", runnerID).Msg("Using RevDial connection for screenshot")
+
+		// Send HTTP request over RevDial tunnel
+		req, err := http.NewRequest("GET", "http://localhost:9876/screenshot", nil)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create RevDial screenshot request")
+			http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
+			return
+		}
+
+		// Write request to RevDial connection
+		if err := req.Write(revDialConn); err != nil {
+			log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+			http.Error(res, "Failed to send screenshot request", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+
+		// Read response from RevDial connection
+		screenshotResp, err = http.ReadResponse(bufio.NewReader(revDialConn), req)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read screenshot response from RevDial")
+			http.Error(res, "Failed to read screenshot response", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+		defer revDialConn.Close()
 	}
 	defer screenshotResp.Body.Close()
 
