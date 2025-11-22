@@ -864,25 +864,56 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Make HTTP request to clipboard endpoint inside the container
-	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+	// Get RevDial connection to sandbox
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	var clipboardResp *http.Response
 
-	clipboardReq, err := http.NewRequestWithContext(req.Context(), "GET", clipboardURL, nil)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
-		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
-		return
-	}
+		// RevDial not available - try direct HTTP
+		log.Warn().Err(err).Str("runner_id", runnerID).Msg("RevDial not available for clipboard, trying direct HTTP")
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+		clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+		clipboardReq, err := http.NewRequestWithContext(req.Context(), "GET", clipboardURL, nil)
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+			http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+			return
+		}
 
-	clipboardResp, err := httpClient.Do(clipboardReq)
-	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get clipboard from container")
-		http.Error(res, "Failed to retrieve clipboard", http.StatusInternalServerError)
-		return
+		httpClient := &http.Client{Timeout: 5 * time.Second}
+		clipboardResp, err = httpClient.Do(clipboardReq)
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get clipboard from container")
+			http.Error(res, "Failed to retrieve clipboard", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Use RevDial connection
+		log.Info().Str("runner_id", runnerID).Msg("Using RevDial for clipboard GET")
+
+		httpReq, err := http.NewRequest("GET", "http://localhost:9876/clipboard", nil)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create RevDial clipboard request")
+			http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+			return
+		}
+
+		if err := httpReq.Write(revDialConn); err != nil {
+			log.Error().Err(err).Msg("Failed to write clipboard request to RevDial")
+			http.Error(res, "Failed to send clipboard request", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+
+		clipboardResp, err = http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read clipboard response from RevDial")
+			http.Error(res, "Failed to read clipboard response", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+		defer revDialConn.Close()
 	}
 	defer clipboardResp.Body.Close()
 
@@ -969,26 +1000,58 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Make HTTP POST request to clipboard endpoint inside the container
-	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+	// Get RevDial connection to sandbox
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
+	var clipboardResp *http.Response
 
-	clipboardReq, err := http.NewRequestWithContext(req.Context(), "POST", clipboardURL, bytes.NewReader(clipboardContent))
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
-		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
-		return
-	}
-	clipboardReq.Header.Set("Content-Type", "application/json")
+		// RevDial not available - try direct HTTP
+		log.Warn().Err(err).Str("runner_id", runnerID).Msg("RevDial not available for clipboard SET, trying direct HTTP")
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+		clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+		clipboardReq, err := http.NewRequestWithContext(req.Context(), "POST", clipboardURL, bytes.NewReader(clipboardContent))
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+			http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+			return
+		}
+		clipboardReq.Header.Set("Content-Type", "application/json")
 
-	clipboardResp, err := httpClient.Do(clipboardReq)
-	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to set clipboard in container")
-		http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
-		return
+		httpClient := &http.Client{Timeout: 5 * time.Second}
+		clipboardResp, err = httpClient.Do(clipboardReq)
+		if err != nil {
+			log.Error().Err(err).Str("container_name", containerName).Msg("Failed to set clipboard in container")
+			http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Use RevDial connection
+		log.Info().Str("runner_id", runnerID).Msg("Using RevDial for clipboard SET")
+
+		httpReq, err := http.NewRequest("POST", "http://localhost:9876/clipboard", bytes.NewReader(clipboardContent))
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to create RevDial clipboard POST request")
+			http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		if err := httpReq.Write(revDialConn); err != nil {
+			log.Error().Err(err).Msg("Failed to write clipboard POST to RevDial")
+			http.Error(res, "Failed to send clipboard request", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+
+		clipboardResp, err = http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read clipboard POST response from RevDial")
+			http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
+			revDialConn.Close()
+			return
+		}
+		defer revDialConn.Close()
 	}
 	defer clipboardResp.Body.Close()
 
