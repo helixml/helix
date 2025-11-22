@@ -15923,15 +15923,7 @@ const docTemplate = `{
                 }
             }
         },
-        "types.AzureDevOpsTrigger": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "types.AzureDevopsRepository": {
+        "types.AzureDevOps": {
             "type": "object",
             "properties": {
                 "organization_url": {
@@ -15939,6 +15931,14 @@ const docTemplate = `{
                 },
                 "personal_access_token": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AzureDevOpsTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -16859,8 +16859,8 @@ const docTemplate = `{
         "types.GitRepository": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "branches": {
                     "type": "array",
@@ -16952,7 +16952,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
@@ -17073,7 +17073,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
