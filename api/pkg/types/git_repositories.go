@@ -110,6 +110,7 @@ type GitRepositoryUpdateRequest struct {
 	Username              string                 `json:"username,omitempty"`
 	Password              string                 `json:"password,omitempty"`
 	ExternalURL           string                 `json:"external_url,omitempty"`
+	ExternalType          ExternalRepositoryType `json:"external_type"` // "github", "gitlab", "ado", "bitbucket", etc.
 	AzureDevopsRepository *AzureDevOps           `json:"azure_devops_repository"`
 	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -190,4 +191,29 @@ type CreateBranchResponse struct {
 	BranchName   string `json:"branch_name"`
 	BaseBranch   string `json:"base_branch"`
 	Message      string `json:"message"`
+}
+
+type PullRequest struct {
+	ID           string    `json:"id"`
+	Number       int       `json:"number"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	State        string    `json:"state"`
+	SourceBranch string    `json:"source_branch"`
+	TargetBranch string    `json:"target_branch"`
+	Author       string    `json:"author"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	URL          string    `json:"url,omitempty"`
+}
+
+type CreatePullRequestRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Branch      string `json:"branch"`
+}
+
+type CreatePullRequestResponse struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
 }
