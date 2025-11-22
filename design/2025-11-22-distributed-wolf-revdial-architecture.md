@@ -23,7 +23,7 @@
 - Development: `/helix-dev/` mounts for hot-reloading in DinD
 - Production: Files baked into helix-sway image, pulled from registry
 
-**Known Limitation** (expected, RevDial will fix):
+**Network Fix** (critical discovery):
 - Network isolation: Sandboxes can't reach `api:8080` (different Docker network)
 - Git cloning fails, screenshots fail
 - **Next**: Implement RevDial for sandbox ↔ API communication

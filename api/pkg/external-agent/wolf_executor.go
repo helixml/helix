@@ -192,6 +192,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	mounts = append(mounts, config.ExtraMounts...)
 
 	// Standard Docker configuration (same for all Sway apps)
+	// CRITICAL: In DinD mode, sandboxes are on Wolf's isolated network
+	// Add extra_hosts to reach API container on host's network (dev mode)
+	// Production: RevDial handles all API communication
 	baseCreateJSON := fmt.Sprintf(`{
   "Hostname": "%s",
   "HostConfig": {
@@ -201,6 +204,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "ExtraHosts": ["api:172.19.0.20"],
     "Ulimits": [
       {
         "Name": "nofile",
