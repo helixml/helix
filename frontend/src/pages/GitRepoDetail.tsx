@@ -82,6 +82,7 @@ import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
 import CommitsTab from '../components/git/CommitsTab'
 import SettingsTab from '../components/git/SettingsTab'
+import { TypesExternalRepositoryType } from '../api/api'
 
 const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -135,9 +136,13 @@ const GitRepoDetail: FC = () => {
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
   const [editExternalUrl, setEditExternalUrl] = useState('')
+  const [editExternalType, setEditExternalType] = useState<TypesExternalRepositoryType | undefined>(undefined)
   const [editUsername, setEditUsername] = useState('')
   const [editPassword, setEditPassword] = useState('')
+  const [editOrganizationUrl, setEditOrganizationUrl] = useState('')
+  const [editPersonalAccessToken, setEditPersonalAccessToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showPersonalAccessToken, setShowPersonalAccessToken] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
@@ -212,8 +217,11 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
     }
   }, [repository])
 
@@ -244,8 +252,11 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
       setEditDialogOpen(true)
     }
   }
@@ -268,10 +279,26 @@ const GitRepoDetail: FC = () => {
 
       if (repository.is_external || repository.external_url) {
         updateData.external_url = editExternalUrl || undefined
-        updateData.username = editUsername || undefined
-      }
-      if (editPassword && editPassword !== '') {
-        updateData.password = editPassword
+        updateData.external_type = editExternalType || undefined
+        
+        if (editExternalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO) {
+          updateData.azure_devops = {
+            organization_url: editOrganizationUrl || undefined,
+            ...(editPersonalAccessToken && editPersonalAccessToken !== '' 
+              ? { personal_access_token: editPersonalAccessToken }
+              : repository.azure_devops?.personal_access_token 
+                ? { personal_access_token: repository.azure_devops.personal_access_token }
+                : {}),
+          }
+          updateData.username = undefined
+          updateData.password = undefined
+        } else {
+          updateData.username = editUsername || undefined
+          if (editPassword && editPassword !== '') {
+            updateData.password = editPassword
+          }
+          updateData.azure_devops = undefined
+        }
       }
 
       await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
@@ -282,6 +309,7 @@ const GitRepoDetail: FC = () => {
 
       setEditDialogOpen(false)
       setEditPassword('')
+      setEditPersonalAccessToken('')
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
@@ -687,12 +715,20 @@ const GitRepoDetail: FC = () => {
               setEditKoditIndexing={setEditKoditIndexing}
               editExternalUrl={editExternalUrl}
               setEditExternalUrl={setEditExternalUrl}
+              editExternalType={editExternalType}
+              setEditExternalType={setEditExternalType}
               editUsername={editUsername}
               setEditUsername={setEditUsername}
               editPassword={editPassword}
               setEditPassword={setEditPassword}
+              editOrganizationUrl={editOrganizationUrl}
+              setEditOrganizationUrl={setEditOrganizationUrl}
+              editPersonalAccessToken={editPersonalAccessToken}
+              setEditPersonalAccessToken={setEditPersonalAccessToken}
               showPassword={showPassword}
               setShowPassword={setShowPassword}
+              showPersonalAccessToken={showPersonalAccessToken}
+              setShowPersonalAccessToken={setShowPersonalAccessToken}
               updating={updating}
               dangerZoneExpanded={dangerZoneExpanded}
               setDangerZoneExpanded={setDangerZoneExpanded}

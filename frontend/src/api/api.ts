@@ -1813,6 +1813,17 @@ export interface TypesCreateBranchResponse {
   repository_id?: string;
 }
 
+export interface TypesCreatePullRequestRequest {
+  branch?: string;
+  description?: string;
+  title?: string;
+}
+
+export interface TypesCreatePullRequestResponse {
+  id?: string;
+  message?: string;
+}
+
 export interface TypesCreateSampleRepositoryRequest {
   description?: string;
   /** Enable Kodit code intelligence indexing */
@@ -2118,7 +2129,7 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
-  azure_devops_repository?: TypesAzureDevOps;
+  azure_devops?: TypesAzureDevOps;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -2165,9 +2176,11 @@ export enum TypesGitRepositoryType {
 }
 
 export interface TypesGitRepositoryUpdateRequest {
-  azure_devops_repository?: TypesAzureDevOps;
+  azure_devops?: TypesAzureDevOps;
   default_branch?: string;
   description?: string;
+  /** "github", "gitlab", "ado", "bitbucket", etc. */
+  external_type?: TypesExternalRepositoryType;
   external_url?: string;
   metadata?: Record<string, any>;
   name?: string;
@@ -2970,6 +2983,20 @@ export enum TypesProviderEndpointType {
   ProviderEndpointTypeUser = "user",
   ProviderEndpointTypeOrg = "org",
   ProviderEndpointTypeTeam = "team",
+}
+
+export interface TypesPullRequest {
+  author?: string;
+  created_at?: string;
+  description?: string;
+  id?: string;
+  number?: number;
+  source_branch?: string;
+  state?: string;
+  target_branch?: string;
+  title?: string;
+  updated_at?: string;
+  url?: string;
 }
 
 export interface TypesQuestion {
@@ -6337,6 +6364,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}/kodit-status`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all pull requests in a repository
+     *
+     * @tags git-repositories
+     * @name ListGitRepositoryPullRequests
+     * @summary List pull requests
+     * @request GET:/api/v1/git/repositories/{id}/pull-requests
+     * @secure
+     */
+    listGitRepositoryPullRequests: (id: string, params: RequestParams = {}) =>
+      this.request<TypesPullRequest[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull-requests`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new pull request in a repository. Changes must be committed and pushed to the branch first.
+     *
+     * @tags git-repositories
+     * @name CreateGitRepositoryPullRequest
+     * @summary Create pull request
+     * @request POST:/api/v1/git/repositories/{id}/pull-requests
+     * @secure
+     */
+    createGitRepositoryPullRequest: (id: string, request: TypesCreatePullRequestRequest, params: RequestParams = {}) =>
+      this.request<TypesCreatePullRequestResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/pull-requests`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
@@ -739,13 +740,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				Progress: os.Stdout,
 			}
 
-			if gitRepo.Password != "" {
-				username := gitRepo.Username
-				if username == "" {
-					username = "PAT"
-				}
-				cloneOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-			}
+			cloneOptions.Auth = s.getAuthConfig(gitRepo)
 
 			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
 			if err != nil {
@@ -1812,13 +1807,7 @@ func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
 	pullOptions := &git.PullOptions{
 		RemoteName: "origin",
 	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pullOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-	}
+	pullOptions.Auth = s.getAuthConfig(gitRepo)
 
 	err = worktree.Pull(pullOptions)
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
@@ -1854,13 +1843,7 @@ func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepositor
 			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName)),
 		}
 	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pushOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-	}
+	pushOptions.Auth = s.getAuthConfig(gitRepo)
 
 	err = repo.Push(pushOptions)
 	if err != nil {
@@ -1990,4 +1973,29 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 		Msg("[GitRepo] Created branch")
 
 	return nil
+}
+
+// getAuthConfig returns the authentication configuration for the repository
+func (s *GitRepositoryService) getAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
+	switch gitRepo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		// If we have a PAT, use it
+		if gitRepo.AzureDevOps.PersonalAccessToken != "" {
+			return &http.BasicAuth{Username: "PAT", Password: gitRepo.AzureDevOps.PersonalAccessToken}
+		}
+		// If we have a username and password, use it
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		}
+		// No auth config found
+		return nil
+	case types.ExternalRepositoryTypeGitHub:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeGitLab:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeBitbucket:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	default:
+		return nil
+	}
 }
