@@ -2927,17 +2927,17 @@ definitions:
       authenticated:
         type: boolean
     type: object
-  types.AzureDevOpsTrigger:
-    properties:
-      enabled:
-        type: boolean
-    type: object
-  types.AzureDevopsRepository:
+  types.AzureDevOps:
     properties:
       organization_url:
         type: string
       personal_access_token:
         type: string
+    type: object
+  types.AzureDevOpsTrigger:
+    properties:
+      enabled:
+        type: boolean
     type: object
   types.BoardSettings:
     properties:
@@ -3558,8 +3558,8 @@ definitions:
     type: object
   types.GitRepository:
     properties:
-      azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       branches:
         items:
           type: string
@@ -3622,7 +3622,7 @@ definitions:
   types.GitRepositoryCreateRequest:
     properties:
       azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:
@@ -3705,7 +3705,7 @@ definitions:
   types.GitRepositoryUpdateRequest:
     properties:
       azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:

@@ -15919,15 +15919,7 @@
                 }
             }
         },
-        "types.AzureDevOpsTrigger": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "types.AzureDevopsRepository": {
+        "types.AzureDevOps": {
             "type": "object",
             "properties": {
                 "organization_url": {
@@ -15935,6 +15927,14 @@
                 },
                 "personal_access_token": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AzureDevOpsTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -16855,8 +16855,8 @@
         "types.GitRepository": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "branches": {
                     "type": "array",
@@ -16948,7 +16948,7 @@
             "type": "object",
             "properties": {
                 "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
@@ -17069,7 +17069,7 @@
             "type": "object",
             "properties": {
                 "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
