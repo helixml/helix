@@ -1708,6 +1708,11 @@ export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
 }
 
+export interface TypesAzureDevopsRepository {
+  organization_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesBoardSettings {
   wip_limits?: Record<string, number>;
 }
@@ -1794,6 +1799,18 @@ export interface TypesCreateAccessGrantRequest {
   team_id?: string;
   /** User ID or email */
   user_reference?: string;
+}
+
+export interface TypesCreateBranchRequest {
+  base_branch?: string;
+  branch_name?: string;
+}
+
+export interface TypesCreateBranchResponse {
+  base_branch?: string;
+  branch_name?: string;
+  message?: string;
+  repository_id?: string;
 }
 
 export interface TypesCreateSampleRepositoryRequest {
@@ -2065,6 +2082,7 @@ export interface TypesGitHubWorkConfig {
 }
 
 export interface TypesGitRepository {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   branches?: string[];
   /** For Helix-hosted: http://api/git/{repo_id}, For external: https://github.com/org/repo.git */
   clone_url?: string;
@@ -2100,6 +2118,7 @@ export interface TypesGitRepository {
 }
 
 export interface TypesGitRepositoryCreateRequest {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   default_branch?: string;
   description?: string;
   /** "github", "gitlab", "ado", "bitbucket", etc. */
@@ -2146,6 +2165,7 @@ export enum TypesGitRepositoryType {
 }
 
 export interface TypesGitRepositoryUpdateRequest {
+  azure_devops_repository?: TypesAzureDevopsRepository;
   default_branch?: string;
   description?: string;
   external_url?: string;
@@ -4248,11 +4268,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6149,6 +6169,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/git/repositories/${id}/branches`,
         method: "GET",
         secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new branch in a repository
+     *
+     * @tags git-repositories
+     * @name CreateGitRepositoryBranch
+     * @summary Create branch
+     * @request POST:/api/v1/git/repositories/{id}/branches
+     * @secure
+     */
+    createGitRepositoryBranch: (id: string, request: TypesCreateBranchRequest, params: RequestParams = {}) =>
+      this.request<TypesCreateBranchResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/branches`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
