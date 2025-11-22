@@ -81,6 +81,7 @@ import {
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
 import CommitsTab from '../components/git/CommitsTab'
+import SettingsTab from '../components/git/SettingsTab'
 
 const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
 type TabName = typeof TAB_NAMES[number]
@@ -674,188 +675,30 @@ const GitRepoDetail: FC = () => {
 
           {/* Settings Tab */}
           {currentTab === 'settings' && (
-            <Box sx={{ maxWidth: 800 }}>
-              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
-                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                  Repository Settings
-                </Typography>
-
-                <Stack spacing={3}>
-                  <TextField
-                    label="Repository Name"
-                    fullWidth
-                    value={editName || repository.name}
-                    onChange={(e) => setEditName(e.target.value)}
-                    helperText="The name of this repository"
-                  />
-
-                  <TextField
-                    label="Description"
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={editDescription || repository.description}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    helperText="A short description of what this repository contains"
-                  />
-
-                  <TextField
-                    label="Default Branch"
-                    fullWidth
-                    value={editDefaultBranch || repository.default_branch || ''}
-                    onChange={(e) => setEditDefaultBranch(e.target.value)}
-                    helperText="The default branch for this repository"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.metadata?.kodit_indexing || false)}
-                        onChange={(e) => setEditKoditIndexing(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Brain size={18} />
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            Code Intelligence
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Index this repository with Kodit for AI-powered code understanding
-                          </Typography>
-                        </Box>
-                      </Box>
-                    }
-                  />
-
-                  <Divider />
-
-                  {(repository.is_external || repository.external_url) && (
-                    <>
-                      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
-                        External Repository Settings
-                      </Typography>
-
-                      <TextField
-                        label="External URL"
-                        fullWidth
-                        value={editExternalUrl || repository.external_url || ''}
-                        onChange={(e) => setEditExternalUrl(e.target.value)}
-                        helperText="Full URL to the external repository (e.g., https://github.com/org/repo)"
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-
-                      <TextField
-                        label="Username"
-                        fullWidth
-                        value={editUsername || repository.username || ''}
-                        onChange={(e) => setEditUsername(e.target.value)}
-                        helperText="Username for authenticating with the external repository"
-                      />
-
-                      <TextField
-                        label="Password"
-                        fullWidth
-                        type={showPassword ? 'text' : 'password'}
-                        value={editPassword}
-                        onChange={(e) => setEditPassword(e.target.value)}
-                        helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                onClick={() => setShowPassword(!showPassword)}
-                                edge="end"
-                                size="small"
-                              >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </>
-                  )}
-
-                  <Divider />
-
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    {/* Add spacing between buttons */}
-                    <Box sx={{ flex: 1 }} />
-                    <Button
-                      color="secondary"
-                      onClick={handleUpdateRepository}
-                      variant="contained"
-                      disabled={updating}
-                    >
-                      {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>                    
-                  </Box>
-
-                  <Divider sx={{ my: 2 }} />
-
-                  <Box>
-                    <Box
-                      onClick={() => setDangerZoneExpanded(!dangerZoneExpanded)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        mb: dangerZoneExpanded ? 2 : 0,
-                        '&:hover': {
-                          opacity: 0.8,
-                        },
-                      }}
-                    >
-                      <Typography variant="h6" sx={{ fontWeight: 600, color: 'error.main' }}>
-                        Danger Zone
-                      </Typography>
-                      <ChevronDown
-                        size={20}
-                        style={{
-                          color: 'var(--mui-palette-error-main)',
-                          transform: dangerZoneExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                        }}
-                      />
-                    </Box>
-                    <Collapse in={dangerZoneExpanded}>
-                      <Box>
-                        <Alert severity="error" sx={{ mb: 2 }}>
-                          Once you delete a repository, there is no going back. This action cannot be undone.
-                        </Alert>
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <Button
-                            onClick={() => setDeleteDialogOpen(true)}
-                            variant="outlined"
-                            color="error"
-                            startIcon={<Trash2 size={16} />}
-                          >
-                            Delete Repository
-                          </Button>
-                        </Box>
-                      </Box>
-                    </Collapse>
-                  </Box>
-                </Stack>
-              </Paper>
-            </Box>
+            <SettingsTab
+              repository={repository}
+              editName={editName}
+              setEditName={setEditName}
+              editDescription={editDescription}
+              setEditDescription={setEditDescription}
+              editDefaultBranch={editDefaultBranch}
+              setEditDefaultBranch={setEditDefaultBranch}
+              editKoditIndexing={editKoditIndexing}
+              setEditKoditIndexing={setEditKoditIndexing}
+              editExternalUrl={editExternalUrl}
+              setEditExternalUrl={setEditExternalUrl}
+              editUsername={editUsername}
+              setEditUsername={setEditUsername}
+              editPassword={editPassword}
+              setEditPassword={setEditPassword}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              updating={updating}
+              dangerZoneExpanded={dangerZoneExpanded}
+              setDangerZoneExpanded={setDangerZoneExpanded}
+              onUpdateRepository={handleUpdateRepository}
+              onDeleteClick={() => setDeleteDialogOpen(true)}
+            />
           )}
 
           {/* Access Tab */}
