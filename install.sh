@@ -1308,21 +1308,25 @@ fi
 
 # Load uhid kernel module for Helix Code (required for virtual HID devices in Wolf)
 if [ "$CODE" = true ]; then
-    echo "Loading uhid kernel module for virtual HID device support..."
     if [ "$ENVIRONMENT" = "gitbash" ]; then
-        echo "Skipping uhid module loading on Windows Git Bash"
+        echo "Skipping uhid module check on Windows Git Bash"
     else
-        # Load module immediately
-        if sudo modprobe uhid 2>/dev/null; then
-            echo "✓ uhid module loaded"
+        # Check if uhid module is already loaded
+        if lsmod | grep -q "^uhid "; then
+            echo "✓ uhid module already loaded"
         else
-            echo "Warning: Failed to load uhid module - may already be loaded or built-in"
-        fi
+            echo "uhid module not loaded - loading now for virtual HID device support..."
+            if sudo modprobe uhid 2>/dev/null; then
+                echo "✓ uhid module loaded"
 
-        # Make uhid auto-load on boot
-        if [ ! -f /etc/modules-load.d/helix.conf ] || ! grep -q "^uhid" /etc/modules-load.d/helix.conf; then
-            echo "uhid" | sudo tee -a /etc/modules-load.d/helix.conf > /dev/null
-            echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
+                # Only configure auto-load if we had to load it manually
+                if [ ! -f /etc/modules-load.d/helix.conf ] || ! grep -q "^uhid" /etc/modules-load.d/helix.conf; then
+                    echo "uhid" | sudo tee -a /etc/modules-load.d/helix.conf > /dev/null
+                    echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
+                fi
+            else
+                echo "Warning: Failed to load uhid module - Wolf may not work correctly"
+            fi
         fi
     fi
 fi
