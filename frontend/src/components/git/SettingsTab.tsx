@@ -14,6 +14,10 @@ import {
   Divider,
   Alert,
   IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import {
   GitBranch,
@@ -25,6 +29,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 import type { GitRepository } from '../../services/gitRepositoryService'
+import { TypesExternalRepositoryType } from '../../api/api'
 
 interface SettingsTabProps {
   repository: GitRepository
@@ -38,12 +43,20 @@ interface SettingsTabProps {
   setEditKoditIndexing: (value: boolean) => void
   editExternalUrl: string
   setEditExternalUrl: (value: string) => void
+  editExternalType: TypesExternalRepositoryType | undefined
+  setEditExternalType: (value: TypesExternalRepositoryType | undefined) => void
   editUsername: string
   setEditUsername: (value: string) => void
   editPassword: string
   setEditPassword: (value: string) => void
+  editOrganizationUrl: string
+  setEditOrganizationUrl: (value: string) => void
+  editPersonalAccessToken: string
+  setEditPersonalAccessToken: (value: string) => void
   showPassword: boolean
   setShowPassword: (value: boolean) => void
+  showPersonalAccessToken: boolean
+  setShowPersonalAccessToken: (value: boolean) => void
   updating: boolean
   dangerZoneExpanded: boolean
   setDangerZoneExpanded: (value: boolean) => void
@@ -63,18 +76,27 @@ const SettingsTab: FC<SettingsTabProps> = ({
   setEditKoditIndexing,
   editExternalUrl,
   setEditExternalUrl,
+  editExternalType,
+  setEditExternalType,
   editUsername,
   setEditUsername,
   editPassword,
   setEditPassword,
+  editOrganizationUrl,
+  setEditOrganizationUrl,
+  editPersonalAccessToken,
+  setEditPersonalAccessToken,
   showPassword,
   setShowPassword,
+  showPersonalAccessToken,
+  setShowPersonalAccessToken,
   updating,
   dangerZoneExpanded,
   setDangerZoneExpanded,
   onUpdateRepository,
   onDeleteClick,
 }) => {
+  const isAzureDevOps = editExternalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO
   return (
     <Box sx={{ maxWidth: 800 }}>
       <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
@@ -147,6 +169,20 @@ const SettingsTab: FC<SettingsTabProps> = ({
                 External Repository Settings
               </Typography>
 
+              <FormControl fullWidth>
+                <InputLabel>External Repository Type</InputLabel>
+                <Select
+                  value={editExternalType || repository.external_type || ''}
+                  onChange={(e) => setEditExternalType(e.target.value as TypesExternalRepositoryType)}
+                  label="External Repository Type"
+                >
+                  <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitHub}>GitHub</MenuItem>
+                  <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeGitLab}>GitLab</MenuItem>
+                  <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeADO}>Azure DevOps</MenuItem>
+                  <MenuItem value={TypesExternalRepositoryType.ExternalRepositoryTypeBitbucket}>Bitbucket</MenuItem>
+                </Select>
+              </FormControl>
+
               <TextField
                 label="External URL"
                 fullWidth
@@ -162,35 +198,84 @@ const SettingsTab: FC<SettingsTabProps> = ({
                 }}
               />
 
-              <TextField
-                label="Username"
-                fullWidth
-                value={editUsername || repository.username || ''}
-                onChange={(e) => setEditUsername(e.target.value)}
-                helperText="Username for authenticating with the external repository"
-              />
+              {isAzureDevOps && (
+                <>
+                  <TextField
+                    label="Organization URL"
+                    fullWidth
+                    value={editOrganizationUrl || repository.azure_devops?.organization_url || ''}
+                    onChange={(e) => setEditOrganizationUrl(e.target.value)}
+                    helperText="Azure DevOps organization URL (e.g., https://dev.azure.com/your-org)"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
 
-              <TextField
-                label="Password"
-                fullWidth
-                type={showPassword ? 'text' : 'password'}
-                value={editPassword}
-                onChange={(e) => setEditPassword(e.target.value)}
-                helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        onClick={() => setShowPassword(!showPassword)}
-                        edge="end"
-                        size="small"
-                      >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
+                  <TextField
+                    label="Personal Access Token"
+                    fullWidth
+                    type={showPersonalAccessToken ? 'text' : 'password'}
+                    value={editPersonalAccessToken}
+                    onChange={(e) => setEditPersonalAccessToken(e.target.value)}
+                    helperText={
+                      repository.azure_devops?.personal_access_token
+                        ? "Leave blank to keep current token"
+                        : "Personal Access Token for Azure DevOps. Get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
+                    }
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPersonalAccessToken(!showPersonalAccessToken)}
+                            edge="end"
+                            size="small"
+                          >
+                            {showPersonalAccessToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </>
+              )}
+
+              {!isAzureDevOps && (
+                <>
+                  <TextField
+                    label="Username"
+                    fullWidth
+                    value={editUsername || repository.username || ''}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    helperText="Username for authenticating with the external repository"
+                  />
+
+                  <TextField
+                    label="Password"
+                    fullWidth
+                    type={showPassword ? 'text' : 'password'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowPassword(!showPassword)}
+                            edge="end"
+                            size="small"
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </>
+              )}
             </>
           )}
 
