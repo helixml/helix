@@ -338,7 +338,6 @@ services:
       - 'c 13:* rmw'
     devices:
       - /dev/dri
-      - /dev/kfd  # AMD ROCm Kernel Fusion Driver
       - /dev/uinput
       - /dev/uhid
     ports:
@@ -350,12 +349,8 @@ services:
       - "47999:47999/udp" # Control
       - "48100:48100/udp" # Video RTP
       - "48200:48200/udp" # Audio RTP
-    # No nvidia runtime for AMD - use device pass-through instead
-    security_opt:
-      - seccomp=unconfined  # Required for AMD GPU access
-    group_add:
-      - video  # Grant access to /dev/dri
-      - render # Grant access to GPU rendering
+    # No nvidia runtime for AMD - /dev/ volume mount provides GPU access
+    # No seccomp=unconfined or group_add needed - /dev/ volume provides access
     cap_add:
       - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
     restart: unless-stopped
