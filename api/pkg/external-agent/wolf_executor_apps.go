@@ -905,19 +905,19 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 		"/var/run/docker.sock:/var/run/docker.sock",
 	}
 
-	// Development mode: bind-mount Zed build and startup scripts from host
+	// Development mode: bind-mount Zed build and startup scripts
+	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
+	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
 	// Production mode: these are baked into the ZED_IMAGE
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		helixHostHome := os.Getenv("HELIX_HOST_HOME")
-		log.Info().
-			Str("helix_host_home", helixHostHome).
-			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
 
+		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
 		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			"/helix-dev/zed-build:/zed-build:ro",
+			"/helix-dev/sway-config/config:/cfg/sway/custom-cfg:ro",
+			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
+			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
 		)
 	} else {
 		log.Debug().Msg("Production mode - using files baked into helix-sway image")
