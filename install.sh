@@ -1306,6 +1306,27 @@ if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
     fi
 fi
 
+# Load uhid kernel module for Helix Code (required for virtual HID devices in Wolf)
+if [ "$CODE" = true ]; then
+    echo "Loading uhid kernel module for virtual HID device support..."
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        echo "Skipping uhid module loading on Windows Git Bash"
+    else
+        # Load module immediately
+        if sudo modprobe uhid 2>/dev/null; then
+            echo "✓ uhid module loaded"
+        else
+            echo "Warning: Failed to load uhid module - may already be loaded or built-in"
+        fi
+
+        # Make uhid auto-load on boot
+        if [ ! -f /etc/modules-load.d/helix.conf ] || ! grep -q "^uhid" /etc/modules-load.d/helix.conf; then
+            echo "uhid" | sudo tee -a /etc/modules-load.d/helix.conf > /dev/null
+            echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
+        fi
+    fi
+fi
+
 # Create installation directories (platform-specific)
 if [ "$ENVIRONMENT" = "gitbash" ]; then
     mkdir -p "$INSTALL_DIR"
@@ -2121,7 +2142,7 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     elif [ "\$GPU_VENDOR" = "amd" ]; then
         # AMD: Use device pass-through + ROCR_VISIBLE_DEVICES env var
         # Note: ROCR_VISIBLE_DEVICES uses GPU IDs (0,1,2) same as CUDA
-        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined"
+        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
         ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
     else
         echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
