@@ -283,11 +283,14 @@ services:
         - GOP_SIZE=${GOP_SIZE:-120}
         # Helix hostname (for Moonlight client display name)
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      privileged: true  # Required for Wolf's nested dockerd
       volumes:
         - ./wolf/:/etc/wolf/cfg/
         # Init script is baked into container at /etc/cont-init.d/05-init-wolf-config.sh
         - /tmp/sockets:/tmp/sockets:rw
-        - /var/run/docker.sock:/var/run/docker.sock:rw
+        # REMOVED: /var/run/docker.sock (Wolf runs its own dockerd now!)
+        # Wolf's dockerd storage (isolated from host, persistent across restarts)
+        - wolf-docker-storage:/var/lib/docker
         - /dev/:/dev/:rw
         - /run/udev:/run/udev:rw
         # Bind-mount to host so wolf-ui containers can bind-mount it
@@ -480,6 +483,7 @@ volumes:
     helix-typesense-db:
     helix-socket:
     wolf-socket:
+    wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
     zed-work:
 
     go-pkg-mod: # Go module cache
