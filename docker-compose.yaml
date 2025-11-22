@@ -216,6 +216,7 @@ services:
   wolf:
     profiles: [code]
     image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
+    privileged: true  # Required for Wolf's nested dockerd
     networks:
       default:
         ipv4_address: 172.19.0.50
@@ -252,7 +253,8 @@ services:
     volumes:
       - ./wolf/:/etc/wolf/cfg/
       - /tmp/sockets:/tmp/sockets:rw
-      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # REMOVED: /var/run/docker.sock (Wolf runs its own dockerd)
+      - wolf-docker-storage:/var/lib/docker  # Wolf's isolated dockerd storage
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       # Bind-mount to host so wolf-ui containers can bind-mount it
@@ -294,6 +296,7 @@ services:
   wolf-amd:
     profiles: [code-amd]
     image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
+    privileged: true  # Required for Wolf's nested dockerd
     networks:
       default:
         ipv4_address: 172.19.0.50
@@ -329,7 +332,8 @@ services:
     volumes:
       - ./wolf/:/etc/wolf/cfg/
       - /tmp/sockets:/tmp/sockets:rw
-      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # REMOVED: /var/run/docker.sock (Wolf runs its own dockerd)
+      - wolf-docker-storage:/var/lib/docker  # Wolf's isolated dockerd storage
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
       # Bind-mount to host so wolf-ui containers can bind-mount it
@@ -399,6 +403,7 @@ volumes:
   helix-socket:
   helix-kodit:
   helix-vectorchord-kodit:
+  wolf-docker-storage:  # Wolf's isolated dockerd storage (sandboxes + devcontainers)
 
 networks:
   default:
