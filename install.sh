@@ -1063,36 +1063,39 @@ fi
 
 # Validate GPU requirements for --runner flag (MUST happen before token validation)
 if [ "$RUNNER" = true ]; then
-    if ! check_nvidia_gpu; then
+    # Check for NVIDIA GPU first
+    if check_nvidia_gpu; then
+        echo "NVIDIA GPU detected. Runner requirements satisfied."
+        GPU_VENDOR="nvidia"
+
+        if check_nvidia_runtime_needed; then
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
+        fi
+    elif check_amd_gpu; then
+        echo "AMD GPU detected with ROCm support. Runner requirements satisfied."
+        echo "Note: Ollama will use AMD GPU. vLLM will use CPU until ROCm-enabled runner image is available."
+        GPU_VENDOR="amd"
+    else
         echo "┌───────────────────────────────────────────────────────────────────────────"
-        echo "│ ❌ ERROR: --runner requires NVIDIA GPU"
+        echo "│ ❌ ERROR: --runner requires GPU (NVIDIA or AMD)"
         echo "│"
-        echo "│ No NVIDIA GPU detected. Helix Runner requires an NVIDIA GPU."
+        echo "│ No compatible GPU detected. Helix Runner requires a GPU with drivers."
         echo "│"
         echo "│ If you have an NVIDIA GPU:"
-        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
-        echo "│      sudo ubuntu-drivers install"
-        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│   1. Install NVIDIA drivers: sudo ubuntu-drivers install"
+        echo "│   2. Reboot: sudo reboot"
+        echo "│   3. Verify: nvidia-smi"
         echo "│"
-        echo "│   2. Reboot your system:"
-        echo "│      sudo reboot"
-        echo "│"
-        echo "│   3. Verify drivers are loaded:"
-        echo "│      nvidia-smi"
-        echo "│"
-        echo "│   4. Re-run this installer - it will automatically install Docker and"
-        echo "│      the NVIDIA Docker runtime for you."
+        echo "│ If you have an AMD GPU:"
+        echo "│   1. Install AMD drivers and ROCm"
+        echo "│   2. Verify: ls /dev/kfd /dev/dri"
         echo "└───────────────────────────────────────────────────────────────────────────"
         exit 1
-    fi
-    echo "NVIDIA GPU detected. Runner requirements satisfied."
-    if check_nvidia_runtime_needed; then
-        # Check if toolkit already installed or needs fresh install
-        if command -v nvidia-container-toolkit &> /dev/null; then
-            echo "Note: NVIDIA Docker runtime will be configured automatically."
-        else
-            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
-        fi
     fi
 fi
 
@@ -1926,7 +1929,10 @@ fi
 
 # Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
-    install_nvidia_docker
+    # Only install NVIDIA Docker runtime if GPU is NVIDIA (not AMD)
+    if [ "$GPU_VENDOR" = "nvidia" ]; then
+        install_nvidia_docker
+    fi
 
     # Determine runner tag
     if [ "$LARGE" = true ]; then
@@ -1956,6 +1962,7 @@ API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 SPLIT_RUNNERS="${SPLIT_RUNNERS}"
 EXCLUDE_GPUS="${EXCLUDE_GPUS}"
+GPU_VENDOR="${GPU_VENDOR}"  # Set by install.sh: "nvidia" or "amd"
 
 # HF_TOKEN is now managed by the control plane and distributed to runners automatically
 # No longer setting HF_TOKEN on runners to avoid confusion
@@ -1975,10 +1982,26 @@ else
     echo "helix_default network already exists."
 fi
 
-# Detect total number of GPUs
-ALL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
-if [ "\$ALL_GPUS" -eq 0 ]; then
-    echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+# Detect total number of GPUs based on vendor
+if [ "\$GPU_VENDOR" = "nvidia" ]; then
+    ALL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+    if [ "\$ALL_GPUS" -eq 0 ]; then
+        echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+        exit 1
+    fi
+elif [ "\$GPU_VENDOR" = "amd" ]; then
+    # Count AMD GPUs via rocm-smi or /dev/dri/card* devices
+    if command -v rocm-smi &> /dev/null; then
+        ALL_GPUS=\$(rocm-smi --showid 2>/dev/null | grep -c "^GPU")
+    else
+        ALL_GPUS=\$(ls -1 /dev/dri/card* 2>/dev/null | wc -l)
+    fi
+    if [ "\$ALL_GPUS" -eq 0 ]; then
+        echo "Error: No AMD GPUs detected. Cannot start runner."
+        exit 1
+    fi
+else
+    echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
     exit 1
 fi
 
@@ -2089,10 +2112,24 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
 
     echo "Starting \$CONTAINER_NAME with GPU(s): \$GPU_DEVICES (runner ID: \$RUNNER_ID)"
 
-    # Run the docker container with specific GPU devices
-    # Note: --privileged removed to properly enforce GPU isolation via --gpus device=X
-    # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
-    docker run --gpus '"'device=\$GPU_DEVICES'"' \\
+    # Build vendor-specific GPU flags
+    if [ "\$GPU_VENDOR" = "nvidia" ]; then
+        # NVIDIA: Use --gpus device=X flag
+        # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
+        GPU_FLAGS="--gpus '\"'device=\$GPU_DEVICES'\"'"
+        ENV_FLAGS=""
+    elif [ "\$GPU_VENDOR" = "amd" ]; then
+        # AMD: Use device pass-through + ROCR_VISIBLE_DEVICES env var
+        # Note: ROCR_VISIBLE_DEVICES uses GPU IDs (0,1,2) same as CUDA
+        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined"
+        ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
+    else
+        echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
+        exit 1
+    fi
+
+    # Run the docker container with vendor-specific GPU configuration
+    eval docker run \$GPU_FLAGS \$ENV_FLAGS \\
         --shm-size=10g --restart=always -d \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
