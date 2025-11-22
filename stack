@@ -830,6 +830,43 @@ function build-sway() {
   fi
 
   echo "✅ Sway container build completed"
+
+  # Transfer helix-sway image to Wolf's dockerd
+  # CRITICAL: Wolf must be running for sandboxes to use this image
+  # Start Wolf if not running, then transfer
+  if ! docker compose -f docker-compose.dev.yaml ps wolf | grep -q "Up"; then
+    echo "🐺 Wolf not running, starting Wolf to transfer image..."
+    docker compose -f docker-compose.dev.yaml up -d wolf
+    # Wait for Wolf's dockerd to be ready
+    echo "Waiting for Wolf's dockerd to start..."
+    sleep 5
+  fi
+
+  transfer-sway-to-wolf
+}
+
+function transfer-sway-to-wolf() {
+  # Transfer helix-sway image from host to Wolf's isolated dockerd
+  # This is required because Wolf runs its own dockerd (DinD) and doesn't have access to host images
+
+  # Check if Wolf container is running
+  if ! docker compose -f docker-compose.dev.yaml ps wolf | grep -q "Up"; then
+    echo "ℹ️  Wolf container not running, skipping image transfer (will transfer on next start)"
+    return 0
+  fi
+
+  # Check if helix-sway image exists on host
+  if ! docker images helix-sway:latest -q | grep -q .; then
+    echo "⚠️  helix-sway:latest not found on host, skipping transfer"
+    return 0
+  fi
+
+  echo "📦 Transferring helix-sway:latest to Wolf's dockerd..."
+  if docker save helix-sway:latest | docker exec -i helix-wolf-1 docker load; then
+    echo "✅ helix-sway:latest transferred to Wolf's dockerd"
+  else
+    echo "⚠️  Failed to transfer image (Wolf may not be ready yet)"
+  fi
 }
 
 function build-moonlight-web() {
