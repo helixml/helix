@@ -567,7 +567,7 @@ const AgentSandboxes: FC = () => {
                 title="GPU Encoder Stats"
                 subheader={
                   <>
-                    {data.gpu_stats.gpu_name || 'NVIDIA GPU'}
+                    {data.gpu_stats.gpu_name || 'GPU'}
                     {data.gstreamer_pipelines && (
                       <>
                         {' • '}
@@ -579,7 +579,7 @@ const AgentSandboxes: FC = () => {
                     {data.gpu_stats.query_duration_ms > 0 && (
                       <>
                         {' • '}
-                        nvidia-smi: {data.gpu_stats.query_duration_ms}ms (cached 2s)
+                        GPU query: {data.gpu_stats.query_duration_ms}ms (cached 2s)
                       </>
                     )}
                   </>
