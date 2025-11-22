@@ -297,6 +297,9 @@ services:
         - /var/run/wolf:/var/run/wolf:rw
         # Debug dumps directory (watchdog writes core dumps + thread dumps here on deadlock)
         - ./wolf-debug-dumps:/var/wolf-debug-dumps:rw
+        # CRITICAL for DinD: Mount dev files into Wolf so Wolf's dockerd can bind-mount them into sandboxes
+        - ./zed-build:/helix-dev/zed-build:ro
+        - ./wolf/sway-config:/helix-dev/sway-config:ro
       device_cgroup_rules:
         - 'c 13:* rmw'
       devices:
