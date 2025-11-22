@@ -24,15 +24,28 @@ func (s *GitRepositoryService) CreatePullRequest(ctx context.Context, repoID str
 
 	switch repo.ExternalType {
 	case types.ExternalRepositoryTypeADO:
-		return s.createADOPullRequest(ctx, repo, title, description, branch)
+		return s.createAzureDevOpsPullRequest(ctx, repo, title, description, branch)
 
 	default:
 		return "", fmt.Errorf("unsupported external repository type: %s", repo.ExternalType)
 	}
 }
 
-func (s *GitRepositoryService) createADOPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, branch string) (string, error) {
-	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevopsRepository.OrganizationURL, repo.AzureDevopsRepository.PersonalAccessToken)
+func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context, repo *types.GitRepository, title string, description string, branch string) (string, error) {
+
+	if repo.AzureDevOps == nil {
+		return "", fmt.Errorf("azure devops repository not found")
+	}
+
+	if repo.AzureDevOps.OrganizationURL == "" {
+		return "", fmt.Errorf("azure devops organization URL not found")
+	}
+
+	if repo.AzureDevOps.PersonalAccessToken == "" {
+		return "", fmt.Errorf("azure devops personal access token not found, get yours from https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows")
+	}
+
+	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
 	pr, err := client.CreatePullRequest(ctx, repo.ID, title, description, branch, "main", repo.ProjectID)
 	if err != nil {
