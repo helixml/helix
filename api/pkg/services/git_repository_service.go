@@ -90,6 +90,18 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 
 // CreateRepository creates a new git repository
 func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+		if request.AzureDevOps.PersonalAccessToken == "" {
+			return nil, fmt.Errorf("azure devops personal access token not provided")
+		}
+	}
+
 	// Check for duplicate repository name for this owner
 	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: request.OrganizationID,
@@ -163,6 +175,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		Metadata:       request.Metadata,
+		AzureDevOps:    request.AzureDevOps,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -296,6 +309,22 @@ func (s *GitRepositoryService) UpdateRepository(
 		for k, v := range request.Metadata {
 			existing.Metadata[k] = v
 		}
+	}
+
+	if string(request.ExternalType) != "" {
+		existing.ExternalType = request.ExternalType
+	}
+	if request.ExternalURL != "" {
+		existing.ExternalURL = request.ExternalURL
+	}
+	if request.Username != "" {
+		existing.Username = request.Username
+	}
+	if request.Password != "" {
+		existing.Password = request.Password
+	}
+	if request.AzureDevOps != nil {
+		existing.AzureDevOps = request.AzureDevOps
 	}
 
 	existing.UpdatedAt = time.Now()
