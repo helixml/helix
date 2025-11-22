@@ -17091,7 +17091,7 @@
         "types.GitRepositoryCreateRequest": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
+                "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
@@ -17212,7 +17212,7 @@
         "types.GitRepositoryUpdateRequest": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
+                "azure_devops": {
                     "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
@@ -22466,18 +22466,18 @@
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

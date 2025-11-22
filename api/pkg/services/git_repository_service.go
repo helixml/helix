@@ -285,6 +285,16 @@ func (s *GitRepositoryService) UpdateRepository(
 	repoID string,
 	request *types.GitRepositoryUpdateRequest,
 ) (*types.GitRepository, error) {
+
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+	}
+
 	// Get existing repository
 	existing, err := s.GetRepository(ctx, repoID)
 	if err != nil {
