@@ -10,7 +10,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
 # Sway Personal Dev Environment
@@ -103,6 +104,7 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # Copy screenshot-server and settings-sync-daemon binaries from Go build stage
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 
 # Copy Zed binary (built with ./stack build-zed before Docker build)
 # CRITICAL: Must be built with --features external_websocket_sync

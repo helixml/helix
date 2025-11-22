@@ -40,6 +40,27 @@ ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
 
+# Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
+# CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
+# Uses session-scoped runner token from environment
+if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
+    REVDIAL_SERVER="${HELIX_API_BASE_URL}/revdial"
+    RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
+
+    echo "Starting RevDial client for API ↔ sandbox communication..."
+    /usr/local/bin/revdial-client \
+        -server "$REVDIAL_SERVER" \
+        -runner-id "$RUNNER_ID" \
+        -token "$USER_API_TOKEN" \
+        -local "localhost:9876" \
+        >> /tmp/revdial-client.log 2>&1 &
+
+    REVDIAL_PID=$!
+    echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
+else
+    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL or tokens)"
+fi
+
 # Start screenshot server in background (if binary exists)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY
 # We'll start it later in the script after Sway initializes
