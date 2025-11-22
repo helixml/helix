@@ -37,3 +37,20 @@ func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryID 
 
 	return pr, nil
 }
+
+func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryID string, project string) ([]git.GitPullRequest, error) {
+	gitClient, err := git.NewClient(ctx, c.connection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
+	}
+
+	prs, err := gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
+		RepositoryId: &repositoryID,
+		Project:      &project,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pull requests: %w", err)
+	}
+
+	return *prs, nil
+}
