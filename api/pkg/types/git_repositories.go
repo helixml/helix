@@ -53,13 +53,13 @@ type GitRepository struct {
 	// TODO: OAuth support using our providers
 	// TODO: SSH key
 
-	AzureDevopsRepository *AzureDevopsRepository `gorm:"type:jsonb;serializer:json" json:"azure_devops_repository"`
+	AzureDevOps *AzureDevOps `gorm:"type:jsonb;serializer:json" json:"azure_devops"`
 
 	// Code intelligence fields
 	KoditIndexing bool `gorm:"index" json:"kodit_indexing"` // Enable Kodit indexing for code intelligence (MCP server for snippets/architecture)
 }
 
-type AzureDevopsRepository struct {
+type AzureDevOps struct {
 	OrganizationURL     string `json:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token"`
 }
@@ -97,7 +97,7 @@ type GitRepositoryCreateRequest struct {
 	Username string `json:"username"` // Username for the repository
 	Password string `json:"password"` // Password for the repository
 
-	AzureDevopsRepository *AzureDevopsRepository `json:"azure_devops_repository"`
+	AzureDevopsRepository *AzureDevOps `json:"azure_devops_repository"`
 
 	KoditIndexing bool `json:"kodit_indexing"` // Enable Kodit code intelligence indexing
 }
@@ -110,7 +110,7 @@ type GitRepositoryUpdateRequest struct {
 	Username              string                 `json:"username,omitempty"`
 	Password              string                 `json:"password,omitempty"`
 	ExternalURL           string                 `json:"external_url,omitempty"`
-	AzureDevopsRepository *AzureDevopsRepository `json:"azure_devops_repository"`
+	AzureDevopsRepository *AzureDevOps           `json:"azure_devops_repository"`
 	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
 
