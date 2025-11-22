@@ -191,12 +191,6 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	// Add extra mounts (e.g., internal project repo)
 	mounts = append(mounts, config.ExtraMounts...)
 
-	// Mount Wolf's docker socket into sandbox (enables docker commands inside sandbox)
-	// This is Wolf's OWN dockerd socket (not host's!), so devcontainers run as siblings to sandboxes
-	// CRITICAL: Sandboxes share Wolf's dockerd → can see each other's containers (security TODO: namespace isolation)
-	mounts = append(mounts, "/var/run/docker.sock:/var/run/docker.sock:rw")
-	log.Info().Msg("Mounting Wolf's docker socket into sandbox for devcontainer support")
-
 	// Standard Docker configuration (same for all Sway apps)
 	baseCreateJSON := fmt.Sprintf(`{
   "Hostname": "%s",
