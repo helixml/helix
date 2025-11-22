@@ -138,15 +138,23 @@ RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
     /workspace/vllm-cuda/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
 
 # Create ROCm vLLM virtualenv using Python 3.12 (AMD GPUs)
-# Install PyTorch ROCm 6.2 + vLLM with ROCm support
+# Install PyTorch ROCm 6.2 + build vLLM from source (no ROCm wheels on PyPI)
 RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
-    echo "Installing PyTorch ROCm + vLLM into ROCm virtualenv" && \
+    echo "Installing PyTorch ROCm + building vLLM from source for AMD GPUs" && \
     /workspace/vllm-rocm/venv/bin/python -m pip install uv && \
     cd /workspace && \
     VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
     /workspace/vllm-rocm/venv/bin/uv pip install --index-url https://download.pytorch.org/whl/rocm6.2 \
         torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 && \
-    /workspace/vllm-rocm/venv/bin/uv pip install vllm==${VLLM_VERSION}
+    echo "Installing vLLM build dependencies for ROCm" && \
+    /workspace/vllm-rocm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt && \
+    echo "Building vLLM from source for ROCm" && \
+    git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git /tmp/vllm-rocm-src && \
+    cd /tmp/vllm-rocm-src && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    PYTORCH_ROCM_ARCH="gfx90a;gfx942;gfx1100" \
+    /workspace/vllm-rocm/venv/bin/python setup.py develop && \
+    cd /workspace && rm -rf /tmp/vllm-rocm-src
 
 # Create the examples directory in both vLLM venv packages where they will look for templates
 RUN mkdir -p /workspace/vllm-cuda/venv/lib/python3.12/site-packages/vllm/examples && \
