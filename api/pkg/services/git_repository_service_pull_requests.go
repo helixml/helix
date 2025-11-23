@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
 	"github.com/helixml/helix/api/pkg/types"
@@ -46,7 +48,12 @@ func (s *GitRepositoryService) createAzureDevOpsPullRequest(ctx context.Context,
 
 	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
-	pr, err := client.CreatePullRequest(ctx, repo.ID, title, description, branch, "main", repo.ProjectID)
+	project, err := s.getAzureDevOpsProject(repo)
+	if err != nil {
+		return "", err
+	}
+
+	pr, err := client.CreatePullRequest(ctx, repo.ID, title, description, branch, "main", project)
 	if err != nil {
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
@@ -94,7 +101,18 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, 
 
 	client := azuredevops.NewAzureDevOpsClient(repo.AzureDevOps.OrganizationURL, repo.AzureDevOps.PersonalAccessToken)
 
-	gitPRs, err := client.ListPullRequests(ctx, repo.ID, repo.ProjectID)
+	// Get azure project ID
+	project, err := s.getAzureDevOpsProject(repo)
+	if err != nil {
+		return nil, err
+	}
+
+	repositoryName, err := s.getAzureDevOpsRepositoryName(repo)
+	if err != nil {
+		return nil, err
+	}
+
+	gitPRs, err := client.ListPullRequests(ctx, repositoryName, project)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pull requests: %w", err)
 	}
@@ -148,4 +166,53 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, 
 	}
 
 	return prs, nil
+}
+
+func (s *GitRepositoryService) getAzureDevOpsProject(repo *types.GitRepository) (string, error) {
+	// parse project from ExternalURL
+	// expected format: https://dev.azure.com/{org}/{project}/_git/{repo}
+	// or https://{org}.visualstudio.com/{project}/_git/{repo}
+
+	u, err := url.Parse(repo.ExternalURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid external URL: %w", err)
+	}
+
+	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
+
+	// Find "_git" and take the part before it
+	for i, part := range pathParts {
+		if part == "_git" {
+			if i > 0 {
+				return pathParts[i-1], nil
+			}
+			break
+		}
+	}
+
+	return "", fmt.Errorf("could not parse project from URL: %s", repo.ExternalURL)
+}
+
+func (s *GitRepositoryService) getAzureDevOpsRepositoryName(repo *types.GitRepository) (string, error) {
+	// parse repository name from ExternalURL
+	// expected format: https://dev.azure.com/{org}/{project}/_git/{repo}
+	// or https://{org}.visualstudio.com/{project}/_git/{repo}
+
+	u, err := url.Parse(repo.ExternalURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid external URL: %w", err)
+	}
+
+	pathParts := strings.Split(strings.Trim(u.Path, "/"), "/")
+
+	// Find "_git" and take the part after it
+	for i, part := range pathParts {
+		if part == "_git" {
+			if i < len(pathParts)-1 {
+				return pathParts[i+1], nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not parse repository name from URL: %s", repo.ExternalURL)
 }

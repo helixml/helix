@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
@@ -38,14 +39,25 @@ func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryID 
 	return pr, nil
 }
 
-func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryID string, project string) ([]git.GitPullRequest, error) {
+// ListPullRequests lists pull requests for a given repository name and project
+// repositoryName is the name of the repository
+// project is the name of the project in Azure DevOps
+func (c *AzureDevOpsClient) ListPullRequests(ctx context.Context, repositoryName string, project string) ([]git.GitPullRequest, error) {
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
 	}
 
+	// repoID, err := uuid.Parse(repositoryID)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse repository ID: %w", err)
+	// }
+
 	prs, err := gitClient.GetPullRequests(ctx, git.GetPullRequestsArgs{
-		RepositoryId: &repositoryID,
+		SearchCriteria: &git.GitPullRequestSearchCriteria{
+			Status: ptr.To(git.PullRequestStatusValues.Active),
+		},
+		RepositoryId: &repositoryName,
 		Project:      &project,
 	})
 	if err != nil {
