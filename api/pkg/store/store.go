@@ -579,6 +579,17 @@ type Store interface {
 	GetQuestionSetExecution(ctx context.Context, id string) (*types.QuestionSetExecution, error)
 	UpdateQuestionSetExecution(ctx context.Context, execution *types.QuestionSetExecution) (*types.QuestionSetExecution, error)
 	ListQuestionSetExecutions(ctx context.Context, q *ListQuestionSetExecutionsQuery) ([]*types.QuestionSetExecution, error)
+
+	// Wolf instance methods
+	RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error
+	UpdateWolfHeartbeat(ctx context.Context, id string) error
+	GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error)
+	ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error)
+	DeregisterWolfInstance(ctx context.Context, id string) error
+	UpdateWolfStatus(ctx context.Context, id string, status string) error
+	IncrementWolfSandboxCount(ctx context.Context, id string) error
+	DecrementWolfSandboxCount(ctx context.Context, id string) error
+	GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error)
 }
 
 type EmbeddingsStore interface {
