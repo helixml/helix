@@ -14,6 +14,11 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
 } from '@mui/material'
 import {
   GitBranch,
@@ -25,11 +30,17 @@ import {
   Pencil,
   X as CloseIcon,
   MoreVertical,
+  GitPullRequest,
+  ExternalLink,
 } from 'lucide-react'
 import {
   getEnrichmentTypeIcon,
   getEnrichmentTypeName,
 } from '../../services/koditService'
+import {
+  useCreateGitRepositoryPullRequest,
+  useListRepositoryPullRequests,
+} from '../../services/gitRepositoryService'
 import BranchSelect from './BranchSelect'
 
 interface CodeTabProps {
@@ -117,6 +128,9 @@ const CodeTab: FC<CodeTabProps> = ({
   createBranchMutation,
   createOrUpdateFileMutation,
 }) => {
+  const createPullRequestMutation = useCreateGitRepositoryPullRequest()
+  const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
+
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const openMenu = Boolean(anchorEl)
   const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -124,6 +138,39 @@ const CodeTab: FC<CodeTabProps> = ({
   }
   const handleMenuClose = () => {
     setAnchorEl(null)
+  }
+
+  // Create PR Dialog State
+  const [createPRDialogOpen, setCreatePRDialogOpen] = React.useState(false)
+  const [existingPR, setExistingPR] = React.useState<any>(null)
+
+  const handleCheckAndOpenCreatePR = () => {
+    // Check if PR already exists
+    const existing = pullRequests.find(pr => pr.source_branch === currentBranch)
+    if (existing) {
+      setExistingPR(existing)
+    } else {
+      setExistingPR(null)
+    }
+    setCreatePRDialogOpen(true)
+  }
+
+  const handleCreatePR = async () => {
+    if (!repository?.id) return
+
+    try {
+      await createPullRequestMutation.mutateAsync({
+        repositoryId: repository.id,
+        request: {
+          title: `Pull Request from ${currentBranch}`,
+          source_branch: currentBranch,
+          target_branch: repository.default_branch || 'main',
+        }
+      })
+      setCreatePRDialogOpen(false)
+    } catch (error) {
+      console.error('Failed to create PR:', error)
+    }
   }
 
   return (
@@ -206,6 +253,22 @@ const CodeTab: FC<CodeTabProps> = ({
                 transformOrigin={{ horizontal: 'right', vertical: 'top' }}
                 anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
               >
+                <MenuItem
+                  disabled={
+                    currentBranch === (repository?.default_branch || 'main') ||
+                    currentBranch === 'master'
+                  }
+                  onClick={() => {
+                    handleMenuClose()
+                    handleCheckAndOpenCreatePR()
+                  }}
+                >
+                  <ListItemIcon>
+                    <GitPullRequest size={16} />
+                  </ListItemIcon>
+                  <ListItemText>Create Pull Request</ListItemText>
+                </MenuItem>
+
                 <MenuItem
                   onClick={() => {
                     handleMenuClose()
@@ -480,6 +543,56 @@ const CodeTab: FC<CodeTabProps> = ({
           </Paper>
         </Box>
       </Box>
+
+      {/* Create PR Dialog */}
+      <Dialog open={createPRDialogOpen} onClose={() => setCreatePRDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Pull Request</DialogTitle>
+        <DialogContent>
+          {existingPR ? (
+            <Box>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                A pull request already exists for this branch.
+              </Alert>
+              <Typography variant="body2">
+                You can view the existing pull request here:
+              </Typography>
+              <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                {existingPR.url ? (
+                    <a href={existingPR.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 8 }}>
+                       <GitPullRequest size={16} /> #{existingPR.number} {existingPR.title} <ExternalLink size={14} />
+                    </a>
+                ) : (
+                    <Typography variant="body2">
+                        #{existingPR.number} {existingPR.title} (No URL available)
+                    </Typography>
+                )}
+              </Box>
+            </Box>
+          ) : (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Are you sure you want to create a pull request for branch <strong>{currentBranch}</strong>?
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                This will create a pull request to merge changes from <strong>{currentBranch}</strong> into <strong>{repository?.default_branch || 'main'}</strong>.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {!existingPR && (
+            <Button
+              onClick={handleCreatePR}
+              color="secondary"
+              variant="contained"
+              disabled={createPullRequestMutation.isPending}
+              sx={{mr: 1, mb: 1}}
+            >
+              {createPullRequestMutation.isPending ? <CircularProgress size={20} /> : 'Create Pull Request'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

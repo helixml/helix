@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import useApi from '../hooks/useApi';
-import type { TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest } from '../api/api';
+import type { TypesCreatePullRequestRequest, TypesUpdateGitRepositoryFileContentsRequest as UpdateGitRepositoryFileContentsRequest } from '../api/api';
 
 // Re-export generated types for convenience
 export type {
@@ -334,6 +334,23 @@ export function useCreateBranch() {
   });
 }
 
+export function useCreateGitRepositoryPullRequest() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ repositoryId, request }: { repositoryId: string; request: TypesCreatePullRequestRequest }) => {
+      const response = await api.getApiClient().createGitRepositoryPullRequest(repositoryId, request);
+      return response.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ 
+        queryKey: ['git-repositories', variables.repositoryId, 'pull-requests'] 
+      });
+    },
+  });
+}
+
 // Helper functions
 
 export function getRepositoryTypeColor(repoType: string): string {
@@ -489,6 +506,7 @@ const gitRepositoryService = {
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   useCreateBranch,
+  useCreateGitRepositoryPullRequest,
 
   // Helper functions
   getRepositoryTypeColor,
