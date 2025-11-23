@@ -66,7 +66,6 @@ import {
   useGetRepositoryFile,
   useListRepositoryBranches,
   useListRepositoryCommits,
-  useListRepositoryPullRequests,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   useCreateBranch,
@@ -182,9 +181,6 @@ const GitRepoDetail: FC = () => {
     100
   )
   const commits = commitsData?.commits || []
-
-  // List pull requests
-  const { data: pullRequests = [], isLoading: pullRequestsLoading } = useListRepositoryPullRequests(repoId || '')
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -809,8 +805,6 @@ const GitRepoDetail: FC = () => {
           {currentTab === 'pull-requests' && (
             <PullRequests
               repository={repository}
-              pullRequests={pullRequests}
-              pullRequestsLoading={pullRequestsLoading}
             />
           )}
         </Box>

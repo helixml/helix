@@ -10,18 +10,17 @@ import {
   GitPullRequest,
   ExternalLink,
 } from 'lucide-react'
+import { useListRepositoryPullRequests } from '../../services/gitRepositoryService'
 
 interface PullRequestsProps {
   repository: any
-  pullRequests: any[]
-  pullRequestsLoading: boolean
 }
 
 const PullRequests: FC<PullRequestsProps> = ({
   repository,
-  pullRequests,
-  pullRequestsLoading,
 }) => {
+  const { data: pullRequests = [], isLoading: pullRequestsLoading } = useListRepositoryPullRequests(repository?.id || '')
+
   const handlePRClick = (url: string | undefined) => {
     if (url) {
       window.open(url, '_blank', 'noopener,noreferrer')
