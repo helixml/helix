@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/function61/holepunch-server/pkg/wsconnadapter"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -662,6 +663,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/wolf/ui-app-id", apiServer.getWolfUIAppID).Methods("GET")
 	// Wolf system health monitoring (thread heartbeats, deadlock detection)
 	authRouter.HandleFunc("/wolf/health", apiServer.getWolfHealth).Methods("GET")
+
+	// Wolf instance registry routes (multi-Wolf support)
+	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances/{id}/heartbeat", apiServer.wolfInstanceHeartbeat).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances", apiServer.listWolfInstances).Methods("GET")
+	authRouter.HandleFunc("/wolf-instances/{id}", apiServer.deregisterWolfInstance).Methods("DELETE")
 
 	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
 	// Accepts user API tokens with session ownership validation
@@ -1711,21 +1718,25 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for now
 		},
+		// Disable strict header validation for compatibility
+		EnableCompression: false,
 	}
 
 	revDialConnHandler := revdial.ConnHandler(upgrader)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is a WebSocket upgrade request (data connection)
-		if websocket.IsWebSocketUpgrade(r) {
-			log.Debug().Msg("Handling revdial WebSocket data connection")
+		// Check if this is a DATA connection (WebSocket with revdial.dialer parameter)
+		// Control connections are WebSocket too, but without the dialer parameter
+		dialerParam := r.URL.Query().Get("revdial.dialer")
+		if websocket.IsWebSocketUpgrade(r) && dialerParam != "" {
+			log.Debug().Str("dialer_id", dialerParam).Msg("Handling revdial WebSocket DATA connection")
 			// This is a data connection - use the revdial ConnHandler
 			revDialConnHandler.ServeHTTP(w, r)
 			return
 		}
 
-		// This is a control connection - proceed with existing logic
-		log.Debug().Msg("Handling revdial control connection")
+		// This is a CONTROL connection (WebSocket without dialer parameter, or non-WebSocket)
+		log.Debug().Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).Msg("Handling revdial CONTROL connection")
 
 		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)
@@ -1781,22 +1792,41 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 
 		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
-		// Hijack the HTTP connection to get raw TCP connection
-		hijacker, ok := w.(http.Hijacker)
-		if !ok {
-			log.Error().Msg("HTTP hijacking not supported")
-			http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
-			return
-		}
+		// Handle WebSocket control connection vs non-WebSocket control connection
+		var conn net.Conn
+		if websocket.IsWebSocketUpgrade(r) {
+			// Upgrade WebSocket for control connection
+			log.Debug().Msg("Upgrading WebSocket for RevDial control connection")
+			wsConn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
+				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
+				return
+			}
 
-		// Send HTTP 200 response before hijacking
-		w.WriteHeader(http.StatusOK)
+			// Wrap WebSocket as net.Conn using wsconnadapter
+			conn = wsconnadapter.New(wsConn)
+			log.Debug().Str("runner_id", runnerID).Msg("WebSocket control connection established")
+		} else {
+			// HTTP hijack for non-WebSocket control connection
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				log.Error().Msg("HTTP hijacking not supported")
+				http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
+				return
+			}
 
-		// Hijack the connection to get raw TCP
-		conn, _, err := hijacker.Hijack()
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
-			return
+			// Send HTTP 200 response before hijacking
+			w.WriteHeader(http.StatusOK)
+
+			// Hijack the connection to get raw TCP
+			var err error
+			conn, _, err = hijacker.Hijack()
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
+				return
+			}
+			log.Debug().Str("runner_id", runnerID).Msg("HTTP control connection hijacked")
 		}
 
 		// Register the reverse dial connection in connman
@@ -1804,7 +1834,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// The connection is now managed by connman
-		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
+		// It will be used when external_agent_handlers.go calls connman.Dial(runnerID)
 	})
 }
 
