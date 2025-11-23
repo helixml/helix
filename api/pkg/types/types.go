@@ -717,6 +717,9 @@ type Session struct {
 	QuestionSetExecutionID string `json:"question_set_execution_id"` // The question set execution this session belongs to, if any
 
 	Trigger string `json:"trigger"`
+
+	// WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any)
+	WolfInstanceID string `json:"wolf_instance_id" gorm:"type:varchar(255);index"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
