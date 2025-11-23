@@ -1236,14 +1236,25 @@ func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r
 		return
 	}
 
-	if request.Branch == "" {
-		http.Error(w, "Branch is required", http.StatusBadRequest)
+	if request.SourceBranch == "" {
+		http.Error(w, "Source branch is required", http.StatusBadRequest)
 		return
 	}
 
-	prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.Branch)
+	if request.TargetBranch == "" {
+		http.Error(w, "Target branch is required", http.StatusBadRequest)
+		return
+	}
+
+	prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Str("branch", request.Branch).Msg("Failed to create pull request")
+		log.Error().Err(err).
+			Str("repo_id", repoID).
+			Str("title", request.Title).
+			Str("description", request.Description).
+			Str("source_branch", request.SourceBranch).
+			Str("target_branch", request.TargetBranch).
+			Msg("Failed to create pull request")
 		http.Error(w, fmt.Sprintf("Failed to create pull request: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
