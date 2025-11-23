@@ -10759,6 +10759,159 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/wolf-instances": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all registered Wolf streaming instances",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "List all Wolf instances",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.WolfInstanceResponse"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wolf-instances/register": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Register a new Wolf streaming instance with the control plane",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "Register a new Wolf instance",
+                "parameters": [
+                    {
+                        "description": "Wolf instance registration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.WolfInstanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.WolfInstanceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wolf-instances/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Remove a Wolf instance from the registry",
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "Deregister a Wolf instance",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Wolf instance not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wolf-instances/{id}/heartbeat": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update the last heartbeat timestamp for a Wolf instance",
+                "tags": [
+                    "wolf"
+                ],
+                "summary": "Send heartbeat for a Wolf instance",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Wolf instance not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/wolf/health": {
             "get": {
                 "security": [
@@ -12655,7 +12808,7 @@ const docTemplate = `{
                     }
                 },
                 "gpu_stats": {
-                    "description": "GPU encoder stats from Wolf (via nvidia-smi)",
+                    "description": "GPU encoder stats from Wolf (via nvidia-smi or rocm-smi)",
                     "allOf": [
                         {
                             "$ref": "#/definitions/server.GPUStats"
@@ -13814,7 +13967,7 @@ const docTemplate = `{
                     }
                 },
                 "gpu_stats": {
-                    "description": "From Wolf's nvidia-smi query",
+                    "description": "From Wolf's GPU monitoring query (nvidia-smi or rocm-smi)",
                     "allOf": [
                         {
                             "$ref": "#/definitions/server.GPUStats"
@@ -16689,12 +16842,8 @@ const docTemplate = `{
         "types.GPUStatus": {
             "type": "object",
             "properties": {
-                "cuda_version": {
-                    "description": "CUDA version",
-                    "type": "string"
-                },
                 "driver_version": {
-                    "description": "NVIDIA driver version",
+                    "description": "GPU driver version (NVIDIA or AMD)",
                     "type": "string"
                 },
                 "free_memory": {
@@ -16706,7 +16855,11 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "model_name": {
-                    "description": "GPU model name (e.g., \"NVIDIA H100 PCIe\", \"NVIDIA GeForce RTX 4090\")",
+                    "description": "GPU model name (e.g., \"NVIDIA H100 PCIe\", \"AMD Radeon RX 7900 XTX\")",
+                    "type": "string"
+                },
+                "sdk_version": {
+                    "description": "GPU SDK version (CUDA for NVIDIA, ROCm for AMD)",
                     "type": "string"
                 },
                 "total_memory": {
@@ -19873,6 +20026,10 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                },
+                "wolf_instance_id": {
+                    "description": "WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any)",
+                    "type": "string"
                 }
             }
         },
@@ -22169,18 +22326,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
@@ -22528,6 +22685,58 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "user_agent": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WolfInstanceRequest": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "gpu_type": {
+                    "type": "string"
+                },
+                "max_sandboxes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.WolfInstanceResponse": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "connected_sandboxes": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "gpu_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_heartbeat": {
+                    "type": "string"
+                },
+                "max_sandboxes": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }

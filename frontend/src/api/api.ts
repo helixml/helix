@@ -494,7 +494,7 @@ export interface ServerAgentProgressItem {
 export interface ServerAgentSandboxesDebugResponse {
   /** Apps mode */
   apps?: ServerWolfAppInfo[];
-  /** GPU encoder stats from Wolf (via nvidia-smi) */
+  /** GPU encoder stats from Wolf (via nvidia-smi or rocm-smi) */
   gpu_stats?: ServerGPUStats;
   /** Actual pipeline count from Wolf */
   gstreamer_pipelines?: ServerGStreamerPipelineStats;
@@ -932,7 +932,7 @@ export interface ServerWolfSystemMemory {
   /** Apps mode */
   apps?: ServerWolfAppMemory[];
   clients?: ServerWolfClientConnection[];
-  /** From Wolf's nvidia-smi query */
+  /** From Wolf's GPU monitoring query (nvidia-smi or rocm-smi) */
   gpu_stats?: ServerGPUStats;
   gstreamer_buffer_bytes?: number;
   /** From Wolf's state */
@@ -2035,16 +2035,16 @@ export interface TypesGPUState {
 }
 
 export interface TypesGPUStatus {
-  /** CUDA version */
-  cuda_version?: string;
-  /** NVIDIA driver version */
+  /** GPU driver version (NVIDIA or AMD) */
   driver_version?: string;
   /** Free memory in bytes */
   free_memory?: number;
   /** GPU index (0, 1, 2, etc.) */
   index?: number;
-  /** GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090") */
+  /** GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900 XTX") */
   model_name?: string;
+  /** GPU SDK version (CUDA for NVIDIA, ROCm for AMD) */
+  sdk_version?: string;
   /** Total memory in bytes */
   total_memory?: number;
   /** Used memory in bytes */
@@ -3325,6 +3325,8 @@ export interface TypesSession {
   /** e.g. text, image */
   type?: TypesSessionType;
   updated?: string;
+  /** WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any) */
+  wolf_instance_id?: string;
 }
 
 export interface TypesSessionChatRequest {
@@ -4248,11 +4250,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -4396,6 +4398,26 @@ export interface TypesWebsiteCrawler {
   /** Apply readability middleware to the HTML content */
   readability?: boolean;
   user_agent?: string;
+}
+
+export interface TypesWolfInstanceRequest {
+  address?: string;
+  gpu_type?: string;
+  max_sandboxes?: number;
+  name?: string;
+}
+
+export interface TypesWolfInstanceResponse {
+  address?: string;
+  connected_sandboxes?: number;
+  created_at?: string;
+  gpu_type?: string;
+  id?: string;
+  last_heartbeat?: string;
+  max_sandboxes?: number;
+  name?: string;
+  status?: string;
+  updated_at?: string;
 }
 
 export interface TypesWorkloadSummary {
@@ -9900,6 +9922,78 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get all registered Wolf streaming instances
+     *
+     * @tags wolf
+     * @name V1WolfInstancesList
+     * @summary List all Wolf instances
+     * @request GET:/api/v1/wolf-instances
+     * @secure
+     */
+    v1WolfInstancesList: (params: RequestParams = {}) =>
+      this.request<TypesWolfInstanceResponse[], string>({
+        path: `/api/v1/wolf-instances`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Remove a Wolf instance from the registry
+     *
+     * @tags wolf
+     * @name V1WolfInstancesDelete
+     * @summary Deregister a Wolf instance
+     * @request DELETE:/api/v1/wolf-instances/{id}
+     * @secure
+     */
+    v1WolfInstancesDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/wolf-instances/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update the last heartbeat timestamp for a Wolf instance
+     *
+     * @tags wolf
+     * @name V1WolfInstancesHeartbeatCreate
+     * @summary Send heartbeat for a Wolf instance
+     * @request POST:/api/v1/wolf-instances/{id}/heartbeat
+     * @secure
+     */
+    v1WolfInstancesHeartbeatCreate: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/wolf-instances/${id}/heartbeat`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Register a new Wolf streaming instance with the control plane
+     *
+     * @tags wolf
+     * @name V1WolfInstancesRegisterCreate
+     * @summary Register a new Wolf instance
+     * @request POST:/api/v1/wolf-instances/register
+     * @secure
+     */
+    v1WolfInstancesRegisterCreate: (request: TypesWolfInstanceRequest, params: RequestParams = {}) =>
+      this.request<TypesWolfInstanceResponse, string>({
+        path: `/api/v1/wolf-instances/register`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
