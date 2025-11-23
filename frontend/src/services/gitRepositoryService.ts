@@ -139,6 +139,19 @@ export function useListRepositoryCommits(
   });
 }
 
+export function useListRepositoryPullRequests(repositoryId: string) {
+  const api = useApi();
+
+  return useQuery({
+    queryKey: ['git-repositories', repositoryId, 'pull-requests'] as const,
+    queryFn: async () => {
+      const response = await api.getApiClient().listGitRepositoryPullRequests(repositoryId);
+      return response.data;
+    },
+    enabled: !!repositoryId,
+  });
+}
+
 export function useBrowseRepositoryTree(repositoryId: string, path: string = '.', branch: string = '') {
   const api = useApi();
   const { data: repository, isLoading: repositoryLoading } = useGitRepository(repositoryId);
@@ -467,6 +480,7 @@ const gitRepositoryService = {
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryCommits,
+  useListRepositoryPullRequests,
 
   // Mutation functions
   useCreateGitRepository,
