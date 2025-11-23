@@ -42,7 +42,7 @@ echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately
 
 # Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
 # CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
-# Uses session-scoped runner token from environment
+# Uses user's API token for authentication (session-scoped, user-owned)
 if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
     REVDIAL_SERVER="${HELIX_API_BASE_URL}/revdial"
     RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
@@ -58,7 +58,7 @@ if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API
     REVDIAL_PID=$!
     echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
 else
-    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL or tokens)"
+    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
 fi
 
 # Start screenshot server in background (if binary exists)
