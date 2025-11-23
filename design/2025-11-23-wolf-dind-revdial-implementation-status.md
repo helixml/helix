@@ -1,8 +1,9 @@
 # Wolf DinD + RevDial Implementation Status
 
 **Date**: 2025-11-23
-**Status**: DinD Complete ✅ | RevDial Code Complete, Testing Pending ⏳
+**Status**: DinD Complete ✅ | RevDial Code Complete ✅ | Testing Blocked (need fresh sandbox) ⏳
 **Branch**: `feature/wolf-dind` (helix), `feature/wolf-dind` (wolf)
+**Commits**: 6 commits (e965afac5...6876b8e11)
 
 ---
 
@@ -115,19 +116,26 @@ COPY docker/start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
 - Connection manager (`api/pkg/connman/connman.go`)
 - RevDial package (`api/pkg/revdial/revdial.go`)
 
-### What Needs Testing
+### What Needs Testing (Ready but Blocked on Fresh Sandbox)
 
-**Next sandbox created will have**:
-- Updated helix-sway image with WebSocket URL fix
-- RevDial client connects to `ws://api:8080/revdial` (not `http://`)
-- Should see in API logs: `"Registered reverse dial connection in connman"`
-- Screenshots should route through RevDial tunnel
+**Latest helix-sway image** (f123bd4e3635) **has**:
+- ✅ RevDial client with WebSocket URL fix (ws:// not http://)
+- ✅ USER_API_TOKEN authentication
+- ✅ Auto-starts on sandbox boot
+- ✅ Session ownership validation on server
 
-**To verify**:
-1. Create new sandbox via UI (Spec Tasks → Start Planning)
-2. Check sandbox logs: `/tmp/revdial-client.log` should show `✅ Connected to RevDial server`
-3. Check API logs: Should see `"Registered reverse dial connection"`
-4. Screenshot should work without errors
+**To verify RevDial works** (requires fresh sandbox):
+1. **Via Web UI** (RECOMMENDED):
+   - Navigate to Projects → Select project → Spec Tasks
+   - Click "Start Planning" on a new task
+   - Opens sandbox with latest helix-sway image
+   - Check `/tmp/revdial-client.log`: should show `✅ Connected to RevDial server`
+   - Screenshot should work (tests RevDial tunnel)
+
+2. **Via CLI** (BLOCKED - needs fixes):
+   - **Issue**: Tasks created by runner-system have no API keys
+   - **Fix needed**: Auto-create API key for users without one
+   - **Or**: Use web UI to create task as real user first
 
 **Testing commands**:
 ```bash
