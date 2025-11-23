@@ -41,6 +41,7 @@ import {
   useCreateGitRepositoryPullRequest,
   useListRepositoryPullRequests,
 } from '../../services/gitRepositoryService'
+import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
 
 interface CodeTabProps {
@@ -130,6 +131,7 @@ const CodeTab: FC<CodeTabProps> = ({
 }) => {
   const createPullRequestMutation = useCreateGitRepositoryPullRequest()
   const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
+  const snackbar = useSnackbar()
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const openMenu = Boolean(anchorEl)
@@ -168,8 +170,10 @@ const CodeTab: FC<CodeTabProps> = ({
         }
       })
       setCreatePRDialogOpen(false)
+      snackbar.success('Pull request created successfully')
     } catch (error) {
       console.error('Failed to create PR:', error)
+      snackbar.error('Failed to create pull request')
     }
   }
 
