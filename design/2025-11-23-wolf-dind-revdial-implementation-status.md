@@ -89,18 +89,20 @@ COPY docker/start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
 - Connects to API's `/revdial` endpoint via WebSocket
 - Proxies localhost:9876 (screenshot/clipboard server)
 - Auto-reconnects on connection drop
-- Uses RUNNER_TOKEN for infrastructure-level authentication
-- Sends `Authorization: Bearer {RUNNER_TOKEN}` header on WebSocket upgrade
+- Uses USER_API_TOKEN for authentication (user-scoped, not system token)
+- Sends `Authorization: Bearer {USER_API_TOKEN}` header on WebSocket upgrade
 
 **Sandbox integration**:
 - revdial-client built into helix-sway image
 - Auto-starts on sandbox boot (`wolf/sway-config/startup-app.sh`)
 - Runner ID: `sandbox-{HELIX_SESSION_ID}`
 - Connects to: `ws://api:8080/revdial?runnerid=sandbox-{session_id}`
-- **CRITICAL FIX**: Uses RUNNER_TOKEN (not USER_API_TOKEN) for auth
-  - `/revdial` endpoint requires runner token (runnerRouter middleware)
-  - USER_API_TOKEN is user-level API key, fails `requireRunner` check
-  - wolf_executor.go now passes RUNNER_TOKEN to sandboxes
+- **AUTHENTICATION**: Uses USER_API_TOKEN with session ownership validation
+  - `/revdial` endpoint moved to authRouter (accepts user tokens)
+  - Server extracts session ID from runner ID format: `sandbox-{session_id}`
+  - Validates `session.Owner == user.ID` before accepting connection
+  - Prevents privilege escalation (users can only connect to their own sandboxes)
+  - SECURITY: Does NOT use system RUNNER_TOKEN (users can read env vars!)
 
 **API routing** (`api/pkg/server/external_agent_handlers.go`):
 - Screenshot requests: Try RevDial first, fallback to direct HTTP
@@ -147,9 +149,11 @@ curl -v http://localhost:8080/api/v1/external-agents/{session_id}/screenshot \
 2. Route screenshot requests through RevDial with direct HTTP fallback
 3. Route clipboard GET/SET requests through RevDial with fallback
 4. Fix RevDial client WebSocket URL (convert http:// to ws://)
-5. **Fix RevDial authentication: Use RUNNER_TOKEN instead of USER_API_TOKEN**
-   - wolf_executor.go: Pass RUNNER_TOKEN to sandboxes
-   - startup-app.sh: Use RUNNER_TOKEN for RevDial client auth
+5. **Fix RevDial authentication: Use user API tokens with session validation**
+   - Move /revdial from runnerRouter to authRouter (accept user tokens)
+   - Validate session ownership (session.Owner == user.ID)
+   - Extract session ID from runner ID format: sandbox-{session_id}
+   - SECURITY: Prevent passing system RUNNER_TOKEN to user sandboxes
 
 ---
 
