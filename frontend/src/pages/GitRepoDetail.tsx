@@ -364,12 +364,21 @@ const GitRepoDetail: FC = () => {
       setForcePushDialogOpen(false)
     } catch (error: any) {
       console.error('Failed to push/pull repository:', error)
-      const errorMessage = error?.response?.data?.error || error?.response?.data?.message || error?.message || String(error)
+      let errorMessage: string
+      if (error?.response?.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data
+        } else {
+          errorMessage = error.response.data.error || error.response.data.message || String(error)
+        }
+      } else {
+        errorMessage = error?.message || String(error)
+      }
       const errorLower = errorMessage.toLowerCase()
       if (errorLower.includes('non-fast-forward') || errorLower.includes('non fast forward')) {
         setForcePushDialogOpen(true)
       } else {
-        snackbar.error('Failed to synchronize repository')
+        snackbar.error('Failed to synchronize repository, error: ' + errorMessage)
       }
     }
   }
