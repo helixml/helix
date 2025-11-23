@@ -159,7 +159,7 @@ func (s *GitRepositoryService) listAzureDevOpsPullRequests(ctx context.Context, 
 		}
 
 		if gitPR.Url != nil {
-			pr.URL = *gitPR.Url
+			pr.URL = fmt.Sprintf("%s/pullrequest/%d", repo.ExternalURL, *gitPR.PullRequestId)
 		}
 
 		prs = append(prs, pr)
