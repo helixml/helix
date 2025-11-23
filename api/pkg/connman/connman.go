@@ -48,3 +48,23 @@ func (m *ConnectionManager) Dial(ctx context.Context, key string) (net.Conn, err
 	// Use revdial.Dialer to create a new logical connection
 	return dialer.Dial(ctx)
 }
+
+// Remove removes a connection from the manager (for cleanup after disconnection)
+func (m *ConnectionManager) Remove(key string) {
+	m.lock.Lock()
+	delete(m.deviceDialers, key)
+	delete(m.deviceConnections, key)
+	m.lock.Unlock()
+}
+
+// List returns all active connection keys
+func (m *ConnectionManager) List() []string {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	keys := make([]string, 0, len(m.deviceDialers))
+	for key := range m.deviceDialers {
+		keys = append(keys, key)
+	}
+	return keys
+}
