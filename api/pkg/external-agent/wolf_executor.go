@@ -469,7 +469,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Pass API base URL for git cloning (always api:8080 from Wolf container)
 	extraEnv = append(extraEnv, "HELIX_API_BASE_URL=http://api:8080")
 
-	// Add custom env vars from agent request
+	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
 	// Extract video settings from agent config (Phase 3.5) with defaults

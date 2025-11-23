@@ -663,9 +663,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Wolf system health monitoring (thread heartbeats, deadlock detection)
 	authRouter.HandleFunc("/wolf/health", apiServer.getWolfHealth).Methods("GET")
 
-	// Reverse dial endpoint for external agent runners (requires runner token authentication)
-	// This handles both control connections (non-WebSocket) and data connections (WebSocket)
-	runnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
+	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
+	// Accepts user API tokens with session ownership validation
+	// Future: May also accept runner tokens for remote Wolf instances
+	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented
@@ -1726,11 +1727,11 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		// This is a control connection - proceed with existing logic
 		log.Debug().Msg("Handling revdial control connection")
 
-		// Get authenticated user from middleware (runner token authentication)
+		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)
-		if user == nil || user.TokenType != types.TokenTypeRunner {
-			log.Error().Msg("Unauthorized reverse dial request - runner token required")
-			http.Error(w, "runner token required", http.StatusUnauthorized)
+		if user == nil {
+			log.Error().Msg("Unauthorized reverse dial request - authentication required")
+			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
 
@@ -1742,11 +1743,41 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			return
 		}
 
+		// If using a user token (not runner token), validate session ownership
+		if user.TokenType != types.TokenTypeRunner {
+			// Extract session ID from runner ID (format: sandbox-{session_id})
+			sessionID := strings.TrimPrefix(runnerID, "sandbox-")
+			if sessionID == runnerID {
+				log.Error().
+					Str("runner_id", runnerID).
+					Msg("Invalid runner ID format - must be sandbox-{session_id}")
+				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
+				return
+			}
+
+			// Verify the session belongs to this user
+			session, err := apiServer.Store.GetSession(r.Context(), sessionID)
+			if err != nil || session.Owner != user.ID {
+				log.Error().
+					Err(err).
+					Str("user_id", user.ID).
+					Str("session_id", sessionID).
+					Msg("Unauthorized: session not found or not owned by user")
+				http.Error(w, "unauthorized: session not owned by user", http.StatusForbidden)
+				return
+			}
+
+			log.Info().
+				Str("user_id", user.ID).
+				Str("session_id", sessionID).
+				Msg("User token validated for RevDial connection")
+		}
+
 		log.Info().
 			Str("remote_addr", r.RemoteAddr).
 			Str("runner_id", runnerID).
 			Str("token_type", string(user.TokenType)).
-			Msg("Authenticated external agent runner establishing reverse dial connection")
+			Msg("Authenticated RevDial connection (runner or user token)")
 
 		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
