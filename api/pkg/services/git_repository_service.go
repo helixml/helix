@@ -1791,48 +1791,53 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Checking for new commits")
+func (s *GitRepositoryService) pullChanges(repo *git.Repository, w *git.Worktree, gitRepoConfig *types.GitRepository) error {
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Checking for new commits")
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
+	// repo, err := git.PlainOpen(gitRepoConfig.LocalPath)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to open git repository %s: %w", gitRepoConfig.LocalPath, err)
+	// }
 
-	worktree, err := repo.Worktree()
+	// worktree, err := repo.Worktree()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get worktree: %w", err)
+	// }
+
+	auth := s.getAuthConfig(gitRepoConfig)
+
+	// Fetch
+	err := repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Progress:   os.Stdout,
+		Auth:       auth,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			log.Info().Str("repo_id", gitRepoConfig.ID).Msg("External repository already up to date")
+			// OK
+		} else {
+			return fmt.Errorf("failed to fetch changes: %w", err)
+		}
 	}
 
 	pullOptions := &git.PullOptions{
 		RemoteName: "origin",
+		Auth:       auth,
 	}
-	pullOptions.Auth = s.getAuthConfig(gitRepo)
 
-	err = worktree.Pull(pullOptions)
+	err = w.Pull(pullOptions)
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("failed to pull changes: %w", err)
 	}
 
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pulled latest changes")
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Pulled latest changes")
 
 	return nil
 }
 
-func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository, force bool) error {
+func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRepo *types.GitRepository, branch string, force bool) error {
 	log.Info().Str("repo_id", gitRepo.ID).Bool("force", force).Msg("Pushing changes to external repository")
-
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
-
-	head, err := repo.Head()
-	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
-	}
-
-	branchName := head.Name().Short()
 
 	pushOptions := &git.PushOptions{
 		RemoteName: "origin",
@@ -1840,12 +1845,12 @@ func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepositor
 	}
 	if force {
 		pushOptions.RefSpecs = []config.RefSpec{
-			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName)),
+			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
 		}
 	}
 	pushOptions.Auth = s.getAuthConfig(gitRepo)
 
-	err = repo.Push(pushOptions)
+	err := repo.Push(pushOptions)
 	if err != nil {
 		if errors.Is(err, git.NoErrAlreadyUpToDate) {
 			log.Info().Str("repo_id", gitRepo.ID).Msg("External repository already up to date")
@@ -1871,38 +1876,48 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		return fmt.Errorf("repository is not external, cannot push/pull")
 	}
 
-	// If branchName is specified, checkout that branch first
-	if branchName != "" {
-		repo, err := git.PlainOpen(gitRepo.LocalPath)
-		if err != nil {
-			return fmt.Errorf("failed to open git repository: %w", err)
-		}
-
-		w, err := repo.Worktree()
-		if err != nil {
-			return fmt.Errorf("failed to get worktree: %w", err)
-		}
-
-		head, err := repo.Head()
-		if err != nil {
-			return fmt.Errorf("failed to get HEAD: %w", err)
-		}
-
-		if head.Name().Short() != branchName {
-			// Try to find the branch
-			branchRef := plumbing.NewBranchReferenceName(branchName)
-			err = w.Checkout(&git.CheckoutOptions{
-				Branch: branchRef,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
-			}
-		}
+	if branchName == "" {
+		return fmt.Errorf("branch name is required")
 	}
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	err = setBranch(w, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to set branch %s: %w", branchName, err)
+	}
+
+	// head, err := repo.Head()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get HEAD: %w", err)
+	// }
+
+	// if head.Name().Short() != branchName {
+	// 	// Try to find the branch
+	// 	branchRef := plumbing.NewBranchReferenceName(branchName)
+	// 	err = w.Checkout(&git.CheckoutOptions{
+	// 		Branch: branchRef,
+	// 	})
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	// 	}
+	// }
 
 	// 1. call pullChanges (skip if force push)
 	if !force {
-		err = s.pullChanges(gitRepo)
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("branch", branchName).
+			Msg("Pulling changes from external repository")
+		err = s.pullChanges(repo, w, gitRepo)
 		if err != nil {
 			// Return error on merge conflict or other pull errors
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
@@ -1910,11 +1925,21 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	}
 
 	// 2. call pushChangesToExternal
-	err = s.pushChangesToExternal(gitRepo, force)
+	err = s.pushChangesToExternal(repo, gitRepo, branchName, force)
 	if err != nil {
 		return fmt.Errorf("failed to push changes: %w", err)
 	}
 
+	return nil
+}
+
+func setBranch(w *git.Worktree, branchName string) error {
+	err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(branchName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	}
 	return nil
 }
 
