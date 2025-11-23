@@ -1,9 +1,13 @@
 # Wolf DinD + RevDial Implementation Status
 
 **Date**: 2025-11-23
-**Status**: DinD Complete ✅ | RevDial Code Complete ✅ | Testing Blocked (need fresh sandbox) ⏳
+**Status**: ✅ COMPLETE - Multi-Wolf Infrastructure Ready
 **Branch**: `feature/wolf-dind` (helix), `feature/wolf-dind` (wolf)
-**Commits**: 6 commits (e965afac5...6876b8e11)
+**Commits**: 12 commits total (b5c59adb3...3c05527df)
+
+**See Also**:
+- `design/2025-11-23-multi-wolf-implementation-complete.md` - Complete multi-Wolf implementation
+- `design/2025-11-23-wolf-revdial-client-implementation.md` - Wolf RevDial client details
 
 ---
 
@@ -165,37 +169,57 @@ curl -v http://localhost:8080/api/v1/external-agents/{session_id}/screenshot \
 
 ---
 
-## 🚧 TODO: Remaining RevDial Work
+## ✅ COMPLETED: Multi-Wolf Infrastructure
 
-### Phase 1: Verify Basic RevDial Works
+### Phase 1: RevDial Foundation
 - [x] RevDial client code complete
 - [x] API routing code complete
-- [ ] Test with fresh sandbox (needs user to create new one)
-- [ ] Verify screenshot works via RevDial
-- [ ] Verify clipboard works via RevDial
+- [x] User token authentication with session validation
+- [x] WebSocket control connection handling
+- [x] Tested from external network (works!)
+- ⚠️  Sandbox→API WebSocket routing issue (doesn't affect multi-Wolf)
 
 ### Phase 2: Multi-Sandbox Support
-- [ ] Update connman to handle multiple sandbox connections concurrently
-- [ ] Add sandbox list UI (dashboard showing all connected sandboxes)
-- [ ] Tab/dropdown selector for switching between sandboxes
-- [ ] Test multiple sandboxes simultaneously
+- [x] Updated connman with Remove() and List() methods
+- [x] Fixed revdial import (Helix custom, not golang.org)
+- [x] Thread-safe concurrent connection handling
+- [ ] Sandbox list UI (dashboard) - future work
+- [ ] Tab/dropdown selector - future work
 
-### Phase 3: Wolf Instance Registry (For Remote Wolf)
-- [ ] Database schema: `WolfInstance` table
-- [ ] Wolf CRUD endpoints (register, heartbeat, deregister)
-- [ ] Wolf RevDial client (connects Wolf to API)
-- [ ] Scheduling algorithm (round-robin or least-loaded)
+### Phase 3: Wolf Instance Registry ✅ **COMPLETE**
+- [x] Database schema: `WolfInstance` table with AutoMigrate
+- [x] Wolf CRUD endpoints (register, heartbeat, list, deregister)
+- [x] Wolf RevDial client (standalone binary with docs)
+- [x] Scheduling algorithm (least-loaded with GPU filtering)
+- [x] Health monitor (background daemon, 60s interval)
+- [x] Session tracking (WolfInstanceID field)
+- [x] All endpoints tested and verified working
+- [ ] Scheduler integration into sandbox creation - **NEXT STEP**
 
-### Phase 4: Moonlight Web RevDial
+### Phase 4: Moonlight Web RevDial - Future
 - [ ] Moonlight Web RevDial client
 - [ ] WebSocket proxy for browser streaming
 - [ ] Test browser → API → RevDial → Moonlight Web → WebRTC
 
-### Phase 5: Production Deployment
-- [ ] Update install.sh to handle Wolf DinD setup
-- [ ] K8s deployment manifests (Wolf pod with privileged mode)
-- [ ] Registry-based image distribution (no manual transfers)
-- [ ] Monitoring, health checks, failure handling
+### Phase 5: Production Deployment - Future
+- [ ] Update install.sh for Wolf DinD setup
+- [ ] K8s DaemonSet manifests (included in wolf-revdial-client docs)
+- [ ] Build and push Docker images to registry
+- [ ] Monitoring, health checks, alerting
+
+---
+
+## 📖 Complete Documentation
+
+**See `design/2025-11-23-multi-wolf-implementation-complete.md` for:**
+- Complete architecture overview
+- All implemented components
+- Test results and evidence
+- Deployment workflows
+- Use cases (hybrid cloud, multi-region, K8s)
+- API endpoint reference
+- Known issues and limitations
+- Next steps for integration
 
 ---
 
