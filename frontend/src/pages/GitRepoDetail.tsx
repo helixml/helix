@@ -50,6 +50,7 @@ import {
   Pencil,
   ArrowUpDown,
   GitCommit,
+  GitPullRequest,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -65,6 +66,7 @@ import {
   useGetRepositoryFile,
   useListRepositoryBranches,
   useListRepositoryCommits,
+  useListRepositoryPullRequests,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
   useCreateBranch,
@@ -82,9 +84,10 @@ import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
 import CommitsTab from '../components/git/CommitsTab'
 import SettingsTab from '../components/git/SettingsTab'
+import PullRequests from '../components/git/PullRequests'
 import { TypesExternalRepositoryType } from '../api/api'
 
-const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
+const TAB_NAMES = ['code', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -179,6 +182,9 @@ const GitRepoDetail: FC = () => {
     100
   )
   const commits = commitsData?.commits || []
+
+  // List pull requests
+  const { data: pullRequests = [], isLoading: pullRequestsLoading } = useListRepositoryPullRequests(repoId || '')
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -645,6 +651,13 @@ const GitRepoDetail: FC = () => {
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="pull-requests"
+                icon={<GitPullRequest size={16} />}
+                iconPosition="start"
+                label="Pull Requests"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
                 value="settings"
                 icon={<Settings size={16} />}
                 iconPosition="start"
@@ -789,6 +802,15 @@ const GitRepoDetail: FC = () => {
               commitsLoading={commitsLoading}
               handleCopySha={handleCopySha}
               copiedSha={copiedSha}
+            />
+          )}
+
+          {/* Pull Requests Tab */}
+          {currentTab === 'pull-requests' && (
+            <PullRequests
+              repository={repository}
+              pullRequests={pullRequests}
+              pullRequestsLoading={pullRequestsLoading}
             />
           )}
         </Box>
