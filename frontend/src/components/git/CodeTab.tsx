@@ -10,6 +10,15 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
 } from '@mui/material'
 import {
   GitBranch,
@@ -20,12 +29,39 @@ import {
   ArrowUpDown,
   Pencil,
   X as CloseIcon,
+  MoreVertical,
+  GitPullRequest,
+  ExternalLink,
 } from 'lucide-react'
 import {
   getEnrichmentTypeIcon,
   getEnrichmentTypeName,
 } from '../../services/koditService'
+import {
+  useCreateGitRepositoryPullRequest,
+  useListRepositoryPullRequests,
+} from '../../services/gitRepositoryService'
+import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
+
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+  
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
+}
 
 interface CodeTabProps {
   repository: any
@@ -112,6 +148,55 @@ const CodeTab: FC<CodeTabProps> = ({
   createBranchMutation,
   createOrUpdateFileMutation,
 }) => {
+  const createPullRequestMutation = useCreateGitRepositoryPullRequest()
+  const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
+  const snackbar = useSnackbar()
+  const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
+
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
+  const openMenu = Boolean(anchorEl)
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget)
+  }
+  const handleMenuClose = () => {
+    setAnchorEl(null)
+  }
+
+  // Create PR Dialog State
+  const [createPRDialogOpen, setCreatePRDialogOpen] = React.useState(false)
+  const [existingPR, setExistingPR] = React.useState<any>(null)
+
+  const handleCheckAndOpenCreatePR = () => {
+    // Check if PR already exists
+    const existing = pullRequests.find(pr => pr.source_branch === currentBranch)
+    if (existing) {
+      setExistingPR(existing)
+    } else {
+      setExistingPR(null)
+    }
+    setCreatePRDialogOpen(true)
+  }
+
+  const handleCreatePR = async () => {
+    if (!repository?.id) return
+
+    try {
+      await createPullRequestMutation.mutateAsync({
+        repositoryId: repository.id,
+        request: {
+          title: `Pull Request from ${currentBranch}`,
+          source_branch: currentBranch,
+          target_branch: fallbackBranch,
+        }
+      })
+      setCreatePRDialogOpen(false)
+      snackbar.success('Pull request created successfully')
+    } catch (error) {
+      console.error('Failed to create PR:', error)
+      snackbar.error('Failed to create pull request')
+    }
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {enrichments.length > 0 && groupedEnrichments['architecture'] && (
@@ -155,43 +240,12 @@ const CodeTab: FC<CodeTabProps> = ({
                 currentBranch={currentBranch}
                 setCurrentBranch={setCurrentBranch}
                 branches={branches}
-                showNewBranchButton={true}
+                showNewBranchButton={false}
                 onBranchChange={(branch) => {
                   setCurrentPath('.')
                   setSelectedFile(null)
                 }}
-                onNewBranchClick={() => {
-                  setNewBranchName('')
-                  setNewBranchBase(currentBranch || repository?.default_branch || 'main')
-                  setCreateBranchDialogOpen(true)
-                }}
               />
-              <Button
-                startIcon={<Plus size={16} />}
-                variant="outlined"
-                size="small"
-                onClick={() => {
-                  setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
-                  setNewFileContent('')
-                  setIsEditingFile(false)
-                  setCreateFileDialogOpen(true)
-                }}
-                sx={{ height: 40, whiteSpace: 'nowrap' }}
-              >
-                Add File
-              </Button>
-              {isExternal && (
-                <Button
-                  startIcon={<ArrowUpDown size={16} />}
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handlePushPull()}
-                  disabled={pushPullMutation.isPending}
-                  sx={{ height: 40, whiteSpace: 'nowrap' }}
-                >
-                  {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                </Button>
-              )}
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
                 {getPathBreadcrumbs().map((part, index, arr) => {
@@ -211,6 +265,80 @@ const CodeTab: FC<CodeTabProps> = ({
                   )
                 })}
               </Box>
+
+              <IconButton onClick={handleMenuClick} size="small">
+                <MoreVertical size={20} />
+              </IconButton>
+
+              <Menu
+                anchorEl={anchorEl}
+                open={openMenu}
+                onClose={handleMenuClose}
+                transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+              >
+                <MenuItem
+                  disabled={
+                    currentBranch === fallbackBranch ||
+                    currentBranch === 'master'
+                  }
+                  onClick={() => {
+                    handleMenuClose()
+                    handleCheckAndOpenCreatePR()
+                  }}
+                >
+                  <ListItemIcon>
+                    <GitPullRequest size={16} />
+                  </ListItemIcon>
+                  <ListItemText>Create Pull Request</ListItemText>
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    handleMenuClose()
+                    setNewBranchName('')
+                    setNewBranchBase(currentBranch || fallbackBranch)
+                    setCreateBranchDialogOpen(true)
+                  }}
+                >
+                  <ListItemIcon>
+                    <GitBranch size={16} />
+                  </ListItemIcon>
+                  <ListItemText>New Branch</ListItemText>
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    handleMenuClose()
+                    setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
+                    setNewFileContent('')
+                    setIsEditingFile(false)
+                    setCreateFileDialogOpen(true)
+                  }}
+                >
+                  <ListItemIcon>
+                    <Plus size={16} />
+                  </ListItemIcon>
+                  <ListItemText>New File</ListItemText>
+                </MenuItem>
+
+                {isExternal && (
+                  <MenuItem
+                    onClick={() => {
+                      handleMenuClose()
+                      handlePushPull()
+                    }}
+                    disabled={pushPullMutation.isPending}
+                  >
+                    <ListItemIcon>
+                      <ArrowUpDown size={16} />
+                    </ListItemIcon>
+                    <ListItemText>
+                      {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                    </ListItemText>
+                  </MenuItem>
+                )}
+              </Menu>
             </Box>
 
             <Box>
@@ -439,6 +567,56 @@ const CodeTab: FC<CodeTabProps> = ({
           </Paper>
         </Box>
       </Box>
+
+      {/* Create PR Dialog */}
+      <Dialog open={createPRDialogOpen} onClose={() => setCreatePRDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Pull Request</DialogTitle>
+        <DialogContent>
+          {existingPR ? (
+            <Box>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                A pull request already exists for this branch.
+              </Alert>
+              <Typography variant="body2">
+                You can view the existing pull request here:
+              </Typography>
+              <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                {existingPR.url ? (
+                    <a href={existingPR.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 8 }}>
+                       <GitPullRequest size={16} /> #{existingPR.number} {existingPR.title} <ExternalLink size={14} />
+                    </a>
+                ) : (
+                    <Typography variant="body2">
+                        #{existingPR.number} {existingPR.title} (No URL available)
+                    </Typography>
+                )}
+              </Box>
+            </Box>
+          ) : (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Are you sure you want to create a pull request for branch <strong>{currentBranch}</strong>?
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                This will create a pull request to merge changes from <strong>{currentBranch}</strong> into <strong>{fallbackBranch}</strong>.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {!existingPR && (
+            <Button
+              onClick={handleCreatePR}
+              color="secondary"
+              variant="contained"
+              disabled={createPullRequestMutation.isPending}
+              sx={{mr: 1, mb: 1}}
+            >
+              {createPullRequestMutation.isPending ? <CircularProgress size={20} /> : 'Create Pull Request'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

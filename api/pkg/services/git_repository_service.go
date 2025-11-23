@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
@@ -90,6 +91,18 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 
 // CreateRepository creates a new git repository
 func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+		if request.AzureDevOps.PersonalAccessToken == "" {
+			return nil, fmt.Errorf("azure devops personal access token not provided")
+		}
+	}
+
 	// Check for duplicate repository name for this owner
 	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: request.OrganizationID,
@@ -163,6 +176,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		Metadata:       request.Metadata,
+		AzureDevOps:    request.AzureDevOps,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -272,6 +286,16 @@ func (s *GitRepositoryService) UpdateRepository(
 	repoID string,
 	request *types.GitRepositoryUpdateRequest,
 ) (*types.GitRepository, error) {
+
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+	}
+
 	// Get existing repository
 	existing, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -296,6 +320,22 @@ func (s *GitRepositoryService) UpdateRepository(
 		for k, v := range request.Metadata {
 			existing.Metadata[k] = v
 		}
+	}
+
+	if string(request.ExternalType) != "" {
+		existing.ExternalType = request.ExternalType
+	}
+	if request.ExternalURL != "" {
+		existing.ExternalURL = request.ExternalURL
+	}
+	if request.Username != "" {
+		existing.Username = request.Username
+	}
+	if request.Password != "" {
+		existing.Password = request.Password
+	}
+	if request.AzureDevOps != nil {
+		existing.AzureDevOps = request.AzureDevOps
 	}
 
 	existing.UpdatedAt = time.Now()
@@ -700,13 +740,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				Progress: os.Stdout,
 			}
 
-			if gitRepo.Password != "" {
-				username := gitRepo.Username
-				if username == "" {
-					username = "PAT"
-				}
-				cloneOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-			}
+			cloneOptions.Auth = s.getAuthConfig(gitRepo)
 
 			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
 			if err != nil {
@@ -1757,54 +1791,53 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Checking for new commits")
+func (s *GitRepositoryService) pullChanges(repo *git.Repository, w *git.Worktree, gitRepoConfig *types.GitRepository) error {
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Checking for new commits")
 
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
+	// repo, err := git.PlainOpen(gitRepoConfig.LocalPath)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to open git repository %s: %w", gitRepoConfig.LocalPath, err)
+	// }
 
-	worktree, err := repo.Worktree()
+	// worktree, err := repo.Worktree()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get worktree: %w", err)
+	// }
+
+	auth := s.getAuthConfig(gitRepoConfig)
+
+	// Fetch
+	err := repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Progress:   os.Stdout,
+		Auth:       auth,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			log.Info().Str("repo_id", gitRepoConfig.ID).Msg("External repository already up to date")
+			// OK
+		} else {
+			return fmt.Errorf("failed to fetch changes: %w", err)
+		}
 	}
 
 	pullOptions := &git.PullOptions{
 		RemoteName: "origin",
-	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pullOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
+		Auth:       auth,
 	}
 
-	err = worktree.Pull(pullOptions)
+	err = w.Pull(pullOptions)
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("failed to pull changes: %w", err)
 	}
 
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pulled latest changes")
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Pulled latest changes")
 
 	return nil
 }
 
-func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository, force bool) error {
+func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRepo *types.GitRepository, branch string, force bool) error {
 	log.Info().Str("repo_id", gitRepo.ID).Bool("force", force).Msg("Pushing changes to external repository")
-
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
-
-	head, err := repo.Head()
-	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
-	}
-
-	branchName := head.Name().Short()
 
 	pushOptions := &git.PushOptions{
 		RemoteName: "origin",
@@ -1812,18 +1845,12 @@ func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepositor
 	}
 	if force {
 		pushOptions.RefSpecs = []config.RefSpec{
-			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branchName, branchName)),
+			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
 		}
 	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pushOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-	}
+	pushOptions.Auth = s.getAuthConfig(gitRepo)
 
-	err = repo.Push(pushOptions)
+	err := repo.Push(pushOptions)
 	if err != nil {
 		if errors.Is(err, git.NoErrAlreadyUpToDate) {
 			log.Info().Str("repo_id", gitRepo.ID).Msg("External repository already up to date")
@@ -1849,38 +1876,48 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		return fmt.Errorf("repository is not external, cannot push/pull")
 	}
 
-	// If branchName is specified, checkout that branch first
-	if branchName != "" {
-		repo, err := git.PlainOpen(gitRepo.LocalPath)
-		if err != nil {
-			return fmt.Errorf("failed to open git repository: %w", err)
-		}
-
-		w, err := repo.Worktree()
-		if err != nil {
-			return fmt.Errorf("failed to get worktree: %w", err)
-		}
-
-		head, err := repo.Head()
-		if err != nil {
-			return fmt.Errorf("failed to get HEAD: %w", err)
-		}
-
-		if head.Name().Short() != branchName {
-			// Try to find the branch
-			branchRef := plumbing.NewBranchReferenceName(branchName)
-			err = w.Checkout(&git.CheckoutOptions{
-				Branch: branchRef,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
-			}
-		}
+	if branchName == "" {
+		return fmt.Errorf("branch name is required")
 	}
+
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	err = setBranch(w, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to set branch %s: %w", branchName, err)
+	}
+
+	// head, err := repo.Head()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get HEAD: %w", err)
+	// }
+
+	// if head.Name().Short() != branchName {
+	// 	// Try to find the branch
+	// 	branchRef := plumbing.NewBranchReferenceName(branchName)
+	// 	err = w.Checkout(&git.CheckoutOptions{
+	// 		Branch: branchRef,
+	// 	})
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	// 	}
+	// }
 
 	// 1. call pullChanges (skip if force push)
 	if !force {
-		err = s.pullChanges(gitRepo)
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("branch", branchName).
+			Msg("Pulling changes from external repository")
+		err = s.pullChanges(repo, w, gitRepo)
 		if err != nil {
 			// Return error on merge conflict or other pull errors
 			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
@@ -1888,11 +1925,21 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 	}
 
 	// 2. call pushChangesToExternal
-	err = s.pushChangesToExternal(gitRepo, force)
+	err = s.pushChangesToExternal(repo, gitRepo, branchName, force)
 	if err != nil {
 		return fmt.Errorf("failed to push changes: %w", err)
 	}
 
+	return nil
+}
+
+func setBranch(w *git.Worktree, branchName string) error {
+	err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(branchName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	}
 	return nil
 }
 
@@ -1951,4 +1998,29 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 		Msg("[GitRepo] Created branch")
 
 	return nil
+}
+
+// getAuthConfig returns the authentication configuration for the repository
+func (s *GitRepositoryService) getAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
+	switch gitRepo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		// If we have a PAT, use it
+		if gitRepo.AzureDevOps.PersonalAccessToken != "" {
+			return &http.BasicAuth{Username: "PAT", Password: gitRepo.AzureDevOps.PersonalAccessToken}
+		}
+		// If we have a username and password, use it
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+		}
+		// No auth config found
+		return nil
+	case types.ExternalRepositoryTypeGitHub:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeGitLab:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeBitbucket:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	default:
+		return nil
+	}
 }

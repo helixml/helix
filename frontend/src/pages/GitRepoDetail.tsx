@@ -50,6 +50,7 @@ import {
   Pencil,
   ArrowUpDown,
   GitCommit,
+  GitPullRequest,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -81,8 +82,11 @@ import {
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
 import CommitsTab from '../components/git/CommitsTab'
+import SettingsTab from '../components/git/SettingsTab'
+import PullRequests from '../components/git/PullRequests'
+import { TypesExternalRepositoryType } from '../api/api'
 
-const TAB_NAMES = ['code', 'settings', 'access', 'commits'] as const
+const TAB_NAMES = ['code', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -90,6 +94,25 @@ const getTabName = (name: string | undefined): TabName => {
     return name as TabName
   }
   return TAB_NAMES[0]
+}
+
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+  
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
 }
 
 const GitRepoDetail: FC = () => {
@@ -134,9 +157,13 @@ const GitRepoDetail: FC = () => {
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
   const [editExternalUrl, setEditExternalUrl] = useState('')
+  const [editExternalType, setEditExternalType] = useState<TypesExternalRepositoryType | undefined>(undefined)
   const [editUsername, setEditUsername] = useState('')
   const [editPassword, setEditPassword] = useState('')
+  const [editOrganizationUrl, setEditOrganizationUrl] = useState('')
+  const [editPersonalAccessToken, setEditPersonalAccessToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showPersonalAccessToken, setShowPersonalAccessToken] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
@@ -211,18 +238,21 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
     }
   }, [repository])
 
   // Auto-select default branch when repository loads and no branch is specified
   React.useEffect(() => {
-    if (repository && !branchFromQuery) {
-      const defaultBranch = repository.default_branch || 'main'
+    if (repository && !branchFromQuery && branches.length > 0) {
+      const defaultBranch = getFallbackBranch(repository.default_branch, branches)
       setCurrentBranch(defaultBranch)
     }
-  }, [repository, branchFromQuery])
+  }, [repository, branchFromQuery, branches])
 
   // Auto-load README.md when repository loads
   React.useEffect(() => {
@@ -243,8 +273,11 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
       setEditDialogOpen(true)
     }
   }
@@ -267,10 +300,26 @@ const GitRepoDetail: FC = () => {
 
       if (repository.is_external || repository.external_url) {
         updateData.external_url = editExternalUrl || undefined
-        updateData.username = editUsername || undefined
-      }
-      if (editPassword && editPassword !== '') {
-        updateData.password = editPassword
+        updateData.external_type = editExternalType || undefined
+        
+        if (editExternalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO) {
+          updateData.azure_devops = {
+            organization_url: editOrganizationUrl || undefined,
+            ...(editPersonalAccessToken && editPersonalAccessToken !== '' 
+              ? { personal_access_token: editPersonalAccessToken }
+              : repository.azure_devops?.personal_access_token 
+                ? { personal_access_token: repository.azure_devops.personal_access_token }
+                : {}),
+          }
+          updateData.username = undefined
+          updateData.password = undefined
+        } else {
+          updateData.username = editUsername || undefined
+          if (editPassword && editPassword !== '') {
+            updateData.password = editPassword
+          }
+          updateData.azure_devops = undefined
+        }
       }
 
       await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
@@ -281,6 +330,7 @@ const GitRepoDetail: FC = () => {
 
       setEditDialogOpen(false)
       setEditPassword('')
+      setEditPersonalAccessToken('')
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
@@ -335,12 +385,21 @@ const GitRepoDetail: FC = () => {
       setForcePushDialogOpen(false)
     } catch (error: any) {
       console.error('Failed to push/pull repository:', error)
-      const errorMessage = error?.response?.data?.error || error?.response?.data?.message || error?.message || String(error)
+      let errorMessage: string
+      if (error?.response?.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data
+        } else {
+          errorMessage = error.response.data.error || error.response.data.message || String(error)
+        }
+      } else {
+        errorMessage = error?.message || String(error)
+      }
       const errorLower = errorMessage.toLowerCase()
       if (errorLower.includes('non-fast-forward') || errorLower.includes('non fast forward')) {
         setForcePushDialogOpen(true)
       } else {
-        snackbar.error('Failed to synchronize repository')
+        snackbar.error('Failed to synchronize repository, error: ' + errorMessage)
       }
     }
   }
@@ -607,6 +666,13 @@ const GitRepoDetail: FC = () => {
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="pull-requests"
+                icon={<GitPullRequest size={16} />}
+                iconPosition="start"
+                label="Pull Requests"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
                 value="settings"
                 icon={<Settings size={16} />}
                 iconPosition="start"
@@ -674,188 +740,38 @@ const GitRepoDetail: FC = () => {
 
           {/* Settings Tab */}
           {currentTab === 'settings' && (
-            <Box sx={{ maxWidth: 800 }}>
-              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
-                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                  Repository Settings
-                </Typography>
-
-                <Stack spacing={3}>
-                  <TextField
-                    label="Repository Name"
-                    fullWidth
-                    value={editName || repository.name}
-                    onChange={(e) => setEditName(e.target.value)}
-                    helperText="The name of this repository"
-                  />
-
-                  <TextField
-                    label="Description"
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={editDescription || repository.description}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    helperText="A short description of what this repository contains"
-                  />
-
-                  <TextField
-                    label="Default Branch"
-                    fullWidth
-                    value={editDefaultBranch || repository.default_branch || ''}
-                    onChange={(e) => setEditDefaultBranch(e.target.value)}
-                    helperText="The default branch for this repository"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.metadata?.kodit_indexing || false)}
-                        onChange={(e) => setEditKoditIndexing(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Brain size={18} />
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            Code Intelligence
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Index this repository with Kodit for AI-powered code understanding
-                          </Typography>
-                        </Box>
-                      </Box>
-                    }
-                  />
-
-                  <Divider />
-
-                  {(repository.is_external || repository.external_url) && (
-                    <>
-                      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
-                        External Repository Settings
-                      </Typography>
-
-                      <TextField
-                        label="External URL"
-                        fullWidth
-                        value={editExternalUrl || repository.external_url || ''}
-                        onChange={(e) => setEditExternalUrl(e.target.value)}
-                        helperText="Full URL to the external repository (e.g., https://github.com/org/repo)"
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-
-                      <TextField
-                        label="Username"
-                        fullWidth
-                        value={editUsername || repository.username || ''}
-                        onChange={(e) => setEditUsername(e.target.value)}
-                        helperText="Username for authenticating with the external repository"
-                      />
-
-                      <TextField
-                        label="Password"
-                        fullWidth
-                        type={showPassword ? 'text' : 'password'}
-                        value={editPassword}
-                        onChange={(e) => setEditPassword(e.target.value)}
-                        helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                onClick={() => setShowPassword(!showPassword)}
-                                edge="end"
-                                size="small"
-                              >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </>
-                  )}
-
-                  <Divider />
-
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    {/* Add spacing between buttons */}
-                    <Box sx={{ flex: 1 }} />
-                    <Button
-                      color="secondary"
-                      onClick={handleUpdateRepository}
-                      variant="contained"
-                      disabled={updating}
-                    >
-                      {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>                    
-                  </Box>
-
-                  <Divider sx={{ my: 2 }} />
-
-                  <Box>
-                    <Box
-                      onClick={() => setDangerZoneExpanded(!dangerZoneExpanded)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        mb: dangerZoneExpanded ? 2 : 0,
-                        '&:hover': {
-                          opacity: 0.8,
-                        },
-                      }}
-                    >
-                      <Typography variant="h6" sx={{ fontWeight: 600, color: 'error.main' }}>
-                        Danger Zone
-                      </Typography>
-                      <ChevronDown
-                        size={20}
-                        style={{
-                          color: 'var(--mui-palette-error-main)',
-                          transform: dangerZoneExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                        }}
-                      />
-                    </Box>
-                    <Collapse in={dangerZoneExpanded}>
-                      <Box>
-                        <Alert severity="error" sx={{ mb: 2 }}>
-                          Once you delete a repository, there is no going back. This action cannot be undone.
-                        </Alert>
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <Button
-                            onClick={() => setDeleteDialogOpen(true)}
-                            variant="outlined"
-                            color="error"
-                            startIcon={<Trash2 size={16} />}
-                          >
-                            Delete Repository
-                          </Button>
-                        </Box>
-                      </Box>
-                    </Collapse>
-                  </Box>
-                </Stack>
-              </Paper>
-            </Box>
+            <SettingsTab
+              repository={repository}
+              editName={editName}
+              setEditName={setEditName}
+              editDescription={editDescription}
+              setEditDescription={setEditDescription}
+              editDefaultBranch={editDefaultBranch}
+              setEditDefaultBranch={setEditDefaultBranch}
+              editKoditIndexing={editKoditIndexing}
+              setEditKoditIndexing={setEditKoditIndexing}
+              editExternalUrl={editExternalUrl}
+              setEditExternalUrl={setEditExternalUrl}
+              editExternalType={editExternalType}
+              setEditExternalType={setEditExternalType}
+              editUsername={editUsername}
+              setEditUsername={setEditUsername}
+              editPassword={editPassword}
+              setEditPassword={setEditPassword}
+              editOrganizationUrl={editOrganizationUrl}
+              setEditOrganizationUrl={setEditOrganizationUrl}
+              editPersonalAccessToken={editPersonalAccessToken}
+              setEditPersonalAccessToken={setEditPersonalAccessToken}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              showPersonalAccessToken={showPersonalAccessToken}
+              setShowPersonalAccessToken={setShowPersonalAccessToken}
+              updating={updating}
+              dangerZoneExpanded={dangerZoneExpanded}
+              setDangerZoneExpanded={setDangerZoneExpanded}
+              onUpdateRepository={handleUpdateRepository}
+              onDeleteClick={() => setDeleteDialogOpen(true)}
+            />
           )}
 
           {/* Access Tab */}
@@ -901,6 +817,13 @@ const GitRepoDetail: FC = () => {
               commitsLoading={commitsLoading}
               handleCopySha={handleCopySha}
               copiedSha={copiedSha}
+            />
+          )}
+
+          {/* Pull Requests Tab */}
+          {currentTab === 'pull-requests' && (
+            <PullRequests
+              repository={repository}
             />
           )}
         </Box>
@@ -1196,8 +1119,8 @@ const GitRepoDetail: FC = () => {
                     </Box>
                   )}
                 >
-                  <MenuItem value={repository?.default_branch || 'main'}>
-                    {repository?.default_branch || 'main'}
+                  <MenuItem value={getFallbackBranch(repository?.default_branch, branches)}>
+                    {getFallbackBranch(repository?.default_branch, branches)}
                   </MenuItem>
                   {branches.filter(b => b !== repository?.default_branch).map((branch) => (
                     <MenuItem key={branch} value={branch}>

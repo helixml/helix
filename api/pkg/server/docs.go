@@ -3156,6 +3156,125 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/git/repositories/{id}/pull-requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all pull requests in a repository",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "List pull requests",
+                "operationId": "listGitRepositoryPullRequests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.PullRequest"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new pull request in a repository. Changes must be committed and pushed to the branch first.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git-repositories"
+                ],
+                "summary": "Create pull request",
+                "operationId": "createGitRepositoryPullRequest",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Create pull request request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.CreatePullRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.CreatePullRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/git/repositories/{id}/push-pull": {
             "post": {
                 "security": [
@@ -15923,15 +16042,7 @@ const docTemplate = `{
                 }
             }
         },
-        "types.AzureDevOpsTrigger": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "types.AzureDevopsRepository": {
+        "types.AzureDevOps": {
             "type": "object",
             "properties": {
                 "organization_url": {
@@ -15939,6 +16050,14 @@ const docTemplate = `{
                 },
                 "personal_access_token": {
                     "type": "string"
+                }
+            }
+        },
+        "types.AzureDevOpsTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -16176,6 +16295,34 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "repository_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatePullRequestRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "source_branch": {
+                    "type": "string"
+                },
+                "target_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatePullRequestResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "message": {
                     "type": "string"
                 }
             }
@@ -16859,8 +17006,8 @@ const docTemplate = `{
         "types.GitRepository": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "branches": {
                     "type": "array",
@@ -16951,8 +17098,8 @@ const docTemplate = `{
         "types.GitRepositoryCreateRequest": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
@@ -17072,14 +17219,22 @@ const docTemplate = `{
         "types.GitRepositoryUpdateRequest": {
             "type": "object",
             "properties": {
-                "azure_devops_repository": {
-                    "$ref": "#/definitions/types.AzureDevopsRepository"
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOps"
                 },
                 "default_branch": {
                     "type": "string"
                 },
                 "description": {
                     "type": "string"
+                },
+                "external_type": {
+                    "description": "\"github\", \"gitlab\", \"ado\", \"bitbucket\", etc.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ExternalRepositoryType"
+                        }
+                    ]
                 },
                 "external_url": {
                     "type": "string"
@@ -19082,6 +19237,44 @@ const docTemplate = `{
                 "ProviderEndpointTypeOrg",
                 "ProviderEndpointTypeTeam"
             ]
+        },
+        "types.PullRequest": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "source_branch": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "target_branch": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
         },
         "types.Question": {
             "type": "object",
@@ -22280,18 +22473,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
+                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron",
-                "agent_work_queue"
+                "cron"
             ],
             "x-enum-varnames": [
+                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron",
-                "TriggerTypeAgentWorkQueue"
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {

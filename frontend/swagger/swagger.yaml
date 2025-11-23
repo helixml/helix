@@ -2927,17 +2927,17 @@ definitions:
       authenticated:
         type: boolean
     type: object
-  types.AzureDevOpsTrigger:
-    properties:
-      enabled:
-        type: boolean
-    type: object
-  types.AzureDevopsRepository:
+  types.AzureDevOps:
     properties:
       organization_url:
         type: string
       personal_access_token:
         type: string
+    type: object
+  types.AzureDevOpsTrigger:
+    properties:
+      enabled:
+        type: boolean
     type: object
   types.BoardSettings:
     properties:
@@ -3097,6 +3097,24 @@ definitions:
       message:
         type: string
       repository_id:
+        type: string
+    type: object
+  types.CreatePullRequestRequest:
+    properties:
+      description:
+        type: string
+      source_branch:
+        type: string
+      target_branch:
+        type: string
+      title:
+        type: string
+    type: object
+  types.CreatePullRequestResponse:
+    properties:
+      id:
+        type: string
+      message:
         type: string
     type: object
   types.CreateSampleRepositoryRequest:
@@ -3558,8 +3576,8 @@ definitions:
     type: object
   types.GitRepository:
     properties:
-      azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       branches:
         items:
           type: string
@@ -3621,8 +3639,8 @@ definitions:
     type: object
   types.GitRepositoryCreateRequest:
     properties:
-      azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:
@@ -3704,12 +3722,16 @@ definitions:
     - GitRepositoryTypeCode
   types.GitRepositoryUpdateRequest:
     properties:
-      azure_devops_repository:
-        $ref: '#/definitions/types.AzureDevopsRepository'
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOps'
       default_branch:
         type: string
       description:
         type: string
+      external_type:
+        allOf:
+        - $ref: '#/definitions/types.ExternalRepositoryType'
+        description: '"github", "gitlab", "ado", "bitbucket", etc.'
       external_url:
         type: string
       metadata:
@@ -5103,6 +5125,31 @@ definitions:
     - ProviderEndpointTypeUser
     - ProviderEndpointTypeOrg
     - ProviderEndpointTypeTeam
+  types.PullRequest:
+    properties:
+      author:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      number:
+        type: integer
+      source_branch:
+        type: string
+      state:
+        type: string
+      target_branch:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      url:
+        type: string
+    type: object
   types.Question:
     properties:
       created:
@@ -7361,18 +7408,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -9728,6 +9775,84 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository indexing status
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/pull-requests:
+    get:
+      description: List all pull requests in a repository
+      operationId: listGitRepositoryPullRequests
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.PullRequest'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List pull requests
+      tags:
+      - git-repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new pull request in a repository. Changes must be committed
+        and pushed to the branch first.
+      operationId: createGitRepositoryPullRequest
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Create pull request request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.CreatePullRequestResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create pull request
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/push-pull:
