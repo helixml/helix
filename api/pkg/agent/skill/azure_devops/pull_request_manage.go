@@ -8,7 +8,7 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
-func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryID string, title string, description string, sourceBranch string, targetBranch string, project string) (*git.GitPullRequest, error) {
+func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryName string, title string, description string, sourceBranch string, targetBranch string, project string) (*git.GitPullRequest, error) {
 	gitClient, err := git.NewClient(ctx, c.connection)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure DevOps client: %w", err)
@@ -28,7 +28,7 @@ func (c *AzureDevOpsClient) CreatePullRequest(ctx context.Context, repositoryID 
 
 	pr, err := gitClient.CreatePullRequest(ctx, git.CreatePullRequestArgs{
 		GitPullRequestToCreate: gitPullRequestToCreate,
-		RepositoryId:           &repositoryID,
+		RepositoryId:           &repositoryName,
 		Project:                &project,
 		SupportsIterations:     &supportsIterations,
 	})

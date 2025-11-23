@@ -208,9 +208,10 @@ type PullRequest struct {
 }
 
 type CreatePullRequestRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Branch      string `json:"branch"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	SourceBranch string `json:"source_branch"`
+	TargetBranch string `json:"target_branch"`
 }
 
 type CreatePullRequestResponse struct {
