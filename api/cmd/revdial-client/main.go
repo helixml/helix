@@ -80,7 +80,10 @@ func main() {
 
 func runRevDialClient(ctx context.Context) error {
 	// Connect to API's /revdial endpoint with authentication
-	dialURL := fmt.Sprintf("%s?runnerid=%s", *serverURL, *runnerID)
+	// Convert http:// to ws:// for WebSocket connection
+	wsURL := strings.Replace(*serverURL, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	dialURL := fmt.Sprintf("%s?runnerid=%s", wsURL, *runnerID)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+*runnerToken)
