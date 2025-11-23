@@ -10,6 +10,10 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material'
 import {
   GitBranch,
@@ -20,6 +24,7 @@ import {
   ArrowUpDown,
   Pencil,
   X as CloseIcon,
+  MoreVertical,
 } from 'lucide-react'
 import {
   getEnrichmentTypeIcon,
@@ -112,6 +117,15 @@ const CodeTab: FC<CodeTabProps> = ({
   createBranchMutation,
   createOrUpdateFileMutation,
 }) => {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
+  const openMenu = Boolean(anchorEl)
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget)
+  }
+  const handleMenuClose = () => {
+    setAnchorEl(null)
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {enrichments.length > 0 && groupedEnrichments['architecture'] && (
@@ -155,43 +169,12 @@ const CodeTab: FC<CodeTabProps> = ({
                 currentBranch={currentBranch}
                 setCurrentBranch={setCurrentBranch}
                 branches={branches}
-                showNewBranchButton={true}
+                showNewBranchButton={false}
                 onBranchChange={(branch) => {
                   setCurrentPath('.')
                   setSelectedFile(null)
                 }}
-                onNewBranchClick={() => {
-                  setNewBranchName('')
-                  setNewBranchBase(currentBranch || repository?.default_branch || 'main')
-                  setCreateBranchDialogOpen(true)
-                }}
               />
-              <Button
-                startIcon={<Plus size={16} />}
-                variant="outlined"
-                size="small"
-                onClick={() => {
-                  setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
-                  setNewFileContent('')
-                  setIsEditingFile(false)
-                  setCreateFileDialogOpen(true)
-                }}
-                sx={{ height: 40, whiteSpace: 'nowrap' }}
-              >
-                Add File
-              </Button>
-              {isExternal && (
-                <Button
-                  startIcon={<ArrowUpDown size={16} />}
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handlePushPull()}
-                  disabled={pushPullMutation.isPending}
-                  sx={{ height: 40, whiteSpace: 'nowrap' }}
-                >
-                  {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                </Button>
-              )}
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
                 {getPathBreadcrumbs().map((part, index, arr) => {
@@ -211,6 +194,64 @@ const CodeTab: FC<CodeTabProps> = ({
                   )
                 })}
               </Box>
+
+              <IconButton onClick={handleMenuClick} size="small">
+                <MoreVertical size={20} />
+              </IconButton>
+
+              <Menu
+                anchorEl={anchorEl}
+                open={openMenu}
+                onClose={handleMenuClose}
+                transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+              >
+                <MenuItem
+                  onClick={() => {
+                    handleMenuClose()
+                    setNewBranchName('')
+                    setNewBranchBase(currentBranch || repository?.default_branch || 'main')
+                    setCreateBranchDialogOpen(true)
+                  }}
+                >
+                  <ListItemIcon>
+                    <GitBranch size={16} />
+                  </ListItemIcon>
+                  <ListItemText>New Branch</ListItemText>
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    handleMenuClose()
+                    setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
+                    setNewFileContent('')
+                    setIsEditingFile(false)
+                    setCreateFileDialogOpen(true)
+                  }}
+                >
+                  <ListItemIcon>
+                    <Plus size={16} />
+                  </ListItemIcon>
+                  <ListItemText>New File</ListItemText>
+                </MenuItem>
+
+                {isExternal && (
+                  <MenuItem
+                    onClick={() => {
+                      handleMenuClose()
+                      handlePushPull()
+                    }}
+                    disabled={pushPullMutation.isPending}
+                  >
+                    <ListItemIcon>
+                      <ArrowUpDown size={16} />
+                    </ListItemIcon>
+                    <ListItemText>
+                      {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
+                    </ListItemText>
+                  </MenuItem>
+                )}
+              </Menu>
             </Box>
 
             <Box>
