@@ -96,6 +96,25 @@ const getTabName = (name: string | undefined): TabName => {
   return TAB_NAMES[0]
 }
 
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+  
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
+}
+
 const GitRepoDetail: FC = () => {
   const router = useRouter()
   const repoId = router.params.repoId
@@ -229,11 +248,11 @@ const GitRepoDetail: FC = () => {
 
   // Auto-select default branch when repository loads and no branch is specified
   React.useEffect(() => {
-    if (repository && !branchFromQuery) {
-      const defaultBranch = repository.default_branch || 'main'
+    if (repository && !branchFromQuery && branches.length > 0) {
+      const defaultBranch = getFallbackBranch(repository.default_branch, branches)
       setCurrentBranch(defaultBranch)
     }
-  }, [repository, branchFromQuery])
+  }, [repository, branchFromQuery, branches])
 
   // Auto-load README.md when repository loads
   React.useEffect(() => {
@@ -1100,8 +1119,8 @@ const GitRepoDetail: FC = () => {
                     </Box>
                   )}
                 >
-                  <MenuItem value={repository?.default_branch || 'main'}>
-                    {repository?.default_branch || 'main'}
+                  <MenuItem value={getFallbackBranch(repository?.default_branch, branches)}>
+                    {getFallbackBranch(repository?.default_branch, branches)}
                   </MenuItem>
                   {branches.filter(b => b !== repository?.default_branch).map((branch) => (
                     <MenuItem key={branch} value={branch}>

@@ -19,6 +19,25 @@ interface BranchSelectProps {
   size?: 'small' | 'medium'
 }
 
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+  
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
+}
+
 const BranchSelect: FC<BranchSelectProps> = ({
   repository,
   currentBranch,
@@ -29,6 +48,8 @@ const BranchSelect: FC<BranchSelectProps> = ({
   onNewBranchClick,
   size = 'small',
 }) => {
+  const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
+
   const handleChange = (value: string) => {
     setCurrentBranch(value)
     if (onBranchChange) {
@@ -48,15 +69,12 @@ const BranchSelect: FC<BranchSelectProps> = ({
           renderValue={(value) => (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <GitBranch size={14} />
-              <span>{value || repository?.default_branch || 'main'}</span>
+              <span>{value || fallbackBranch}</span>
             </Box>
           )}
           sx={{ fontWeight: 500 }}
         >
-          <MenuItem value="">
-            {repository?.default_branch || 'main'}
-          </MenuItem>
-          {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+          {branches.map((branch) => (
             <MenuItem key={branch} value={branch}>
               {branch}
             </MenuItem>

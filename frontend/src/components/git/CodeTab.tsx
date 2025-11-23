@@ -44,6 +44,25 @@ import {
 import useSnackbar from '../../hooks/useSnackbar'
 import BranchSelect from './BranchSelect'
 
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+  
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
+}
+
 interface CodeTabProps {
   repository: any
   enrichments: any[]
@@ -132,6 +151,7 @@ const CodeTab: FC<CodeTabProps> = ({
   const createPullRequestMutation = useCreateGitRepositoryPullRequest()
   const { data: pullRequests = [] } = useListRepositoryPullRequests(repository?.id || '')
   const snackbar = useSnackbar()
+  const fallbackBranch = getFallbackBranch(repository?.default_branch, branches)
 
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const openMenu = Boolean(anchorEl)
@@ -166,7 +186,7 @@ const CodeTab: FC<CodeTabProps> = ({
         request: {
           title: `Pull Request from ${currentBranch}`,
           source_branch: currentBranch,
-          target_branch: repository.default_branch || 'main',
+          target_branch: fallbackBranch,
         }
       })
       setCreatePRDialogOpen(false)
@@ -259,7 +279,7 @@ const CodeTab: FC<CodeTabProps> = ({
               >
                 <MenuItem
                   disabled={
-                    currentBranch === (repository?.default_branch || 'main') ||
+                    currentBranch === fallbackBranch ||
                     currentBranch === 'master'
                   }
                   onClick={() => {
@@ -277,7 +297,7 @@ const CodeTab: FC<CodeTabProps> = ({
                   onClick={() => {
                     handleMenuClose()
                     setNewBranchName('')
-                    setNewBranchBase(currentBranch || repository?.default_branch || 'main')
+                    setNewBranchBase(currentBranch || fallbackBranch)
                     setCreateBranchDialogOpen(true)
                   }}
                 >
@@ -578,7 +598,7 @@ const CodeTab: FC<CodeTabProps> = ({
                 Are you sure you want to create a pull request for branch <strong>{currentBranch}</strong>?
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                This will create a pull request to merge changes from <strong>{currentBranch}</strong> into <strong>{repository?.default_branch || 'main'}</strong>.
+                This will create a pull request to merge changes from <strong>{currentBranch}</strong> into <strong>{fallbackBranch}</strong>.
               </Typography>
             </Box>
           )}
