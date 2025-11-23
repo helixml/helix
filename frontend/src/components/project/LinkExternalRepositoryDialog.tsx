@@ -24,7 +24,7 @@ import { Brain } from 'lucide-react'
 interface LinkExternalRepositoryDialogProps {
   open: boolean
   onClose: () => void
-  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string) => Promise<void>
+  onSubmit: (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string) => Promise<void>
   isCreating: boolean
 }
 
@@ -40,6 +40,8 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
   const [koditIndexing, setKoditIndexing] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [organizationUrl, setOrganizationUrl] = useState('')
+  const [token, setToken] = useState('')
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -50,16 +52,18 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
       setKoditIndexing(true)
       setUsername('')
       setPassword('')
+      setOrganizationUrl('')
+      setToken('')
     }
   }, [open])
 
   const handleSubmit = async () => {
-    await onSubmit(url, name, type, koditIndexing, username || undefined, password || undefined)
+    await onSubmit(url, name, type, koditIndexing, username || undefined, password || undefined, organizationUrl || undefined, token || undefined)
   }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Link External Repository</DialogTitle>
+      <DialogTitle>Link External Repository xxxxxxx</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
@@ -88,44 +92,67 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://github.com/org/repo.git"
             helperText="Full URL to the external repository"
-          />
+          />          
 
-          <TextField
-            label="Username"
-            fullWidth
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Repository username"
-            helperText="Username for repository authentication (optional)"
-          />
+          {type !== 'ado' && (
+            <>
+              <TextField
+              label="Username"
+              fullWidth
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Repository username"
+              helperText="Username for repository authentication (optional)"
+              />
+              <TextField
+                label="Password"
+                fullWidth
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password or Personal Access Token"
+                helperText="Password or Personal Access Token for the repository (optional)"
+              />
+            </>
+          )}
 
-          <TextField
-            label="Password"
-            fullWidth
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password or Personal Access Token"
-            helperText={
-              type === 'ado' ? (
-                <Box>
-                  <Typography variant="caption" component="span">
-                    Personal Access Token for Azure DevOps authentication.{' '}
-                  </Typography>
-                  <Link
-                    href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    variant="caption"
-                  >
-                    Learn how to create one
-                  </Link>
-                </Box>
-              ) : (
-                'Password or Personal Access Token for the repository (optional)'
-              )
-            }
-          />
+          {type === 'ado' && (
+            <>
+              <TextField
+                label="Organization URL"
+                fullWidth
+                required
+                value={organizationUrl}
+                onChange={(e) => setOrganizationUrl(e.target.value)}
+                placeholder="https://dev.azure.com/organization"
+                helperText="Azure DevOps organization URL"
+              />
+              <TextField
+                label="Personal Access Token"
+                fullWidth
+                required
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Personal Access Token"
+                helperText={
+                  <Box>
+                    <Typography variant="caption" component="span">
+                      Personal Access Token for Azure DevOps authentication.{' '}
+                    </Typography>
+                    <Link
+                      href="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="caption"
+                    >
+                      Learn how to create one
+                    </Link>
+                  </Box>
+                }
+              />
+            </>
+          )}
 
           <TextField
             label="Repository Name (Optional)"
@@ -168,7 +195,7 @@ const LinkExternalRepositoryDialog: FC<LinkExternalRepositoryDialogProps> = ({
           onClick={handleSubmit}
           color="secondary"
           variant="contained"
-          disabled={!url.trim() || isCreating}
+          disabled={!url.trim() || isCreating || (type === 'ado' && (!organizationUrl.trim() || !token.trim()))}
         >
           {isCreating ? <CircularProgress size={20} /> : 'Link Repository'}
         </Button>

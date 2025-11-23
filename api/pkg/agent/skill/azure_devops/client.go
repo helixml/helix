@@ -9,6 +9,7 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 )
 
+// TODO: move to separate pkg/git/azure_devops package
 type AzureDevOpsClient struct { //nolint:revive
 	connection *azuredevops.Connection
 }

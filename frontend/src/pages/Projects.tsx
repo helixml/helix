@@ -32,7 +32,7 @@ import {
   TypesProject,
 } from '../services'
 import { useGitRepositories } from '../services/gitRepositoryService'
-import type { TypesExternalRepositoryType, TypesGitRepository  } from '../api/api'
+import type { TypesExternalRepositoryType, TypesGitRepository, TypesAzureDevOps } from '../api/api'
 
 const Projects: FC = () => {
   const account = useAccount()
@@ -216,7 +216,7 @@ const Projects: FC = () => {
     }
   }
 
-  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string) => {
+  const handleLinkExternalRepo = async (url: string, name: string, type: 'github' | 'gitlab' | 'ado' | 'other', koditIndexing: boolean, username?: string, password?: string, organizationUrl?: string, token?: string) => {
     if (!url.trim() || !ownerId) return
 
     setCreating(true)
@@ -229,6 +229,14 @@ const Projects: FC = () => {
         // Try to extract from URL (e.g., github.com/org/repo.git -> repo)
         const match = url.match(/\/([^\/]+?)(\.git)?$/)
         repoName = match ? match[1] : 'external-repo'
+      }
+
+      let azureDevOps: TypesAzureDevOps | undefined
+      if (type === 'ado' && organizationUrl && token) {
+        azureDevOps = {
+          organization_url: organizationUrl,
+          personal_access_token: token,
+        }
       }
       
       await apiClient.v1GitRepositoriesCreate({
@@ -244,6 +252,8 @@ const Projects: FC = () => {
         // Auth details
         username: username,
         password: password,
+        // Azure DevOps specific
+        azure_devops: azureDevOps,
         // Code intelligence
         kodit_indexing: koditIndexing,
       })
