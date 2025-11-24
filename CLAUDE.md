@@ -2,6 +2,39 @@
 
 See also: @.cursor/rules/helix.mdc, @.cursor/rules/go-api-handlers.mdc, @.cursor/rules/use-gorm-for-database.mdc, @.cursor/rules/use-frontend-api-client.mdc
 
+## 🚨 CRITICAL: NEVER DELETE SOURCE FILES 🚨
+
+**NEVER delete source code files, even if they have compilation errors**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Deleting source files
+rm api/pkg/server/some_handler.go         # NEVER DO THIS
+rm -rf frontend/src/components/broken/     # OR THIS
+```
+
+**Why this is forbidden:**
+- File may be work from another agent running in parallel
+- File may be incomplete work in progress that needs fixing
+- Compilation errors should be FIXED, not deleted
+- You don't own all code - respect other developers' work
+
+**What to do instead:**
+1. **If you created the file:** Fix the compilation errors
+2. **If another agent created it:** Ask user what to do
+3. **If unsure who created it:** Ask user what to do
+4. **If blocking your work:** Comment out the problematic code and add a TODO
+
+**Example of correct approach:**
+```go
+// TODO: Fix compilation errors in this function
+// Error: undefined type Foo
+// func BrokenFunction() {
+//     var x Foo
+// }
+```
+
+**NEVER assume you can delete someone else's code.**
+
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
 **DEBUGGING HUNG PROCESSES IS ALWAYS MORE IMPORTANT THAN QUICK RECOVERY**
