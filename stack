@@ -860,7 +860,7 @@ function transfer-sway-to-sandbox() {
   fi
 
   echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
-  if docker save helix-sway:latest | docker exec -i sandbox-1 docker load; then
+  if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load; then
     echo "✅ helix-sway:latest transferred to sandbox's dockerd"
   else
     echo "⚠️  Failed to transfer image (sandbox may not be ready yet)"
