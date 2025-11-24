@@ -57,6 +57,9 @@ type WolfExecutor struct {
 	// Track if GPU monitoring (nvidia-smi/rocm-smi) has ever worked (avoid false alarms on systems without GPU monitoring)
 	hasSeenValidGPUStats bool
 	gpuStatsMutex        sync.RWMutex
+
+	// Wolf scheduler for multi-Wolf distributed deployment
+	wolfScheduler *store.WolfScheduler
 }
 
 // translateToHostPath converts API container path to absolute host path for Wolf mounting
@@ -253,7 +256,7 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
-func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
+func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, storeInst store.Store) *WolfExecutor {
 	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
 	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
 	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
@@ -289,7 +292,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 
 	executor := &WolfExecutor{
 		wolfClient:                   wolfClient,
-		store:                        store,
+		store:                        storeInst,
 		sessions:                     make(map[string]*ZedSession),
 		zedImage:                     zedImage,
 		helixAPIURL:                  helixAPIURL,
@@ -299,6 +302,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
+		wolfScheduler:                store.NewWolfScheduler(storeInst),
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -339,6 +343,32 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
+
+	// Select best Wolf instance for this sandbox
+	// TODO: Extract GPU type from agent config if needed
+	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
+	if err != nil {
+		log.Warn().Err(err).Msg("No Wolf instances available, using local Wolf")
+		// Continue with local Wolf (backward compatibility)
+		// Create a placeholder instance for local Wolf
+		wolfInstance = &types.WolfInstance{
+			ID:   "local",
+			Name: "Local Wolf",
+		}
+	} else {
+		log.Info().
+			Str("wolf_id", wolfInstance.ID).
+			Str("wolf_name", wolfInstance.Name).
+			Int("current_load", wolfInstance.ConnectedSandboxes).
+			Int("max_capacity", wolfInstance.MaxSandboxes).
+			Msg("Selected Wolf instance for sandbox")
+
+		// TODO: Route to remote Wolf via RevDial
+		// For now, if wolfInstance.ID != "local", log warning
+		if wolfInstance.ID != "local" {
+			log.Warn().Msg("Remote Wolf selected but routing not yet implemented, using local Wolf")
+		}
+	}
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
 	// Use session ID as environment name for consistency
@@ -402,7 +432,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Msg("Creating Wolf app for external Zed agent")
 
 	// Create Sway compositor configuration (same as PDEs)
-	err := w.createSwayConfig(agent.SessionID)
+	err = w.createSwayConfig(agent.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Sway config: %w", err)
 	}
@@ -542,31 +572,35 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 				Msg("Failed to track activity for reused lobby")
 		}
 
-		// Fetch PIN from session metadata for auto-join support
+		// Fetch PIN and Wolf instance ID from session metadata for auto-join support
 		// With the session_handlers fix, this will preserve existing PINs even if we return empty
 		var lobbyPIN string
+		var existingWolfInstanceID string
 		if helixSessionID != "" {
 			helixSession, err := w.store.GetSession(ctx, helixSessionID)
 			if err != nil {
 				log.Warn().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to get session for PIN retrieval")
 			} else {
 				lobbyPIN = helixSession.Metadata.WolfLobbyPIN
+				existingWolfInstanceID = helixSession.WolfInstanceID
 				log.Debug().
 					Str("helix_session_id", helixSessionID).
 					Bool("has_pin", lobbyPIN != "").
-					Msg("Retrieved lobby PIN from session metadata for reuse")
+					Str("wolf_instance_id", existingWolfInstanceID).
+					Msg("Retrieved lobby PIN and Wolf instance from session metadata for reuse")
 			}
 		}
 
 		// Build response using existing lobby
 		response := &types.ZedAgentResponse{
-			SessionID:     agent.SessionID,
-			ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-			StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
-			Status:        "running",
-			WolfLobbyID:   existingLobbyID,
-			WolfLobbyPIN:  lobbyPIN, // Include PIN for auto-join support
-			ContainerName: containerHostname,
+			SessionID:      agent.SessionID,
+			ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+			StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
+			Status:         "running",
+			WolfLobbyID:    existingLobbyID,
+			WolfLobbyPIN:   lobbyPIN, // Include PIN for auto-join support
+			WolfInstanceID: existingWolfInstanceID,
+			ContainerName:  containerHostname,
 		}
 
 		log.Info().
@@ -695,7 +729,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 	w.lobbyCacheMutex.Unlock()
 
-	// Update Helix session metadata with lobby ID and PIN so frontend can display them
+	// Update Helix session metadata with lobby ID, PIN, and Wolf instance ID
 	if helixSessionID != "" {
 		helixSession, err := w.store.GetSession(ctx, helixSessionID)
 		if err != nil {
@@ -704,6 +738,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			// Update session metadata with Wolf lobby information
 			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
 			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+			helixSession.WolfInstanceID = wolfInstance.ID
 
 			_, err = w.store.UpdateSession(ctx, *helixSession)
 			if err != nil {
@@ -713,8 +748,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 					Str("helix_session_id", helixSessionID).
 					Str("lobby_id", lobbyResp.LobbyID).
 					Str("lobby_pin", lobbyPINString).
-					Msg("Updated Helix session metadata with Wolf lobby ID and PIN")
+					Str("wolf_instance_id", wolfInstance.ID).
+					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, and instance")
 			}
+		}
+	}
+
+	// Increment Wolf's sandbox count
+	if wolfInstance != nil && wolfInstance.ID != "" {
+		err = w.store.IncrementWolfSandboxCount(ctx, wolfInstance.ID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_id", wolfInstance.ID).Msg("Failed to increment Wolf sandbox count")
+		} else {
+			log.Info().
+				Str("wolf_id", wolfInstance.ID).
+				Int("new_count", wolfInstance.ConnectedSandboxes+1).
+				Msg("Incremented Wolf sandbox count")
 		}
 	}
 
@@ -737,13 +786,14 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Return response with screenshot URL, Moonlight info, and PIN
 	response := &types.ZedAgentResponse{
-		SessionID:     agent.SessionID,
-		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
-		Status:        "running", // Lobby starts immediately
-		ContainerName: containerHostname,
-		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString,    // NEW: Return PIN for storage in Helix session
+		SessionID:      agent.SessionID,
+		ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+		StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
+		Status:         "running", // Lobby starts immediately
+		ContainerName:  containerHostname,
+		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Return lobby ID
+		WolfLobbyPIN:   lobbyPINString,    // NEW: Return PIN for storage in Helix session
+		WolfInstanceID: wolfInstance.ID,   // NEW: Return Wolf instance ID for multi-Wolf deployment
 	}
 
 	log.Info().
@@ -843,7 +893,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	}
 	w.mutex.Unlock()
 
-	// Always fetch from database to get lobby ID and PIN (handles sessions created before restart)
+	// Always fetch from database to get lobby ID, PIN, and Wolf instance ID
 	// Use GetSessionIncludingDeleted to find soft-deleted sessions (e.g., from project deletion)
 	dbSession, err := w.store.GetSessionIncludingDeleted(ctx, sessionID)
 	if err != nil {
@@ -856,8 +906,9 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		wolfLobbyID = dbSession.Metadata.WolfLobbyID
 	}
 
-	// Get PIN from database
+	// Get PIN and Wolf instance ID from database
 	wolfLobbyPIN := dbSession.Metadata.WolfLobbyPIN
+	wolfInstanceID := dbSession.WolfInstanceID
 
 	// Save final screenshot before stopping (for paused state preview)
 	screenshotPath := ""
@@ -996,6 +1047,18 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	w.lobbyCacheMutex.Lock()
 	delete(w.lobbyCache, sessionID)
 	w.lobbyCacheMutex.Unlock()
+
+	// Decrement Wolf's sandbox count
+	if wolfInstanceID != "" {
+		err = w.store.DecrementWolfSandboxCount(ctx, wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_id", wolfInstanceID).Msg("Failed to decrement Wolf sandbox count")
+		} else {
+			log.Info().
+				Str("wolf_id", wolfInstanceID).
+				Msg("Decremented Wolf sandbox count")
+		}
+	}
 
 	log.Info().Str("session_id", sessionID).Msg("Zed agent stopped successfully")
 

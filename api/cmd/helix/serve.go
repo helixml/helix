@@ -34,7 +34,6 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
-	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -559,8 +558,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	// Start Wolf health monitor for multi-Wolf distributed deployment
-	wolfScheduler := services.NewWolfScheduler(postgresStore)
-	wolfHealthMonitor := services.NewWolfHealthMonitor(postgresStore, wolfScheduler)
+	wolfScheduler := store.NewWolfScheduler(postgresStore)
+	wolfHealthMonitor := store.NewWolfHealthMonitor(postgresStore, wolfScheduler)
 	go wolfHealthMonitor.Start(ctx)
 	log.Info().Msg("Wolf health monitor started")
 
