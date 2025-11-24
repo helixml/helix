@@ -136,6 +136,9 @@ update_counters
 # ====================================================================
 # Set up periodic counter updates (every 60 seconds)
 # ====================================================================
+# Ensure script directory exists
+mkdir -p /wolf/sway-config
+
 cat > /etc/cron.d/telemetry-counter-update <<'CRON'
 * * * * * root /wolf/sway-config/update-telemetry-counters.sh
 CRON

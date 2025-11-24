@@ -55,3 +55,7 @@ test-screenshot.png
 screencopy-frames/
 
 wolf-debug-dumps/
+
+# Build artifacts (cached tarballs for fast rebuilds)
+helix-sway.tar.gz
+helix-sway.tar.gz.hash
