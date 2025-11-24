@@ -133,8 +133,14 @@ const GitRepoDetail: FC = () => {
   const pushPullMutation = usePushPullGitRepository()
   const createBranchMutation = useCreateBranch()
 
+  // Query parameters
+  const branchFromQuery = router.params.branch || ''
+  const commitFromQuery = router.params.commit || ''
+  const currentBranch = branchFromQuery
+  const commitsBranch = branchFromQuery
+
   // Kodit code intelligence enrichments (internal summary types filtered in backend)
-  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
+  const { data: enrichmentsData } = useKoditEnrichments(repoId || '', commitFromQuery, { enabled: !!repoId })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
 
@@ -163,10 +169,6 @@ const GitRepoDetail: FC = () => {
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
-
-  const branchFromQuery = router.params.branch || ''
-  const currentBranch = branchFromQuery
-  const commitsBranch = branchFromQuery
 
   const setCurrentBranch = (branch: string) => {
     if (branch) {
@@ -365,6 +367,10 @@ const GitRepoDetail: FC = () => {
     setCopiedSha(sha)
     snackbar.success('SHA copied to clipboard')
     setTimeout(() => setCopiedSha(null), 2000)
+  }
+
+  const handleViewEnrichments = (commitSha: string) => {
+    router.mergeParams({ tab: 'code-intelligence', commit: commitSha })
   }
 
   const handlePushPull = async (force = false) => {
@@ -697,6 +703,7 @@ const GitRepoDetail: FC = () => {
               repository={repository}
               enrichments={enrichments}
               repoId={repoId || ''}
+              commitSha={commitFromQuery}
             />
           )}
 
@@ -825,6 +832,7 @@ const GitRepoDetail: FC = () => {
               commitsLoading={commitsLoading}
               handleCopySha={handleCopySha}
               copiedSha={copiedSha}
+              onViewEnrichments={handleViewEnrichments}
             />
           )}
 

@@ -27,27 +27,31 @@ export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit d
 /**
  * Query key factory for Kodit enrichments
  */
-export const koditEnrichmentsQueryKey = (repoId: string) => ['kodit', 'enrichments', repoId]
+export const koditEnrichmentsQueryKey = (repoId: string, commitSha?: string) =>
+  commitSha ? ['kodit', 'enrichments', repoId, commitSha] : ['kodit', 'enrichments', repoId]
 export const koditEnrichmentDetailQueryKey = (repoId: string, enrichmentId: string) =>
   ['kodit', 'enrichments', repoId, enrichmentId]
+export const koditCommitsQueryKey = (repoId: string) => ['kodit', 'commits', repoId]
 export const koditStatusQueryKey = (repoId: string) => ['kodit', 'status', repoId]
 
 /**
  * Hook to fetch code intelligence enrichments for a repository
  */
-export function useKoditEnrichments(repoId: string, options?: { enabled?: boolean }) {
+export function useKoditEnrichments(repoId: string, commitSha?: string, options?: { enabled?: boolean }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: koditEnrichmentsQueryKey(repoId),
+    queryKey: koditEnrichmentsQueryKey(repoId, commitSha),
     queryFn: async () => {
-      const response = await apiClient.v1GitRepositoriesEnrichmentsDetail(repoId)
+      const response = await apiClient.v1GitRepositoriesEnrichmentsDetail(repoId, {
+        commit_sha: commitSha,
+      })
       return response.data
     },
     enabled: options?.enabled !== false && !!repoId,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchInterval: 30 * 1000, // Refetch every 30 seconds for updates
+    refetchInterval: commitSha ? undefined : 30 * 1000, // Only auto-refetch for latest, not for specific commits
   })
 }
 
@@ -72,6 +76,26 @@ export function useKoditEnrichmentDetail(
       return response.data
     },
     enabled: options?.enabled !== false && !!repoId && !!enrichmentId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+}
+
+/**
+ * Hook to fetch commits from Kodit
+ */
+export function useKoditCommits(repoId: string, limit?: number, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: koditCommitsQueryKey(repoId),
+    queryFn: async () => {
+      const response = await apiClient.v1GitRepositoriesKoditCommitsDetail(repoId, {
+        limit,
+      })
+      return response.data
+    },
+    enabled: options?.enabled !== false && !!repoId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

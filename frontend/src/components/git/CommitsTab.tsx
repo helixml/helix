@@ -10,6 +10,7 @@ import {
 import {
   GitCommit,
   Copy,
+  Brain,
 } from 'lucide-react'
 import BranchSelect from './BranchSelect'
 
@@ -22,6 +23,7 @@ interface CommitsTabProps {
   commitsLoading: boolean
   handleCopySha: (sha: string) => void
   copiedSha: string | null
+  onViewEnrichments?: (commitSha: string) => void
 }
 
 const CommitsTab: FC<CommitsTabProps> = ({
@@ -33,6 +35,7 @@ const CommitsTab: FC<CommitsTabProps> = ({
   commitsLoading,
   handleCopySha,
   copiedSha,
+  onViewEnrichments,
 }) => {
   return (
     <Box>
@@ -142,6 +145,28 @@ const CommitsTab: FC<CommitsTabProps> = ({
                       >
                         {commit.sha.substring(0, 7)}
                       </Typography>
+                      {repository?.metadata?.kodit_indexing && onViewEnrichments && (
+                        <Tooltip
+                          title="View code intelligence for this commit"
+                          placement="top"
+                          arrow
+                        >
+                          <IconButton
+                            size="small"
+                            onClick={() => onViewEnrichments(commit.sha!)}
+                            sx={{
+                              p: 0.5,
+                              color: 'text.secondary',
+                              '&:hover': {
+                                backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                                color: 'primary.main',
+                              },
+                            }}
+                          >
+                            <Brain size={14} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip
                         title={copiedSha === commit.sha ? 'Copied!' : 'Copy full SHA'}
                         placement="top"

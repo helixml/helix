@@ -14,6 +14,10 @@ import {
   Drawer,
   IconButton,
   CircularProgress,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material'
 import {
   Brain,
@@ -24,6 +28,7 @@ import {
 
 import {
   useKoditEnrichmentDetail,
+  useKoditCommits,
   useKoditStatus,
   groupEnrichmentsByType,
   getEnrichmentTypeName,
@@ -32,16 +37,22 @@ import {
   KODIT_TYPE_DEVELOPER,
   KODIT_TYPE_LIVING_DOCUMENTATION,
 } from '../../services/koditService'
+import { useRouter } from '../../hooks/useRouter'
 
 interface CodeIntelligenceTabProps {
   repository: any
   enrichments: any[]
   repoId: string
+  commitSha?: string
 }
 
-const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId }) => {
+const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichments, repoId, commitSha }) => {
+  const router = useRouter()
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
   const { data: koditStatusData } = useKoditStatus(repoId, { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
+
+  // Fetch commits for the dropdown
+  const { data: commits = [] } = useKoditCommits(repoId, 50, { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
 
   const [selectedEnrichmentId, setSelectedEnrichmentId] = useState<string | null>(null)
   const enrichmentDrawerOpen = !!selectedEnrichmentId
@@ -52,22 +63,67 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     { enabled: enrichmentDrawerOpen }
   )
 
+  const handleCommitChange = (newCommitSha: string) => {
+    if (newCommitSha === 'all') {
+      router.removeParams(['commit'])
+    } else {
+      router.mergeParams({ commit: newCommitSha })
+    }
+  }
+
   return (
     <>
       <Box sx={{ maxWidth: 1200 }}>
         {repository.metadata?.kodit_indexing ? (
           <Box sx={{ mb: 4 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-              <Brain size={24} />
-              <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                Code Intelligence
-              </Typography>
-              <Chip
-                label={koditStatusData?.status || 'Active'}
-                size="small"
-                color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
-                sx={{ ml: 1 }}
-              />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Brain size={24} />
+                <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                  Code Intelligence
+                </Typography>
+                <Chip
+                  label={koditStatusData?.status || 'Active'}
+                  size="small"
+                  color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
+                />
+              </Box>
+
+              {commits.length > 0 && (
+                <FormControl size="small" sx={{ minWidth: 300 }}>
+                  <InputLabel>Commit</InputLabel>
+                  <Select
+                    value={commitSha || 'all'}
+                    label="Commit"
+                    onChange={(e) => handleCommitChange(e.target.value)}
+                  >
+                    <MenuItem value="all">All Commits (Latest)</MenuItem>
+                    {commits.map((commit: any) => (
+                      <MenuItem key={commit.id} value={commit.id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <Box
+                            component="span"
+                            sx={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'text.secondary' }}
+                          >
+                            {commit.id?.substring(0, 7)}
+                          </Box>
+                          <Box
+                            component="span"
+                            sx={{
+                              flex: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {commit.attributes?.message || 'No message'}
+                          </Box>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
             </Box>
 
             {koditStatusData?.message && (
@@ -234,10 +290,12 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
           <Box sx={{ textAlign: 'center', py: 8 }}>
             <Brain size={48} color="#656d76" style={{ marginBottom: 16, opacity: 0.5 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
-              No enrichments available yet
+              {commitSha ? 'No enrichments for this commit' : 'No enrichments available yet'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Code Intelligence is indexing your repository. Check back soon.
+              {commitSha
+                ? 'This commit does not have any code intelligence enrichments.'
+                : 'Code Intelligence is indexing your repository. Check back soon.'}
             </Typography>
           </Box>
         ) : null}

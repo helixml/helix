@@ -122,20 +122,38 @@ func (s *KoditService) RegisterRepository(ctx context.Context, cloneURL string) 
 
 // GetRepositoryEnrichments fetches enrichments for a repository from Kodit
 // enrichmentType can be: "usage", "developer", "living_documentation" (or empty for all)
-func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID, enrichmentType string) (*KoditEnrichmentListResponse, error) {
+// commitSHA can be specified to filter enrichments for a specific commit
+func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID, enrichmentType, commitSHA string) (*KoditEnrichmentListResponse, error) {
 	if !s.enabled {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
 
-	var params *kodit.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGetParams
-	if enrichmentType != "" {
-		// Use JSON marshaling to work around unexported union field in generated code
-		paramsJSON, _ := json.Marshal(map[string]string{"enrichment_type": enrichmentType})
-		params = &kodit.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGetParams{}
-		json.Unmarshal(paramsJSON, params)
+	var resp *http.Response
+	var err error
+
+	// Use different endpoint based on whether commit SHA is provided
+	if commitSHA != "" {
+		// Use commit-specific endpoint: /api/v1/repositories/{repo_id}/commits/{commit_sha}/enrichments
+		var params *kodit.ListCommitEnrichmentsApiV1RepositoriesRepoIdCommitsCommitShaEnrichmentsGetParams
+		if enrichmentType != "" {
+			// Use JSON marshaling to work around unexported union field in generated code
+			paramsJSON, _ := json.Marshal(map[string]string{"enrichment_type": enrichmentType})
+			params = &kodit.ListCommitEnrichmentsApiV1RepositoriesRepoIdCommitsCommitShaEnrichmentsGetParams{}
+			json.Unmarshal(paramsJSON, params)
+		}
+		resp, err = s.client.ListCommitEnrichmentsApiV1RepositoriesRepoIdCommitsCommitShaEnrichmentsGet(ctx, koditRepoID, commitSHA, params)
+	} else {
+		// Use repository-wide endpoint: /api/v1/repositories/{repo_id}/enrichments
+		var params *kodit.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGetParams
+		if enrichmentType != "" {
+			// Use JSON marshaling to work around unexported union field in generated code
+			paramsJSON, _ := json.Marshal(map[string]string{"enrichment_type": enrichmentType})
+			params = &kodit.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGetParams{}
+			json.Unmarshal(paramsJSON, params)
+		}
+		resp, err = s.client.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGet(ctx, koditRepoID, params)
 	}
 
-	resp, err := s.client.ListRepositoryEnrichmentsApiV1RepositoriesRepoIdEnrichmentsGet(ctx, koditRepoID, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list enrichments: %w", err)
 	}
@@ -197,6 +215,41 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 	}, nil
 }
 
+
+// GetRepositoryCommits fetches commits for a repository from Kodit
+func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID string, limit int) ([]map[string]any, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	// Build params with limit
+	var params *kodit.ListRepositoryCommitsApiV1RepositoriesRepoIdCommitsGetParams
+	if limit > 0 {
+		paramsJSON, _ := json.Marshal(map[string]int{"limit": limit})
+		params = &kodit.ListRepositoryCommitsApiV1RepositoriesRepoIdCommitsGetParams{}
+		json.Unmarshal(paramsJSON, params)
+	}
+
+	resp, err := s.client.ListRepositoryCommitsApiV1RepositoriesRepoIdCommitsGet(ctx, koditRepoID, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list commits: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+	}
+
+	var response struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Data, nil
+}
 
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
 func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {
