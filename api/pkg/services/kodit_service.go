@@ -251,6 +251,90 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID str
 	return response.Data, nil
 }
 
+// KoditSearchResult represents a search result with properly typed fields for frontend consumption
+type KoditSearchResult struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Language string `json:"language"`
+	Content  string `json:"content"`
+	FilePath string `json:"file_path"` // File path from DerivesFrom
+}
+
+// SearchSnippets searches for code snippets in a repository from Kodit
+func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query string, limit int) ([]KoditSearchResult, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	if query == "" {
+		return []KoditSearchResult{}, nil
+	}
+
+	// Build search request body
+	searchType := "search"
+	requestBody := kodit.SearchRequest{
+		Data: kodit.SearchData{
+			Type: &searchType,
+			Attributes: kodit.SearchAttributes{
+				Text:  &kodit.SearchAttributes_Text{},
+				Limit: &kodit.SearchAttributes_Limit{},
+			},
+		},
+	}
+
+	// Set text query using JSON marshaling (unexported union field workaround)
+	textJSON, _ := json.Marshal(query)
+	json.Unmarshal(textJSON, &requestBody.Data.Attributes.Text)
+
+	// Set limit
+	if limit <= 0 {
+		limit = 20
+	}
+	limitJSON, _ := json.Marshal(limit)
+	json.Unmarshal(limitJSON, &requestBody.Data.Attributes.Limit)
+
+	// Set repository filter
+	requestBody.Data.Attributes.Filters = &kodit.SearchAttributes_Filters{}
+	reposJSON, _ := json.Marshal(map[string][]string{"repositories": {koditRepoID}})
+	json.Unmarshal(reposJSON, &requestBody.Data.Attributes.Filters)
+
+	resp, err := s.client.SearchSnippetsApiV1SearchPost(ctx, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search snippets: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+	}
+
+	var response kodit.SearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to simplified result format
+	results := make([]KoditSearchResult, 0, len(response.Data))
+	for _, snippet := range response.Data {
+		// Extract file path from DerivesFrom if available
+		filePath := ""
+		if len(snippet.Attributes.DerivesFrom) > 0 {
+			filePath = snippet.Attributes.DerivesFrom[0].Path
+		}
+
+		results = append(results, KoditSearchResult{
+			ID:       snippet.Id,
+			Type:     snippet.Type,
+			Language: snippet.Attributes.Content.Language,
+			Content:  snippet.Attributes.Content.Value,
+			FilePath: filePath,
+		})
+	}
+
+	return results, nil
+}
+
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
 func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {
 	if !s.enabled {

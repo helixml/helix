@@ -1713,6 +1713,20 @@ definitions:
           $ref: '#/definitions/services.KoditEnrichmentData'
         type: array
     type: object
+  services.KoditSearchResult:
+    properties:
+      content:
+        type: string
+      file_path:
+        description: File path from DerivesFrom
+        type: string
+      id:
+        type: string
+      language:
+        type: string
+      type:
+        type: string
+    type: object
   services.SampleProjectCode:
     properties:
       description:
@@ -9973,6 +9987,50 @@ paths:
       security:
       - BearerAuth: []
       summary: Push and pull repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/search-snippets:
+    get:
+      description: Search for code snippets in a repository from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query
+        in: query
+        name: query
+        required: true
+        type: string
+      - description: Limit number of results (default 20)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.KoditSearchResult'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Search repository snippets
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/tree:

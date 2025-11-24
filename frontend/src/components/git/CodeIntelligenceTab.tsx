@@ -18,18 +18,22 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  TextField,
+  InputAdornment,
 } from '@mui/material'
 import {
   Brain,
   FileText,
   Code as CodeIcon,
   X as CloseIcon,
+  Search as SearchIcon,
 } from 'lucide-react'
 
 import {
   useKoditEnrichmentDetail,
   useKoditCommits,
   useKoditStatus,
+  useKoditSearch,
   groupEnrichmentsByType,
   getEnrichmentTypeName,
   getEnrichmentSubtypeName,
@@ -38,6 +42,7 @@ import {
   KODIT_TYPE_LIVING_DOCUMENTATION,
 } from '../../services/koditService'
 import { useRouter } from '../../hooks/useRouter'
+import useDebounce from '../../hooks/useDebounce'
 
 interface CodeIntelligenceTabProps {
   repository: any
@@ -63,12 +68,29 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     { enabled: enrichmentDrawerOpen }
   )
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
+  const [selectedSnippet, setSelectedSnippet] = useState<any>(null)
+
+  // Search snippets
+  const { data: searchResults = [], isLoading: searchLoading } = useKoditSearch(
+    repoId,
+    debouncedSearchQuery,
+    20,
+    { enabled: !!repoId && !!repository?.metadata?.kodit_indexing && debouncedSearchQuery.trim().length > 0 }
+  )
+
   const handleCommitChange = (newCommitSha: string) => {
     if (newCommitSha === 'all') {
       router.removeParams(['commit'])
     } else {
       router.mergeParams({ commit: newCommitSha })
     }
+  }
+
+  const handleClearSearch = () => {
+    setSearchQuery('')
   }
 
   return (
@@ -124,6 +146,28 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                   </Select>
                 </FormControl>
               )}
+
+              <TextField
+                size="small"
+                placeholder="Search code snippets..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                sx={{ minWidth: 300 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon size={18} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: searchQuery && (
+                    <InputAdornment position="end">
+                      <IconButton size="small" onClick={handleClearSearch} edge="end">
+                        <CloseIcon size={16} />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
             </Box>
 
             {koditStatusData?.message && (
@@ -136,6 +180,121 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
           <Alert severity="info" sx={{ mb: 4 }}>
             Code Intelligence is not enabled for this repository. Enable it in the Settings tab to start indexing.
           </Alert>
+        )}
+
+        {debouncedSearchQuery && (
+          <Box sx={{ mb: 4 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+              <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                Search Results
+              </Typography>
+              {searchLoading ? (
+                <CircularProgress size={20} />
+              ) : (
+                <Chip label={`${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`} size="small" />
+              )}
+            </Box>
+
+            {searchResults.length > 0 ? (
+              <Grid container spacing={2}>
+                {searchResults.map((snippet: any, index: number) => {
+                  // Use the properly typed fields from KoditSearchResult
+                  const snippetId = snippet.id || `snippet-${index}`
+                  const snippetType = snippet.type || 'snippet'
+                  const language = snippet.language || 'unknown'
+                  const content = snippet.content || 'No content available'
+                  const filePath = snippet.file_path || ''
+
+                  // Use file path as title if available, otherwise use snippet ID
+                  let title = snippetId
+                  if (filePath) {
+                    // Extract filename from path
+                    const fileName = filePath.split('/').pop() || filePath
+                    title = fileName
+                  }
+
+                  return (
+                    <Grid item xs={12} sm={6} md={4} lg={3} key={snippetId}>
+                      <Card
+                        onClick={() => {
+                          setSelectedSnippet(snippet)
+                          setSelectedEnrichmentId(null)
+                        }}
+                        sx={{
+                          height: 280,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          boxShadow: 1,
+                          borderStyle: 'dashed',
+                          borderWidth: 1,
+                          borderColor: 'warning.main',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          '&:hover': {
+                            boxShadow: 4,
+                            transform: 'translateY(-4px)',
+                            borderColor: 'warning.main',
+                            borderWidth: 2,
+                            borderStyle: 'solid',
+                          },
+                        }}
+                      >
+                        <CardHeader
+                          avatar={
+                            <Avatar sx={{ bgcolor: 'white', width: 40, height: 40, border: '2px solid', borderColor: 'warning.main' }}>
+                              <SearchIcon size={24} color="#ed6c02" />
+                            </Avatar>
+                          }
+                          title={title}
+                          titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
+                          subheader={filePath ? `${language} • ${snippetType}` : snippetType}
+                          subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
+                          sx={{ pb: 1 }}
+                        />
+                        <CardContent sx={{
+                          flexGrow: 1,
+                          pt: 0,
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}>
+                          <Box
+                            component="pre"
+                            sx={{
+                              fontSize: '0.75rem',
+                              lineHeight: 1.4,
+                              overflow: 'hidden',
+                              color: 'text.secondary',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 9,
+                              WebkitBoxOrient: 'vertical',
+                              fontFamily: 'monospace',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              margin: 0,
+                            }}
+                          >
+                            {content}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  )
+                })}
+              </Grid>
+            ) : searchLoading ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <CircularProgress />
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                  Searching...
+                </Typography>
+              </Box>
+            ) : (
+              <Alert severity="info">
+                No snippets found for &quot;{debouncedSearchQuery}&quot;
+              </Alert>
+            )}
+          </Box>
         )}
 
         {enrichments.length > 0 && Object.keys(groupedEnrichmentsByType).length > 0 ? (
@@ -303,9 +462,10 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
 
       <Drawer
         anchor="right"
-        open={enrichmentDrawerOpen}
+        open={enrichmentDrawerOpen || !!selectedSnippet}
         onClose={() => {
           setSelectedEnrichmentId(null)
+          setSelectedSnippet(null)
         }}
         sx={{
           '& .MuiDrawer-paper': {
@@ -317,9 +477,18 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
           <Box>
             <Typography variant="h5" gutterBottom>
-              Enrichment Details
+              {selectedSnippet ? 'Code Snippet' : 'Enrichment Details'}
             </Typography>
-            {enrichmentDetail && (
+            {selectedSnippet && (
+              <Typography variant="caption" color="text.secondary" display="block">
+                {selectedSnippet.file_path ? (
+                  selectedSnippet.file_path.split('/').pop()
+                ) : (
+                  selectedSnippet.id
+                )}
+              </Typography>
+            )}
+            {enrichmentDetail && !selectedSnippet && (
               <Typography variant="caption" color="text.secondary" display="block">
                 {getEnrichmentSubtypeName(enrichmentDetail.attributes?.subtype || '')}
               </Typography>
@@ -328,6 +497,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
           <IconButton
             onClick={() => {
               setSelectedEnrichmentId(null)
+              setSelectedSnippet(null)
             }}
             size="small"
           >
@@ -335,7 +505,35 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
           </IconButton>
         </Box>
 
-        {enrichmentDetailLoading ? (
+        {selectedSnippet ? (
+          <Box>
+            <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
+              <Chip label={selectedSnippet.language || 'unknown'} size="small" color="warning" />
+              <Chip label={selectedSnippet.type || 'snippet'} size="small" variant="outlined" />
+              {selectedSnippet.file_path && (
+                <Chip label={selectedSnippet.file_path} size="small" variant="outlined" />
+              )}
+            </Stack>
+
+            <Box
+              component="pre"
+              sx={{
+                fontFamily: 'monospace',
+                fontSize: '0.875rem',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                padding: '1em',
+                borderRadius: '4px',
+                overflow: 'auto',
+                margin: 0,
+              }}
+            >
+              {selectedSnippet.content || 'No content available'}
+            </Box>
+          </Box>
+        ) : enrichmentDetailLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
             <CircularProgress />
           </Box>
