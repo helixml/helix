@@ -831,27 +831,25 @@ function build-sway() {
 
   echo "✅ Sway container build completed"
 
-  # Transfer helix-sway image to Wolf's dockerd
-  # CRITICAL: Wolf must be running for sandboxes to use this image
-  # Start Wolf if not running, then transfer
-  if ! docker compose -f docker-compose.dev.yaml ps wolf | grep -q "Up"; then
-    echo "🐺 Wolf not running, starting Wolf to transfer image..."
-    docker compose -f docker-compose.dev.yaml up -d wolf
-    # Wait for Wolf's dockerd to be ready
-    echo "Waiting for Wolf's dockerd to start..."
-    sleep 5
+  # Transfer helix-sway image to sandbox's dockerd (Wolf runs inside sandbox container)
+  # Only transfer if sandbox is already running (hot reload during development)
+  # If sandbox is not running, just skip - image will be loaded from embedded tarball on first start
+  if docker compose -f docker-compose.dev.yaml ps sandbox | grep -q "Up"; then
+    echo "📦 Sandbox is running, transferring latest helix-sway image..."
+    transfer-sway-to-sandbox
+  else
+    echo "ℹ️  Sandbox not running, skipping image transfer"
+    echo "   Image will be loaded from embedded tarball when sandbox starts"
   fi
-
-  transfer-sway-to-wolf
 }
 
-function transfer-sway-to-wolf() {
-  # Transfer helix-sway image from host to Wolf's isolated dockerd
-  # This is required because Wolf runs its own dockerd (DinD) and doesn't have access to host images
+function transfer-sway-to-sandbox() {
+  # Transfer helix-sway image from host to sandbox's isolated dockerd
+  # This is required because sandbox runs its own dockerd (DinD) and doesn't have access to host images
 
-  # Check if Wolf container is running
-  if ! docker compose -f docker-compose.dev.yaml ps wolf | grep -q "Up"; then
-    echo "ℹ️  Wolf container not running, skipping image transfer (will transfer on next start)"
+  # Check if sandbox container is running
+  if ! docker compose -f docker-compose.dev.yaml ps sandbox | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
     return 0
   fi
 
@@ -861,11 +859,11 @@ function transfer-sway-to-wolf() {
     return 0
   fi
 
-  echo "📦 Transferring helix-sway:latest to Wolf's dockerd..."
-  if docker save helix-sway:latest | docker exec -i helix-wolf-1 docker load; then
-    echo "✅ helix-sway:latest transferred to Wolf's dockerd"
+  echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
+  if docker save helix-sway:latest | docker exec -i sandbox-1 docker load; then
+    echo "✅ helix-sway:latest transferred to sandbox's dockerd"
   else
-    echo "⚠️  Failed to transfer image (Wolf may not be ready yet)"
+    echo "⚠️  Failed to transfer image (sandbox may not be ready yet)"
   fi
 }
 

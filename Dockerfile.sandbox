@@ -212,10 +212,10 @@ DAEMON_JSON
 
 echo "Configured Wolf's dockerd with nvidia runtime support"
 
-# Start dockerd in background
+# Start dockerd in background (redirect to stdout with prefix for unified logs)
 dockerd --config-file /etc/docker/daemon.json \
     --host=unix:///var/run/docker.sock \
-    >/var/log/dockerd.log 2>&1 &
+    2>&1 | sed 's/^/[DOCKERD] /' &
 
 DOCKERD_PID=$!
 echo "Started dockerd with PID: $DOCKERD_PID"
@@ -226,7 +226,7 @@ ELAPSED=0
 until docker info >/dev/null 2>&1; do
     if [ $ELAPSED -ge $TIMEOUT ]; then
         echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
-        tail -50 /var/log/dockerd.log
+        echo "Check dockerd logs above for details"
         exit 1
     fi
     echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
@@ -250,11 +250,15 @@ else
     echo "helix_default network already exists"
 fi
 
-# Load helix-sway image into Wolf's dockerd
+# Load helix-sway image into Wolf's dockerd (tolerate failures for bootstrapping)
 if [ -f /opt/images/helix-sway.tar.gz ]; then
     echo "📦 Loading helix-sway image into Wolf's dockerd..."
-    docker load -i /opt/images/helix-sway.tar.gz
-    echo "✅ helix-sway:latest loaded successfully"
+    if docker load -i /opt/images/helix-sway.tar.gz 2>&1 | tee /tmp/docker-load.log; then
+        echo "✅ helix-sway:latest loaded successfully"
+    else
+        echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
+        echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
+    fi
 else
     echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
 fi
@@ -328,9 +332,9 @@ if [ ! -f /opt/moonlight-web/server/config.json ]; then
 CONFIG
 fi
 
-# Start Moonlight Web daemon in background
+# Start Moonlight Web daemon in background (redirect to stdout with prefix)
 cd /opt/moonlight-web
-./moonlight-web >/var/log/moonlight-web.log 2>&1 &
+./moonlight-web 2>&1 | sed 's/^/[MOONLIGHT] /' &
 MOONLIGHT_PID=$!
 echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
 EOF
@@ -352,22 +356,22 @@ echo "🔗 Starting RevDial clients..."
 echo "   Control Plane: $HELIX_API_URL"
 echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 
-# Start Wolf API RevDial client (proxies Wolf Unix socket)
+# Start Wolf API RevDial client (proxies Wolf Unix socket, redirect to stdout with prefix)
 /usr/local/bin/revdial-client \
     -server "$HELIX_API_URL/api/v1/revdial" \
     -runner-id "wolf-$WOLF_INSTANCE_ID" \
     -token "$RUNNER_TOKEN" \
     -local "unix:///var/run/wolf/wolf.sock" \
-    >/var/log/wolf-revdial.log 2>&1 &
+    2>&1 | sed 's/^/[WOLF-REVDIAL] /' &
 WOLF_REVDIAL_PID=$!
 
-# Start Moonlight Web API RevDial client (proxies Moonlight Web HTTP server)
+# Start Moonlight Web API RevDial client (proxies Moonlight Web HTTP server, redirect to stdout)
 /usr/local/bin/revdial-client \
     -server "$HELIX_API_URL/api/v1/revdial" \
     -runner-id "moonlight-$WOLF_INSTANCE_ID" \
     -token "$RUNNER_TOKEN" \
     -local "127.0.0.1:8080" \
-    >/var/log/moonlight-revdial.log 2>&1 &
+    2>&1 | sed 's/^/[MOONLIGHT-REVDIAL] /' &
 MOONLIGHT_REVDIAL_PID=$!
 
 echo "✅ Wolf RevDial client started (PID: $WOLF_REVDIAL_PID)"
