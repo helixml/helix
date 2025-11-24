@@ -4,7 +4,7 @@ import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import { useTheme } from '@mui/material/styles'
-import { Download, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import MDEditor from '@uiw/react-md-editor'
 import '@uiw/react-md-editor/markdown-editor.css'
 import html2canvas from 'html2canvas'
@@ -68,12 +68,11 @@ const ToPDF: FC<ToPDFProps> = ({ markdown: initialMarkdown, filename = 'export.p
           <Button
             variant="contained"
             color="secondary"
-            startIcon={<Download size={18} />}
             onClick={handleDownload}
             disabled={isGenerating}
             sx={{ mr: 1 }}
           >
-            {isGenerating ? 'Generating...' : 'Download PDF'}
+            {isGenerating ? 'Generating...' : 'Download'}
           </Button>
           {onClose && (
             <IconButton onClick={onClose} size="small">
