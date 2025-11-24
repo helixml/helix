@@ -815,6 +815,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -846,6 +847,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -859,6 +861,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -891,6 +894,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -904,6 +908,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -939,6 +944,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -952,6 +958,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -989,6 +996,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1029,6 +1037,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -1066,6 +1075,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
   - name: publish-runner-branch
     image: plugins/docker
@@ -1106,6 +1116,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -1135,6 +1146,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -1148,6 +1160,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -1177,6 +1190,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -1190,6 +1204,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -1219,6 +1234,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 kind: pipeline
@@ -1232,6 +1248,7 @@ trigger:
   branch:
     - main
     - fix/add-wolf-healthcheck
+    - feature/amd
 
 volumes:
   - name: dockersocket
@@ -1261,6 +1278,7 @@ steps:
       branch:
         - main
         - fix/add-wolf-healthcheck
+        - feature/amd
 
 ---
 # See integration-test/smoke/README.md
