@@ -9734,6 +9734,10 @@ paths:
         in: query
         name: enrichment_type
         type: string
+      - description: Filter by commit SHA
+        in: query
+        name: commit_sha
+        type: string
       produces:
       - application/json
       responses:
@@ -9786,6 +9790,42 @@ paths:
       security:
       - BearerAuth: []
       summary: Get enrichment by ID
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/kodit-commits:
+    get:
+      description: Get commits for a repository from Kodit (used for enrichment filtering)
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Limit number of commits (default 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get repository commits from Kodit
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:

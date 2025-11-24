@@ -6349,6 +6349,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Filter by enrichment type (usage, developer, living_documentation) */
         enrichment_type?: string;
+        /** Filter by commit SHA */
+        commit_sha?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -6376,6 +6378,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServicesKoditEnrichmentData, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get commits for a repository from Kodit (used for enrichment filtering)
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesKoditCommitsDetail
+     * @summary Get repository commits from Kodit
+     * @request GET:/api/v1/git/repositories/{id}/kodit-commits
+     * @secure
+     */
+    v1GitRepositoriesKoditCommitsDetail: (
+      id: string,
+      query?: {
+        /** Limit number of commits (default 100) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, any>[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/kodit-commits`,
+        method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
