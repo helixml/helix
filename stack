@@ -949,62 +949,21 @@ function build-moonlight-web() {
 
 function build-sandbox() {
   echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
-
-  # Step 1: Build Zed in release mode (needed for helix-sway)
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [1/3] Building Zed in release mode..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
-    if ! build-zed release; then
-      echo "❌ Failed to build Zed"
-      return 1
-    fi
-  else
-    echo "✅ Using existing Zed binary (dev mode)"
-  fi
+  echo ""
+  echo "Note: This builds a unified container with:"
+  echo "  • Wolf streaming platform (from ghcr.io/games-on-whales/wolf:stable)"
+  echo "  • Moonlight Web (from ghcr.io/games-on-whales/moonlight-web:latest)"
+  echo "  • RevDial client (built from source)"
+  echo "  • Docker-in-Docker with NVIDIA runtime"
+  echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
   echo ""
 
-  # Step 2: Build helix-sway and export as tarball
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [2/3] Building helix-sway container and exporting tarball..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build helix-sway (Sway + Zed container that runs inside Wolf's dockerd)
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  echo "🔨 Building helix-sway container..."
-  if [ -n "$GIT_TAG" ]; then
-    docker build -f Dockerfile.sway-helix \
-      -t helix-sway:latest \
-      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      -t "registry.helixml.tech/helix/zed-agent:${GIT_TAG}" \
-      .
-  else
-    docker build -f Dockerfile.sway-helix \
-      -t helix-sway:latest \
-      -t "registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}" \
-      .
-  fi
+  echo "🔨 Building helix-sandbox container..."
 
-  if [ $? -ne 0 ]; then
-    echo "❌ Failed to build helix-sway"
-    return 1
-  fi
-  echo "✅ helix-sway built successfully"
-
-  # Export helix-sway as tarball for inclusion in sandbox image
-  echo "📦 Exporting helix-sway tarball..."
-  docker save helix-sway:latest | gzip > helix-sway.tar.gz
-  echo "✅ Tarball created: helix-sway.tar.gz ($(du -h helix-sway.tar.gz | cut -f1))"
-  echo ""
-
-  # Step 3: Build unified sandbox container
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📝 [3/3] Building helix-sandbox unified container..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-  # Build sandbox with tarball embedded
+  # Build sandbox container
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
@@ -1019,32 +978,18 @@ function build-sandbox() {
       .
   fi
 
-  if [ $? -eq 0 ]; then
-    echo "✅ helix-sandbox container built successfully"
-  else
+  if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
-    rm -f helix-sway.tar.gz
     return 1
   fi
 
-  # Cleanup tarball (no longer needed, it's embedded in the image)
-  rm -f helix-sway.tar.gz
-  echo "🧹 Cleaned up helix-sway.tar.gz"
+  echo "✅ helix-sandbox container built successfully"
   echo ""
 
   # Push to registry in production mode
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing images to registry..."
 
-    # Push helix-sway (zed-agent)
-    local ZED_AGENT_BASE="registry.helixml.tech/helix/zed-agent"
-    if push_image_tags "$ZED_AGENT_BASE"; then
-      echo "✅ Zed agent images pushed successfully"
-    else
-      echo "⚠️  Failed to push Zed agent images"
-    fi
-
-    # Push helix-sandbox
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1062,16 +1007,22 @@ function build-sandbox() {
     docker compose -f docker-compose.dev.yaml up -d sandbox
 
     echo "✅ Sandbox container rebuilt and restarted successfully"
-    echo "📦 Unified sandbox ready: helix-sandbox:latest"
-    echo ""
-    echo "Components included:"
-    echo "  • Wolf (streaming platform)"
-    echo "  • Moonlight Web (WebRTC browser streaming)"
-    echo "  • RevDial client (control plane connection)"
-    echo "  • Docker-in-Docker (sandbox isolation)"
-    echo "  • helix-sway image (Sway + Zed desktop environment)"
   fi
 
+  echo ""
+  echo "📦 Unified sandbox ready: helix-sandbox:latest"
+  echo ""
+  echo "Components included:"
+  echo "  • Wolf (streaming platform)"
+  echo "  • Moonlight Web (WebRTC browser streaming)"
+  echo "  • RevDial client (control plane connection)"
+  echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
+  echo ""
+  echo "Services are managed by GOW's init system:"
+  echo "  • /etc/cont-init.d/04-start-dockerd.sh - starts Wolf's dockerd"
+  echo "  • /etc/cont-init.d/05-init-wolf-config.sh - initializes Wolf config"
+  echo "  • /etc/cont-init.d/06-init-moonlight-config.sh - initializes Moonlight Web"
+  echo "  • /opt/gow/startup-app.sh - starts Wolf, Moonlight Web, RevDial"
   echo ""
   echo "🎉 Sandbox build completed successfully!"
 }
