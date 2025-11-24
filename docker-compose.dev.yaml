@@ -282,10 +282,10 @@ services:
         - TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
         - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
         - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-        # RevDial connection (empty = local dev mode, no control plane connection)
-        - HELIX_API_URL=
-        - WOLF_ID=
-        - RUNNER_TOKEN=
+        # RevDial connection (enables Wolf and Moonlight Web to connect to API)
+        - HELIX_API_URL=http://api:8080
+        - WOLF_INSTANCE_ID=local
+        - RUNNER_TOKEN=oh-hallo-insecure-token
       privileged: true  # Required for Docker-in-Docker
       volumes:
         # Wolf configuration and state
