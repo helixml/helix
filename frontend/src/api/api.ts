@@ -1043,6 +1043,15 @@ export interface ServicesKoditEnrichmentListResponse {
   data?: ServicesKoditEnrichmentData[];
 }
 
+export interface ServicesKoditSearchResult {
+  content?: string;
+  /** File path from DerivesFrom */
+  file_path?: string;
+  id?: string;
+  language?: string;
+  type?: string;
+}
+
 export interface ServicesSampleProjectCode {
   description?: string;
   /** filepath -> content */
@@ -6485,6 +6494,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<ServerPushPullResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/push-pull`,
         method: "POST",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Search for code snippets in a repository from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSearchSnippetsDetail
+     * @summary Search repository snippets
+     * @request GET:/api/v1/git/repositories/{id}/search-snippets
+     * @secure
+     */
+    v1GitRepositoriesSearchSnippetsDetail: (
+      id: string,
+      query: {
+        /** Search query */
+        query: string;
+        /** Limit number of results (default 20) */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesKoditSearchResult[], TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/search-snippets`,
+        method: "GET",
         query: query,
         secure: true,
         format: "json",
