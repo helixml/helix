@@ -1873,6 +1873,8 @@ type ZedAgentResponse struct {
 	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
 	// Wolf lobby PIN for access control (NEW - Phase 3: Multi-tenancy)
 	WolfLobbyPIN string `json:"wolf_lobby_pin,omitempty"`
+	// Wolf instance ID running this sandbox (for multi-Wolf deployment)
+	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
 	// WebSocket URL for thread sync connection
