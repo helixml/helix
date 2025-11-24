@@ -403,29 +403,43 @@ Moonlight Web (behind NAT, public STUN server helped establish connection)
 
 ## Implementation Status
 
-### ✅ Completed
+### ✅ Completed (2025-11-24)
 
 1. **Docker-in-Docker**: Wolf runs isolated dockerd, sandboxes run inside Wolf
-2. **Sandbox RevDial client**: Code complete, starts on sandbox boot
-3. **API RevDial listener**: `/revdial` endpoint accepts WebSocket connections
-4. **Connection manager**: `connman` tracks RevDial connections
-5. **WolfClientInterface**: Interface abstraction exists for Wolf client
-6. **Network routing**: Different subnets (172.19.x vs 172.20.x) prevent conflicts
+2. **Sandbox RevDial client**: ✅ **WORKING**
+   - HTTP hijacking for CONTROL connection (not WebSocket)
+   - Correct API path: `/api/v1/revdial`
+   - Tested: Screenshot retrieval via RevDial successful (748KB PNG)
+3. **API RevDial listener**: `/api/v1/revdial` endpoint with HTTP hijacking support
+4. **Connection manager**: `connman` tracks all three RevDial connection types
+5. **WolfClientInterface**: Interface abstraction exists with two implementations:
+   - `wolf.Client` - Unix socket (local Wolf)
+   - `wolf.RevDialClient` - RevDial tunnel (remote Wolf)
+6. **Network routing**: Works correctly - sandboxes (172.20.x) can reach API (172.19.x)
+7. **Wolf RevDial client**: ✅ **WORKING**
+   - Connected and registered as `wolf-local` in connman
+   - Unix socket forwarding: `unix:///var/run/wolf/wolf.sock`
+8. **Moonlight Web RevDial client**: ✅ **WORKING**
+   - Connected and registered as `moonlight-local` in connman
+   - TCP forwarding: `127.0.0.1:8080`
+9. **Dockerfile.sandbox**: Updated with working revdial-client and startup scripts
 
-### ⏳ In Progress
+### ⏳ Remaining Integration Work
 
-1. **Sandbox RevDial connection**: WebSocket timeout issue (under investigation)
-   - Symptoms: `read tcp 172.20.0.2:37796->172.19.0.20:8080: i/o timeout`
-   - Works from host, fails from sandbox
-   - Regular HTTP works, WebSocket upgrade fails
-
-### ❌ Not Started
-
-1. **Wolf API RevDial client**: Need to add RevDial client to Wolf container startup
-2. **Wolf API RevDialClient implementation**: New `RevDialClient` struct implementing `WolfClientInterface`
-3. **Moonlight Web RevDial client**: Need to add RevDial client to Moonlight Web startup
-4. **Moonlight Web API handlers**: RevDial-based WebSocket proxy for browser connections
-5. **Wolf instance selection logic**: Update WolfExecutor to choose local vs RevDial based on session.WolfInstanceID
+1. **WolfExecutor refactoring**: Update methods to use `getWolfClient(session.WolfInstanceID)`
+   - Currently all methods use `w.localWolfClient` directly
+   - Need to pass session context through call chains
+   - Required for multi-Wolf routing
+2. **Moonlight Web WebSocket proxy**: Implement browser streaming through RevDial
+   - Current: Frontend connects directly to Moonlight Web
+   - Needed: API proxies WebSocket connections through RevDial tunnel
+3. **Scheduler integration**: Use Wolf instance scheduler in sandbox creation
+   - Scheduler exists (`store.WolfScheduler`)
+   - Need to assign `session.WolfInstanceID` before creating lobby
+4. **Production deployment**: Build and test unified helix-sandbox container
+   - Dockerfile.sandbox is ready
+   - Need to build: `./stack build-sandbox`
+   - Test with `HELIX_API_URL` and `RUNNER_TOKEN` set
 
 ---
 
