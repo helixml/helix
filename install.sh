@@ -115,11 +115,13 @@ CLI=false
 CONTROLPLANE=false
 RUNNER=false
 EXTERNAL_ZED_AGENT=false
+SANDBOX=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
 CODE=""
 API_HOST=""
+CONTROLPLANE_URL=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
 OPENAI_API_KEY=""
@@ -243,11 +245,13 @@ Options:
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --external-zed-agent     Install the external Zed agent runner (connects to existing controlplane)
+  --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
+  --controlplane-url <url> Specify the control plane URL for sandbox mode (required with --sandbox)
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
@@ -313,6 +317,10 @@ Examples:
 15. Install runner excluding GPU 0 (use GPUs 1-7 only):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
+16. Install sandbox node (Wolf + Moonlight Web + RevDial client):
+   export RUNNER_TOKEN=YOUR_RUNNER_TOKEN
+   ./install.sh --sandbox --controlplane-url https://helix.mycompany.com
+
 EOF
 }
 
@@ -375,6 +383,11 @@ while [[ $# -gt 0 ]]; do
             AUTO=false
             shift
             ;;
+        --sandbox)
+            SANDBOX=true
+            AUTO=false
+            shift
+            ;;
         --large)
             LARGE=true
             shift
@@ -397,6 +410,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --api-host)
             API_HOST="$2"
+            shift 2
+            ;;
+        --controlplane-url=*)
+            CONTROLPLANE_URL="${1#*=}"
+            shift
+            ;;
+        --controlplane-url)
+            CONTROLPLANE_URL="$2"
             shift 2
             ;;
         --runner-token=*)
@@ -734,7 +755,7 @@ install_docker_compose_only() {
 DOCKER_CMD="docker"
 
 # Only check docker sudo if we need docker (i.e., not CLI-only installation)
-if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ]; then
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ] && [ "$SANDBOX" = false ]; then
     NEED_SUDO="false"
 else
     # Docker is needed - check if it's installed
@@ -1143,6 +1164,30 @@ if [ "$EXTERNAL_ZED_AGENT" = true ]; then
     fi
 fi
 
+if [ "$SANDBOX" = true ]; then
+    # When installing sandbox node, both CONTROLPLANE_URL and RUNNER_TOKEN are required
+    if [ -z "$CONTROLPLANE_URL" ]; then
+        echo "Error: When installing sandbox node, you must specify --controlplane-url"
+        echo "to connect to an external controlplane, for example:"
+        echo
+        echo "export RUNNER_TOKEN=YOUR_RUNNER_TOKEN"
+        echo "./install.sh --sandbox --controlplane-url https://your-controlplane-domain.com"
+        echo
+        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        exit 1
+    fi
+    if [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing sandbox node, you must set RUNNER_TOKEN environment variable"
+        echo "to connect to an external controlplane, for example:"
+        echo
+        echo "export RUNNER_TOKEN=YOUR_RUNNER_TOKEN"
+        echo "./install.sh --sandbox --controlplane-url https://your-controlplane-domain.com"
+        echo
+        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        exit 1
+    fi
+fi
+
 # Validate GPU requirements for --code flag
 if [ "$CODE" = true ]; then
     # Check NVIDIA first (most specific detection via nvidia-smi)
@@ -1203,7 +1248,7 @@ gather_modifications() {
     fi
 
     # Check if Docker needs to be installed
-    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ] || [ "$SANDBOX" = true ]; then
         if check_docker_needed; then
             # Only add Docker installation for Ubuntu/Debian/Fedora on Linux
             if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
@@ -1248,6 +1293,10 @@ gather_modifications() {
         modifications+="  - Install External Zed Agent runner script\n"
     fi
 
+    if [ "$SANDBOX" = true ]; then
+        modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
+    fi
+
     echo -e "$modifications"
 }
 
@@ -1283,7 +1332,7 @@ ask_for_approval() {
 ask_for_approval
 
 # Install Docker if needed and approved (only after user approval)
-if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ] || [ "$SANDBOX" = true ]; then
     if check_docker_needed; then
         install_docker
 
@@ -2249,6 +2298,162 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
+# Install sandbox node if requested
+if [ "$SANDBOX" = true ]; then
+    echo -e "\nInstalling Helix Sandbox Node (Wolf + Moonlight Web + RevDial client)..."
+    echo "=================================================="
+    echo
+    echo "Control Plane: $CONTROLPLANE_URL"
+    echo "Runner Token: ${RUNNER_TOKEN:0:20}..."
+    echo
+
+    # Detect GPU type for sandbox
+    if check_nvidia_gpu; then
+        GPU_TYPE="nvidia"
+        echo "NVIDIA GPU detected"
+    elif check_amd_gpu; then
+        GPU_TYPE="amd"
+        echo "AMD GPU detected with ROCm support"
+    elif check_intel_amd_gpu; then
+        GPU_TYPE="intel"
+        echo "Intel GPU detected"
+    else
+        echo "Warning: No GPU detected. Sandbox may not work correctly."
+        GPU_TYPE=""
+    fi
+
+    # Generate unique Wolf instance ID (hostname)
+    WOLF_ID=$(hostname)
+    echo "Wolf Instance ID: $WOLF_ID"
+    echo
+
+    # Create minimal .env file for sandbox mode
+    SANDBOX_ENV_FILE="$INSTALL_DIR/.env.sandbox"
+    cat > "$SANDBOX_ENV_FILE" << EOF
+# Helix Sandbox Node Configuration
+# Control Plane Connection
+HELIX_API_URL=$CONTROLPLANE_URL
+WOLF_ID=$WOLF_ID
+RUNNER_TOKEN=$RUNNER_TOKEN
+
+# GPU Configuration
+GPU_TYPE=$GPU_TYPE
+
+# Sandbox Capacity
+MAX_SANDBOXES=10
+EOF
+
+    echo "Created sandbox environment file: $SANDBOX_ENV_FILE"
+    echo
+
+    # Create docker-compose.sandbox.yaml
+    SANDBOX_COMPOSE_FILE="$INSTALL_DIR/docker-compose.sandbox.yaml"
+    cat > "$SANDBOX_COMPOSE_FILE" << 'YAML'
+version: '3.8'
+
+services:
+  wolf:
+    image: ghcr.io/helixml/wolf:latest
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - wolf-state:/wolf-state
+      - wolf-docker-storage:/var/lib/docker
+    environment:
+      - GPU_TYPE=${GPU_TYPE}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - helix_default
+
+  moonlight-web:
+    image: ghcr.io/games-on-whales/moonlight-web:latest
+    restart: unless-stopped
+    ports:
+      - "47984-47990:47984-47990/tcp"
+      - "47999:47999/udp"
+      - "48100:48100/udp"
+      - "48200:48200/udp"
+    environment:
+      - WOLF_API_URL=http://wolf:8080
+    networks:
+      - helix_default
+    depends_on:
+      - wolf
+
+  wolf-revdial-client:
+    image: ghcr.io/helixml/helix/wolf-revdial-client:latest
+    restart: unless-stopped
+    environment:
+      - HELIX_API_URL=${HELIX_API_URL}
+      - WOLF_ID=${WOLF_ID}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+    network_mode: "service:wolf"
+    depends_on:
+      - wolf
+
+volumes:
+  wolf-state:
+  wolf-docker-storage:
+
+networks:
+  helix_default:
+    driver: bridge
+YAML
+
+    echo "Created sandbox compose file: $SANDBOX_COMPOSE_FILE"
+    echo
+
+    # Start services
+    echo "Starting Sandbox Node services..."
+    cd "$INSTALL_DIR"
+    if [ "$NEED_SUDO" = "true" ]; then
+        sudo docker compose -f docker-compose.sandbox.yaml --env-file .env.sandbox up -d
+    else
+        docker compose -f docker-compose.sandbox.yaml --env-file .env.sandbox up -d
+    fi
+
+    echo
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ ✅ Helix Sandbox Node installed successfully!"
+    echo "│"
+    echo "│ Status:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        sudo docker compose -f docker-compose.sandbox.yaml ps
+    else
+        docker compose -f docker-compose.sandbox.yaml ps
+    fi
+    echo "│"
+    echo "│ This sandbox node will connect to: $CONTROLPLANE_URL"
+    echo "│ Wolf Instance ID: $WOLF_ID"
+    echo "│"
+    echo "│ To check logs:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   cd $INSTALL_DIR"
+        echo "│   sudo docker compose -f docker-compose.sandbox.yaml logs -f"
+    else
+        echo "│   cd $INSTALL_DIR"
+        echo "│   docker compose -f docker-compose.sandbox.yaml logs -f"
+    fi
+    echo "│"
+    echo "│ To stop:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   cd $INSTALL_DIR"
+        echo "│   sudo docker compose -f docker-compose.sandbox.yaml down"
+    else
+        echo "│   cd $INSTALL_DIR"
+        echo "│   docker compose -f docker-compose.sandbox.yaml down"
+    fi
+    echo "└───────────────────────────────────────────────────────────────────────────"
+
+    exit 0
+fi
+
 if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
@@ -2259,6 +2464,10 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external Zed agent to this controlplane:"
     echo "./install.sh --external-zed-agent --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo
+    echo "To connect a sandbox node to this controlplane:"
+    echo "export RUNNER_TOKEN=$RUNNER_TOKEN"
+    echo "./install.sh --sandbox --controlplane-url $API_HOST"
 fi
 
 echo -e "\nInstallation complete."
