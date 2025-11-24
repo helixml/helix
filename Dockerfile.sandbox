@@ -1,18 +1,48 @@
-# Helix Sandbox Node - Unified Container
-# Includes: Wolf + Moonlight Web + RevDial Client + helix-sway image
+# ====================================================================
+# Helix Sandbox - Unified Container
+# Includes: Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
 # Deploy with: docker run --privileged -e HELIX_API_URL=... -e RUNNER_TOKEN=... ghcr.io/helixml/helix-sandbox:latest
+# ====================================================================
 
+# ====================================================================
+# Stage 1: Build wolf-revdial-client
+# ====================================================================
+FROM golang:1.24 AS revdial-builder
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY api/ ./api/
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /wolf-revdial-client ./api/cmd/wolf-revdial-client
+
+# ====================================================================
+# Stage 2: Wolf base (copy from upstream or build from source)
+# ====================================================================
+FROM ghcr.io/games-on-whales/wolf:stable AS wolf-source
+# This stage just provides Wolf binaries and configs
+# In production builds, we could build from ../wolf source instead
+
+# ====================================================================
+# Stage 3: Moonlight Web (copy from upstream or build from source)
+# ====================================================================
+FROM ghcr.io/games-on-whales/moonlight-web:latest AS moonlight-web-source
+# This stage provides Moonlight Web binaries
+# In production builds, we could build from ../moonlight-web-stream source instead
+
+# ====================================================================
+# Stage 4: Base image with Docker-in-Docker + NVIDIA support
+# ====================================================================
 FROM ubuntu:25.04 AS base
 
-# Install Docker and nvidia-container-toolkit (same as Wolf)
+# Install Docker, nvidia-container-toolkit, and basic tools
 RUN apt-get update && \
-    apt-get install -y ca-certificates curl gnupg lsb-release && \
+    apt-get install -y ca-certificates curl gnupg lsb-release wget bash procps && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
-    apt-get install -y docker-ce docker-ce-cli containerd.io && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
+    # NVIDIA Container Toolkit for GPU passthrough to sandboxes
     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
     curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
       sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
@@ -20,7 +50,7 @@ RUN apt-get update && \
     apt-get install -y nvidia-container-toolkit nvidia-container-runtime && \
     rm -rf /var/lib/apt/lists/*
 
-# Install s6-overlay for process supervision
+# Install s6-overlay for process supervision (manages dockerd, wolf, moonlight-web, revdial)
 ARG S6_VERSION=3.2.0.2
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-noarch.tar.xz /tmp
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-x86_64.tar.xz /tmp
@@ -28,46 +58,45 @@ RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
     tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz && \
     rm /tmp/s6-overlay-*.tar.xz
 
-# Build wolf-revdial-client
-FROM golang:1.24 AS revdial-builder
-WORKDIR /build
-COPY api/go.mod api/go.sum ./
-RUN go mod download
-COPY api/ ./
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /wolf-revdial-client ./cmd/wolf-revdial-client
-
-# Build final image
+# ====================================================================
+# Stage 5: Final unified image
+# ====================================================================
 FROM base
 
-# Copy Wolf files (would use COPY --from in real build)
-# For now, document that Wolf needs to be copied in
-RUN mkdir -p /opt/wolf /opt/moonlight-web /opt/images
+# Create directory structure
+RUN mkdir -p /opt/wolf /opt/moonlight-web /opt/images /var/run/wolf /var/log /etc/wolf/cfg
+
+# Copy Wolf from upstream (or from local build in production)
+COPY --from=wolf-source /usr/local/bin/wolf /opt/wolf/wolf
+COPY --from=wolf-source /etc/wolf /opt/wolf/config-defaults
+RUN chmod +x /opt/wolf/wolf
+
+# Copy Moonlight Web from upstream (or from local build)
+COPY --from=moonlight-web-source /app /opt/moonlight-web/
+RUN chmod +x /opt/moonlight-web/moonlight-web || true
 
 # Copy wolf-revdial-client binary
 COPY --from=revdial-builder /wolf-revdial-client /usr/local/bin/wolf-revdial-client
 RUN chmod +x /usr/local/bin/wolf-revdial-client
 
-# Placeholder: In real build, would copy Wolf and Moonlight Web
-# COPY --from=ghcr.io/helixml/wolf:latest /app /opt/wolf/
-# COPY --from=ghcr.io/games-on-whales/moonlight-web:latest /app /opt/moonlight-web/
+# Copy helix-sway tarball (built by ./stack build-sandbox)
+# This tarball will be loaded into Wolf's internal dockerd at startup
+COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
 
-# helix-sway image will be mounted as volume or built during container startup
-# This avoids 2.5GB in the base image
+# ====================================================================
+# s6-overlay service definitions
+# ====================================================================
 
-# Create startup scripts
-COPY <<'EOF' /opt/start-sandbox.sh
-#!/usr/bin/with-contenv bash
-set -e
-
-echo "🚀 Helix Sandbox Node Starting..."
-echo "Control Plane: ${HELIX_API_URL}"
-echo "Wolf ID: ${WOLF_ID:-$(hostname)}"
-echo "GPU Type: ${GPU_TYPE:-nvidia}"
-echo ""
-
-# Configure dockerd
-mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<DOCKERCFG
+# Service 1: dockerd (Wolf's internal Docker daemon)
+RUN mkdir -p /etc/services.d/dockerd
+COPY <<'EOF' /etc/services.d/dockerd/run
+#!/usr/bin/execlineb -P
+with-contenv
+foreground {
+  if { mkdir -p /etc/docker }
+  if {
+    redirfd -w 1 /etc/docker/daemon.json
+    cat <<DOCKERCFG
 {
   "runtimes": {
     "nvidia": {
@@ -76,74 +105,173 @@ cat > /etc/docker/daemon.json <<DOCKERCFG
     }
   },
   "storage-driver": "overlay2",
-  "log-level": "error"
+  "log-level": "info",
+  "bridge": "docker0",
+  "bip": "172.20.0.1/16"
 }
 DOCKERCFG
+  }
+  foreground { echo "🐳 Starting Docker daemon..." }
+}
+dockerd --host=unix:///var/run/docker.sock
+EOF
+RUN chmod +x /etc/services.d/dockerd/run
 
-# Start dockerd
-echo "🐳 Starting Docker daemon..."
-dockerd --host=unix:///var/run/docker.sock >/var/log/dockerd.log 2>&1 &
-until docker info >/dev/null 2>&1; do sleep 1; done
-echo "✅ Docker ready"
-
+# Service 2: dockerd-ready (waits for Docker, then loads helix-sway image)
+RUN mkdir -p /etc/services.d/dockerd-ready
+COPY <<'EOF' /etc/services.d/dockerd-ready/type
+oneshot
+EOF
+COPY <<'EOF' /etc/services.d/dockerd-ready/up
+#!/usr/bin/execlineb -P
+with-contenv
+foreground { echo "⏳ Waiting for Docker daemon..." }
+foreground {
+  loopwhilex -x 1
+  backtick -E READY {
+    pipeline { docker info } grep -q "Server Version"
+  }
+  importas -u READY READY
+  if -t { test -z ${READY} }
+  sleep 1
+}
+foreground { echo "✅ Docker daemon ready" }
 # Load helix-sway image if tarball exists
-if [ -f "/opt/images/helix-sway.tar.gz" ]; then
-    echo "📦 Loading helix-sway image..."
-    docker load -i /opt/images/helix-sway.tar.gz
-fi
+if { test -f /opt/images/helix-sway.tar.gz }
+foreground { echo "📦 Loading helix-sway image..." }
+foreground {
+  pipeline { gunzip -c /opt/images/helix-sway.tar.gz }
+  docker load
+}
+foreground { echo "✅ helix-sway image loaded" }
+EOF
+RUN chmod +x /etc/services.d/dockerd-ready/up
 
-# Start Wolf
-echo "🐺 Starting Wolf..."
-cd /opt/wolf && ./wolf --api-port 8080 >/var/log/wolf.log 2>&1 &
-sleep 3
+# Service 3: Wolf daemon
+RUN mkdir -p /etc/services.d/wolf
+COPY <<'EOF' /etc/services.d/wolf/dependencies.d/dockerd-ready
+dockerd-ready
+EOF
+COPY <<'EOF' /etc/services.d/wolf/run
+#!/usr/bin/execlineb -P
+with-contenv
+foreground { echo "🐺 Starting Wolf daemon..." }
+# In dev mode, bind-mount ../wolf source over /opt/wolf
+# In production, use bundled /opt/wolf
+cd /opt/wolf
+exec /opt/wolf/wolf --api-port 8080
+EOF
+RUN chmod +x /etc/services.d/wolf/run
 
-# Start Moonlight Web
-echo "🌙 Starting Moonlight Web..."
-cd /opt/moonlight-web && ./moonlight-web >/var/log/moonlight-web.log 2>&1 &
-sleep 2
+# Service 4: Moonlight Web
+RUN mkdir -p /etc/services.d/moonlight-web
+COPY <<'EOF' /etc/services.d/moonlight-web/dependencies.d/wolf
+wolf
+EOF
+COPY <<'EOF' /etc/services.d/moonlight-web/run
+#!/usr/bin/execlineb -P
+with-contenv
+foreground { echo "🌙 Starting Moonlight Web..." }
+# Wait for Wolf API to be ready
+foreground {
+  loopwhilex -x 1
+  backtick -E READY {
+    pipeline { timeout 2 curl -sf http://localhost:8080/api/v1/apps } grep -q "apps"
+  }
+  importas -u READY READY
+  if -t { test -z ${READY} }
+  sleep 2
+}
+# In dev mode, bind-mount ../moonlight-web-stream over /opt/moonlight-web
+cd /opt/moonlight-web
+exec /opt/moonlight-web/moonlight-web
+EOF
+RUN chmod +x /etc/services.d/moonlight-web/run
 
-# Connect to control plane via RevDial (foreground - keeps container alive)
-echo "🔗 Connecting to control plane via RevDial..."
-echo "   URL: ${HELIX_API_URL}/revdial"
-echo "   Wolf ID: ${WOLF_ID:-$(hostname)}"
+# Service 5: RevDial client (connects to control plane)
+# Only runs if HELIX_API_URL and RUNNER_TOKEN are set
+RUN mkdir -p /etc/services.d/revdial-client
+COPY <<'EOF' /etc/services.d/revdial-client/dependencies.d/wolf
+wolf
+EOF
+COPY <<'EOF' /etc/services.d/revdial-client/run
+#!/usr/bin/execlineb -P
+with-contenv
+importas -u HELIX_API_URL HELIX_API_URL
+importas -u RUNNER_TOKEN RUNNER_TOKEN
+importas -D "" WOLF_ID WOLF_ID
+
+# Skip if no control plane configured (local dev mode)
+if -t { test -z ${HELIX_API_URL} }
+foreground { echo "ℹ️  No HELIX_API_URL set, skipping RevDial client (local mode)" }
+exit 0
+
+if -t { test -z ${RUNNER_TOKEN} }
+foreground { echo "⚠️  No RUNNER_TOKEN set, cannot start RevDial client" }
+exit 1
+
+backtick -E WOLF_ID_FINAL {
+  if { test -n ${WOLF_ID} }
+  echo ${WOLF_ID}
+  hostname
+}
+importas -u WOLF_ID_FINAL WOLF_ID_FINAL
+
+foreground { echo "🔗 Connecting to control plane via RevDial..." }
+foreground { echo "   URL: ${HELIX_API_URL}" }
+foreground { echo "   Wolf ID: ${WOLF_ID_FINAL}" }
 
 exec /usr/local/bin/wolf-revdial-client \
-  -server "${HELIX_API_URL}/revdial" \
-  -runner-id "wolf-${WOLF_ID:-$(hostname)}" \
-  -token "${RUNNER_TOKEN}"
+  --api-url ${HELIX_API_URL} \
+  --wolf-id ${WOLF_ID_FINAL} \
+  --runner-token ${RUNNER_TOKEN} \
+  --local-addr localhost:8080
 EOF
+RUN chmod +x /etc/services.d/revdial-client/run
 
-RUN chmod +x /opt/start-sandbox.sh
-
-# S6 service definitions
-RUN mkdir -p /etc/services.d/sandbox
-COPY <<'EOF' /etc/services.d/sandbox/run
-#!/usr/bin/execlineb -P
-/opt/start-sandbox.sh
-EOF
-RUN chmod +x /etc/services.d/sandbox/run
-
+# ====================================================================
 # Environment defaults
-ENV HELIX_API_URL=http://localhost:8080 \
-    WOLF_ID= \
-    RUNNER_TOKEN= \
-    GPU_TYPE=nvidia \
-    MAX_SANDBOXES=10
+# ====================================================================
+ENV HELIX_API_URL="" \
+    WOLF_ID="" \
+    RUNNER_TOKEN="" \
+    GPU_TYPE="nvidia" \
+    MAX_SANDBOXES="10" \
+    HELIX_DEV_MODE="false" \
+    ZED_IMAGE="helix-sway:latest"
 
-EXPOSE 47984-47990 47999/udp 48100/udp 48200/udp
+# ====================================================================
+# Expose ports
+# ====================================================================
+# Moonlight protocol
+EXPOSE 47984-47990/tcp 47999/udp 48100/udp 48200/udp
+# Moonlight Web UI + WebRTC
+EXPOSE 8080/tcp 40000-40100/udp
+# Wolf API (internal)
+EXPOSE 8080/tcp
 
+# ====================================================================
+# Entrypoint
+# ====================================================================
 ENTRYPOINT ["/init"]
 
-# Usage:
-# docker run -d \
-#   --name helix-sandbox \
-#   --privileged \
-#   -e HELIX_API_URL=https://api.example.com \
-#   -e WOLF_ID=$(hostname) \
-#   -e RUNNER_TOKEN=$RUNNER_TOKEN \
-#   -p 47984-47990:47984-47990 \
-#   -p 47999:47999/udp \
-#   -p 48100:48100/udp \
-#   -p 48200:48200/udp \
-#   -v /var/lib/helix-sandbox:/var/lib/docker \
-#   ghcr.io/helixml/helix-sandbox:latest
+# ====================================================================
+# Usage Examples
+# ====================================================================
+# Production (connects to remote control plane):
+#   docker run -d \
+#     --name helix-sandbox \
+#     --privileged \
+#     -e HELIX_API_URL=https://api.helixml.tech \
+#     -e WOLF_ID=$(hostname) \
+#     -e RUNNER_TOKEN=$RUNNER_TOKEN \
+#     -p 47984-47990:47984-47990 \
+#     -p 47999:47999/udp \
+#     -p 48100:48100/udp \
+#     -p 48200:48200/udp \
+#     -p 40000-40100:40000-40100/udp \
+#     -v /var/lib/helix-sandbox:/var/lib/docker \
+#     ghcr.io/helixml/helix-sandbox:latest
+#
+# Local development (no RevDial, bind-mount sources):
+#   docker compose -f docker-compose.dev.yaml up -d sandbox
