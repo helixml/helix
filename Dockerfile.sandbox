@@ -1,8 +1,11 @@
 # ====================================================================
 # Helix Sandbox - Unified Container
-# Includes: Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
-# Deploy with: docker run --privileged -e HELIX_API_URL=... -e RUNNER_TOKEN=... ghcr.io/helixml/helix-sandbox:latest
+# Architecture: Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+# Based on: ~/pm/wolf/docker/wolf.Dockerfile (uses GOW base-app + cont-init.d)
 # ====================================================================
+
+# Use same base as Wolf (GOW gstreamer base-app with init system)
+ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
 # ====================================================================
 # Stage 1: Build wolf-revdial-client
@@ -15,223 +18,308 @@ COPY api/ ./api/
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /wolf-revdial-client ./api/cmd/wolf-revdial-client
 
 # ====================================================================
-# Stage 2: Wolf base (copy from upstream or build from source)
+# Stage 2: Build Moonlight Web
 # ====================================================================
-FROM ghcr.io/games-on-whales/wolf:stable AS wolf-source
-# This stage just provides Wolf binaries and configs
-# In production builds, we could build from ../wolf source instead
+FROM rust:latest AS moonlight-web-builder
 
-# ====================================================================
-# Stage 3: Moonlight Web (copy from upstream or build from source)
-# ====================================================================
-FROM ghcr.io/games-on-whales/moonlight-web:latest AS moonlight-web-source
-# This stage provides Moonlight Web binaries
-# In production builds, we could build from ../moonlight-web-stream source instead
+# Use release mode for production (or debug for faster builds)
+ARG BUILD_MODE=release
 
-# ====================================================================
-# Stage 4: Base image with Docker-in-Docker + NVIDIA support
-# ====================================================================
-FROM ubuntu:25.04 AS base
+# Install Rust nightly (required by moonlight-web-stream)
+RUN rustup default nightly
 
-# Install Docker, nvidia-container-toolkit, and basic tools
-RUN apt-get update && \
-    apt-get install -y ca-certificates curl gnupg lsb-release wget bash procps && \
-    install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    chmod a+r /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin && \
-    # NVIDIA Container Toolkit for GPU passthrough to sandboxes
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
-    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
-    apt-get update && \
-    apt-get install -y nvidia-container-toolkit nvidia-container-runtime && \
-    rm -rf /var/lib/apt/lists/*
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    procps \
+    curl \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    clang \
+    libclang-dev \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install s6-overlay for process supervision (manages dockerd, wolf, moonlight-web, revdial)
-ARG S6_VERSION=3.2.0.2
-ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-noarch.tar.xz /tmp
-ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-x86_64.tar.xz /tmp
-RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
-    tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz && \
-    rm /tmp/s6-overlay-*.tar.xz
+# Use system OpenSSL (prevents slow perl-based OpenSSL compilation)
+ENV OPENSSL_NO_VENDOR=1
+ENV OPENSSL_DIR=/usr
+ENV OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+ENV OPENSSL_INCLUDE_DIR=/usr/include
+
+WORKDIR /build
+
+# NOTE: In production, copy Moonlight Web source here
+# For now, we'll copy from upstream image in final stage
+# COPY moonlight-web-stream/ .
+# RUN --mount=type=cache,target=/usr/local/cargo/registry \
+#     --mount=type=cache,target=/build/target \
+#     cargo build --release && \
+#     cp /build/target/release/web-server /tmp/web-server && \
+#     cp /build/target/release/streamer /tmp/streamer
 
 # ====================================================================
-# Stage 5: Final unified image
+# Stage 3: Get Wolf binary (from upstream or build from source)
 # ====================================================================
-FROM base
+FROM ghcr.io/games-on-whales/wolf:stable AS wolf-upstream
+# This gives us Wolf binaries if we don't want to build from source
+# For building from source, see ~/pm/wolf/docker/wolf.Dockerfile lines 4-93
 
-# Create directory structure
-RUN mkdir -p /opt/wolf /opt/moonlight-web /opt/images /var/run/wolf /var/log /etc/wolf/cfg
+# ====================================================================
+# Stage 4: Get Moonlight Web binaries (from upstream)
+# ====================================================================
+FROM ghcr.io/games-on-whales/moonlight-web:latest AS moonlight-web-upstream
+# This gives us Moonlight Web binaries
+# For building from source, uncomment the build in Stage 2
 
-# Copy Wolf from upstream (or from local build in production)
-COPY --from=wolf-source /usr/local/bin/wolf /opt/wolf/wolf
-COPY --from=wolf-source /etc/wolf /opt/wolf/config-defaults
-RUN chmod +x /opt/wolf/wolf
+# ====================================================================
+# Stage 5: Final unified sandbox image
+# ====================================================================
+FROM $BASE_IMAGE AS sandbox
 
-# Copy Moonlight Web from upstream (or from local build)
-COPY --from=moonlight-web-source /app /opt/moonlight-web/
-RUN chmod +x /opt/moonlight-web/moonlight-web || true
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Copy wolf-revdial-client binary
+# ====================================================================
+# Install all runtime dependencies (Wolf + Moonlight Web + Docker)
+# ====================================================================
+
+# Wolf runtime dependencies (from wolf.Dockerfile lines 99-110)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libicu76 \
+    libevdev2 \
+    libudev1 \
+    libcurl4 \
+    libdrm2 \
+    libpci3 \
+    libunwind8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Debug tools for deadlock investigation (from wolf.Dockerfile lines 113-122)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    gdb \
+    strace \
+    ltrace \
+    lsof \
+    procps \
+    htop \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# gst-plugin-wayland runtime dependencies (from wolf.Dockerfile lines 147-151)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    libwayland-server0 libinput10 libxkbcommon0 libgbm1 \
+    libglvnd0 libgl1 libglx0 libegl1 libgles2 xwayland hwdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker + NVIDIA Container Toolkit (from wolf.Dockerfile lines 154-182)
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+    docker-ce-cli \
+    docker-ce \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# NVIDIA Container Toolkit (from wolf.Dockerfile lines 174-182)
+RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+    && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+    && apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+    nvidia-container-toolkit \
+    nvidia-container-runtime \
+    && rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Copy Wolf binaries and setup
+# ====================================================================
+
+WORKDIR /wolf
+ENV WOLF_CFG_FOLDER=/etc/wolf/cfg
+
+# Copy Wolf binaries from upstream (or from wolf-builder if building from source)
+COPY --from=wolf-upstream /wolf/wolf /wolf/wolf
+COPY --from=wolf-upstream /wolf/fake-udev /wolf/fake-udev
+
+# Copy Wolf's GStreamer plugins (custom compositor)
+ENV GST_PLUGIN_PATH=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
+COPY --from=wolf-upstream $GST_PLUGIN_PATH /usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
+COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib/
+
+# Copy Wolf's init scripts and config template (from wolf.Dockerfile lines 196-205)
+RUN mkdir -p /opt/wolf-defaults
+COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
+COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
+COPY --from=wolf-upstream /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
+RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/05-init-wolf-config.sh
+
+# ====================================================================
+# Copy Moonlight Web binaries and setup
+# ====================================================================
+
+WORKDIR /opt/moonlight-web
+
+# Copy Moonlight Web binaries from upstream
+COPY --from=moonlight-web-upstream /app/web-server /opt/moonlight-web/moonlight-web
+COPY --from=moonlight-web-upstream /app/streamer /opt/moonlight-web/streamer
+COPY --from=moonlight-web-upstream /app/dist /opt/moonlight-web/dist
+COPY --from=moonlight-web-upstream /app/static /opt/moonlight-web/static
+
+# Copy Moonlight Web templates and init script
+RUN mkdir -p /opt/moonlight-web/templates /opt/moonlight-web/server
+COPY --from=moonlight-web-upstream /app/templates/ /opt/moonlight-web/templates/
+COPY --from=moonlight-web-upstream /app/init-moonlight-config.sh /opt/moonlight-web/init-moonlight-config.sh
+RUN chmod +x /opt/moonlight-web/init-moonlight-config.sh
+
+# ====================================================================
+# Copy wolf-revdial-client
+# ====================================================================
+
 COPY --from=revdial-builder /wolf-revdial-client /usr/local/bin/wolf-revdial-client
 RUN chmod +x /usr/local/bin/wolf-revdial-client
 
-# Copy helix-sway tarball (built by ./stack build-sandbox)
-# This tarball will be loaded into Wolf's internal dockerd at startup
-COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
-
 # ====================================================================
-# s6-overlay service definitions
+# Create cont-init.d scripts for Moonlight Web and RevDial
+# (Following Wolf's pattern: /etc/cont-init.d/*.sh runs before main process)
 # ====================================================================
 
-# Service 1: dockerd (Wolf's internal Docker daemon)
-RUN mkdir -p /etc/services.d/dockerd
-COPY <<'EOF' /etc/services.d/dockerd/run
-#!/usr/bin/execlineb -P
-with-contenv
-foreground {
-  if { mkdir -p /etc/docker }
-  if {
-    redirfd -w 1 /etc/docker/daemon.json
-    cat <<DOCKERCFG
-{
-  "runtimes": {
-    "nvidia": {
-      "path": "nvidia-container-runtime",
-      "runtimeArgs": []
-    }
-  },
-  "storage-driver": "overlay2",
-  "log-level": "info",
-  "bridge": "docker0",
-  "bip": "172.20.0.1/16"
-}
-DOCKERCFG
-  }
-  foreground { echo "🐳 Starting Docker daemon..." }
-}
-dockerd --host=unix:///var/run/docker.sock
-EOF
-RUN chmod +x /etc/services.d/dockerd/run
-
-# Service 2: dockerd-ready (waits for Docker, then loads helix-sway image)
-RUN mkdir -p /etc/services.d/dockerd-ready
-COPY <<'EOF' /etc/services.d/dockerd-ready/type
-oneshot
-EOF
-COPY <<'EOF' /etc/services.d/dockerd-ready/up
-#!/usr/bin/execlineb -P
-with-contenv
-foreground { echo "⏳ Waiting for Docker daemon..." }
-foreground {
-  loopwhilex -x 1
-  backtick -E READY {
-    pipeline { docker info } grep -q "Server Version"
-  }
-  importas -u READY READY
-  if -t { test -z ${READY} }
-  sleep 1
-}
-foreground { echo "✅ Docker daemon ready" }
-# Load helix-sway image if tarball exists
-if { test -f /opt/images/helix-sway.tar.gz }
-foreground { echo "📦 Loading helix-sway image..." }
-foreground {
-  pipeline { gunzip -c /opt/images/helix-sway.tar.gz }
-  docker load
-}
-foreground { echo "✅ helix-sway image loaded" }
-EOF
-RUN chmod +x /etc/services.d/dockerd-ready/up
-
-# Service 3: Wolf daemon
-RUN mkdir -p /etc/services.d/wolf
-COPY <<'EOF' /etc/services.d/wolf/dependencies.d/dockerd-ready
-dockerd-ready
-EOF
-COPY <<'EOF' /etc/services.d/wolf/run
-#!/usr/bin/execlineb -P
-with-contenv
-foreground { echo "🐺 Starting Wolf daemon..." }
-# In dev mode, bind-mount ../wolf source over /opt/wolf
-# In production, use bundled /opt/wolf
-cd /opt/wolf
-exec /opt/wolf/wolf --api-port 8080
-EOF
-RUN chmod +x /etc/services.d/wolf/run
-
-# Service 4: Moonlight Web
-RUN mkdir -p /etc/services.d/moonlight-web
-COPY <<'EOF' /etc/services.d/moonlight-web/dependencies.d/wolf
-wolf
-EOF
-COPY <<'EOF' /etc/services.d/moonlight-web/run
-#!/usr/bin/execlineb -P
-with-contenv
-foreground { echo "🌙 Starting Moonlight Web..." }
-# Wait for Wolf API to be ready
-foreground {
-  loopwhilex -x 1
-  backtick -E READY {
-    pipeline { timeout 2 curl -sf http://localhost:8080/api/v1/apps } grep -q "apps"
-  }
-  importas -u READY READY
-  if -t { test -z ${READY} }
-  sleep 2
-}
-# In dev mode, bind-mount ../moonlight-web-stream over /opt/moonlight-web
+# Init script to initialize Moonlight Web config (runs after dockerd, before services)
+RUN cat > /etc/cont-init.d/06-init-moonlight-config.sh << 'EOF'
+#!/bin/bash
+set -e
+echo "🌙 Initializing Moonlight Web configuration..."
 cd /opt/moonlight-web
-exec /opt/moonlight-web/moonlight-web
+/opt/moonlight-web/init-moonlight-config.sh
+echo "✅ Moonlight Web configuration initialized"
 EOF
-RUN chmod +x /etc/services.d/moonlight-web/run
-
-# Service 5: RevDial client (connects to control plane)
-# Only runs if HELIX_API_URL and RUNNER_TOKEN are set
-RUN mkdir -p /etc/services.d/revdial-client
-COPY <<'EOF' /etc/services.d/revdial-client/dependencies.d/wolf
-wolf
-EOF
-COPY <<'EOF' /etc/services.d/revdial-client/run
-#!/usr/bin/execlineb -P
-with-contenv
-importas -u HELIX_API_URL HELIX_API_URL
-importas -u RUNNER_TOKEN RUNNER_TOKEN
-importas -D "" WOLF_ID WOLF_ID
-
-# Skip if no control plane configured (local dev mode)
-if -t { test -z ${HELIX_API_URL} }
-foreground { echo "ℹ️  No HELIX_API_URL set, skipping RevDial client (local mode)" }
-exit 0
-
-if -t { test -z ${RUNNER_TOKEN} }
-foreground { echo "⚠️  No RUNNER_TOKEN set, cannot start RevDial client" }
-exit 1
-
-backtick -E WOLF_ID_FINAL {
-  if { test -n ${WOLF_ID} }
-  echo ${WOLF_ID}
-  hostname
-}
-importas -u WOLF_ID_FINAL WOLF_ID_FINAL
-
-foreground { echo "🔗 Connecting to control plane via RevDial..." }
-foreground { echo "   URL: ${HELIX_API_URL}" }
-foreground { echo "   Wolf ID: ${WOLF_ID_FINAL}" }
-
-exec /usr/local/bin/wolf-revdial-client \
-  --api-url ${HELIX_API_URL} \
-  --wolf-id ${WOLF_ID_FINAL} \
-  --runner-token ${RUNNER_TOKEN} \
-  --local-addr localhost:8080
-EOF
-RUN chmod +x /etc/services.d/revdial-client/run
+RUN chmod +x /etc/cont-init.d/06-init-moonlight-config.sh
 
 # ====================================================================
-# Environment defaults
+# Create unified startup script
+# (Replaces /opt/gow/startup-app.sh - runs Wolf, Moonlight Web, RevDial)
 # ====================================================================
+
+RUN cat > /opt/gow/startup-app.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# This script is executed by GOW's /entrypoint.sh after all cont-init.d scripts
+
+echo "🚀 Starting Helix Sandbox unified services..."
+
+# Make sure Wolf config folder exists
+export WOLF_CFG_FOLDER=$HOST_APPS_STATE_FOLDER/cfg
+mkdir -p $WOLF_CFG_FOLDER
+export WOLF_CFG_FILE=$WOLF_CFG_FOLDER/config.toml
+export WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem
+export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
+
+# Set default values for environment variables
+export WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
+export WOLF_ENCODER_NODE=${WOLF_ENCODER_NODE:-$WOLF_RENDER_NODE}
+export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
+
+# Update fake-udev path
+export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
+cp /wolf/fake-udev $WOLF_DOCKER_FAKE_UDEV_PATH
+
+# Start Wolf in background
+echo "🐺 Starting Wolf daemon..."
+cd /wolf
+/wolf/wolf >/var/log/wolf.log 2>&1 &
+WOLF_PID=$!
+echo "Wolf started with PID: $WOLF_PID"
+
+# Wait for Wolf API to be ready
+echo "⏳ Waiting for Wolf API..."
+for i in {1..30}; do
+    if curl -sf http://localhost:8080/api/v1/apps >/dev/null 2>&1; then
+        echo "✅ Wolf API is ready"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "❌ Wolf API failed to start within 30 seconds"
+        tail -50 /var/log/wolf.log
+        exit 1
+    fi
+    sleep 1
+done
+
+# Start Moonlight Web in background
+echo "🌙 Starting Moonlight Web..."
+cd /opt/moonlight-web
+/opt/moonlight-web/moonlight-web >/var/log/moonlight-web.log 2>&1 &
+MOONLIGHT_PID=$!
+echo "Moonlight Web started with PID: $MOONLIGHT_PID"
+
+# Start RevDial client if HELIX_API_URL is set (optional, for multi-Wolf deployment)
+if [ -n "$HELIX_API_URL" ] && [ -n "$RUNNER_TOKEN" ]; then
+    WOLF_ID=${WOLF_ID:-$(hostname)}
+    echo "🔗 Connecting to control plane via RevDial..."
+    echo "   URL: $HELIX_API_URL"
+    echo "   Wolf ID: $WOLF_ID"
+
+    /usr/local/bin/wolf-revdial-client \
+        --api-url "$HELIX_API_URL" \
+        --wolf-id "$WOLF_ID" \
+        --runner-token "$RUNNER_TOKEN" \
+        --local-addr localhost:8080 \
+        >/var/log/revdial-client.log 2>&1 &
+    REVDIAL_PID=$!
+    echo "RevDial client started with PID: $REVDIAL_PID"
+else
+    echo "ℹ️  No HELIX_API_URL set, skipping RevDial client (local mode)"
+fi
+
+# Wait for all background processes (prevents container from exiting)
+# If any process exits, the container will exit
+echo "✅ All services started successfully"
+echo "Monitoring processes..."
+wait
+EOF
+RUN chmod +x /opt/gow/startup-app.sh
+
+# ====================================================================
+# Wolf environment variables (from wolf.Dockerfile lines 207-225)
+# ====================================================================
+
+ENV GST_GL_API=gles2 \
+    GST_GL_PLATFORM=egl \
+    GST_GL_WINDOW=surfaceless \
+    WOLF_USE_ZERO_COPY=TRUE \
+    WOLF_LOG_LEVEL=INFO \
+    WOLF_CFG_FILE=$WOLF_CFG_FOLDER/config.toml \
+    WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem \
+    WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem \
+    WOLF_PULSE_IMAGE=ghcr.io/games-on-whales/pulseaudio:master \
+    WOLF_RENDER_NODE=/dev/dri/renderD128 \
+    WOLF_STOP_CONTAINER_ON_EXIT=TRUE \
+    WOLF_DOCKER_SOCKET=/var/run/docker.sock \
+    RUST_BACKTRACE=full \
+    RUST_LOG=WARN \
+    HOST_APPS_STATE_FOLDER=/etc/wolf \
+    GST_DEBUG=2 \
+    PUID=0 \
+    PGID=0 \
+    UNAME="root"
+
+# Helix sandbox environment variables
 ENV HELIX_API_URL="" \
     WOLF_ID="" \
     RUNNER_TOKEN="" \
@@ -240,38 +328,28 @@ ENV HELIX_API_URL="" \
     HELIX_DEV_MODE="false" \
     ZED_IMAGE="helix-sway:latest"
 
+# XDG_RUNTIME_DIR (creates volume when starting container)
+VOLUME /run/user/wolf/
+ENV XDG_RUNTIME_DIR=/run/user/wolf
+
 # ====================================================================
-# Expose ports
+# Expose ports (Wolf + Moonlight Web)
 # ====================================================================
-# Moonlight protocol
-EXPOSE 47984-47990/tcp 47999/udp 48100/udp 48200/udp
+
+# Moonlight protocol (Wolf)
+EXPOSE 47984/tcp 47989/tcp 48010/tcp 47415/udp 47999/udp 48100/udp 48200/udp
 # Moonlight Web UI + WebRTC
 EXPOSE 8080/tcp 40000-40100/udp
-# Wolf API (internal)
-EXPOSE 8080/tcp
 
 # ====================================================================
-# Entrypoint
+# Labels
 # ====================================================================
-ENTRYPOINT ["/init"]
+
+LABEL org.opencontainers.image.source="https://github.com/helixml/helix"
+LABEL org.opencontainers.image.description="Helix Sandbox: Wolf + Moonlight Web + RevDial + DinD"
 
 # ====================================================================
-# Usage Examples
+# Entrypoint (from GOW base-app, runs cont-init.d scripts then startup-app.sh)
 # ====================================================================
-# Production (connects to remote control plane):
-#   docker run -d \
-#     --name helix-sandbox \
-#     --privileged \
-#     -e HELIX_API_URL=https://api.helixml.tech \
-#     -e WOLF_ID=$(hostname) \
-#     -e RUNNER_TOKEN=$RUNNER_TOKEN \
-#     -p 47984-47990:47984-47990 \
-#     -p 47999:47999/udp \
-#     -p 48100:48100/udp \
-#     -p 48200:48200/udp \
-#     -p 40000-40100:40000-40100/udp \
-#     -v /var/lib/helix-sandbox:/var/lib/docker \
-#     ghcr.io/helixml/helix-sandbox:latest
-#
-# Local development (no RevDial, bind-mount sources):
-#   docker compose -f docker-compose.dev.yaml up -d sandbox
+
+ENTRYPOINT ["/entrypoint.sh"]
