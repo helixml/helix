@@ -163,11 +163,28 @@ COPY --from=wolf-upstream $GST_PLUGIN_PATH /usr/local/lib/x86_64-linux-gnu/gstre
 COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib/
 
 # Copy Wolf's init scripts and config template (from wolf.Dockerfile lines 196-205)
-RUN mkdir -p /opt/wolf-defaults
+RUN mkdir -p /opt/wolf-defaults /opt/images
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 COPY --from=wolf-upstream /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
 RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/05-init-wolf-config.sh
+
+# Copy helix-sway tarball (created by ./stack build-sandbox)
+# This will be loaded into Wolf's dockerd at container startup
+COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
+
+# Extend start-dockerd.sh to load helix-sway image after dockerd starts
+RUN cat >> /etc/cont-init.d/04-start-dockerd.sh << 'EOF'
+
+# Load helix-sway image into Wolf's dockerd (for sandbox desktop environments)
+if [ -f /opt/images/helix-sway.tar.gz ]; then
+    echo "📦 Loading helix-sway image into Wolf's dockerd..."
+    docker load -i /opt/images/helix-sway.tar.gz
+    echo "✅ helix-sway:latest loaded successfully"
+else
+    echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
+fi
+EOF
 
 # ====================================================================
 # Copy Moonlight Web binaries and setup
