@@ -35,7 +35,6 @@ import GitRepoDetail from './pages/GitRepoDetail'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 import PasswordReset from './pages/PasswordReset'
 import PasswordResetComplete from './pages/PasswordResetComplete'
-import TelemetrySecurityDashboard from './components/security/TelemetrySecurityDashboard'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -394,14 +393,6 @@ const routes: IApplicationRoute[] = [
     title: 'Set New Password',
   },
   render: () => <PasswordResetComplete />,
-}, {
-  name: 'security-telemetry',
-  path: '/security/telemetry',
-  meta: {
-    drawer: true,
-    title: 'AI Agent Security',
-  },
-  render: () => <TelemetrySecurityDashboard />,
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
