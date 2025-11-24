@@ -1,0 +1,149 @@
+# Helix Sandbox Node - Unified Container
+# Includes: Wolf + Moonlight Web + RevDial Client + helix-sway image
+# Deploy with: docker run --privileged -e HELIX_API_URL=... -e RUNNER_TOKEN=... ghcr.io/helixml/helix-sandbox:latest
+
+FROM ubuntu:25.04 AS base
+
+# Install Docker and nvidia-container-toolkit (same as Wolf)
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg lsb-release && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    chmod a+r /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && \
+    apt-get install -y docker-ce docker-ce-cli containerd.io && \
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+    apt-get update && \
+    apt-get install -y nvidia-container-toolkit nvidia-container-runtime && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install s6-overlay for process supervision
+ARG S6_VERSION=3.2.0.2
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-noarch.tar.xz /tmp
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_VERSION}/s6-overlay-x86_64.tar.xz /tmp
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
+    tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz && \
+    rm /tmp/s6-overlay-*.tar.xz
+
+# Build wolf-revdial-client
+FROM golang:1.24 AS revdial-builder
+WORKDIR /build
+COPY api/go.mod api/go.sum ./
+RUN go mod download
+COPY api/ ./
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /wolf-revdial-client ./cmd/wolf-revdial-client
+
+# Build final image
+FROM base
+
+# Copy Wolf files (would use COPY --from in real build)
+# For now, document that Wolf needs to be copied in
+RUN mkdir -p /opt/wolf /opt/moonlight-web /opt/images
+
+# Copy wolf-revdial-client binary
+COPY --from=revdial-builder /wolf-revdial-client /usr/local/bin/wolf-revdial-client
+RUN chmod +x /usr/local/bin/wolf-revdial-client
+
+# Placeholder: In real build, would copy Wolf and Moonlight Web
+# COPY --from=ghcr.io/helixml/wolf:latest /app /opt/wolf/
+# COPY --from=ghcr.io/games-on-whales/moonlight-web:latest /app /opt/moonlight-web/
+
+# helix-sway image will be mounted as volume or built during container startup
+# This avoids 2.5GB in the base image
+
+# Create startup scripts
+COPY <<'EOF' /opt/start-sandbox.sh
+#!/usr/bin/with-contenv bash
+set -e
+
+echo "🚀 Helix Sandbox Node Starting..."
+echo "Control Plane: ${HELIX_API_URL}"
+echo "Wolf ID: ${WOLF_ID:-$(hostname)}"
+echo "GPU Type: ${GPU_TYPE:-nvidia}"
+echo ""
+
+# Configure dockerd
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<DOCKERCFG
+{
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  },
+  "storage-driver": "overlay2",
+  "log-level": "error"
+}
+DOCKERCFG
+
+# Start dockerd
+echo "🐳 Starting Docker daemon..."
+dockerd --host=unix:///var/run/docker.sock >/var/log/dockerd.log 2>&1 &
+until docker info >/dev/null 2>&1; do sleep 1; done
+echo "✅ Docker ready"
+
+# Load helix-sway image if tarball exists
+if [ -f "/opt/images/helix-sway.tar.gz" ]; then
+    echo "📦 Loading helix-sway image..."
+    docker load -i /opt/images/helix-sway.tar.gz
+fi
+
+# Start Wolf
+echo "🐺 Starting Wolf..."
+cd /opt/wolf && ./wolf --api-port 8080 >/var/log/wolf.log 2>&1 &
+sleep 3
+
+# Start Moonlight Web
+echo "🌙 Starting Moonlight Web..."
+cd /opt/moonlight-web && ./moonlight-web >/var/log/moonlight-web.log 2>&1 &
+sleep 2
+
+# Connect to control plane via RevDial (foreground - keeps container alive)
+echo "🔗 Connecting to control plane via RevDial..."
+echo "   URL: ${HELIX_API_URL}/revdial"
+echo "   Wolf ID: ${WOLF_ID:-$(hostname)}"
+
+exec /usr/local/bin/wolf-revdial-client \
+  -server "${HELIX_API_URL}/revdial" \
+  -runner-id "wolf-${WOLF_ID:-$(hostname)}" \
+  -token "${RUNNER_TOKEN}"
+EOF
+
+RUN chmod +x /opt/start-sandbox.sh
+
+# S6 service definitions
+RUN mkdir -p /etc/services.d/sandbox
+COPY <<'EOF' /etc/services.d/sandbox/run
+#!/usr/bin/execlineb -P
+/opt/start-sandbox.sh
+EOF
+RUN chmod +x /etc/services.d/sandbox/run
+
+# Environment defaults
+ENV HELIX_API_URL=http://localhost:8080 \
+    WOLF_ID= \
+    RUNNER_TOKEN= \
+    GPU_TYPE=nvidia \
+    MAX_SANDBOXES=10
+
+EXPOSE 47984-47990 47999/udp 48100/udp 48200/udp
+
+ENTRYPOINT ["/init"]
+
+# Usage:
+# docker run -d \
+#   --name helix-sandbox \
+#   --privileged \
+#   -e HELIX_API_URL=https://api.example.com \
+#   -e WOLF_ID=$(hostname) \
+#   -e RUNNER_TOKEN=$RUNNER_TOKEN \
+#   -p 47984-47990:47984-47990 \
+#   -p 47999:47999/udp \
+#   -p 48100:48100/udp \
+#   -p 48200:48200/udp \
+#   -v /var/lib/helix-sandbox:/var/lib/docker \
+#   ghcr.io/helixml/helix-sandbox:latest
