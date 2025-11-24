@@ -59,18 +59,16 @@ WORKDIR /build
 #     cp /build/target/release/streamer /tmp/streamer
 
 # ====================================================================
-# Stage 3: Get Wolf binary (from upstream or build from source)
+# Stage 3: Get Wolf binary (use local image)
 # ====================================================================
-FROM ghcr.io/games-on-whales/wolf:stable AS wolf-upstream
-# This gives us Wolf binaries if we don't want to build from source
-# For building from source, see ~/pm/wolf/docker/wolf.Dockerfile lines 4-93
+FROM wolf:helix-fixed AS wolf-upstream
+# Using local Wolf image built from ~/pm/wolf
 
 # ====================================================================
-# Stage 4: Get Moonlight Web binaries (from upstream)
+# Stage 4: Get Moonlight Web binaries (use local image)
 # ====================================================================
-FROM ghcr.io/games-on-whales/moonlight-web:latest AS moonlight-web-upstream
-# This gives us Moonlight Web binaries
-# For building from source, uncomment the build in Stage 2
+FROM helix-moonlight-web:helix-fixed AS moonlight-web-upstream
+# Using local Moonlight Web image
 
 # ====================================================================
 # Stage 5: Final unified sandbox image
@@ -162,21 +160,88 @@ ENV GST_PLUGIN_PATH=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
 COPY --from=wolf-upstream $GST_PLUGIN_PATH /usr/local/lib/x86_64-linux-gnu/gstreamer-1.0/
 COPY --from=wolf-upstream /usr/local/lib/liblibgstwaylanddisplay* /usr/local/lib/
 
-# Copy Wolf's init scripts and config template (from wolf.Dockerfile lines 196-205)
+# Copy Wolf's init scripts and config template
 RUN mkdir -p /opt/wolf-defaults /opt/images
 COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defaults/config.toml.template
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
-COPY --from=wolf-upstream /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/04-start-dockerd.sh
-RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh /etc/cont-init.d/05-init-wolf-config.sh
+RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
-# Copy helix-sway tarball (created by ./stack build-sandbox)
-# This will be loaded into Wolf's dockerd at container startup
+# Copy helix-sway tarball (will be loaded by start-dockerd.sh)
 COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
 
-# Extend start-dockerd.sh to load helix-sway image after dockerd starts
-RUN cat >> /etc/cont-init.d/04-start-dockerd.sh << 'EOF'
+# Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
+COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
+#!/bin/bash
+set -e
 
-# Load helix-sway image into Wolf's dockerd (for sandbox desktop environments)
+echo "🐳 Starting Wolf's isolated dockerd..."
+
+# Clean up stale PID file (common issue with Docker restarts)
+if [ -f /var/run/docker.pid ]; then
+    echo "🧹 Cleaning up stale docker.pid file"
+    rm -f /var/run/docker.pid
+fi
+
+# Use iptables-legacy for DinD compatibility
+export PATH="/usr/local/sbin/.iptables-legacy:$PATH"
+echo "Using iptables-legacy for Docker-in-Docker networking compatibility"
+
+# Configure dockerd with NVIDIA runtime
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'DAEMON_JSON'
+{
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  },
+  "storage-driver": "overlay2",
+  "log-level": "error"
+}
+DAEMON_JSON
+
+echo "Configured Wolf's dockerd with nvidia runtime support"
+
+# Start dockerd in background
+dockerd --config-file /etc/docker/daemon.json \
+    --host=unix:///var/run/docker.sock \
+    >/var/log/dockerd.log 2>&1 &
+
+DOCKERD_PID=$!
+echo "Started dockerd with PID: $DOCKERD_PID"
+
+# Wait for dockerd to be ready
+TIMEOUT=30
+ELAPSED=0
+until docker info >/dev/null 2>&1; do
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+        echo "❌ ERROR: dockerd failed to start within $TIMEOUT seconds"
+        tail -50 /var/log/dockerd.log
+        exit 1
+    fi
+    echo "Waiting for dockerd... ($ELAPSED/$TIMEOUT)"
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+done
+
+echo "✅ Wolf's dockerd is ready!"
+docker info 2>&1 | head -5
+
+# Enable forwarding for nested containers
+iptables -P FORWARD ACCEPT
+echo "✅ iptables FORWARD policy set to ACCEPT"
+
+# Create helix_default network
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network (subnet 172.20.0.0/16)..."
+    docker network create helix_default --subnet 172.20.0.0/16 --gateway 172.20.0.1
+    echo "✅ helix_default network created"
+else
+    echo "helix_default network already exists"
+fi
+
+# Load helix-sway image into Wolf's dockerd
 if [ -f /opt/images/helix-sway.tar.gz ]; then
     echo "📦 Loading helix-sway image into Wolf's dockerd..."
     docker load -i /opt/images/helix-sway.tar.gz
@@ -184,7 +249,8 @@ if [ -f /opt/images/helix-sway.tar.gz ]; then
 else
     echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
 fi
-EOF
+DOCKERD_SCRIPT
+RUN chmod +x /etc/cont-init.d/04-start-dockerd.sh
 
 # ====================================================================
 # Copy Moonlight Web binaries and setup
@@ -204,6 +270,16 @@ COPY --from=moonlight-web-upstream /app/templates/ /opt/moonlight-web/templates/
 COPY --from=moonlight-web-upstream /app/init-moonlight-config.sh /opt/moonlight-web/init-moonlight-config.sh
 RUN chmod +x /opt/moonlight-web/init-moonlight-config.sh
 
+# Create symlinks for Moonlight Web init script compatibility
+# The upstream init script expects binaries in /app/, but we have them in /opt/moonlight-web/
+RUN mkdir -p /app && \
+    ln -s /opt/moonlight-web/moonlight-web /app/web-server && \
+    ln -s /opt/moonlight-web/streamer /app/streamer && \
+    ln -s /opt/moonlight-web/dist /app/dist && \
+    ln -s /opt/moonlight-web/static /app/static && \
+    ln -s /opt/moonlight-web/templates /app/templates && \
+    ln -s /opt/moonlight-web/server /app/server
+
 # ====================================================================
 # Copy revdial-client
 # ====================================================================
@@ -216,48 +292,43 @@ RUN chmod +x /usr/local/bin/revdial-client
 # (Following Wolf's pattern: /etc/cont-init.d/*.sh runs before main process)
 # ====================================================================
 
-# 06: Initialize Moonlight Web config (runs after Wolf config init)
-RUN cat > /etc/cont-init.d/06-init-moonlight-config.sh << 'EOF'
+# 06: Initialize and start Moonlight Web (runs after Wolf config init)
+RUN cat > /etc/cont-init.d/06-start-moonlight-web.sh << 'EOF'
 #!/bin/bash
 set -e
-echo "🌙 Initializing Moonlight Web configuration..."
+echo "🌙 Starting Moonlight Web..."
+
+# Create config directory
+mkdir -p /opt/moonlight-web/server
+
+# Initialize config files if they don't exist (simplified, no pairing for now)
+if [ ! -f /opt/moonlight-web/server/data.json ]; then
+    echo '{"pairing": [], "clients": []}' > /opt/moonlight-web/server/data.json
+fi
+
+if [ ! -f /opt/moonlight-web/server/config.json ]; then
+    cat > /opt/moonlight-web/server/config.json << 'CONFIG'
+{
+  "turn_server": {
+    "enabled": true,
+    "urls": ["turn:api:3478"],
+    "username": "helix",
+    "credential": "helix-turn-secret"
+  }
+}
+CONFIG
+fi
+
+# Start Moonlight Web daemon in background
 cd /opt/moonlight-web
-/opt/moonlight-web/init-moonlight-config.sh
-echo "✅ Moonlight Web configuration initialized"
-EOF
-RUN chmod +x /etc/cont-init.d/06-init-moonlight-config.sh
-
-# 07: Start Moonlight Web daemon (runs after config initialization)
-RUN cat > /etc/cont-init.d/07-start-moonlight-web.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "🌙 Starting Moonlight Web daemon..."
-
-# Wait for Wolf's dockerd to be ready (started by 04-start-dockerd.sh)
-echo "⏳ Waiting for dockerd..."
-for i in {1..30}; do
-    if docker info >/dev/null 2>&1; then
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "❌ ERROR: dockerd not ready after 30 seconds"
-        exit 1
-    fi
-    sleep 1
-done
-
-# Start Moonlight Web in background
-cd /opt/moonlight-web
-/opt/moonlight-web/moonlight-web >/var/log/moonlight-web.log 2>&1 &
+./moonlight-web >/var/log/moonlight-web.log 2>&1 &
 MOONLIGHT_PID=$!
-
-echo "✅ Moonlight Web daemon started (PID: $MOONLIGHT_PID)"
+echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
 EOF
-RUN chmod +x /etc/cont-init.d/07-start-moonlight-web.sh
+RUN chmod +x /etc/cont-init.d/06-start-moonlight-web.sh
 
-# 08: Start RevDial clients for Wolf and Moonlight Web (optional, only if HELIX_API_URL is set)
-RUN cat > /etc/cont-init.d/08-start-revdial-clients.sh << 'EOF'
+# 07: Start RevDial clients for Wolf and Moonlight Web (optional, only if HELIX_API_URL is set)
+RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
 #!/bin/bash
 set -e
 
@@ -293,7 +364,7 @@ MOONLIGHT_REVDIAL_PID=$!
 echo "✅ Wolf RevDial client started (PID: $WOLF_REVDIAL_PID)"
 echo "✅ Moonlight Web RevDial client started (PID: $MOONLIGHT_REVDIAL_PID)"
 EOF
-RUN chmod +x /etc/cont-init.d/08-start-revdial-clients.sh
+RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)

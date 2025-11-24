@@ -30,11 +30,9 @@ type lobbyCacheEntry struct {
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	localWolfClient  WolfClientInterface // Unix socket client for local Wolf instance
-	wolfSocketPath   string              // Path to local Wolf Unix socket
-	store            store.Store
-	sessions         map[string]*ZedSession
-	mutex            sync.RWMutex
+	store    store.Store
+	sessions map[string]*ZedSession
+	mutex    sync.RWMutex
 
 	// Zed configuration
 	zedImage      string
@@ -73,16 +71,13 @@ type connmanInterface interface {
 	Dial(ctx context.Context, deviceID string) (net.Conn, error)
 }
 
-// getWolfClient returns the appropriate Wolf client based on the instance ID
-// - "local" or "" → Unix socket client (co-located Wolf)
-// - anything else → RevDial client (remote Wolf instance)
+// getWolfClient returns a Wolf client for the specified instance
+// Uses RevDial to connect to Wolf API (Wolf runs in separate container/machine)
 func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface {
-	if wolfInstanceID == "" || wolfInstanceID == "local" {
-		// Local Wolf instance - use Unix socket
-		return w.localWolfClient
+	// Default to "local" if no instance ID specified
+	if wolfInstanceID == "" {
+		wolfInstanceID = "local"
 	}
-
-	// Remote Wolf instance - use RevDial
 	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
 
@@ -299,7 +294,9 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		log.Info().Msg("Wolf executor initialized (production mode - using files baked into image)")
 	}
 
-	localWolfClient := wolf.NewClient(wolfSocketPath)
+	// Wolf client is created per-request based on session's WolfInstanceID
+	// This allows routing to different Wolf instances in multi-Wolf deployments
+	// See getWolfClient(wolfInstanceID) method below
 
 	// CRITICAL: Workspace paths need to work in two contexts:
 	// 1. Inside API container where we git clone: /filestore/workspaces
@@ -316,8 +313,6 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 	}
 
 	executor := &WolfExecutor{
-		localWolfClient:              localWolfClient,
-		wolfSocketPath:               wolfSocketPath,
 		store:                        storeInst,
 		sessions:                     make(map[string]*ZedSession),
 		zedImage:                     zedImage,
@@ -645,7 +640,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// CRITICAL: Enforce hard limit of 5 concurrent lobbies to prevent GPU resource exhaustion
 	// Discovery: NVML fails at ~5-6 lobbies, GPU crashes at 6-7 lobbies
 	// See: design/2025-11-05-wolf-gpu-resource-limits-and-monitoring.md
-	lobbies, err := w.localWolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient("").ListLobbies(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to check lobby count before creation")
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
@@ -730,7 +725,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// Create lobby (container starts immediately!)
-	lobbyResp, err := w.localWolfClient.CreateLobby(ctx, lobbyReq)
+	lobbyResp, err := w.getWolfClient("").CreateLobby(ctx, lobbyReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lobby for external agent: %w", err)
 	}
@@ -970,7 +965,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer listCancel()
 
-	sessions, err := w.localWolfClient.ListSessions(listCtx)
+	sessions, err := w.getWolfClient("").ListSessions(listCtx)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
 	} else {
@@ -988,7 +983,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 				// Add timeout to prevent hanging on stuck Wolf sessions
 				stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
-				err := w.localWolfClient.StopSession(stopCtx, session.ClientID)
+				err := w.getWolfClient("").StopSession(stopCtx, session.ClientID)
 				stopCancel()
 
 				if err != nil {
@@ -1037,7 +1032,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 		// Add timeout to prevent hanging on stuck Wolf API
 		lobbyStopCtx, lobbyStopCancel := context.WithTimeout(ctx, 10*time.Second)
-		err = w.localWolfClient.StopLobby(lobbyStopCtx, stopReq)
+		err = w.getWolfClient("").StopLobby(lobbyStopCtx, stopReq)
 		lobbyStopCancel()
 
 		if err != nil {
@@ -1409,13 +1404,13 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	)
 
 	// Try to remove any existing app first to avoid conflicts
-	err := w.localWolfClient.RemoveApp(ctx, wolfAppID)
+	err := w.getWolfClient("").RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
 	}
 
 	// Add the app to Wolf
-	err = w.localWolfClient.AddApp(ctx, app)
+	err = w.getWolfClient("").AddApp(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to recreate Wolf app: %w", err)
 	}
@@ -1430,7 +1425,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 
 // checkWolfAppExists checks if a Wolf app with the given ID already exists
 func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
-	apps, err := w.localWolfClient.ListApps(ctx)
+	apps, err := w.getWolfClient("").ListApps(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
@@ -1448,7 +1443,7 @@ func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bo
 // Note: This type-asserts the interface back to the concrete type.
 // Only use this when you need direct access to wolf.Client specific methods.
 func (w *WolfExecutor) GetWolfClient() *wolf.Client {
-	if client, ok := w.localWolfClient.(*wolf.Client); ok {
+	if client, ok := w.getWolfClient("").(*wolf.Client); ok {
 		return client
 	}
 	// This should never happen in production, only in tests with mocks
@@ -1501,7 +1496,7 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 		Str("helix_session_id", helixSessionID).
 		Msg("Session not in memory, querying Wolf lobbies for container")
 
-	lobbies, err := w.localWolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient("").ListLobbies(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
 	}
@@ -1641,7 +1636,7 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 				LobbyID: activity.WolfLobbyID,
 				PIN:     lobbyPIN,
 			}
-			err := w.localWolfClient.StopLobby(ctx, stopReq)
+			err := w.getWolfClient("").StopLobby(ctx, stopReq)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -1731,7 +1726,7 @@ func (w *WolfExecutor) wolfResourceMonitoringLoop(ctx context.Context) {
 
 // logWolfResourceMetrics logs detailed Wolf resource usage for trend analysis
 func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
-	memory, err := w.localWolfClient.GetSystemMemory(ctx)
+	memory, err := w.getWolfClient("").GetSystemMemory(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get Wolf memory stats for monitoring")
 		return
@@ -1852,7 +1847,7 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 	// Cache miss or expired - query Wolf (no logging, too noisy)
 
 	// Get all active lobbies from Wolf
-	lobbies, err := w.localWolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient("").ListLobbies(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
 	}
@@ -1898,7 +1893,7 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 // cleanupOrphanedWolfUISessions removes Wolf-UI streaming sessions without active Zed containers
 func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 	// Get all Wolf-UI streaming sessions
-	sessions, err := w.localWolfClient.ListSessions(ctx)
+	sessions, err := w.getWolfClient("").ListSessions(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list Wolf sessions for orphan cleanup")
 		return
@@ -1910,7 +1905,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 
 	// Get all active lobbies from Wolf to check for orphans
 	// CRITICAL: Use Wolf lobbies list, not in-memory map (survives API restarts)
-	lobbies, err := w.localWolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient("").ListLobbies(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list Wolf lobbies for orphan cleanup")
 		return
@@ -1986,7 +1981,7 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 			Str("session_id", sessionID).
 			Msg("🧹 Found orphaned Wolf-UI session (no lobby), stopping...")
 
-		err := w.localWolfClient.StopSession(ctx, session.ClientID)
+		err := w.getWolfClient("").StopSession(ctx, session.ClientID)
 		if err != nil {
 			log.Warn().
 				Err(err).
