@@ -821,16 +821,26 @@ check_nvidia_gpu() {
     fi
 }
 
-# Function to check for AMD GPU specifically (for Helix Code with ROCm)
+# Function to check for AMD GPU specifically (for Helix Code)
+# Detects AMD GPU via lspci + /dev/dri (does not require ROCm/kfd)
 check_amd_gpu() {
     # Check for AMD GPU via lspci
     if command -v lspci &> /dev/null; then
         if lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
-            # Verify /dev/kfd (ROCm Kernel Fusion Driver) and /dev/dri exist
-            if [ -e "/dev/kfd" ] && [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+            # Verify /dev/dri exists (sufficient for display streaming)
+            if [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
                 return 0
             fi
         fi
+    fi
+    return 1
+}
+
+# Function to check if AMD ROCm is available (for ML compute workloads)
+check_amd_rocm() {
+    # ROCm requires /dev/kfd (Kernel Fusion Driver)
+    if [ -e "/dev/kfd" ]; then
+        return 0
     fi
     return 1
 }
@@ -1077,9 +1087,36 @@ if [ "$RUNNER" = true ]; then
             fi
         fi
     elif check_amd_gpu; then
-        echo "AMD GPU detected with ROCm support. Runner requirements satisfied."
-        echo "Note: Ollama will use AMD GPU. vLLM will use CPU until ROCm-enabled runner image is available."
+        echo "AMD GPU detected. Runner requirements satisfied."
         GPU_VENDOR="amd"
+        if check_amd_rocm; then
+            echo "ROCm support detected (/dev/kfd). ML compute workloads enabled."
+            echo "Note: Ollama will use AMD GPU. vLLM will use CPU until ROCm-enabled runner image is available."
+        else
+            echo ""
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ⚠️  ROCm not detected (/dev/kfd missing)"
+            echo "│"
+            echo "│ AMD GPU found but ROCm drivers are not installed."
+            echo "│ ML compute workloads (Ollama, vLLM) will not use GPU acceleration."
+            echo "│"
+            echo "│ To enable GPU-accelerated ML compute, install ROCm:"
+            echo "│"
+            echo "│   # Ubuntu 22.04/24.04:"
+            echo "│   wget https://repo.radeon.com/amdgpu-install/latest/ubuntu/\$(lsb_release -cs)/amdgpu-install_6.3.60300-1_all.deb"
+            echo "│   sudo apt install ./amdgpu-install_6.3.60300-1_all.deb"
+            echo "│   sudo amdgpu-install --usecase=rocm"
+            echo "│   sudo usermod -aG render,video \$USER"
+            echo "│   sudo reboot"
+            echo "│"
+            echo "│   # Verify after reboot:"
+            echo "│   ls /dev/kfd /dev/dri"
+            echo "│   rocm-smi"
+            echo "│"
+            echo "│ Continuing without ROCm support..."
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            echo ""
+        fi
     else
         echo "┌───────────────────────────────────────────────────────────────────────────"
         echo "│ ❌ ERROR: --runner requires GPU (NVIDIA or AMD)"
@@ -1159,9 +1196,27 @@ if [ "$CODE" = true ]; then
             fi
         fi
     elif check_amd_gpu; then
-        # AMD GPU with ROCm support
-        echo "AMD GPU detected with ROCm support (/dev/kfd + /dev/dri). Helix Code desktop streaming requirements satisfied."
+        # AMD GPU detected
+        echo "AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
         GPU_VENDOR="amd"
+        if ! check_amd_rocm; then
+            echo ""
+            echo "┌───────────────────────────────────────────────────────────────────────────"
+            echo "│ ℹ️  Note: ROCm not detected (/dev/kfd missing)"
+            echo "│"
+            echo "│ Desktop streaming will work, but ML compute won't use GPU acceleration."
+            echo "│"
+            echo "│ To enable GPU-accelerated ML compute, install ROCm:"
+            echo "│"
+            echo "│   # Ubuntu 22.04/24.04:"
+            echo "│   wget https://repo.radeon.com/amdgpu-install/latest/ubuntu/\$(lsb_release -cs)/amdgpu-install_6.3.60300-1_all.deb"
+            echo "│   sudo apt install ./amdgpu-install_6.3.60300-1_all.deb"
+            echo "│   sudo amdgpu-install --usecase=rocm"
+            echo "│   sudo usermod -aG render,video \$USER"
+            echo "│   sudo reboot"
+            echo "└───────────────────────────────────────────────────────────────────────────"
+            echo ""
+        fi
     elif check_intel_amd_gpu; then
         # No NVIDIA/AMD, but /dev/dri exists - assume Intel GPU
         echo "Intel GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
@@ -2146,8 +2201,16 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
     elif [ "\$GPU_VENDOR" = "amd" ]; then
         # AMD: Use device pass-through + ROCR_VISIBLE_DEVICES env var
         # Note: ROCR_VISIBLE_DEVICES uses GPU IDs (0,1,2) same as CUDA
-        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
-        ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
+        # /dev/kfd is only available if ROCm is installed
+        if [ -e "/dev/kfd" ]; then
+            GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+            ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
+        else
+            # No ROCm - only pass /dev/dri for display
+            GPU_FLAGS="--device /dev/dri --group-add video --group-add render"
+            ENV_FLAGS=""
+            echo "Warning: /dev/kfd not found. ML compute will run on CPU. Install ROCm for GPU acceleration."
+        fi
     else
         echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
         exit 1
