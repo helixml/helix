@@ -145,16 +145,43 @@ func (d *SettingsDaemon) syncFromHelix() error {
 	// User overrides are only tracked from changes made AFTER Helix config is written
 	d.userOverrides = make(map[string]interface{})
 
-	// Write Helix settings directly (no merge on initial sync)
+	// SECURITY: Load existing settings to preserve protected fields before merge
+	existingSettings := make(map[string]interface{})
+	if existingData, err := os.ReadFile(SettingsPath); err == nil {
+		if err := json.Unmarshal(existingData, &existingSettings); err == nil {
+			// Preserve security-protected fields from existing config
+			for field := range SECURITY_PROTECTED_FIELDS {
+				if value, exists := existingSettings[field]; exists {
+					d.helixSettings[field] = value
+					log.Printf("SECURITY: Preserved protected field '%s' from existing config on startup", field)
+				}
+			}
+		}
+	}
+
+	// Write Helix settings (now including preserved protected fields)
 	return d.writeSettings(d.helixSettings)
 }
 
-// mergeSettings applies three-way merge: Helix base + User overrides
+// SECURITY_PROTECTED_FIELDS are settings that MUST NOT be overwritten by Helix sync
+// These are privacy and security-critical settings configured at the OS/Docker level
+// for compliance, air-gapped operation, and telemetry disabling.
+var SECURITY_PROTECTED_FIELDS = map[string]bool{
+	"telemetry":      true, // Zed telemetry settings (diagnostics, metrics)
+	"agent_servers":  true, // Qwen Code ACP configuration (with --no-telemetry)
+	"default_agent":  true, // Default agent selection (qwen)
+}
+
+// mergeSettings applies three-way merge: Helix base + User overrides + SECURITY PROTECTION
 func mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 	merged := make(map[string]interface{})
 
 	// Copy Helix settings as base
 	for k, v := range helix {
+		// Skip security-protected fields from Helix (use local/user values only)
+		if SECURITY_PROTECTED_FIELDS[k] {
+			continue
+		}
 		merged[k] = v
 	}
 
@@ -174,6 +201,20 @@ func mergeSettings(helix, user map[string]interface{}) map[string]interface{} {
 	for k, v := range user {
 		if k != "context_servers" {
 			merged[k] = v
+		}
+	}
+
+	// SECURITY: Load and preserve protected fields from on-disk settings
+	// This ensures telemetry, agent_servers, and default_agent are never overwritten by Helix sync
+	if existingData, err := os.ReadFile(SettingsPath); err == nil {
+		var existing map[string]interface{}
+		if err := json.Unmarshal(existingData, &existing); err == nil {
+			for field := range SECURITY_PROTECTED_FIELDS {
+				if value, exists := existing[field]; exists {
+					merged[field] = value
+					log.Printf("SECURITY: Preserved protected field '%s' from local config", field)
+				}
+			}
 		}
 	}
 
@@ -204,8 +245,15 @@ func extractUserOverrides(current, helix map[string]interface{}) map[string]inte
 	}
 
 	// Extract other user settings (theme, vim_mode, etc.)
+	// SECURITY: Do NOT extract protected fields as user overrides
+	// These should never be synced to Helix API
 	for k, v := range current {
 		if k == "context_servers" {
+			continue
+		}
+		// Skip security-protected fields from being sent to Helix
+		if SECURITY_PROTECTED_FIELDS[k] {
+			log.Printf("SECURITY: Skipping protected field '%s' from Helix sync", k)
 			continue
 		}
 		if helixVal, inHelix := helix[k]; !inHelix || !deepEqual(v, helixVal) {
