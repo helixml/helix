@@ -2310,16 +2310,28 @@ if [ "$SANDBOX" = true ]; then
     # Detect GPU type for sandbox
     if check_nvidia_gpu; then
         GPU_TYPE="nvidia"
+        GPU_VENDOR="nvidia"
         echo "NVIDIA GPU detected"
+
+        if check_nvidia_runtime_needed; then
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
+        fi
     elif check_amd_gpu; then
         GPU_TYPE="amd"
+        GPU_VENDOR="amd"
         echo "AMD GPU detected with ROCm support"
     elif check_intel_amd_gpu; then
         GPU_TYPE="intel"
+        GPU_VENDOR="intel"
         echo "Intel GPU detected"
     else
         echo "Warning: No GPU detected. Sandbox may not work correctly."
         GPU_TYPE=""
+        GPU_VENDOR="none"
     fi
 
     # Generate unique Wolf instance ID (hostname)
@@ -2327,127 +2339,154 @@ if [ "$SANDBOX" = true ]; then
     echo "Wolf Instance ID: $WOLF_ID"
     echo
 
-    # Create minimal .env file for sandbox mode
-    SANDBOX_ENV_FILE="$INSTALL_DIR/.env.sandbox"
-    cat > "$SANDBOX_ENV_FILE" << EOF
-# Helix Sandbox Node Configuration
-# Control Plane Connection
-HELIX_API_URL=$CONTROLPLANE_URL
-WOLF_ID=$WOLF_ID
-RUNNER_TOKEN=$RUNNER_TOKEN
+    # Configure NVIDIA runtime if needed
+    if [ "$GPU_VENDOR" = "nvidia" ] && check_nvidia_runtime_needed; then
+        echo "Configuring NVIDIA Docker runtime..."
+        configure_nvidia_runtime
+    fi
 
-# GPU Configuration
-GPU_TYPE=$GPU_TYPE
+    # Create sandbox.sh script (embedded, like runner.sh)
+    cat << 'EOF' > $INSTALL_DIR/sandbox.sh
+#!/bin/bash
 
-# Sandbox Capacity
-MAX_SANDBOXES=10
+# Configuration variables (set by install.sh)
+SANDBOX_TAG="${SANDBOX_TAG}"
+HELIX_API_URL="${HELIX_API_URL}"
+WOLF_ID="${WOLF_ID}"
+RUNNER_TOKEN="${RUNNER_TOKEN}"
+GPU_VENDOR="${GPU_VENDOR}"
+MAX_SANDBOXES="${MAX_SANDBOXES}"
+
+# Check if helix_default network exists, create it if it doesn't
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    docker network create helix_default
+else
+    echo "helix_default network already exists."
+fi
+
+# Stop and remove existing sandbox container if it exists
+if docker ps -a --format '{{.Names}}' | grep -q "^helix-sandbox$"; then
+    echo "Stopping and removing existing container: helix-sandbox"
+    docker stop helix-sandbox >/dev/null 2>&1 || true
+    docker rm helix-sandbox >/dev/null 2>&1 || true
+fi
+
+# Build GPU-specific flags
+if [ "$GPU_VENDOR" = "nvidia" ]; then
+    GPU_FLAGS="--gpus all --runtime nvidia"
+    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
+elif [ "$GPU_VENDOR" = "amd" ]; then
+    GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+    GPU_ENV_FLAGS="-e GPU_TYPE=amd"
+elif [ "$GPU_VENDOR" = "intel" ]; then
+    GPU_FLAGS="--device /dev/dri"
+    GPU_ENV_FLAGS="-e GPU_TYPE=intel"
+else
+    GPU_FLAGS=""
+    GPU_ENV_FLAGS=""
+    echo "Warning: No GPU support configured"
+fi
+
+echo "Starting Helix Sandbox container..."
+echo "  Control Plane: $HELIX_API_URL"
+echo "  Wolf ID: $WOLF_ID"
+echo "  GPU Vendor: $GPU_VENDOR"
+echo "  Max Sandboxes: $MAX_SANDBOXES"
+
+# Run the sandbox container
+eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
+    --privileged \
+    --restart=always -d \
+    --name helix-sandbox \
+    --network="helix_default" \
+    -e HELIX_API_URL="$HELIX_API_URL" \
+    -e WOLF_ID="$WOLF_ID" \
+    -e RUNNER_TOKEN="$RUNNER_TOKEN" \
+    -e MAX_SANDBOXES="$MAX_SANDBOXES" \
+    -e ZED_IMAGE=helix-sway:latest \
+    -v sandbox-storage:/var/lib/docker \
+    -v /var/run/wolf:/var/run/wolf:rw \
+    -v /dev:/dev:rw \
+    -v /run/udev:/run/udev:rw \
+    --device /dev/dri \
+    --device /dev/uinput \
+    --device /dev/uhid \
+    --device-cgroup-rule 'c 13:* rmw' \
+    -p 47984:47984 \
+    -p 47989:47989 \
+    -p 48010:48010 \
+    -p 47415:47415/udp \
+    -p 47999:47999/udp \
+    -p 48100:48100/udp \
+    -p 48200:48200/udp \
+    -p 8081:8080 \
+    -p 40000-40100:40000-40100/udp \
+    registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
+
+if [ $? -eq 0 ]; then
+    echo "✅ Helix Sandbox container started successfully"
+    echo
+    echo "To view logs: docker logs -f helix-sandbox"
+    echo "To stop: docker stop helix-sandbox"
+    echo "To restart: $0"
+else
+    echo "❌ Failed to start Helix Sandbox container"
+    exit 1
+fi
 EOF
 
-    echo "Created sandbox environment file: $SANDBOX_ENV_FILE"
-    echo
+    # Substitute variables in the script
+    sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${HELIX_API_URL}|${CONTROLPLANE_URL}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${WOLF_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
 
-    # Create docker-compose.sandbox.yaml
-    SANDBOX_COMPOSE_FILE="$INSTALL_DIR/docker-compose.sandbox.yaml"
-    cat > "$SANDBOX_COMPOSE_FILE" << 'YAML'
-version: '3.8'
-
-services:
-  wolf:
-    image: ghcr.io/helixml/wolf:latest
-    privileged: true
-    restart: unless-stopped
-    volumes:
-      - wolf-state:/wolf-state
-      - wolf-docker-storage:/var/lib/docker
-    environment:
-      - GPU_TYPE=${GPU_TYPE}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - helix_default
-
-  moonlight-web:
-    image: ghcr.io/games-on-whales/moonlight-web:latest
-    restart: unless-stopped
-    ports:
-      - "47984-47990:47984-47990/tcp"
-      - "47999:47999/udp"
-      - "48100:48100/udp"
-      - "48200:48200/udp"
-    environment:
-      - WOLF_API_URL=http://wolf:8080
-    networks:
-      - helix_default
-    depends_on:
-      - wolf
-
-  wolf-revdial-client:
-    image: ghcr.io/helixml/helix/wolf-revdial-client:latest
-    restart: unless-stopped
-    environment:
-      - HELIX_API_URL=${HELIX_API_URL}
-      - WOLF_ID=${WOLF_ID}
-      - RUNNER_TOKEN=${RUNNER_TOKEN}
-    network_mode: "service:wolf"
-    depends_on:
-      - wolf
-
-volumes:
-  wolf-state:
-  wolf-docker-storage:
-
-networks:
-  helix_default:
-    driver: bridge
-YAML
-
-    echo "Created sandbox compose file: $SANDBOX_COMPOSE_FILE"
-    echo
-
-    # Start services
-    echo "Starting Sandbox Node services..."
-    cd "$INSTALL_DIR"
-    if [ "$NEED_SUDO" = "true" ]; then
-        sudo docker compose -f docker-compose.sandbox.yaml --env-file .env.sandbox up -d
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        chmod +x $INSTALL_DIR/sandbox.sh
     else
-        docker compose -f docker-compose.sandbox.yaml --env-file .env.sandbox up -d
+        sudo chmod +x $INSTALL_DIR/sandbox.sh
+    fi
+
+    echo "Sandbox script created at $INSTALL_DIR/sandbox.sh"
+    echo
+
+    # Run the sandbox script to start the container
+    echo "Starting sandbox container..."
+    if [ "$NEED_SUDO" = "true" ]; then
+        sudo $INSTALL_DIR/sandbox.sh
+    else
+        $INSTALL_DIR/sandbox.sh
     fi
 
     echo
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ✅ Helix Sandbox Node installed successfully!"
     echo "│"
-    echo "│ Status:"
-    if [ "$NEED_SUDO" = "true" ]; then
-        sudo docker compose -f docker-compose.sandbox.yaml ps
-    else
-        docker compose -f docker-compose.sandbox.yaml ps
-    fi
-    echo "│"
-    echo "│ This sandbox node will connect to: $CONTROLPLANE_URL"
+    echo "│ Connected to: $CONTROLPLANE_URL"
     echo "│ Wolf Instance ID: $WOLF_ID"
     echo "│"
     echo "│ To check logs:"
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│   cd $INSTALL_DIR"
-        echo "│   sudo docker compose -f docker-compose.sandbox.yaml logs -f"
+        echo "│   sudo docker logs -f helix-sandbox"
     else
-        echo "│   cd $INSTALL_DIR"
-        echo "│   docker compose -f docker-compose.sandbox.yaml logs -f"
+        echo "│   docker logs -f helix-sandbox"
+    fi
+    echo "│"
+    echo "│ To restart:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo $INSTALL_DIR/sandbox.sh"
+    else
+        echo "│   $INSTALL_DIR/sandbox.sh"
     fi
     echo "│"
     echo "│ To stop:"
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│   cd $INSTALL_DIR"
-        echo "│   sudo docker compose -f docker-compose.sandbox.yaml down"
+        echo "│   sudo docker stop helix-sandbox"
     else
-        echo "│   cd $INSTALL_DIR"
-        echo "│   docker compose -f docker-compose.sandbox.yaml down"
+        echo "│   docker stop helix-sandbox"
     fi
     echo "└───────────────────────────────────────────────────────────────────────────"
 

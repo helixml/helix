@@ -212,53 +212,57 @@ services:
       - "5432"
     restart: unless-stopped
 
-  # Helix Code services (Wolf streaming + Zed agents + Moonlight Web)
-  wolf:
+  # Unified Helix Sandbox - Wolf + Moonlight Web + RevDial Client + Docker-in-Docker
+  # Replaces separate wolf and moonlight-web services with a single unified container
+  # Built with: ./stack build-sandbox
+  sandbox:
     profiles: [code]
-    image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
-    privileged: true  # Required for Wolf's nested dockerd
+    image: registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION:-latest}
+    privileged: true  # Required for Docker-in-Docker
     networks:
       default:
         ipv4_address: 172.19.0.50
     environment:
+      # GPU configuration (NVIDIA)
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_VISIBLE_DEVICES=all
-      # Wolf-UI required environment variables
+      # Production mode (no dev bind-mounts)
+      - HELIX_DEV_MODE=false
+      - ZED_IMAGE=helix-sway:latest
+      # Wolf configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
-      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      # Debug logging for HTTPS connection issues and UDP/RTP activity
       - WOLF_LOG_LEVEL=DEBUG
-      # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
-      # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
       - GST_DEBUG=1
-      # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
-      # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
-      # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
       - WOLF_INTERNAL_MAC=00:11:22:33:44:55
       - WOLF_INTERNAL_IP=172.19.0.50
-      # SSL certificate paths
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      # GPU zero-copy optimization (required for lobbies mode format consistency)
       - WOLF_USE_ZERO_COPY=TRUE
-      # Render node: Set via .env (auto-detected in install.sh), fallback to renderD128
       - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-      # Internal moonlight-web pairing PIN (secure random, shared via env)
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-      # GOP size (keyframe interval): frames between I-frames
       - GOP_SIZE=${GOP_SIZE:-120}
-      # Helix hostname (for Moonlight client display name)
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=info,moonlight_web=info
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # RevDial connection (empty = local mode, no control plane)
+      - HELIX_API_URL=
+      - WOLF_ID=
+      - RUNNER_TOKEN=
     volumes:
-      - ./wolf/:/etc/wolf/cfg/
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
       - /tmp/sockets:/tmp/sockets:rw
-      # REMOVED: /var/run/docker.sock (Wolf runs its own dockerd)
       - wolf-docker-storage:/var/lib/docker  # Wolf's isolated dockerd storage
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
-      # Bind-mount to host so wolf-ui containers can bind-mount it
       - /var/run/wolf:/var/run/wolf:rw
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
     device_cgroup_rules:
       - 'c 13:* rmw'
     devices:
@@ -266,7 +270,7 @@ services:
       - /dev/uinput
       - /dev/uhid
     ports:
-      # Moonlight protocol ports
+      # Moonlight protocol ports (Wolf)
       - "47984:47984"     # HTTPS
       - "47989:47989"     # HTTP (pairing, serverinfo)
       - "48010:48010"     # RTSP
@@ -274,6 +278,9 @@ services:
       - "47999:47999/udp" # Control
       - "48100:48100/udp" # Video RTP
       - "48200:48200/udp" # Audio RTP
+      # Moonlight Web UI + WebRTC
+      - "8081:8080"                      # Web interface
+      - "40000-40100:40000-40100/udp"    # WebRTC UDP ports
     runtime: nvidia
     deploy:
       resources:
@@ -281,7 +288,7 @@ services:
           devices:
             - capabilities: [gpu]
     cap_add:
-      - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
+      - SYS_PTRACE  # Thread diagnostics
     restart: unless-stopped
     depends_on:
       - api
@@ -292,52 +299,54 @@ services:
       retries: 3
       start_period: 10s
 
-  # Wolf for AMD GPUs (no nvidia runtime, use device pass-through)
-  wolf-amd:
+  # Sandbox for AMD GPUs (no nvidia runtime, use device pass-through)
+  sandbox-amd:
     profiles: [code-amd]
-    image: registry.helixml.tech/helix/wolf:${HELIX_VERSION:-latest}
-    privileged: true  # Required for Wolf's nested dockerd
+    image: registry.helixml.tech/helix/helix-sandbox:${HELIX_VERSION:-latest}
+    privileged: true  # Required for Docker-in-Docker
     networks:
       default:
         ipv4_address: 172.19.0.50
     environment:
       # No NVIDIA environment variables for AMD
-      # Wolf-UI required environment variables
+      # Production mode (no dev bind-mounts)
+      - HELIX_DEV_MODE=false
+      - ZED_IMAGE=helix-sway:latest
+      - GPU_TYPE=amd
+      # Wolf configuration
       - XDG_RUNTIME_DIR=/tmp/sockets
-      - HOST_APPS_STATE_FOLDER=/etc/wolf
+      - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
       - WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock
-      # Debug logging for HTTPS connection issues and UDP/RTP activity
       - WOLF_LOG_LEVEL=DEBUG
-      # GST_DEBUG levels: 0=none, 1=ERROR, 2=WARNING, 3=INFO, 4=DEBUG
-      # Level 1 (ERROR) - still shows CRITICAL assertions but fewer messages
       - GST_DEBUG=1
-      # NOTE: Interpipe cleanup CRITICAL errors are harmless - occur when containers terminate
-      # "gst_inter_pipe_ilistener_push_buffer: assertion failed" during session cleanup
-      # Fix HTTPS serverinfo hangs by avoiding slow MAC address enumeration
       - WOLF_INTERNAL_MAC=00:11:22:33:44:55
       - WOLF_INTERNAL_IP=172.19.0.50
-      # SSL certificate paths
       - WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
-      # GPU zero-copy optimization (required for lobbies mode format consistency)
       - WOLF_USE_ZERO_COPY=TRUE
-      # Render node: Set via .env (auto-detected in install.sh), fallback to renderD128
       - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
-      # Internal moonlight-web pairing PIN (secure random, shared via env)
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-      # GOP size (keyframe interval): frames between I-frames
       - GOP_SIZE=${GOP_SIZE:-120}
-      # Helix hostname (for Moonlight client display name)
+      # Moonlight Web configuration
+      - RUST_LOG=moonlight_common=info,moonlight_web=info
+      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
+      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
+      - TURN_PASSWORD=${TURN_PASSWORD:-}
+      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # RevDial connection (empty = local mode)
+      - HELIX_API_URL=
+      - WOLF_ID=
+      - RUNNER_TOKEN=
     volumes:
-      - ./wolf/:/etc/wolf/cfg/
+      # Wolf configuration and state
+      - ./wolf/:/etc/wolf/cfg/:rw
       - /tmp/sockets:/tmp/sockets:rw
-      # REMOVED: /var/run/docker.sock (Wolf runs its own dockerd)
-      - wolf-docker-storage:/var/lib/docker  # Wolf's isolated dockerd storage
+      - wolf-docker-storage:/var/lib/docker
       - /dev/:/dev/:rw
       - /run/udev:/run/udev:rw
-      # Bind-mount to host so wolf-ui containers can bind-mount it
       - /var/run/wolf:/var/run/wolf:rw
+      # Moonlight Web configuration
+      - ./moonlight-web-config:/app/server:rw
     device_cgroup_rules:
       - 'c 13:* rmw'
     devices:
@@ -346,17 +355,19 @@ services:
       - /dev/uhid
     ports:
       # Moonlight protocol ports
-      - "47984:47984"     # HTTPS
-      - "47989:47989"     # HTTP (pairing, serverinfo)
-      - "48010:48010"     # RTSP
-      - "47415:47415/udp" # Discovery
-      - "47999:47999/udp" # Control
-      - "48100:48100/udp" # Video RTP
-      - "48200:48200/udp" # Audio RTP
-    # No nvidia runtime for AMD - /dev/ volume mount provides GPU access
-    # No seccomp=unconfined or group_add needed - /dev/ volume provides access
+      - "47984:47984"
+      - "47989:47989"
+      - "48010:48010"
+      - "47415:47415/udp"
+      - "47999:47999/udp"
+      - "48100:48100/udp"
+      - "48200:48200/udp"
+      # Moonlight Web UI + WebRTC
+      - "8081:8080"
+      - "40000-40100:40000-40100/udp"
+    # No nvidia runtime for AMD
     cap_add:
-      - SYS_PTRACE  # Required to read /proc/<pid>/task/<tid>/syscall for thread diagnostics
+      - SYS_PTRACE
     restart: unless-stopped
     depends_on:
       - api
@@ -366,34 +377,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-  # Moonlight Web Stream - Browser-based Moonlight streaming (GPU-agnostic, works with both NVIDIA and AMD)
-  moonlight-web:
-    profiles: [code, code-amd]
-    image: registry.helixml.tech/helix/moonlight-web:${HELIX_VERSION:-latest}
-    command: bash -c "/app/init-moonlight-config.sh"
-    ports:
-      - "8081:8080"  # Web interface
-      - "40000-40100:40000-40100/udp"  # WebRTC UDP ports (expanded for multiple concurrent sessions)
-    networks:
-      - default
-    environment:
-      # Production logging
-      - RUST_LOG=moonlight_common=info,moonlight_web=info
-      # Internal pairing PIN (shared with Wolf, secure random in production)
-      - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
-      # Moonlight credentials for API authentication (must match config.json)
-      - MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-}
-      # TURN server credentials (must match config.json)
-      - TURN_PASSWORD=${TURN_PASSWORD:-}
-      # TURN server public IP (auto-detected if not set)
-      - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
-      # Helix hostname (for display name in Moonlight client)
-      - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
-    volumes:
-      - ./moonlight-web-config:/app/server:rw
-    restart: unless-stopped
-    # No depends_on - can start independently of Wolf
 
 volumes:
   helix-postgres-db:
