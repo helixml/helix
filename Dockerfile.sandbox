@@ -380,7 +380,8 @@ echo "   Control Plane: $HELIX_API_URL"
 echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 
 # Start Wolf API RevDial client (proxies Wolf Unix socket, redirect to stdout with prefix)
-/usr/local/bin/revdial-client \
+# Use cgo DNS resolver to work around Go DNS issues in Docker
+GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
     -server "$HELIX_API_URL/api/v1/revdial" \
     -runner-id "wolf-$WOLF_INSTANCE_ID" \
     -token "$RUNNER_TOKEN" \
@@ -389,7 +390,8 @@ echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 WOLF_REVDIAL_PID=$!
 
 # Start Moonlight Web API RevDial client (proxies Moonlight Web HTTP server, redirect to stdout)
-/usr/local/bin/revdial-client \
+# Use cgo DNS resolver to work around Go DNS issues in Docker
+GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
     -server "$HELIX_API_URL/api/v1/revdial" \
     -runner-id "moonlight-$WOLF_INSTANCE_ID" \
     -token "$RUNNER_TOKEN" \
