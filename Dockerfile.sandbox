@@ -306,30 +306,51 @@ RUN chmod +x /usr/local/bin/revdial-client
 # ====================================================================
 
 # 06: Initialize and start Moonlight Web (runs after Wolf config init)
+# Use the upstream init script with modified Wolf address (localhost instead of wolf)
 RUN cat > /etc/cont-init.d/06-start-moonlight-web.sh << 'EOF'
 #!/bin/bash
 set -e
-echo "🌙 Starting Moonlight Web..."
+echo "🌙 Initializing Moonlight Web..."
 
-# Create config directory
+DATA_FILE="/opt/moonlight-web/server/data.json"
+CONFIG_FILE="/opt/moonlight-web/server/config.json"
+DATA_TEMPLATE="/opt/moonlight-web/templates/data.json.template"
+CONFIG_TEMPLATE="/opt/moonlight-web/templates/config.json.template"
+
 mkdir -p /opt/moonlight-web/server
 
-# Initialize config files if they don't exist (simplified, no pairing for now)
-if [ ! -f /opt/moonlight-web/server/data.json ]; then
-    echo '{"pairing": [], "clients": []}' > /opt/moonlight-web/server/data.json
+# Initialize data.json if it doesn't exist or is empty
+if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
+    echo "🔧 Initializing moonlight-web data.json from template..."
+    # Wolf is on localhost in unified sandbox container
+    sed 's/"address": "wolf"/"address": "localhost"/' "$DATA_TEMPLATE" > "$DATA_FILE"
+    HELIX_HOSTNAME=${HELIX_HOSTNAME:-local}
+    sed -i "s/{{HELIX_HOSTNAME}}/$HELIX_HOSTNAME/g" "$DATA_FILE"
+    echo "✅ moonlight-web data.json initialized"
 fi
 
-if [ ! -f /opt/moonlight-web/server/config.json ]; then
-    cat > /opt/moonlight-web/server/config.json << 'CONFIG'
-{
-  "turn_server": {
-    "enabled": true,
-    "urls": ["turn:api:3478"],
-    "username": "helix",
-    "credential": "helix-turn-secret"
-  }
-}
-CONFIG
+# Initialize config.json with dynamic TURN server IP
+if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
+    echo "🔧 Initializing moonlight-web config.json from template..."
+
+    # Use environment variables or defaults for dev mode
+    MOONLIGHT_CREDENTIALS=${MOONLIGHT_CREDENTIALS:-helix:helix}
+    TURN_PASSWORD=${TURN_PASSWORD:-helix-turn-secret}
+    TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
+
+    # Auto-detect public IP if TURN_PUBLIC_IP not set
+    if [ -z "$TURN_PUBLIC_IP" ]; then
+        echo "⏳ Auto-detecting public IP for TURN server..."
+        TURN_PUBLIC_IP=$(curl -s --max-time 2 https://api.ipify.org 2>/dev/null || echo "127.0.0.1")
+        echo "✅ Using TURN IP: $TURN_PUBLIC_IP"
+    fi
+
+    # Substitute template variables
+    sed -e "s/{{TURN_PUBLIC_IP}}/$TURN_PUBLIC_IP/g" \
+        -e "s/{{MOONLIGHT_CREDENTIALS}}/$MOONLIGHT_CREDENTIALS/g" \
+        -e "s/{{TURN_PASSWORD}}/$TURN_PASSWORD/g" \
+        "$CONFIG_TEMPLATE" > "$CONFIG_FILE"
+    echo "✅ moonlight-web config.json initialized"
 fi
 
 # Start Moonlight Web daemon in background (redirect to stdout with prefix)
@@ -337,6 +358,8 @@ cd /opt/moonlight-web
 ./moonlight-web 2>&1 | sed 's/^/[MOONLIGHT] /' &
 MOONLIGHT_PID=$!
 echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
+
+# Note: Auto-pairing is handled separately in a later init script if needed
 EOF
 RUN chmod +x /etc/cont-init.d/06-start-moonlight-web.sh
 
