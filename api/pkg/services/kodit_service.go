@@ -197,54 +197,6 @@ func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (
 	}, nil
 }
 
-// GetCommitEnrichment fetches a single enrichment by commit SHA and enrichment ID
-func (s *KoditService) GetCommitEnrichment(ctx context.Context, koditRepoID, commitSHA, enrichmentID string) (*KoditEnrichmentData, error) {
-	if !s.enabled {
-		return nil, fmt.Errorf("kodit service not enabled")
-	}
-
-	// List enrichments for the commit and filter by ID
-	resp, err := s.client.ListCommitEnrichmentsApiV1RepositoriesRepoIdCommitsCommitShaEnrichmentsGet(ctx, koditRepoID, commitSHA, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list commit enrichments: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
-	}
-
-	var apiResponse kodit.EnrichmentListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Find the specific enrichment by ID
-	for _, e := range apiResponse.Data {
-		if e.Id == enrichmentID {
-			subtype := extractString(e.Attributes.Subtype)
-			var subtypePtr *string
-			if subtype != "" {
-				subtypePtr = &subtype
-			}
-
-			return &KoditEnrichmentData{
-				Type: deref(e.Type),
-				ID:   e.Id,
-				Attributes: KoditEnrichmentAttributes{
-					Type:      e.Attributes.Type,
-					Subtype:   subtypePtr,
-					Content:   e.Attributes.Content, // Full content, no truncation
-					CreatedAt: extractTime(e.Attributes.CreatedAt),
-					UpdatedAt: extractTime(e.Attributes.UpdatedAt),
-				},
-			}, nil
-		}
-	}
-
-	return nil, fmt.Errorf("enrichment not found: %s", enrichmentID)
-}
 
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
 func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {

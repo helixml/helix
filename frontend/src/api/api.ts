@@ -4298,11 +4298,11 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeCrisp = "crisp",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateGitRepositoryFileContentsRequest {
@@ -6250,23 +6250,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Get a specific code intelligence enrichment for a commit from Kodit
+     * @description List all commits in a repository
      *
      * @tags git-repositories
-     * @name V1GitRepositoriesCommitsEnrichmentsDetail
-     * @summary Get commit enrichment
-     * @request GET:/api/v1/git/repositories/{id}/commits/{commitSha}/enrichments/{enrichmentId}
+     * @name ListGitRepositoryCommits
+     * @summary List repository commits
+     * @request GET:/api/v1/git/repositories/{id}/commits
      * @secure
      */
-    v1GitRepositoriesCommitsEnrichmentsDetail: (
+    listGitRepositoryCommits: (
       id: string,
-      commitSha: string,
-      enrichmentId: string,
+      query?: {
+        /** Branch name (defaults to repository default branch) */
+        branch?: string;
+        /** Filter commits since this date (RFC3339 format) */
+        since?: string;
+        /** Filter commits until this date (RFC3339 format) */
+        until?: string;
+        /** Number of commits per page (default: 30) */
+        per_page?: number;
+        /** Page number (default: 1) */
+        page?: number;
+      },
       params: RequestParams = {},
     ) =>
-      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
-        path: `/api/v1/git/repositories/${id}/commits/${commitSha}/enrichments/${enrichmentId}`,
+      this.request<TypesListCommitsResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/commits`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

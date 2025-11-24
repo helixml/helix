@@ -2863,21 +2863,22 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/git/repositories/{id}/commits/{commitSha}/enrichments/{enrichmentId}": {
+        "/api/v1/git/repositories/{id}/commits": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a specific code intelligence enrichment for a commit from Kodit",
+                "description": "List all commits in a repository",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "git-repositories"
                 ],
-                "summary": "Get commit enrichment",
+                "summary": "List repository commits",
+                "operationId": "listGitRepositoryCommits",
                 "parameters": [
                     {
                         "type": "string",
@@ -2888,24 +2889,46 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Commit SHA",
-                        "name": "commitSha",
-                        "in": "path",
-                        "required": true
+                        "description": "Branch name (defaults to repository default branch)",
+                        "name": "branch",
+                        "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Enrichment ID",
-                        "name": "enrichmentId",
-                        "in": "path",
-                        "required": true
+                        "description": "Filter commits since this date (RFC3339 format)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter commits until this date (RFC3339 format)",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of commits per page (default: 30)",
+                        "name": "per_page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default: 1)",
+                        "name": "page",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/services.KoditEnrichmentData"
+                            "$ref": "#/definitions/types.ListCommitsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -22513,18 +22536,18 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "agent_work_queue",
                 "slack",
                 "crisp",
                 "azure_devops",
-                "cron"
+                "cron",
+                "agent_work_queue"
             ],
             "x-enum-varnames": [
-                "TriggerTypeAgentWorkQueue",
                 "TriggerTypeSlack",
                 "TriggerTypeCrisp",
                 "TriggerTypeAzureDevOps",
-                "TriggerTypeCron"
+                "TriggerTypeCron",
+                "TriggerTypeAgentWorkQueue"
             ]
         },
         "types.UpdateGitRepositoryFileContentsRequest": {
