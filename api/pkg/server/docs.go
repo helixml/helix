@@ -9,8 +9,16 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "contact": {},
-        "version": "{{.Version}}"
+        "contact": {
+            "name": "Helix support",
+            "url": "https://app.helix.ml/",
+            "email": "info@helix.ml"
+        },
+        "version": "{{.Version}}",
+        "x-logo": {
+            "altText": "Helix logo",
+            "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
+        }
     },
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
@@ -23226,12 +23234,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "",
-	Host:             "",
+	Version:          "0.1",
+	Host:             "app.helix.ml",
 	BasePath:         "",
-	Schemes:          []string{},
-	Title:            "",
-	Description:      "",
+	Schemes:          []string{"https"},
+	Title:            "HelixML API reference",
+	Description:      "This is the HelixML API.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

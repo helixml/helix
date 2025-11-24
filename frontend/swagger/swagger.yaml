@@ -7790,8 +7790,18 @@ definitions:
       tid:
         type: integer
     type: object
+host: app.helix.ml
 info:
-  contact: {}
+  contact:
+    email: info@helix.ml
+    name: Helix support
+    url: https://app.helix.ml/
+  description: This is the HelixML API.
+  title: HelixML API reference
+  version: "0.1"
+  x-logo:
+    altText: Helix logo
+    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
   /api/v1/admin/agent-sandboxes/debug:
     get:
@@ -15448,4 +15458,6 @@ paths:
             type: array
       security:
       - BearerAuth: []
+schemes:
+- https
 swagger: "2.0"
