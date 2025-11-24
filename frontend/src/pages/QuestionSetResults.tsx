@@ -7,7 +7,8 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import Link from '@mui/material/Link'
 import { useTheme } from '@mui/material/styles'
-import { Edit, Info, Download } from 'lucide-react'
+import { Edit, Info } from 'lucide-react'
+import pdfIcon from '../../assets/img/pdf-icon.png'
 
 import Markdown from '../components/session/Markdown'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
@@ -209,15 +210,15 @@ const QuestionSetResults: FC = () => {
               </Typography>
               <Box sx={{ display: 'flex', gap: 1 }}>
                 {executionResults?.results && executionResults.results.length > 0 && (
-                  <Tooltip title="Export to PDF">
-                    <IconButton
-                      color="secondary"
-                      size="small"
-                      onClick={() => setExportOpen(true)}
-                    >
-                      <Download size={18} />
-                    </IconButton>
-                  </Tooltip>
+                    <Tooltip title="Export to PDF">
+                      <IconButton
+                        color="secondary"
+                        size="small"
+                        onClick={() => setExportOpen(true)}
+                      >
+                        <img src={pdfIcon} alt="Export to PDF" style={{ width: 18, height: 18 }} />
+                      </IconButton>
+                    </Tooltip>
                 )}
                 {questionSetId && (
                   <Tooltip title="Edit Question Set">
