@@ -404,6 +404,43 @@ echo "✅ Moonlight Web RevDial client started (PID: $MOONLIGHT_REVDIAL_PID)"
 EOF
 RUN chmod +x /etc/cont-init.d/07-start-revdial-clients.sh
 
+# 08: Start Wolf instance heartbeat (sends periodic heartbeats to API)
+RUN cat > /etc/cont-init.d/08-start-wolf-heartbeat.sh << 'EOF'
+#!/bin/bash
+set -e
+
+# Skip if no control plane configured (local dev mode)
+if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
+    echo "ℹ️  No HELIX_API_URL set, skipping Wolf heartbeat (local mode)"
+    exit 0
+fi
+
+WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+echo "💓 Starting Wolf heartbeat service for instance: $WOLF_INSTANCE_ID"
+
+# Start heartbeat loop in background
+(
+    while true; do
+        # Send heartbeat to API
+        if curl -sf -X POST \
+            -H "Authorization: Bearer $RUNNER_TOKEN" \
+            "$HELIX_API_URL/api/v1/wolf-instances/$WOLF_INSTANCE_ID/heartbeat" \
+            >/dev/null 2>&1; then
+            echo "[$(date -Iseconds)] ✅ Heartbeat sent successfully"
+        else
+            echo "[$(date -Iseconds)] ⚠️  Heartbeat failed (API may not be ready yet)"
+        fi
+
+        # Sleep for 30 seconds before next heartbeat
+        sleep 30
+    done
+) 2>&1 | sed 's/^/[HEARTBEAT] /' &
+
+HEARTBEAT_PID=$!
+echo "✅ Wolf heartbeat service started (PID: $HEARTBEAT_PID)"
+EOF
+RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
+
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)
 # (Replaces /opt/gow/startup-app.sh - Wolf is the main process)
