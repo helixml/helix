@@ -2,6 +2,36 @@
 
 See also: @.cursor/rules/helix.mdc, @.cursor/rules/go-api-handlers.mdc, @.cursor/rules/use-gorm-for-database.mdc, @.cursor/rules/use-frontend-api-client.mdc
 
+## 🚨 CRITICAL: NEVER RUN ./stack start 🚨
+
+**NEVER run `./stack start` - only the user runs this command**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN
+./stack start                          # NEVER DO THIS
+bash -c "./stack start"                # OR THIS
+```
+
+**Why this is forbidden:**
+- `./stack start` creates a tmux session that requires interactive terminal
+- You cannot interact with tmux sessions (you'll get "not a terminal" errors)
+- Starting services disrupts user's workflow and terminal setup
+- User manages their own development environment startup
+
+**What to do instead:**
+- ✅ Tell user to run `./stack start` if services need starting
+- ✅ Use `./stack up` for specific services if absolutely necessary
+- ✅ Check service status with `docker compose ps`
+- ✅ View logs with `docker compose logs`
+
+**Other stack commands you CAN use:**
+- `./stack build` - Build containers
+- `./stack build-zed` - Build Zed binary
+- `./stack build-sway` - Build Sway container
+- `./stack rebuild-wolf` - Rebuild Wolf
+- `./stack update_openapi` - Update OpenAPI docs
+- `./stack up <service>` - Start specific service (use sparingly)
+
 ## 🚨 CRITICAL: NEVER DELETE GIT INDEX LOCK 🚨
 
 **NEVER delete .git/index.lock - it causes git index corruption**

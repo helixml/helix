@@ -176,10 +176,16 @@ set -e
 
 echo "🐳 Starting Wolf's isolated dockerd..."
 
-# Clean up stale PID file (common issue with Docker restarts)
+# Clean up stale PID files (common issue with Docker restarts)
 if [ -f /var/run/docker.pid ]; then
     echo "🧹 Cleaning up stale docker.pid file"
     rm -f /var/run/docker.pid
+fi
+
+# Clean up stale containerd PID file (prevents "timeout waiting for containerd to start")
+if [ -f /run/docker/containerd/containerd.pid ]; then
+    echo "🧹 Cleaning up stale containerd.pid file"
+    rm -f /run/docker/containerd/containerd.pid
 fi
 
 # Use iptables-legacy for DinD compatibility

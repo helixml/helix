@@ -401,9 +401,9 @@ function start() {
 
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
-    # WITH_RUNNER mode: Wolf logs in pane 3
-    tmux select-pane -t 3 -T "Wolf Logs"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+    # WITH_RUNNER mode: Sandbox logs in pane 3
+    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
 
     tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
     tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
@@ -412,12 +412,12 @@ function start() {
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
     tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
   else
-    # WITHOUT_RUNNER mode: Moonlight-web logs in pane 3, Wolf in pane 4
-    tmux select-pane -t 3 -T "Moonlight-web Logs"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f moonlight-web' C-m
+    # WITHOUT_RUNNER mode: Unified sandbox logs (Wolf + Moonlight Web in one container)
+    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
 
-    tmux select-pane -t 4 -T "Wolf Logs"
-    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
 
     # Middle right pane (5) - contextual based on demos
     if [[ -n "$WITH_DEMOS" ]]; then
