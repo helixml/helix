@@ -472,20 +472,30 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// AMD VA-API encoder has max resolution of 1920x1088, so use 1080p for AMD
 	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
 
+	log.Info().
+		Str("gpu_vendor", gpuVendor).
+		Int("agent_width", agent.DisplayWidth).
+		Int("agent_height", agent.DisplayHeight).
+		Msg("🖥️ Determining display resolution for GPU type")
+
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
 		if gpuVendor == "amd" {
 			displayWidth = 1920 // AMD VA-API encoder limited to 1920x1088
+			log.Info().Msg("Using 1920 width for AMD GPU")
 		} else {
 			displayWidth = 3840 // 4K default for NVIDIA/Intel
+			log.Info().Msg("Using 3840 width for non-AMD GPU")
 		}
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
 		if gpuVendor == "amd" {
 			displayHeight = 1080 // AMD VA-API encoder limited to 1920x1088
+			log.Info().Msg("Using 1080 height for AMD GPU")
 		} else {
 			displayHeight = 2160 // 4K default for NVIDIA/Intel
+			log.Info().Msg("Using 2160 height for non-AMD GPU")
 		}
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
@@ -642,6 +652,12 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// NEW: Create lobby instead of app for immediate auto-start
+	log.Info().
+		Int("final_width", displayWidth).
+		Int("final_height", displayHeight).
+		Int("refresh_rate", displayRefreshRate).
+		Msg("🎮 Creating Wolf lobby with resolution settings")
+
 	lobbyReq := &wolf.CreateLobbyRequest{
 		ProfileID:              "helix-sessions",
 		Name:                   fmt.Sprintf("Agent %s", agent.SessionID[len(agent.SessionID)-4:]),
