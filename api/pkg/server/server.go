@@ -1717,6 +1717,50 @@ func getWebSocketMessageTypeName(messageType int) string {
 }
 
 // handleRevDial handles reverse dial connections from external agent runners
+// ensureWolfInstanceRegistered auto-registers a Wolf instance if it doesn't exist
+// This allows Wolf containers to self-register on first connection
+func (apiServer *HelixAPIServer) ensureWolfInstanceRegistered(ctx context.Context, wolfInstanceID string, remoteAddr string) {
+	// Check if already registered
+	instances, err := apiServer.Store.ListWolfInstances(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check existing Wolf instances for auto-registration")
+		return
+	}
+
+	for _, instance := range instances {
+		if instance.ID == wolfInstanceID {
+			// Already registered
+			log.Debug().Str("wolf_instance_id", wolfInstanceID).Msg("Wolf instance already registered")
+			return
+		}
+	}
+
+	// Not registered - auto-register it
+	instance := &types.WolfInstance{
+		ID:           wolfInstanceID,
+		Name:         fmt.Sprintf("Wolf %s", wolfInstanceID),
+		Address:      remoteAddr,
+		MaxSandboxes: 20, // Default capacity
+		GPUType:      "",
+	}
+
+	err = apiServer.Store.RegisterWolfInstance(ctx, instance)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Failed to auto-register Wolf instance")
+		return
+	}
+
+	log.Info().
+		Str("wolf_instance_id", wolfInstanceID).
+		Str("name", instance.Name).
+		Str("address", instance.Address).
+		Int("max_sandboxes", instance.MaxSandboxes).
+		Msg("✅ Auto-registered Wolf instance on first RevDial connection")
+}
+
 func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 	// Create the WebSocket handler for data connections using revdial.ConnHandler
 	upgrader := websocket.Upgrader{
@@ -1799,6 +1843,12 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			Str("runner_id", runnerID).
 			Str("token_type", string(user.TokenType)).
 			Msg("Authenticated RevDial connection (runner or user token)")
+
+		// Auto-register Wolf instances if this is a wolf-* or moonlight-* runner ID
+		if strings.HasPrefix(runnerID, "wolf-") {
+			wolfInstanceID := strings.TrimPrefix(runnerID, "wolf-")
+			apiServer.ensureWolfInstanceRegistered(r.Context(), wolfInstanceID, r.RemoteAddr)
+		}
 
 		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
