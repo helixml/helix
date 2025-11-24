@@ -111,8 +111,8 @@ services:
             - ./WORKDIR_README.md:/opt/helix/WORKDIR_README.md:ro
             - ${FILESTORE_DATA:-helix-filestore}:/filestore
             - helix-socket:/socket
-            # Bind-mount from host (Wolf creates socket here)
-            - /var/run/wolf:/var/run/wolf:rw
+            # Wolf socket removed - API uses RevDial to communicate with Wolf
+            # (Wolf runs in separate sandbox container, socket not accessible)
         depends_on:
             - postgres
             - postgres-mcp
@@ -259,6 +259,10 @@ services:
         # Helix dev mode (enables bind-mounts for hot reload)
         - HELIX_DEV_MODE=true
         - ZED_IMAGE=helix-sway:latest
+        # RevDial configuration (connect Wolf/Moonlight Web to API via RevDial)
+        - HELIX_API_URL=http://api:8080
+        - WOLF_INSTANCE_ID=local
+        - RUNNER_TOKEN=oh-hallo-insecure-token
         # Wolf configuration (legacy env vars for compatibility)
         - XDG_RUNTIME_DIR=/tmp/sockets
         - HOST_APPS_STATE_FOLDER=/etc/wolf/cfg
