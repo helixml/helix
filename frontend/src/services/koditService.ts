@@ -33,6 +33,7 @@ export const koditEnrichmentDetailQueryKey = (repoId: string, enrichmentId: stri
   ['kodit', 'enrichments', repoId, enrichmentId]
 export const koditCommitsQueryKey = (repoId: string) => ['kodit', 'commits', repoId]
 export const koditStatusQueryKey = (repoId: string) => ['kodit', 'status', repoId]
+export const koditSearchQueryKey = (repoId: string, query: string) => ['kodit', 'search', repoId, query]
 
 /**
  * Hook to fetch code intelligence enrichments for a repository
@@ -116,6 +117,34 @@ export function useKoditStatus(repoId: string, options?: { enabled?: boolean }) 
     enabled: options?.enabled !== false && !!repoId,
     staleTime: 10 * 1000, // 10 seconds
     refetchInterval: 10 * 1000, // Refetch every 10 seconds for status updates
+  })
+}
+
+/**
+ * Hook to search code snippets in a repository
+ */
+export function useKoditSearch(
+  repoId: string,
+  query: string,
+  limit?: number,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: koditSearchQueryKey(repoId, query),
+    queryFn: async () => {
+      const response = await apiClient.v1GitRepositoriesSearchSnippetsDetail(repoId, {
+        query,
+        limit,
+      })
+      // Response is an array of snippets
+      const data = response.data as any
+      return Array.isArray(data) ? data : []
+    },
+    enabled: options?.enabled !== false && !!repoId && !!query && query.trim().length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
 
