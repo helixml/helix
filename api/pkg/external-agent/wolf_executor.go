@@ -370,27 +370,15 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// TODO: Extract GPU type from agent config if needed
 	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
 	if err != nil {
-		log.Warn().Err(err).Msg("No Wolf instances available, using local Wolf")
-		// Continue with local Wolf (backward compatibility)
-		// Create a placeholder instance for local Wolf
-		wolfInstance = &types.WolfInstance{
-			ID:   "local",
-			Name: "Local Wolf",
-		}
-	} else {
-		log.Info().
-			Str("wolf_id", wolfInstance.ID).
-			Str("wolf_name", wolfInstance.Name).
-			Int("current_load", wolfInstance.ConnectedSandboxes).
-			Int("max_capacity", wolfInstance.MaxSandboxes).
-			Msg("Selected Wolf instance for sandbox")
-
-		// TODO: Route to remote Wolf via RevDial
-		// For now, if wolfInstance.ID != "local", log warning
-		if wolfInstance.ID != "local" {
-			log.Warn().Msg("Remote Wolf selected but routing not yet implemented, using local Wolf")
-		}
+		return nil, fmt.Errorf("no Wolf instances available - ensure Wolf container is running and connected via RevDial: %w", err)
 	}
+
+	log.Info().
+		Str("wolf_id", wolfInstance.ID).
+		Str("wolf_name", wolfInstance.Name).
+		Int("current_load", wolfInstance.ConnectedSandboxes).
+		Int("max_capacity", wolfInstance.MaxSandboxes).
+		Msg("Selected Wolf instance for sandbox")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
 	// Use session ID as environment name for consistency
