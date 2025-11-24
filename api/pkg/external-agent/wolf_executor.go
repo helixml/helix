@@ -469,13 +469,24 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	extraEnv = append(extraEnv, agent.Env...)
 
 	// Extract video settings from agent config (Phase 3.5) with defaults
+	// AMD VA-API encoder has max resolution of 1920x1088, so use 1080p for AMD
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+
 	displayWidth := agent.DisplayWidth
 	if displayWidth == 0 {
-		displayWidth = 3840 // 4K default for consistent resolution
+		if gpuVendor == "amd" {
+			displayWidth = 1920 // AMD VA-API encoder limited to 1920x1088
+		} else {
+			displayWidth = 3840 // 4K default for NVIDIA/Intel
+		}
 	}
 	displayHeight := agent.DisplayHeight
 	if displayHeight == 0 {
-		displayHeight = 2160 // 4K default for consistent resolution
+		if gpuVendor == "amd" {
+			displayHeight = 1080 // AMD VA-API encoder limited to 1920x1088
+		} else {
+			displayHeight = 2160 // 4K default for NVIDIA/Intel
+		}
 	}
 	displayRefreshRate := agent.DisplayRefreshRate
 	if displayRefreshRate == 0 {
