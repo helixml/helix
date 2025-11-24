@@ -1,8 +1,9 @@
 import React, { FC, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import Container from '@mui/material/Container'
 import {
   Box,
-  Typography,  
+  Typography,
   CircularProgress,
   Alert,
   Button,
@@ -26,13 +27,18 @@ import {
   Tab,
   Tooltip,
   Paper,
-  Collapse,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Avatar,
+  Drawer,
 } from '@mui/material'
 import {
   GitBranch,
   Copy,
   ExternalLink,
-  ArrowLeft, 
+  ArrowLeft,
   Brain,
   Link,
   Trash2,
@@ -77,7 +83,16 @@ import {
 } from '../services/repositoryAccessGrantService'
 import {
   useKoditEnrichments,
+  useKoditEnrichmentDetail,
+  useKoditStatus,
   groupEnrichmentsByType,
+  groupEnrichmentsBySubtype,
+  getEnrichmentTypeName,
+  getEnrichmentSubtypeName,
+  getEnrichmentTypeIcon,
+  KODIT_TYPE_USAGE,
+  KODIT_TYPE_DEVELOPER,
+  KODIT_TYPE_LIVING_DOCUMENTATION,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
 import CodeTab from '../components/git/CodeTab'
@@ -86,7 +101,7 @@ import SettingsTab from '../components/git/SettingsTab'
 import PullRequests from '../components/git/PullRequests'
 import { TypesExternalRepositoryType } from '../api/api'
 
-const TAB_NAMES = ['code', 'settings', 'access', 'commits', 'pull-requests'] as const
+const TAB_NAMES = ['code-intelligence', 'code', 'settings', 'access', 'commits', 'pull-requests'] as const
 type TabName = typeof TAB_NAMES[number]
 
 const getTabName = (name: string | undefined): TabName => {
@@ -100,7 +115,7 @@ const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]
   if (branches.length === 0) {
     return ''
   }
-  
+
   if (branches.includes('main')) {
     return 'main'
   }
@@ -141,10 +156,12 @@ const GitRepoDetail: FC = () => {
   const pushPullMutation = usePushPullGitRepository()
   const createBranchMutation = useCreateBranch()
 
-  // Kodit code intelligence enrichments
+  // Kodit code intelligence enrichments (internal summary types filtered in backend)
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
   const enrichments = enrichmentsData?.data || []
-  const groupedEnrichments = groupEnrichmentsByType(enrichments)
+  const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
+  const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
+  const { data: koditStatusData } = useKoditStatus(repoId || '', { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
 
   // UI State
   const [currentTab, setCurrentTab] = useState<TabName>(() => getTabName(router.params.tab))
@@ -207,6 +224,17 @@ const GitRepoDetail: FC = () => {
   const [newFilePath, setNewFilePath] = useState('')
   const [newFileContent, setNewFileContent] = useState('')
   const [creatingFile, setCreatingFile] = useState(false)
+
+  // Enrichment Detail Drawer State
+  const [selectedEnrichmentId, setSelectedEnrichmentId] = useState<string | null>(null)
+  const enrichmentDrawerOpen = !!selectedEnrichmentId
+
+  // Fetch full enrichment detail when drawer is open
+  const { data: enrichmentDetail, isLoading: enrichmentDetailLoading } = useKoditEnrichmentDetail(
+    repoId || '',
+    selectedEnrichmentId || '',
+    { enabled: enrichmentDrawerOpen }
+  )
 
   // Create Branch Dialog State
   const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false)
@@ -301,13 +329,13 @@ const GitRepoDetail: FC = () => {
       if (repository.is_external || repository.external_url) {
         updateData.external_url = editExternalUrl || undefined
         updateData.external_type = editExternalType || undefined
-        
+
         if (editExternalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO) {
           updateData.azure_devops = {
             organization_url: editOrganizationUrl || undefined,
-            ...(editPersonalAccessToken && editPersonalAccessToken !== '' 
+            ...(editPersonalAccessToken && editPersonalAccessToken !== ''
               ? { personal_access_token: editPersonalAccessToken }
-              : repository.azure_devops?.personal_access_token 
+              : repository.azure_devops?.personal_access_token
                 ? { personal_access_token: repository.azure_devops.personal_access_token }
                 : {}),
           }
@@ -497,7 +525,7 @@ const GitRepoDetail: FC = () => {
 
       // Calculate parent directory of the file being created
       const filePathParts = newFilePath.split('/').filter(p => p)
-      const parentDir = filePathParts.length > 1 
+      const parentDir = filePathParts.length > 1
         ? filePathParts.slice(0, -1).join('/')
         : '.'
 
@@ -512,15 +540,15 @@ const GitRepoDetail: FC = () => {
       }
 
       for (const path of pathsToInvalidate) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch] 
+        queryClient.invalidateQueries({
+          queryKey: ['git-repositories', repoId, 'tree', path, queryBranch]
         })
       }
 
       // Invalidate the file query if we're editing
       if (isEditingFile) {
-        queryClient.invalidateQueries({ 
-          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch] 
+        queryClient.invalidateQueries({
+          queryKey: ['git-repositories', repoId, 'file', newFilePath, queryBranch]
         })
       }
 
@@ -652,6 +680,13 @@ const GitRepoDetail: FC = () => {
               router.mergeParams({ tab: tabName })
             }}>
               <Tab
+                value="code-intelligence"
+                icon={<Brain size={16} />}
+                iconPosition="start"
+                label="Code Intelligence"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
                 value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
@@ -685,19 +720,217 @@ const GitRepoDetail: FC = () => {
                 iconPosition="start"
                 label="Access"
                 sx={{ textTransform: 'none', minHeight: 48 }}
-              />              
+              />
             </Tabs>
           </Box>
         </Box>
 
         {/* Tab panels */}
         <Box sx={{ mt: 3 }}>
+          {/* Code Intelligence Tab */}
+          {currentTab === 'code-intelligence' && (
+            <Box sx={{ maxWidth: 1200 }}>
+              {/* Kodit Status Display */}
+              {repository.metadata?.kodit_indexing ? (
+                <Box sx={{ mb: 4 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Brain size={24} />
+                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                      Code Intelligence
+                    </Typography>
+                    <Chip
+                      label={koditStatusData?.status || 'Active'}
+                      size="small"
+                      color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
+                      sx={{ ml: 1 }}
+                    />
+                  </Box>
+
+                  {koditStatusData?.message && (
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                      {koditStatusData.message}
+                    </Alert>
+                  )}
+                </Box>
+              ) : (
+                <Alert severity="info" sx={{ mb: 4 }}>
+                  Code Intelligence is not enabled for this repository. Enable it in the Settings tab to start indexing.
+                </Alert>
+              )}
+
+              {/* Enrichments Cards - Sectioned by Type */}
+              {enrichments.length > 0 && Object.keys(groupedEnrichmentsByType).length > 0 ? (
+                <Stack spacing={4}>
+                  {/* Define the order of sections */}
+                  {[KODIT_TYPE_DEVELOPER, KODIT_TYPE_USAGE, KODIT_TYPE_LIVING_DOCUMENTATION, ...Object.keys(groupedEnrichmentsByType).filter(t =>
+                    t !== KODIT_TYPE_DEVELOPER && t !== KODIT_TYPE_USAGE && t !== KODIT_TYPE_LIVING_DOCUMENTATION
+                  )].map((type) => {
+                    const typeEnrichments = groupedEnrichmentsByType[type]
+                    if (!typeEnrichments || typeEnrichments.length === 0) return null
+
+                    const typeName = getEnrichmentTypeName(type)
+                    const typeDescription = type === KODIT_TYPE_DEVELOPER
+                      ? 'Architecture, APIs, and technical documentation'
+                      : type === KODIT_TYPE_USAGE
+                      ? 'How-to guides and usage examples'
+                      : 'Recent changes and commit descriptions'
+
+                    return (
+                      <Box key={type}>
+                        {/* Section Header */}
+                        <Box sx={{ mb: 3 }}>
+                          <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            {typeName}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {typeDescription}
+                          </Typography>
+                        </Box>
+
+                        {/* Cards Grid */}
+                        <Grid container spacing={2}>
+                          {typeEnrichments.map((enrichment: any, index: number) => {
+                            const subtype = enrichment.attributes?.subtype
+                            const subtypeName = getEnrichmentSubtypeName(subtype)
+
+                            // Choose color scheme based on type
+                            const borderColor = type === KODIT_TYPE_DEVELOPER
+                              ? 'primary.main'
+                              : type === KODIT_TYPE_USAGE
+                              ? 'success.main'
+                              : 'info.main'
+                            const iconColor = type === KODIT_TYPE_DEVELOPER
+                              ? '#1976d2'
+                              : type === KODIT_TYPE_USAGE
+                              ? '#2e7d32'
+                              : '#0288d1'
+
+                            return (
+                              <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>
+                                <Card
+                                  onClick={() => {
+                                    if (enrichment.id) {
+                                      setSelectedEnrichmentId(enrichment.id)
+                                    }
+                                  }}
+                                  sx={{
+                                    height: 280,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    boxShadow: 1,
+                                    borderStyle: 'dashed',
+                                    borderWidth: 1,
+                                    borderColor: 'divider',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                    '&:hover': {
+                                      boxShadow: 4,
+                                      transform: 'translateY(-4px)',
+                                      borderColor: borderColor,
+                                      borderWidth: 2,
+                                      borderStyle: 'solid',
+                                    },
+                                  }}
+                                >
+                                  <CardHeader
+                                    avatar={
+                                      <Avatar sx={{ bgcolor: 'white', width: 40, height: 40, border: '2px solid', borderColor: borderColor }}>
+                                        {type === KODIT_TYPE_DEVELOPER ? (
+                                          <Brain size={24} color={iconColor} />
+                                        ) : type === KODIT_TYPE_USAGE ? (
+                                          <FileText size={24} color={iconColor} />
+                                        ) : (
+                                          <CodeIcon size={24} color={iconColor} />
+                                        )}
+                                      </Avatar>
+                                    }
+                                    title={subtypeName}
+                                    titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
+                                    subheader={enrichment.attributes?.updated_at ? new Date(enrichment.attributes.updated_at).toLocaleDateString() : ''}
+                                    subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
+                                    sx={{ pb: 1 }}
+                                  />
+                                  <CardContent sx={{
+                                    flexGrow: 1,
+                                    pt: 0,
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                  }}>
+                                    <Box
+                                      sx={{
+                                        fontSize: '0.8rem',
+                                        lineHeight: 1.5,
+                                        overflow: 'hidden',
+                                        color: 'text.secondary',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 8,
+                                        WebkitBoxOrient: 'vertical',
+                                        '& p': {
+                                          margin: '0 0 0.5em 0',
+                                          '&:last-child': { margin: 0 }
+                                        },
+                                        '& ul, & ol': {
+                                          margin: '0 0 0.5em 0',
+                                          paddingLeft: '1.2em'
+                                        },
+                                        '& li': {
+                                          margin: '0.2em 0'
+                                        },
+                                        '& code': {
+                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                          padding: '0.1em 0.3em',
+                                          borderRadius: '3px',
+                                          fontSize: '0.9em',
+                                          fontFamily: 'monospace'
+                                        },
+                                        '& pre': {
+                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                                          padding: '0.5em',
+                                          borderRadius: '4px',
+                                          overflow: 'auto',
+                                          fontSize: '0.85em'
+                                        },
+                                        '& h1, & h2, & h3, & h4, & h5, & h6': {
+                                          margin: '0.5em 0 0.3em 0',
+                                          fontWeight: 600
+                                        }
+                                      }}
+                                    >
+                                      <ReactMarkdown>
+                                        {enrichment.attributes?.content || 'No content available'}
+                                      </ReactMarkdown>
+                                    </Box>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                            )
+                          })}
+                        </Grid>
+                      </Box>
+                    )
+                  })}
+                </Stack>
+              ) : repository.metadata?.kodit_indexing ? (
+                <Box sx={{ textAlign: 'center', py: 8 }}>
+                  <Brain size={48} color="#656d76" style={{ marginBottom: 16, opacity: 0.5 }} />
+                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                    No enrichments available yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Code Intelligence is indexing your repository. Check back soon.
+                  </Typography>
+                </Box>
+              ) : null}
+            </Box>
+          )}
+
           {/* Code Tab */}
           {currentTab === 'code' && (
             <CodeTab
               repository={repository}
               enrichments={enrichments}
-              groupedEnrichments={groupedEnrichments}
+              groupedEnrichments={groupedEnrichmentsBySubtype}
               treeData={treeData}
               treeLoading={treeLoading}
               fileData={fileData}
@@ -1066,27 +1299,27 @@ const GitRepoDetail: FC = () => {
         </Dialog>
 
         {/* Create Branch Dialog */}
-        <Dialog 
-          open={createBranchDialogOpen} 
+        <Dialog
+          open={createBranchDialogOpen}
           onClose={() => {
             setCreateBranchDialogOpen(false)
             setNewBranchName('')
             setNewBranchBase('')
-          }} 
-          maxWidth="sm" 
+          }}
+          maxWidth="sm"
           fullWidth
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
               Create New Branch
             </Typography>
-            <IconButton 
+            <IconButton
               onClick={() => {
                 setCreateBranchDialogOpen(false)
                 setNewBranchName('')
                 setNewBranchBase('')
-              }} 
-              edge="end" 
+              }}
+              edge="end"
               size="small"
             >
               <CloseIcon size={20} />
@@ -1156,29 +1389,29 @@ const GitRepoDetail: FC = () => {
         </Dialog>
 
         {/* Create/Edit File Dialog */}
-        <Dialog 
-          open={createFileDialogOpen} 
+        <Dialog
+          open={createFileDialogOpen}
           onClose={() => {
             setCreateFileDialogOpen(false)
             setIsEditingFile(false)
             setNewFilePath('')
             setNewFileContent('')
-          }} 
-          maxWidth="lg" 
+          }}
+          maxWidth="lg"
           fullWidth
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
               {isEditingFile ? 'Edit File' : 'Create New File'}
             </Typography>
-            <IconButton 
+            <IconButton
               onClick={() => {
                 setCreateFileDialogOpen(false)
                 setIsEditingFile(false)
                 setNewFilePath('')
                 setNewFileContent('')
-              }} 
-              edge="end" 
+              }}
+              edge="end"
               size="small"
             >
               <CloseIcon size={20} />
@@ -1186,7 +1419,7 @@ const GitRepoDetail: FC = () => {
           </DialogTitle>
 
           <DialogContent sx={{ p: 3, height: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' , pt: 2}}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%', pt: 2 }}>
               <TextField
                 label="Filename"
                 fullWidth
@@ -1199,11 +1432,11 @@ const GitRepoDetail: FC = () => {
                   sx: { fontFamily: 'monospace' }
                 }}
               />
-              <Box sx={{ 
-                flex: 1, 
-                minHeight: 0, 
-                border: '1px solid', 
-                borderColor: 'divider', 
+              <Box sx={{
+                flex: 1,
+                minHeight: 0,
+                border: '1px solid',
+                borderColor: 'divider',
                 borderRadius: 1,
                 display: 'flex',
                 flexDirection: 'column',
@@ -1216,16 +1449,16 @@ const GitRepoDetail: FC = () => {
                     onChange={setNewFileContent}
                     language={
                       newFilePath.endsWith('.json') ? 'json' :
-                      newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
-                      newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
-                      newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
-                      newFilePath.endsWith('.go') ? 'go' :
-                      newFilePath.endsWith('.py') ? 'python' :
-                      newFilePath.endsWith('.md') ? 'markdown' :
-                      newFilePath.endsWith('.css') ? 'css' :
-                      newFilePath.endsWith('.html') ? 'html' :
-                      newFilePath.endsWith('.sh') ? 'shell' :
-                      'plaintext'
+                        newFilePath.endsWith('.yaml') || newFilePath.endsWith('.yml') ? 'yaml' :
+                          newFilePath.endsWith('.ts') || newFilePath.endsWith('.tsx') ? 'typescript' :
+                            newFilePath.endsWith('.js') || newFilePath.endsWith('.jsx') ? 'javascript' :
+                              newFilePath.endsWith('.go') ? 'go' :
+                                newFilePath.endsWith('.py') ? 'python' :
+                                  newFilePath.endsWith('.md') ? 'markdown' :
+                                    newFilePath.endsWith('.css') ? 'css' :
+                                      newFilePath.endsWith('.html') ? 'html' :
+                                        newFilePath.endsWith('.sh') ? 'shell' :
+                                          'plaintext'
                     }
                     height="100%"
                     autoHeight={false}
@@ -1242,7 +1475,7 @@ const GitRepoDetail: FC = () => {
               </Box>
             </Box>
           </DialogContent>
-          <DialogActions sx={{ px: 3, py: 2 }}>                        
+          <DialogActions sx={{ px: 3, py: 2 }}>
             <Button
               onClick={handleCreateFile}
               color="secondary"
@@ -1253,6 +1486,114 @@ const GitRepoDetail: FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Enrichment Detail Drawer */}
+        <Drawer
+          anchor="right"
+          open={enrichmentDrawerOpen}
+          onClose={() => {
+            setSelectedEnrichmentId(null)
+          }}
+          sx={{
+            '& .MuiDrawer-paper': {
+              width: { xs: '100%', sm: '600px', md: '700px' },
+              p: 3,
+            },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+            <Box>
+              <Typography variant="h5" gutterBottom>
+                Enrichment Details
+              </Typography>
+              {enrichmentDetail && (
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {getEnrichmentSubtypeName(enrichmentDetail.attributes?.subtype || '')}
+                </Typography>
+              )}
+            </Box>
+            <IconButton
+              onClick={() => {
+                setSelectedEnrichmentId(null)
+              }}
+              size="small"
+            >
+              <CloseIcon size={20} />
+            </IconButton>
+          </Box>
+
+          {enrichmentDetailLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+              <CircularProgress />
+            </Box>
+          ) : enrichmentDetail ? (
+            <Box>
+              {/* Metadata */}
+              <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
+                <Chip
+                  label={getEnrichmentTypeName(enrichmentDetail.attributes?.type || '')}
+                  size="small"
+                  color={
+                    enrichmentDetail.attributes?.type === KODIT_TYPE_DEVELOPER
+                      ? 'primary'
+                      : enrichmentDetail.attributes?.type === KODIT_TYPE_USAGE
+                        ? 'success'
+                        : 'info'
+                  }
+                />
+                {enrichmentDetail.attributes?.updated_at && (
+                  <Chip
+                    label={`Updated: ${new Date(enrichmentDetail.attributes.updated_at).toLocaleDateString()}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
+              </Stack>
+
+              {/* Content */}
+              <Box
+                sx={{
+                  '& p': {
+                    margin: '0 0 1em 0',
+                    '&:last-child': { margin: 0 },
+                  },
+                  '& ul, & ol': {
+                    margin: '0 0 1em 0',
+                    paddingLeft: '1.5em',
+                  },
+                  '& li': {
+                    margin: '0.5em 0',
+                  },
+                  '& code': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    padding: '0.2em 0.4em',
+                    borderRadius: '3px',
+                    fontSize: '0.9em',
+                    fontFamily: 'monospace',
+                  },
+                  '& pre': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    padding: '1em',
+                    borderRadius: '4px',
+                    overflow: 'auto',
+                    fontSize: '0.85em',
+                  },
+                  '& h1, & h2, & h3, & h4, & h5, & h6': {
+                    margin: '1em 0 0.5em 0',
+                    fontWeight: 600,
+                    '&:first-child': {
+                      marginTop: 0,
+                    },
+                  },
+                }}
+              >
+                <ReactMarkdown>{enrichmentDetail.attributes?.content || 'No content available'}</ReactMarkdown>
+              </Box>
+            </Box>
+          ) : (
+            <Alert severity="error">Failed to load enrichment details</Alert>
+          )}
+        </Drawer>
       </Container>
     </Page>
   )

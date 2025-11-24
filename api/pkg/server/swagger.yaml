@@ -1698,6 +1698,9 @@ definitions:
     properties:
       attributes:
         $ref: '#/definitions/services.KoditEnrichmentAttributes'
+      commit_sha:
+        description: Added for frontend
+        type: string
       id:
         type: string
       type:
@@ -7408,18 +7411,18 @@ definitions:
     type: object
   types.TriggerType:
     enum:
-    - agent_work_queue
     - slack
     - crisp
     - azure_devops
     - cron
+    - agent_work_queue
     type: string
     x-enum-varnames:
-    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeCrisp
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
+    - TriggerTypeAgentWorkQueue
   types.UpdateGitRepositoryFileContentsRequest:
     properties:
       author:
@@ -9727,6 +9730,10 @@ paths:
         name: id
         required: true
         type: string
+      - description: Filter by enrichment type (usage, developer, living_documentation)
+        in: query
+        name: enrichment_type
+        type: string
       produces:
       - application/json
       responses:
@@ -9745,6 +9752,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository enrichments
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/enrichments/{enrichmentId}:
+    get:
+      description: Get a specific code intelligence enrichment by ID from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enrichment ID
+        in: path
+        name: enrichmentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentData'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get enrichment by ID
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:
