@@ -1765,6 +1765,9 @@ TURN_PASSWORD=${TURN_PASSWORD}
 # Moonlight Web pairing (internal, secure random)
 MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_PIN}
 
+# Wolf hostname for Docker network (wolf for NVIDIA/Intel, wolf-amd for AMD)
+WOLF_HOSTNAME=$([ "$GPU_VENDOR" = "amd" ] && echo "wolf-amd" || echo "wolf")
+
 # Wolf GOP size (keyframe interval in frames)
 # 15 = keyframe every 0.25s at 60fps (good quality, higher bandwidth)
 # 60 = keyframe every 1s (balanced)

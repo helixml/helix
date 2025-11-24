@@ -386,8 +386,11 @@ services:
       - TURN_PUBLIC_IP=${TURN_PUBLIC_IP:-}
       # Helix hostname (for display name in Moonlight client)
       - HELIX_HOSTNAME=${HELIX_HOSTNAME:-localhost}
+      # Wolf hostname for Docker network (wolf for standard, wolf-amd for AMD profile)
+      - WOLF_HOSTNAME=${WOLF_HOSTNAME:-wolf}
     volumes:
       - ./moonlight-web-config:/app/server:rw
+      - /var/run/wolf:/var/run/wolf:rw
     restart: unless-stopped
     # No depends_on - can start independently of Wolf
 

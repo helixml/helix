@@ -10,8 +10,10 @@ CONFIG_TEMPLATE="/app/templates/config.json.template"
 # Initialize data.json if it doesn't exist or is empty
 if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
     echo "🔧 Initializing moonlight-web data.json from template..."
-    cp "$DATA_TEMPLATE" "$DATA_FILE"
-    echo "✅ moonlight-web data.json initialized"
+    # Substitute Wolf hostname (defaults to 'wolf' for standard profile, 'wolf-amd' for AMD)
+    WOLF_HOSTNAME="${WOLF_HOSTNAME:-wolf}"
+    sed -e "s/{{WOLF_HOSTNAME}}/$WOLF_HOSTNAME/g" "$DATA_TEMPLATE" > "$DATA_FILE"
+    echo "✅ moonlight-web data.json initialized with Wolf hostname: $WOLF_HOSTNAME"
 else
     echo "ℹ️  moonlight-web data.json already exists, skipping initialization"
 fi
@@ -111,9 +113,11 @@ if [ -n "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
         echo "🔗 Auto-pairing moonlight-web with Wolf (MOONLIGHT_INTERNAL_PAIRING_PIN is set)..."
 
         # Wait for Wolf to be ready (check if port 47989 is accepting connections)
-        echo "⏳ Waiting for Wolf to be ready..."
+        # Allow override of Wolf hostname for different Docker Compose profiles (wolf vs wolf-amd)
+        WOLF_HOSTNAME="${WOLF_HOSTNAME:-wolf}"
+        echo "⏳ Waiting for Wolf to be ready (hostname: $WOLF_HOSTNAME)..."
         for i in {1..120}; do
-            if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/wolf/47989' 2>/dev/null; then
+            if timeout 1 bash -c "cat < /dev/null > /dev/tcp/$WOLF_HOSTNAME/47989" 2>/dev/null; then
                 echo "✅ Wolf port is responding"
                 # Wait additional 10 seconds for HTTPS endpoint to fully initialize
                 # Wolf's TCP port responds before HTTPS is ready, causing pairing failures
