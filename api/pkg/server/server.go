@@ -223,6 +223,9 @@ func NewServer(
 	// Create simple adapter for WebSocket connection checking
 	wsChecker := &serverWSChecker{manager: externalAgentWSManager}
 
+	// Initialize connection manager for reverse dial BEFORE executor (needed for RevDial screenshot/clipboard)
+	connectionManager := connman.New()
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
@@ -230,13 +233,11 @@ func NewServer(
 		cfg.WebServer.RunnerToken,
 		store,
 		wsChecker,
+		connectionManager,
 	)
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
-
-	// Initialize connection manager for reverse dial
-	connectionManager := connman.New()
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
@@ -1740,7 +1741,12 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		}
 
 		// This is a CONTROL connection (WebSocket without dialer parameter, or non-WebSocket)
-		log.Debug().Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).Msg("Handling revdial CONTROL connection")
+		log.Info().
+			Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).
+			Str("upgrade_header", r.Header.Get("Upgrade")).
+			Str("connection_header", r.Header.Get("Connection")).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("Handling revdial CONTROL connection")
 
 		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)

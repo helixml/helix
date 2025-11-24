@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -22,7 +23,7 @@ var (
 	serverURL    = flag.String("server", "", "RevDial server URL (e.g., http://api:8080/revdial)")
 	runnerID     = flag.String("runner-id", "", "Unique runner/sandbox ID")
 	runnerToken  = flag.String("token", "", "Runner authentication token")
-	localAddr    = flag.String("local", "localhost:9876", "Local address to proxy (screenshot/clipboard server)")
+	localAddr    = flag.String("local", "localhost:9876", "Local address to proxy (e.g., localhost:9876 for TCP or unix:///path/to/socket for Unix socket)")
 	reconnectSec = flag.Int("reconnect", 5, "Reconnect interval in seconds if connection drops")
 )
 
@@ -79,43 +80,67 @@ func main() {
 }
 
 func runRevDialClient(ctx context.Context) error {
-	// Connect to API's /revdial endpoint with authentication
-	// Convert http:// to ws:// for WebSocket connection
-	wsURL := strings.Replace(*serverURL, "http://", "ws://", 1)
-	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
-	dialURL := fmt.Sprintf("%s?runnerid=%s", wsURL, *runnerID)
-
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+*runnerToken)
+	// Parse server URL to extract host:port
+	host := extractHost(*serverURL)
+	dialURL := fmt.Sprintf("%s?runnerid=%s", *serverURL, *runnerID)
 
 	log.Printf("Connecting to RevDial server: %s", dialURL)
 
-	dialer := websocket.Dialer{
+	// Dial TCP connection directly (no http.Client - we need raw connection)
+	conn, err := net.DialTimeout("tcp", host, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to dial server: %v", err)
+	}
+
+	// Send HTTP request that will be hijacked by server
+	httpReq, err := http.NewRequest("GET", dialURL, nil)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+*runnerToken)
+	httpReq.Header.Set("Connection", "Upgrade") // Signal that we expect hijacking
+
+	// Write HTTP request to raw TCP connection
+	if err := httpReq.Write(conn); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to write request: %v", err)
+	}
+
+	// Read HTTP response (should be 200 OK before hijacking)
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, httpReq)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		conn.Close()
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Printf("✅ Connected to RevDial server (HTTP hijacked connection)")
+
+	// After the 200 OK response, the connection is hijacked and we have raw TCP
+	// Create RevDial listener (reverse proxy)
+	// For DATA connections, we use WebSocket
+	wsDialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	wsConn, resp, err := dialer.Dial(dialURL, header)
-	if err != nil {
-		if resp != nil {
-			return fmt.Errorf("failed to connect: %v (status: %d)", err, resp.StatusCode)
-		}
-		return fmt.Errorf("failed to connect: %v", err)
-	}
-	defer wsConn.Close()
-
-	log.Printf("✅ Connected to RevDial server")
-
-	// Upgrade websocket to net.Conn
-	conn := &wsConnAdapter{wsConn}
-
-	// Create RevDial listener (reverse proxy)
 	listener := revdial.NewListener(conn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
-		// Dial back to server for data connections
-		dataURL := "ws://" + extractHost(*serverURL) + path
+		// Dial back to server for DATA connections (these use WebSocket)
+		// Path comes from server like "/revdial?revdial.dialer=abc123"
+		// But our API is at /api/v1/revdial, so we need to rewrite the path
+		dataPath := strings.Replace(path, "/revdial", "/api/v1/revdial", 1)
+		dataURL := "ws://" + host + dataPath
 		header := http.Header{}
 		header.Set("Authorization", "Bearer "+*runnerToken)
 
-		return dialer.DialContext(ctx, dataURL, header)
+		log.Printf("DATA connection to: %s", dataURL)
+		return wsDialer.DialContext(ctx, dataURL, header)
 	})
 	defer listener.Close()
 
@@ -137,8 +162,8 @@ func runRevDialClient(ctx context.Context) error {
 
 		log.Printf("Accepted RevDial connection, proxying to %s", *localAddr)
 
-		// Connect to local screenshot/clipboard server
-		localConn, err := net.DialTimeout("tcp", *localAddr, 5*time.Second)
+		// Connect to local server (supports both TCP and Unix sockets)
+		localConn, err := dialLocal(*localAddr)
 		if err != nil {
 			log.Printf("Failed to connect to local server %s: %v", *localAddr, err)
 			remoteConn.Close()
@@ -173,6 +198,18 @@ func proxyConn(remote, local net.Conn) {
 	if err != nil && err != io.EOF {
 		log.Printf("Proxy error: %v", err)
 	}
+}
+
+// dialLocal connects to a local address, supporting both TCP and Unix sockets
+func dialLocal(addr string) (net.Conn, error) {
+	// Check if it's a Unix socket (starts with "unix://")
+	if strings.HasPrefix(addr, "unix://") {
+		socketPath := strings.TrimPrefix(addr, "unix://")
+		return net.DialTimeout("unix", socketPath, 5*time.Second)
+	}
+
+	// Default: TCP connection
+	return net.DialTimeout("tcp", addr, 5*time.Second)
 }
 
 func extractHost(url string) string {
