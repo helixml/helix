@@ -8,14 +8,14 @@
 ARG BASE_IMAGE=ghcr.io/games-on-whales/gstreamer:1.26.7
 
 # ====================================================================
-# Stage 1: Build wolf-revdial-client
+# Stage 1: Build revdial-client (for Wolf, Moonlight Web, and sandbox connections)
 # ====================================================================
 FROM golang:1.24 AS revdial-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY api/ ./api/
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /wolf-revdial-client ./api/cmd/wolf-revdial-client
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /revdial-client ./api/cmd/revdial-client
 
 # ====================================================================
 # Stage 2: Build Moonlight Web
@@ -205,11 +205,11 @@ COPY --from=moonlight-web-upstream /app/init-moonlight-config.sh /opt/moonlight-
 RUN chmod +x /opt/moonlight-web/init-moonlight-config.sh
 
 # ====================================================================
-# Copy wolf-revdial-client
+# Copy revdial-client
 # ====================================================================
 
-COPY --from=revdial-builder /wolf-revdial-client /usr/local/bin/wolf-revdial-client
-RUN chmod +x /usr/local/bin/wolf-revdial-client
+COPY --from=revdial-builder /revdial-client /usr/local/bin/revdial-client
+RUN chmod +x /usr/local/bin/revdial-client
 
 # ====================================================================
 # Create cont-init.d scripts for Moonlight Web and RevDial
@@ -256,34 +256,44 @@ echo "✅ Moonlight Web daemon started (PID: $MOONLIGHT_PID)"
 EOF
 RUN chmod +x /etc/cont-init.d/07-start-moonlight-web.sh
 
-# 08: Start RevDial client daemon (optional, only if HELIX_API_URL is set)
-RUN cat > /etc/cont-init.d/08-start-revdial-client.sh << 'EOF'
+# 08: Start RevDial clients for Wolf and Moonlight Web (optional, only if HELIX_API_URL is set)
+RUN cat > /etc/cont-init.d/08-start-revdial-clients.sh << 'EOF'
 #!/bin/bash
 set -e
 
 # Skip if no control plane configured (local dev mode)
 if [ -z "$HELIX_API_URL" ] || [ -z "$RUNNER_TOKEN" ]; then
-    echo "ℹ️  No HELIX_API_URL set, skipping RevDial client (local mode)"
+    echo "ℹ️  No HELIX_API_URL set, skipping RevDial clients (local mode)"
     exit 0
 fi
 
-WOLF_ID=${WOLF_ID:-$(hostname)}
-echo "🔗 Starting RevDial client daemon..."
+WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+echo "🔗 Starting RevDial clients..."
 echo "   Control Plane: $HELIX_API_URL"
-echo "   Wolf ID: $WOLF_ID"
+echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 
-# Start RevDial client in background
-/usr/local/bin/wolf-revdial-client \
-    --api-url "$HELIX_API_URL" \
-    --wolf-id "$WOLF_ID" \
-    --runner-token "$RUNNER_TOKEN" \
-    --local-addr localhost:8080 \
-    >/var/log/revdial-client.log 2>&1 &
-REVDIAL_PID=$!
+# Start Wolf API RevDial client (proxies Wolf Unix socket)
+/usr/local/bin/revdial-client \
+    -server "$HELIX_API_URL/api/v1/revdial" \
+    -runner-id "wolf-$WOLF_INSTANCE_ID" \
+    -token "$RUNNER_TOKEN" \
+    -local "unix:///var/run/wolf/wolf.sock" \
+    >/var/log/wolf-revdial.log 2>&1 &
+WOLF_REVDIAL_PID=$!
 
-echo "✅ RevDial client daemon started (PID: $REVDIAL_PID)"
+# Start Moonlight Web API RevDial client (proxies Moonlight Web HTTP server)
+/usr/local/bin/revdial-client \
+    -server "$HELIX_API_URL/api/v1/revdial" \
+    -runner-id "moonlight-$WOLF_INSTANCE_ID" \
+    -token "$RUNNER_TOKEN" \
+    -local "127.0.0.1:8080" \
+    >/var/log/moonlight-revdial.log 2>&1 &
+MOONLIGHT_REVDIAL_PID=$!
+
+echo "✅ Wolf RevDial client started (PID: $WOLF_REVDIAL_PID)"
+echo "✅ Moonlight Web RevDial client started (PID: $MOONLIGHT_REVDIAL_PID)"
 EOF
-RUN chmod +x /etc/cont-init.d/08-start-revdial-client.sh
+RUN chmod +x /etc/cont-init.d/08-start-revdial-clients.sh
 
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)
