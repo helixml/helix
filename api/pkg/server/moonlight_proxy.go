@@ -1,12 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"strings"
 
@@ -69,54 +70,143 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 			Msg("Streaming access granted")
 	}
 
-	// Moonlight Web service URL (unified sandbox container exposes Moonlight on port 8080)
-	// In dev mode: docker-compose network name is "helix-sandbox-1"
-	// In prod mode: use environment variable MOONLIGHT_WEB_URL
-	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
-	if moonlightWebURL == "" {
-		moonlightWebURL = "http://helix-sandbox-1:8080" // Default for dev mode (unified sandbox)
+	// Proxy to Moonlight Web via RevDial
+	// In dev mode: runner-id is "moonlight-dev"
+	// In prod mode: runner-id is "moonlight-{wolfInstanceID}" (multi-Wolf routing)
+	moonlightRunnerID := os.Getenv("MOONLIGHT_RUNNER_ID")
+	if moonlightRunnerID == "" {
+		moonlightRunnerID = "moonlight-dev" // Default for dev mode
 	}
 
-	// Handle WebSocket upgrade separately (reverse proxy can't handle this)
+	log.Debug().
+		Str("runner_id", moonlightRunnerID).
+		Str("path", r.URL.Path).
+		Msg("Proxying to Moonlight Web via RevDial")
+
+	// Dial Moonlight Web via RevDial
+	conn, err := apiServer.connectionManager.Dial(ctx, moonlightRunnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", moonlightRunnerID).
+			Msg("Failed to dial Moonlight Web via RevDial")
+		http.Error(w, "Failed to connect to Moonlight Web - check that sandbox is running", http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	log.Debug().
+		Str("runner_id", moonlightRunnerID).
+		Msg("Connected to Moonlight Web via RevDial")
+
+	// Handle WebSocket upgrade (for WebRTC signaling)
 	if r.Header.Get("Upgrade") == "websocket" {
-		apiServer.proxyWebSocket(w, r, moonlightWebURL, user)
+		apiServer.proxyWebSocketViaRevDial(w, r, conn, user)
 		return
 	}
 
-	// Handle regular HTTP requests with reverse proxy
-	target, err := url.Parse(moonlightWebURL)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to parse moonlight-web URL")
+	// Handle regular HTTP requests via RevDial tunnel
+	// Write HTTP request to RevDial connection
+	if err := r.Write(conn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Read HTTP response from RevDial connection
+	resp, err := http.ReadResponse(bufio.NewReader(conn), r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read response from RevDial connection")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
 
-	// Customize proxy director to inject moonlight credentials
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-
-		// Inject moonlight-web credentials for backend authentication
-		moonlightCreds := apiServer.getMoonlightCredentials()
-		req.Header.Set("Authorization", "Bearer "+moonlightCreds)
-
-		log.Debug().
-			Str("user_id", user.ID).
-			Str("original_path", r.URL.Path).
-			Str("proxy_path", req.URL.Path).
-			Msg("Proxying HTTP request to moonlight-web")
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
 	}
 
-	// Modify the request to remove /moonlight prefix
-	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/moonlight")
-	if r.URL.Path == "" {
-		r.URL.Path = "/"
+	// Copy response status and body
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Error().Err(err).Msg("Failed to copy response body")
+		return
+	}
+}
+
+// proxyWebSocketViaRevDial proxies WebSocket connections through RevDial tunnel
+func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter, r *http.Request, revdialConn net.Conn, user *types.User) {
+	// Upgrade client connection to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins (RBAC already enforced)
+		},
 	}
 
-	// Proxy the request
-	proxy.ServeHTTP(w, r)
+	clientWS, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade client WebSocket")
+		return
+	}
+	defer clientWS.Close()
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Str("path", r.URL.Path).
+		Msg("Client WebSocket upgraded, sending request to Moonlight Web via RevDial")
+
+	// Send HTTP WebSocket upgrade request through RevDial tunnel
+	if err := r.Write(revdialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write WebSocket upgrade request to RevDial")
+		return
+	}
+
+	// Read HTTP response from Moonlight Web (should be 101 Switching Protocols)
+	br := bufio.NewReader(revdialConn)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read WebSocket upgrade response from RevDial")
+		return
+	}
+
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		log.Error().
+			Int("status", resp.StatusCode).
+			Msg("Moonlight Web did not accept WebSocket upgrade")
+		return
+	}
+
+	log.Debug().Msg("Moonlight Web accepted WebSocket upgrade, starting bidirectional proxy")
+
+	// After upgrade, both sides are speaking WebSocket over their respective connections
+	// Get the underlying network connection from the client WebSocket
+	clientConn := clientWS.UnderlyingConn()
+
+	// Proxy raw bytes bidirectionally (WebSocket frames and all)
+	errChan := make(chan error, 2)
+
+	// Client → Moonlight Web (via RevDial)
+	go func() {
+		_, err := io.Copy(revdialConn, clientConn)
+		errChan <- err
+	}()
+
+	// Moonlight Web (via RevDial) → Client
+	go func() {
+		_, err := io.Copy(clientConn, revdialConn)
+		errChan <- err
+	}()
+
+	// Wait for either direction to close
+	err = <-errChan
+	if err != nil && err != io.EOF {
+		log.Debug().Err(err).Msg("WebSocket proxy error")
+	}
+
+	log.Debug().Msg("WebSocket proxy connection closed")
 }
 
 // extractHelixSessionFromMoonlightRequest extracts Helix session ID from moonlight request
