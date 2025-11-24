@@ -867,7 +867,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
 	// Moonlight Web observability endpoint (authenticated)
-	authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
+	// TODO: Re-implement for unified sandbox (needs RevDial proxy to sandbox Moonlight Web)
+	// authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
 
 	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
 	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()

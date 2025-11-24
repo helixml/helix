@@ -3,6 +3,8 @@ package connman
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"net"
 	"sync"
 
@@ -31,14 +33,26 @@ func New() *ConnectionManager {
 
 func (m *ConnectionManager) Set(key string, conn net.Conn) {
 	m.lock.Lock()
-	// Use proper revdial.Dialer for multiplexing multiple logical connections
+	defer m.lock.Unlock()
+
+	// If there's an old connection for this key, just replace it
+	// Don't try to close the old connection - it might already be closed from
+	// API restart, and closing it again could cause issues
+	// The old dialer will become unreachable and get garbage collected
+	if _, exists := m.deviceDialers[key]; exists {
+		// Log that we're replacing an existing connection (for debugging)
+		// This is expected during API restarts when clients reconnect
+	}
+
+	// Store both the raw connection (for cleanup) and the dialer (for use)
+	m.deviceConnections[key] = conn
 	m.deviceDialers[key] = revdial.NewDialer(conn, "/revdial")
-	m.lock.Unlock()
 }
 
 func (m *ConnectionManager) Dial(ctx context.Context, key string) (net.Conn, error) {
 	m.lock.RLock()
 	dialer, ok := m.deviceDialers[key]
+	dialerPtr := fmt.Sprintf("%p", dialer) // Get pointer address for debugging
 	if !ok {
 		m.lock.RUnlock()
 		return nil, ErrNoConnection
@@ -46,7 +60,14 @@ func (m *ConnectionManager) Dial(ctx context.Context, key string) (net.Conn, err
 	m.lock.RUnlock()
 
 	// Use revdial.Dialer to create a new logical connection
-	return dialer.Dial(ctx)
+	conn, err := dialer.Dial(ctx)
+	if err != nil {
+		// Log errors to help debug "use of closed network connection" issues
+		log.Printf("[connman] Dial failed for key=%s dialer=%s: %v", key, dialerPtr, err)
+		return nil, err
+	}
+	log.Printf("[connman] Dial successful for key=%s dialer=%s", key, dialerPtr)
+	return conn, nil
 }
 
 // Remove removes a connection from the manager (for cleanup after disconnection)

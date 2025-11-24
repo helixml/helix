@@ -169,8 +169,9 @@ COPY --from=wolf-upstream /opt/wolf-defaults/config.toml.template /opt/wolf-defa
 COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init.d/05-init-wolf-config.sh
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
-# Copy helix-sway tarball (will be loaded by start-dockerd.sh)
+# Copy helix-sway tarball and hash file (will be loaded by start-dockerd.sh)
 COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
+COPY helix-sway.tar.gz.hash /opt/images/helix-sway.tar.gz.hash
 
 # Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
 COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
@@ -250,14 +251,31 @@ else
     echo "helix_default network already exists"
 fi
 
-# Load helix-sway image into Wolf's dockerd (tolerate failures for bootstrapping)
+# Load helix-sway image into sandbox's dockerd (with hash-based skip optimization)
 if [ -f /opt/images/helix-sway.tar.gz ]; then
-    echo "📦 Loading helix-sway image into Wolf's dockerd..."
-    if docker load -i /opt/images/helix-sway.tar.gz 2>&1 | tee /tmp/docker-load.log; then
-        echo "✅ helix-sway:latest loaded successfully"
+    # Check if image already loaded with same hash (optimization to skip expensive docker load)
+    SHOULD_LOAD=true
+    if [ -f /opt/images/helix-sway.tar.gz.hash ]; then
+        EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.gz.hash)
+        CURRENT_HASH=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
+
+        if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
+            echo "✅ helix-sway:latest already loaded (hash: $CURRENT_HASH) - skipping docker load"
+            SHOULD_LOAD=false
+        else
+            echo "📦 Loading helix-sway image into sandbox's dockerd (current: $CURRENT_HASH, expected: $EXPECTED_HASH)..."
+        fi
     else
-        echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
-        echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
+        echo "📦 Loading helix-sway image into sandbox's dockerd..."
+    fi
+
+    if [ "$SHOULD_LOAD" = true ]; then
+        if docker load -i /opt/images/helix-sway.tar.gz 2>&1 | tee /tmp/docker-load.log; then
+            echo "✅ helix-sway:latest loaded successfully"
+        else
+            echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
+            echo "   Container will continue startup - transfer fresh image with './stack build-sway'"
+        fi
     fi
 else
     echo "⚠️  helix-sway tarball not found (sandboxes may fail to start)"
@@ -358,10 +376,59 @@ cd /opt/moonlight-web
 ./moonlight-web 2>&1 | sed 's/^/[MOONLIGHT] /' &
 MOONLIGHT_PID=$!
 echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
-
-# Note: Auto-pairing is handled separately in a later init script if needed
 EOF
 RUN chmod +x /etc/cont-init.d/06-start-moonlight-web.sh
+
+# 06b: Auto-pair Moonlight Web with Wolf (runs AFTER both are started)
+# This script is sourced by startup-app.sh after Wolf starts
+RUN cat > /opt/moonlight-web/auto-pair.sh << 'EOF'
+#!/bin/bash
+# Auto-pair Moonlight Web with Wolf
+# Both services must be running before this executes
+
+echo "🔗 Auto-pairing Moonlight Web with Wolf..."
+
+# Wait for Wolf API to be ready
+MAX_ATTEMPTS=10
+ATTEMPT=0
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    if curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/config >/dev/null 2>&1; then
+        echo "✅ Wolf API is ready"
+        break
+    fi
+    echo "⏳ Waiting for Wolf API... ($ATTEMPT/$MAX_ATTEMPTS)"
+    sleep 1
+    ATTEMPT=$((ATTEMPT + 1))
+done
+
+if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+    echo "⚠️  Wolf API not ready after ${MAX_ATTEMPTS}s, skipping auto-pairing"
+    exit 0
+fi
+
+# Get Wolf's pairing PIN
+WOLF_PIN=$(curl -s --unix-socket /var/run/wolf/wolf.sock http://localhost/api/v1/pairing/pin | jq -r '.pin' 2>/dev/null)
+if [ -z "$WOLF_PIN" ] || [ "$WOLF_PIN" = "null" ]; then
+    echo "⚠️  Failed to get Wolf pairing PIN, skipping auto-pairing"
+    exit 0
+fi
+
+echo "🔐 Got Wolf pairing PIN: $WOLF_PIN"
+
+# Pair Moonlight Web with Wolf
+MOONLIGHT_CREDS=${MOONLIGHT_CREDENTIALS:-helix}
+PAIR_RESPONSE=$(curl -s -X POST http://localhost:8080/api/host/pair \
+    -H "Authorization: Bearer $MOONLIGHT_CREDS" \
+    -H "Content-Type: application/json" \
+    -d "{\"pin\": \"$WOLF_PIN\"}")
+
+if echo "$PAIR_RESPONSE" | grep -q "success\|paired"; then
+    echo "✅ Moonlight Web auto-paired with Wolf"
+else
+    echo "⚠️  Auto-pairing response: $PAIR_RESPONSE"
+fi
+EOF
+RUN chmod +x /opt/moonlight-web/auto-pair.sh
 
 # 07: Start RevDial clients for Wolf and Moonlight Web (optional, only if HELIX_API_URL is set)
 RUN cat > /etc/cont-init.d/07-start-revdial-clients.sh << 'EOF'
@@ -442,6 +509,7 @@ EOF
 RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 
 # 09: Setup telemetry firewall for nested agent containers
+# Fixed: Create /wolf/sway-config directory before writing update script
 COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-telemetry-firewall.sh
 RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
 
@@ -479,6 +547,10 @@ export GST_GL_DRM_DEVICE=${GST_GL_DRM_DEVICE:-$WOLF_ENCODER_NODE}
 # Update fake-udev path
 export WOLF_DOCKER_FAKE_UDEV_PATH=${WOLF_DOCKER_FAKE_UDEV_PATH:-$HOST_APPS_STATE_FOLDER/fake-udev}
 cp /wolf/fake-udev $WOLF_DOCKER_FAKE_UDEV_PATH
+
+# Start auto-pairing in background (after Wolf starts)
+# This runs async so it doesn't block Wolf startup
+(sleep 5 && /opt/moonlight-web/auto-pair.sh) 2>&1 | sed 's/^/[PAIRING] /' &
 
 # Start Wolf in foreground (main process, keeps container alive)
 cd /wolf
