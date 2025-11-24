@@ -69,8 +69,13 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 			Msg("Streaming access granted")
 	}
 
-	// Moonlight Web service URL (from docker-compose network)
-	moonlightWebURL := "http://moonlight-web:8080"
+	// Moonlight Web service URL (unified sandbox container exposes Moonlight on port 8080)
+	// In dev mode: docker-compose network name is "helix-sandbox-1"
+	// In prod mode: use environment variable MOONLIGHT_WEB_URL
+	moonlightWebURL := os.Getenv("MOONLIGHT_WEB_URL")
+	if moonlightWebURL == "" {
+		moonlightWebURL = "http://helix-sandbox-1:8080" // Default for dev mode (unified sandbox)
+	}
 
 	// Handle WebSocket upgrade separately (reverse proxy can't handle this)
 	if r.Header.Get("Upgrade") == "websocket" {
