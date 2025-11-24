@@ -1698,6 +1698,9 @@ definitions:
     properties:
       attributes:
         $ref: '#/definitions/services.KoditEnrichmentAttributes'
+      commit_sha:
+        description: Added for frontend
+        type: string
       id:
         type: string
       type:
@@ -9449,6 +9452,45 @@ paths:
       summary: Get clone command
       tags:
       - git-repositories
+  /api/v1/git/repositories/{id}/commits/{commitSha}/enrichments/{enrichmentId}:
+    get:
+      description: Get a specific code intelligence enrichment for a commit from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Commit SHA
+        in: path
+        name: commitSha
+        required: true
+        type: string
+      - description: Enrichment ID
+        in: path
+        name: enrichmentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentData'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get commit enrichment
+      tags:
+      - git-repositories
   /api/v1/git/repositories/{id}/contents:
     get:
       description: Get the contents of a file at a specific path in a repository
@@ -9534,6 +9576,10 @@ paths:
         name: id
         required: true
         type: string
+      - description: Filter by enrichment type (usage, developer, living_documentation)
+        in: query
+        name: enrichment_type
+        type: string
       produces:
       - application/json
       responses:
@@ -9552,6 +9598,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Get repository enrichments
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/enrichments/{enrichmentId}:
+    get:
+      description: Get a specific code intelligence enrichment by ID from Kodit
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Enrichment ID
+        in: path
+        name: enrichmentId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.KoditEnrichmentData'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get enrichment by ID
       tags:
       - git-repositories
   /api/v1/git/repositories/{id}/kodit-status:

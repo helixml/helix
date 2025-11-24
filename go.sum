@@ -453,6 +453,12 @@ github.com/helixml/kodit/clients/go v0.0.0-20251121141629-330525049e13 h1:uYoIFz
 github.com/helixml/kodit/clients/go v0.0.0-20251121141629-330525049e13/go.mod h1:3/JCNeRr+52QLx4VFug9Zvh9eTJRsTQqCD0fDW/EalM=
 github.com/helixml/kodit/clients/go v0.0.0-20251121142841-e74c9607bfa9 h1:lqB53j+216ALQsYaGvSUgjmL5hu/1eEsaotPkvkhaoA=
 github.com/helixml/kodit/clients/go v0.0.0-20251121142841-e74c9607bfa9/go.mod h1:3/JCNeRr+52QLx4VFug9Zvh9eTJRsTQqCD0fDW/EalM=
+github.com/helixml/kodit/clients/go v0.0.0-20251124114123-a8cca03ae95c h1:wetzXQ2zOZUyvq+8g+4jKPNtqRUApjLshQRFkPPf2XY=
+github.com/helixml/kodit/clients/go v0.0.0-20251124114123-a8cca03ae95c/go.mod h1:3/JCNeRr+52QLx4VFug9Zvh9eTJRsTQqCD0fDW/EalM=
+github.com/helixml/kodit/clients/go v0.0.0-20251124120447-552929eb9a87 h1:NENPihKWuX4H4v/nkSC0d2e150j1TJZzwkZbFTktQiU=
+github.com/helixml/kodit/clients/go v0.0.0-20251124120447-552929eb9a87/go.mod h1:3/JCNeRr+52QLx4VFug9Zvh9eTJRsTQqCD0fDW/EalM=
+github.com/helixml/kodit/clients/go v0.0.0-20251124121810-3e00e4173430 h1:IrTv50y+n4qrUhbC1jd/24HP5VhLZDc+Jj34ssHOvmE=
+github.com/helixml/kodit/clients/go v0.0.0-20251124121810-3e00e4173430/go.mod h1:3/JCNeRr+52QLx4VFug9Zvh9eTJRsTQqCD0fDW/EalM=
 github.com/helixml/langchaingo v0.1.15 h1:6cEwRQgEri4aDrvDnSESmsMY9H35UUoWuOEukSP3lJw=
 github.com/helixml/langchaingo v0.1.15/go.mod h1:EeervIv/DNYhSfQSMaql20wMFvhgF7lDaVaatp8lVPw=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=

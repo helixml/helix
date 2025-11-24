@@ -76,6 +76,7 @@ type (
 		Type       string                    `json:"type"`
 		ID         string                    `json:"id"`
 		Attributes KoditEnrichmentAttributes `json:"attributes"`
+		CommitSHA  string                    `json:"commit_sha,omitempty"` // Added for frontend
 	}
 	KoditEnrichmentAttributes struct {
 		Type      string     `json:"type"`
@@ -153,6 +154,98 @@ func (s *KoditService) GetRepositoryEnrichments(ctx context.Context, koditRepoID
 	return filterAndConvertEnrichments(apiResponse.Data), nil
 }
 
+// GetEnrichment fetches a single enrichment by ID directly from Kodit
+func (s *KoditService) GetEnrichment(ctx context.Context, enrichmentID string) (*KoditEnrichmentData, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	resp, err := s.client.GetEnrichmentApiV1EnrichmentsEnrichmentIdGet(ctx, enrichmentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enrichment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+	}
+
+	var apiResponse kodit.EnrichmentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to our response type
+	e := apiResponse.Data
+	subtype := extractString(e.Attributes.Subtype)
+	var subtypePtr *string
+	if subtype != "" {
+		subtypePtr = &subtype
+	}
+
+	return &KoditEnrichmentData{
+		Type: deref(e.Type),
+		ID:   e.Id,
+		Attributes: KoditEnrichmentAttributes{
+			Type:      e.Attributes.Type,
+			Subtype:   subtypePtr,
+			Content:   e.Attributes.Content, // Full content, no truncation
+			CreatedAt: extractTime(e.Attributes.CreatedAt),
+			UpdatedAt: extractTime(e.Attributes.UpdatedAt),
+		},
+	}, nil
+}
+
+// GetCommitEnrichment fetches a single enrichment by commit SHA and enrichment ID
+func (s *KoditService) GetCommitEnrichment(ctx context.Context, koditRepoID, commitSHA, enrichmentID string) (*KoditEnrichmentData, error) {
+	if !s.enabled {
+		return nil, fmt.Errorf("kodit service not enabled")
+	}
+
+	// List enrichments for the commit and filter by ID
+	resp, err := s.client.ListCommitEnrichmentsApiV1RepositoriesRepoIdCommitsCommitShaEnrichmentsGet(ctx, koditRepoID, commitSHA, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list commit enrichments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("kodit returned status %d: %s", resp.StatusCode, body)
+	}
+
+	var apiResponse kodit.EnrichmentListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Find the specific enrichment by ID
+	for _, e := range apiResponse.Data {
+		if e.Id == enrichmentID {
+			subtype := extractString(e.Attributes.Subtype)
+			var subtypePtr *string
+			if subtype != "" {
+				subtypePtr = &subtype
+			}
+
+			return &KoditEnrichmentData{
+				Type: deref(e.Type),
+				ID:   e.Id,
+				Attributes: KoditEnrichmentAttributes{
+					Type:      e.Attributes.Type,
+					Subtype:   subtypePtr,
+					Content:   e.Attributes.Content, // Full content, no truncation
+					CreatedAt: extractTime(e.Attributes.CreatedAt),
+					UpdatedAt: extractTime(e.Attributes.UpdatedAt),
+				},
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("enrichment not found: %s", enrichmentID)
+}
+
 // GetRepositoryStatus fetches indexing status for a repository from Kodit
 func (s *KoditService) GetRepositoryStatus(ctx context.Context, koditRepoID string) (map[string]any, error) {
 	if !s.enabled {
@@ -206,9 +299,13 @@ func filterAndConvertEnrichments(enrichments []kodit.EnrichmentData) *KoditEnric
 			subtypePtr = &subtype
 		}
 
+		// Extract commit SHA from relationships
+		commitSHA := extractCommitSHA(e.Relationships)
+
 		result.Data = append(result.Data, KoditEnrichmentData{
-			Type: deref(e.Type),
-			ID:   e.Id,
+			Type:      deref(e.Type),
+			ID:        e.Id,
+			CommitSHA: commitSHA,
 			Attributes: KoditEnrichmentAttributes{
 				Type:      e.Attributes.Type,
 				Subtype:   subtypePtr,
@@ -220,6 +317,52 @@ func filterAndConvertEnrichments(enrichments []kodit.EnrichmentData) *KoditEnric
 	}
 
 	return result
+}
+
+// extractCommitSHA extracts commit SHA from enrichment relationships
+func extractCommitSHA(relationships *kodit.EnrichmentData_Relationships) string {
+	if relationships == nil {
+		log.Debug().Msg("extractCommitSHA: relationships is nil")
+		return ""
+	}
+
+	// Marshal and unmarshal to access unexported union field
+	relationshipsJSON, err := json.Marshal(relationships)
+	if err != nil {
+		log.Warn().Err(err).Msg("extractCommitSHA: failed to marshal relationships")
+		return ""
+	}
+
+	log.Debug().RawJSON("relationships", relationshipsJSON).Msg("extractCommitSHA: relationships JSON")
+
+	var relData map[string]interface{}
+	if err := json.Unmarshal(relationshipsJSON, &relData); err != nil {
+		log.Warn().Err(err).Msg("extractCommitSHA: failed to unmarshal relationships")
+		return ""
+	}
+
+	// Look for associations -> data array -> find commit type
+	if associations, ok := relData["associations"].(map[string]interface{}); ok {
+		if data, ok := associations["data"].([]interface{}); ok {
+			for _, item := range data {
+				if assoc, ok := item.(map[string]interface{}); ok {
+					if assocType, ok := assoc["type"].(string); ok && assocType == "commit" {
+						if id, ok := assoc["id"].(string); ok {
+							log.Debug().Str("commit_sha", id).Msg("extractCommitSHA: found commit SHA")
+							return id // This is the commit SHA
+						}
+					}
+				}
+			}
+		} else {
+			log.Debug().Msg("extractCommitSHA: associations.data is not an array")
+		}
+	} else {
+		log.Debug().Msg("extractCommitSHA: no associations found in relationships")
+	}
+
+	log.Debug().Msg("extractCommitSHA: no commit SHA found")
+	return ""
 }
 
 func extractString(union *kodit.EnrichmentAttributes_Subtype) string {

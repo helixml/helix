@@ -28,6 +28,8 @@ export const KODIT_SUBTYPE_COMMIT_DESCRIPTION = 'commit_description' // Commit d
  * Query key factory for Kodit enrichments
  */
 export const koditEnrichmentsQueryKey = (repoId: string) => ['kodit', 'enrichments', repoId]
+export const koditEnrichmentDetailQueryKey = (repoId: string, enrichmentId: string) =>
+  ['kodit', 'enrichments', repoId, enrichmentId]
 export const koditStatusQueryKey = (repoId: string) => ['kodit', 'status', repoId]
 
 /**
@@ -46,6 +48,31 @@ export function useKoditEnrichments(repoId: string, options?: { enabled?: boolea
     enabled: options?.enabled !== false && !!repoId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     refetchInterval: 30 * 1000, // Refetch every 30 seconds for updates
+  })
+}
+
+/**
+ * Hook to fetch a single enrichment with full content
+ */
+export function useKoditEnrichmentDetail(
+  repoId: string,
+  enrichmentId: string,
+  options?: { enabled?: boolean }
+) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: koditEnrichmentDetailQueryKey(repoId, enrichmentId),
+    queryFn: async () => {
+      const response = await apiClient.v1GitRepositoriesEnrichmentsDetail2(
+        repoId,
+        enrichmentId
+      )
+      return response.data
+    },
+    enabled: options?.enabled !== false && !!repoId && !!enrichmentId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }
 

@@ -32,6 +32,7 @@ import {
   CardHeader,
   CardContent,
   Avatar,
+  Drawer,
 } from '@mui/material'
 import {
   GitBranch,
@@ -78,6 +79,7 @@ import {
 } from '../services/repositoryAccessGrantService'
 import {
   useKoditEnrichments,
+  useKoditEnrichmentDetail,
   useKoditStatus,
   groupEnrichmentsByType,
   getEnrichmentTypeName,
@@ -146,6 +148,17 @@ const GitRepoDetail: FC = () => {
   const [newFilePath, setNewFilePath] = useState('')
   const [newFileContent, setNewFileContent] = useState('')
   const [creatingFile, setCreatingFile] = useState(false)
+
+  // Enrichment Detail Drawer State
+  const [selectedEnrichmentId, setSelectedEnrichmentId] = useState<string | null>(null)
+  const enrichmentDrawerOpen = !!selectedEnrichmentId
+
+  // Fetch full enrichment detail when drawer is open
+  const { data: enrichmentDetail, isLoading: enrichmentDetailLoading } = useKoditEnrichmentDetail(
+    repoId || '',
+    selectedEnrichmentId || '',
+    { enabled: enrichmentDrawerOpen }
+  )
 
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
@@ -605,6 +618,11 @@ const GitRepoDetail: FC = () => {
                             return (
                               <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>
                                 <Card
+                                  onClick={() => {
+                                    if (enrichment.id) {
+                                      setSelectedEnrichmentId(enrichment.id)
+                                    }
+                                  }}
                                   sx={{
                                     height: 280,
                                     display: 'flex',
@@ -614,10 +632,13 @@ const GitRepoDetail: FC = () => {
                                     borderWidth: 1,
                                     borderColor: 'divider',
                                     transition: 'all 0.2s',
+                                    cursor: 'pointer',
                                     '&:hover': {
-                                      boxShadow: 3,
-                                      transform: 'translateY(-2px)',
+                                      boxShadow: 4,
+                                      transform: 'translateY(-4px)',
                                       borderColor: borderColor,
+                                      borderWidth: 2,
+                                      borderStyle: 'solid',
                                     },
                                   }}
                                 >
@@ -1554,6 +1575,114 @@ const GitRepoDetail: FC = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Enrichment Detail Drawer */}
+        <Drawer
+          anchor="right"
+          open={enrichmentDrawerOpen}
+          onClose={() => {
+            setSelectedEnrichmentId(null)
+          }}
+          sx={{
+            '& .MuiDrawer-paper': {
+              width: { xs: '100%', sm: '600px', md: '700px' },
+              p: 3,
+            },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+            <Box>
+              <Typography variant="h5" gutterBottom>
+                Enrichment Details
+              </Typography>
+              {enrichmentDetail && (
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {getEnrichmentSubtypeName(enrichmentDetail.attributes?.subtype || '')}
+                </Typography>
+              )}
+            </Box>
+            <IconButton
+              onClick={() => {
+                setSelectedEnrichmentId(null)
+              }}
+              size="small"
+            >
+              <CloseIcon size={20} />
+            </IconButton>
+          </Box>
+
+          {enrichmentDetailLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+              <CircularProgress />
+            </Box>
+          ) : enrichmentDetail ? (
+            <Box>
+              {/* Metadata */}
+              <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
+                <Chip
+                  label={getEnrichmentTypeName(enrichmentDetail.attributes?.type || '')}
+                  size="small"
+                  color={
+                    enrichmentDetail.attributes?.type === KODIT_TYPE_DEVELOPER
+                      ? 'primary'
+                      : enrichmentDetail.attributes?.type === KODIT_TYPE_USAGE
+                      ? 'success'
+                      : 'info'
+                  }
+                />
+                {enrichmentDetail.attributes?.updated_at && (
+                  <Chip
+                    label={`Updated: ${new Date(enrichmentDetail.attributes.updated_at).toLocaleDateString()}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
+              </Stack>
+
+              {/* Content */}
+              <Box
+                sx={{
+                  '& p': {
+                    margin: '0 0 1em 0',
+                    '&:last-child': { margin: 0 },
+                  },
+                  '& ul, & ol': {
+                    margin: '0 0 1em 0',
+                    paddingLeft: '1.5em',
+                  },
+                  '& li': {
+                    margin: '0.5em 0',
+                  },
+                  '& code': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    padding: '0.2em 0.4em',
+                    borderRadius: '3px',
+                    fontSize: '0.9em',
+                    fontFamily: 'monospace',
+                  },
+                  '& pre': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                    padding: '1em',
+                    borderRadius: '4px',
+                    overflow: 'auto',
+                    fontSize: '0.85em',
+                  },
+                  '& h1, & h2, & h3, & h4, & h5, & h6': {
+                    margin: '1em 0 0.5em 0',
+                    fontWeight: 600,
+                    '&:first-child': {
+                      marginTop: 0,
+                    },
+                  },
+                }}
+              >
+                <ReactMarkdown>{enrichmentDetail.attributes?.content || 'No content available'}</ReactMarkdown>
+              </Box>
+            </Box>
+          ) : (
+            <Alert severity="error">Failed to load enrichment details</Alert>
+          )}
+        </Drawer>
       </Container>
     </Page>
   )

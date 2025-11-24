@@ -1033,6 +1033,8 @@ export interface ServicesKoditEnrichmentAttributes {
 
 export interface ServicesKoditEnrichmentData {
   attributes?: ServicesKoditEnrichmentAttributes;
+  /** Added for frontend */
+  commit_sha?: string;
   id?: string;
   type?: string;
 }
@@ -6168,6 +6170,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get a specific code intelligence enrichment for a commit from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesCommitsEnrichmentsDetail
+     * @summary Get commit enrichment
+     * @request GET:/api/v1/git/repositories/{id}/commits/{commitSha}/enrichments/{enrichmentId}
+     * @secure
+     */
+    v1GitRepositoriesCommitsEnrichmentsDetail: (
+      id: string,
+      commitSha: string,
+      enrichmentId: string,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/commits/${commitSha}/enrichments/${enrichmentId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the contents of a file at a specific path in a repository
      *
      * @tags git-repositories
@@ -6228,9 +6253,37 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/git/repositories/{id}/enrichments
      * @secure
      */
-    v1GitRepositoriesEnrichmentsDetail: (id: string, params: RequestParams = {}) =>
+    v1GitRepositoriesEnrichmentsDetail: (
+      id: string,
+      query?: {
+        /** Filter by enrichment type (usage, developer, living_documentation) */
+        enrichment_type?: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<ServicesKoditEnrichmentListResponse, TypesAPIError>({
         path: `/api/v1/git/repositories/${id}/enrichments`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific code intelligence enrichment by ID from Kodit
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesEnrichmentsDetail2
+     * @summary Get enrichment by ID
+     * @request GET:/api/v1/git/repositories/{id}/enrichments/{enrichmentId}
+     * @originalName v1GitRepositoriesEnrichmentsDetail
+     * @duplicate
+     * @secure
+     */
+    v1GitRepositoriesEnrichmentsDetail2: (id: string, enrichmentId: string, params: RequestParams = {}) =>
+      this.request<ServicesKoditEnrichmentData, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/enrichments/${enrichmentId}`,
         method: "GET",
         secure: true,
         format: "json",
