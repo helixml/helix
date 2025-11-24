@@ -235,19 +235,14 @@ RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.config/zed
 
 # ====================================================================
-# OS-Level Telemetry Blocking with iptables
-# ====================================================================
-# Copy telemetry firewall setup script
-COPY wolf/sway-config/setup-telemetry-firewall.sh /opt/helix/setup-telemetry-firewall.sh
-RUN chmod +x /opt/helix/setup-telemetry-firewall.sh
-
-# Create directory for telemetry monitoring
-RUN mkdir -p /var/log /var/run && \
-    touch /var/log/telemetry-blocks.log && \
-    chmod 644 /var/log/telemetry-blocks.log
-
-# ====================================================================
 # AI Agent Privacy Configuration Summary
+# ====================================================================
+# NOTE: OS-level telemetry firewall (iptables) is configured in the
+# sandbox container (Wolf host), not inside agent containers. This allows:
+#   - Centralized monitoring across all agents
+#   - Per-agent telemetry tracking (by container IP/name)
+#   - No iptables dependency in agent containers
+#
 # ====================================================================
 # The above configuration ensures ALL AI coding agents are privacy-compliant:
 #

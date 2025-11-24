@@ -4,16 +4,8 @@ set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
 
-# ====================================================================
-# SECURITY: Set up OS-level telemetry firewall FIRST (before any AI agents start)
-# ====================================================================
-if [ -f /opt/helix/setup-telemetry-firewall.sh ]; then
-    echo "🔒 Configuring AI agent telemetry firewall..."
-    sudo /opt/helix/setup-telemetry-firewall.sh
-    echo "✅ Telemetry firewall active - all phone-home attempts will be blocked and logged"
-else
-    echo "⚠️  Telemetry firewall script not found - proceeding without OS-level blocking"
-fi
+# NOTE: Telemetry firewall is configured in the sandbox container (Wolf host),
+# not inside agent containers. This provides centralized monitoring across all agents.
 
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
