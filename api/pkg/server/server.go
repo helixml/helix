@@ -523,6 +523,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Usage
 	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getDailyUsage)).Methods(http.MethodGet)
 
+	// Security telemetry monitoring routes
+	// TODO: Fix compilation errors in security_telemetry_handlers.go before enabling
+	// apiServer.registerSecurityRoutes(subRouter)
+
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
