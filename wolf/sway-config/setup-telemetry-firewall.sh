@@ -12,7 +12,14 @@ set -e
 LOGFILE="/var/log/telemetry-blocks.log"
 COUNTER_FILE="/var/run/telemetry-counters.json"
 
-echo "🔒 Setting up AI agent telemetry firewall..." | tee -a "$LOGFILE"
+echo "🔒 Setting up AI agent telemetry firewall..."
+
+# Check if iptables is available
+if ! command -v iptables &> /dev/null; then
+    echo "⚠️  iptables not found - skipping telemetry firewall setup"
+    echo "   Container networking is still secure via Docker network isolation"
+    exit 0
+fi
 
 # Ensure log files exist with proper permissions
 touch "$LOGFILE"
