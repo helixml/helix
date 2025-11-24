@@ -441,6 +441,10 @@ echo "✅ Wolf heartbeat service started (PID: $HEARTBEAT_PID)"
 EOF
 RUN chmod +x /etc/cont-init.d/08-start-wolf-heartbeat.sh
 
+# 09: Setup telemetry firewall for nested agent containers
+COPY wolf/sway-config/setup-telemetry-firewall.sh /etc/cont-init.d/09-setup-telemetry-firewall.sh
+RUN chmod +x /etc/cont-init.d/09-setup-telemetry-firewall.sh
+
 # ====================================================================
 # Create main startup script (starts Wolf in foreground)
 # (Replaces /opt/gow/startup-app.sh - Wolf is the main process)
