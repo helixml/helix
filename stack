@@ -950,20 +950,58 @@ function build-moonlight-web() {
 function build-sandbox() {
   echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
   echo ""
-  echo "Note: This builds a unified container with:"
+  echo "This builds a unified container with:"
   echo "  • Wolf streaming platform (from ghcr.io/games-on-whales/wolf:stable)"
   echo "  • Moonlight Web (from ghcr.io/games-on-whales/moonlight-web:latest)"
   echo "  • RevDial client (built from source)"
   echo "  • Docker-in-Docker with NVIDIA runtime"
+  echo "  • helix-sway image (pre-loaded into Wolf's dockerd)"
   echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
   echo ""
 
   local COMMIT_HASH=$(git rev-parse --short HEAD)
   local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
 
-  echo "🔨 Building helix-sandbox container..."
+  # Step 1: Build Zed if needed (required for helix-sway)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [1/3] Checking Zed binary..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "Building Zed in release mode..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed"
+      return 1
+    fi
+  else
+    echo "✅ Using existing Zed binary"
+  fi
+  echo ""
 
-  # Build sandbox container
+  # Step 2: Build helix-sway and export as tarball
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [2/3] Building helix-sway and exporting tarball..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build helix-sway image (Sway + Zed desktop environment)
+  echo "🔨 Building helix-sway:latest..."
+  if ! build-sway; then
+    echo "❌ Failed to build helix-sway"
+    return 1
+  fi
+
+  # Export helix-sway as tarball for embedding in sandbox
+  echo "📦 Exporting helix-sway as tarball..."
+  docker save helix-sway:latest | gzip > helix-sway.tar.gz
+  TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+  echo "✅ Tarball created: helix-sway.tar.gz ($TARBALL_SIZE)"
+  echo ""
+
+  # Step 3: Build unified sandbox container with embedded tarball
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [3/3] Building helix-sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build sandbox with tarball embedded
   if [ -n "$GIT_TAG" ]; then
     echo "🏷️  Git tag detected: ${GIT_TAG}"
     docker build -f Dockerfile.sandbox \
@@ -980,9 +1018,12 @@ function build-sandbox() {
 
   if [ $? -ne 0 ]; then
     echo "❌ Failed to build helix-sandbox container"
+    rm -f helix-sway.tar.gz
     return 1
   fi
 
+  # Cleanup tarball (embedded in image now)
+  rm -f helix-sway.tar.gz
   echo "✅ helix-sandbox container built successfully"
   echo ""
 
@@ -990,6 +1031,13 @@ function build-sandbox() {
   if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
     echo "📤 Pushing images to registry..."
 
+    # Push helix-sway (for reference)
+    local ZED_AGENT_BASE="registry.helixml.tech/helix/zed-agent"
+    if push_image_tags "$ZED_AGENT_BASE"; then
+      echo "✅ Zed agent images pushed successfully"
+    fi
+
+    # Push helix-sandbox
     local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
     if push_image_tags "$SANDBOX_BASE"; then
       echo "✅ Sandbox images pushed successfully"
@@ -1017,12 +1065,15 @@ function build-sandbox() {
   echo "  • Moonlight Web (WebRTC browser streaming)"
   echo "  • RevDial client (control plane connection)"
   echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
+  echo "  • helix-sway image (pre-loaded tarball: $TARBALL_SIZE)"
   echo ""
-  echo "Services are managed by GOW's init system:"
-  echo "  • /etc/cont-init.d/04-start-dockerd.sh - starts Wolf's dockerd"
-  echo "  • /etc/cont-init.d/05-init-wolf-config.sh - initializes Wolf config"
-  echo "  • /etc/cont-init.d/06-init-moonlight-config.sh - initializes Moonlight Web"
-  echo "  • /opt/gow/startup-app.sh - starts Wolf, Moonlight Web, RevDial"
+  echo "Services managed by GOW's init system:"
+  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads helix-sway"
+  echo "  • 05-init-wolf-config.sh - initializes Wolf config"
+  echo "  • 06-init-moonlight-config.sh - initializes Moonlight Web"
+  echo "  • 07-start-moonlight-web.sh - starts Moonlight Web daemon"
+  echo "  • 08-start-revdial-client.sh - starts RevDial daemon (if configured)"
+  echo "  • startup-app.sh - starts Wolf as main process"
   echo ""
   echo "🎉 Sandbox build completed successfully!"
 }
