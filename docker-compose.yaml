@@ -241,6 +241,8 @@ services:
       - WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem
       # GPU zero-copy optimization (required for lobbies mode format consistency)
       - WOLF_USE_ZERO_COPY=TRUE
+      # Render node: Set via .env (auto-detected in install.sh), fallback to renderD128
+      - WOLF_RENDER_NODE=${WOLF_RENDER_NODE:-/dev/dri/renderD128}
       # Internal moonlight-web pairing PIN (secure random, shared via env)
       - MOONLIGHT_INTERNAL_PAIRING_PIN=${MOONLIGHT_INTERNAL_PAIRING_PIN:-}
       # GOP size (keyframe interval): frames between I-frames

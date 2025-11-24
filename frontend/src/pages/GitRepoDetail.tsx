@@ -21,6 +21,7 @@ import {
   Select,
   MenuItem,
   FormControl,
+  InputLabel,
   InputAdornment,
   Tabs,
   Tab,
@@ -55,6 +56,8 @@ import {
   Plus,
   Pencil,
   ArrowUpDown,
+  GitCommit,
+  GitPullRequest,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -69,8 +72,10 @@ import {
   useBrowseRepositoryTree,
   useGetRepositoryFile,
   useListRepositoryBranches,
+  useListRepositoryCommits,
   useCreateOrUpdateRepositoryFile,
   usePushPullGitRepository,
+  useCreateBranch,
 } from '../services/gitRepositoryService'
 import {
   useListRepositoryAccessGrants,
@@ -82,6 +87,7 @@ import {
   useKoditEnrichmentDetail,
   useKoditStatus,
   groupEnrichmentsByType,
+  groupEnrichmentsBySubtype,
   getEnrichmentTypeName,
   getEnrichmentSubtypeName,
   KODIT_TYPE_USAGE,
@@ -89,6 +95,40 @@ import {
   KODIT_TYPE_LIVING_DOCUMENTATION,
 } from '../services/koditService'
 import MonacoEditor from '../components/widgets/MonacoEditor'
+import CodeTab from '../components/git/CodeTab'
+import CommitsTab from '../components/git/CommitsTab'
+import SettingsTab from '../components/git/SettingsTab'
+import PullRequests from '../components/git/PullRequests'
+import { TypesExternalRepositoryType } from '../api/api'
+
+const TAB_NAMES = ['code', 'settings', 'access', 'commits', 'pull-requests'] as const
+type TabName = typeof TAB_NAMES[number]
+
+const getTabName = (name: string | undefined): TabName => {
+  if (name && TAB_NAMES.includes(name as TabName)) {
+    return name as TabName
+  }
+  return TAB_NAMES[0]
+}
+
+const getFallbackBranch = (defaultBranch: string | undefined, branches: string[]): string => {
+  if (branches.length === 0) {
+    return ''
+  }
+
+  if (branches.includes('main')) {
+    return 'main'
+  }
+  if (branches.includes('master')) {
+    return 'master'
+  }
+
+  if (defaultBranch && branches.includes(defaultBranch)) {
+    return defaultBranch
+  }
+
+  return branches[0]
+}
 
 const GitRepoDetail: FC = () => {
   const router = useRouter()
@@ -114,33 +154,69 @@ const GitRepoDetail: FC = () => {
   const deleteAccessGrantMutation = useDeleteRepositoryAccessGrant(repoId || '')
   const createOrUpdateFileMutation = useCreateOrUpdateRepositoryFile()
   const pushPullMutation = usePushPullGitRepository()
+  const createBranchMutation = useCreateBranch()
 
   // Kodit code intelligence enrichments (internal summary types filtered in backend)
   const { data: enrichmentsData } = useKoditEnrichments(repoId || '', { enabled: !!repoId })
   const enrichments = enrichmentsData?.data || []
   const groupedEnrichmentsByType = groupEnrichmentsByType(enrichments)
+  const groupedEnrichmentsBySubtype = groupEnrichmentsBySubtype(enrichments)
   const { data: koditStatusData } = useKoditStatus(repoId || '', { enabled: !!repoId && !!repository?.metadata?.kodit_indexing })
 
   // UI State
-  const [currentTab, setCurrentTab] = useState(0)
+  const [currentTab, setCurrentTab] = useState<TabName>(() => getTabName(router.params.tab))
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false)
+  const [forcePushDialogOpen, setForcePushDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [editDefaultBranch, setEditDefaultBranch] = useState('')
   const [editKoditIndexing, setEditKoditIndexing] = useState(false)
   const [editExternalUrl, setEditExternalUrl] = useState('')
+  const [editExternalType, setEditExternalType] = useState<TypesExternalRepositoryType | undefined>(undefined)
   const [editUsername, setEditUsername] = useState('')
   const [editPassword, setEditPassword] = useState('')
+  const [editOrganizationUrl, setEditOrganizationUrl] = useState('')
+  const [editPersonalAccessToken, setEditPersonalAccessToken] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showPersonalAccessToken, setShowPersonalAccessToken] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [copiedClone, setCopiedClone] = useState(false)
+  const [copiedSha, setCopiedSha] = useState<string | null>(null)
   const [currentPath, setCurrentPath] = useState('.')
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [currentBranch, setCurrentBranch] = useState<string>('') // Empty = default branch (HEAD)
   const [dangerZoneExpanded, setDangerZoneExpanded] = useState(false)
+
+  const branchFromQuery = router.params.branch || ''
+  const currentBranch = branchFromQuery
+  const commitsBranch = branchFromQuery
+
+  const setCurrentBranch = (branch: string) => {
+    if (branch) {
+      router.mergeParams({ branch })
+    } else {
+      router.removeParams(['branch'])
+    }
+  }
+
+  const setCommitsBranch = (branch: string) => {
+    if (branch) {
+      router.mergeParams({ branch })
+    } else {
+      router.removeParams(['branch'])
+    }
+  }
+
+  // List commits
+  const { data: commitsData, isLoading: commitsLoading } = useListRepositoryCommits(
+    repoId || '',
+    commitsBranch || undefined,
+    1,
+    100
+  )
+  const commits = commitsData?.commits || []
 
   // Create/Edit File Dialog State
   const [createFileDialogOpen, setCreateFileDialogOpen] = useState(false)
@@ -160,6 +236,11 @@ const GitRepoDetail: FC = () => {
     { enabled: enrichmentDrawerOpen }
   )
 
+  // Create Branch Dialog State
+  const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false)
+  const [newBranchName, setNewBranchName] = useState('')
+  const [newBranchBase, setNewBranchBase] = useState('')
+
   // Browse repository tree
   const { data: treeData, isLoading: treeLoading } = useBrowseRepositoryTree(repoId || '', currentPath, currentBranch)
   const { data: fileData, isLoading: fileLoading } = useGetRepositoryFile(
@@ -169,6 +250,14 @@ const GitRepoDetail: FC = () => {
     !!selectedFile
   )
 
+  // Sync tab state with query parameter
+  React.useEffect(() => {
+    const tabName = getTabName(router.params.tab)
+    if (tabName !== currentTab) {
+      setCurrentTab(tabName)
+    }
+  }, [router.params.tab, currentTab])
+
   // Initialize edit fields when repository loads
   React.useEffect(() => {
     if (repository) {
@@ -177,10 +266,21 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
     }
   }, [repository])
+
+  // Auto-select default branch when repository loads and no branch is specified
+  React.useEffect(() => {
+    if (repository && !branchFromQuery && branches.length > 0) {
+      const defaultBranch = getFallbackBranch(repository.default_branch, branches)
+      setCurrentBranch(defaultBranch)
+    }
+  }, [repository, branchFromQuery, branches])
 
   // Auto-load README.md when repository loads
   React.useEffect(() => {
@@ -201,8 +301,11 @@ const GitRepoDetail: FC = () => {
       setEditDefaultBranch(repository.default_branch || '')
       setEditKoditIndexing(repository.metadata?.kodit_indexing || false)
       setEditExternalUrl(repository.external_url || '')
+      setEditExternalType(repository.external_type)
       setEditUsername(repository.username || '')
       setEditPassword('')
+      setEditOrganizationUrl(repository.azure_devops?.organization_url || '')
+      setEditPersonalAccessToken('')
       setEditDialogOpen(true)
     }
   }
@@ -225,10 +328,26 @@ const GitRepoDetail: FC = () => {
 
       if (repository.is_external || repository.external_url) {
         updateData.external_url = editExternalUrl || undefined
-        updateData.username = editUsername || undefined
-      }
-      if (editPassword && editPassword !== '') {
-        updateData.password = editPassword
+        updateData.external_type = editExternalType || undefined
+
+        if (editExternalType === TypesExternalRepositoryType.ExternalRepositoryTypeADO) {
+          updateData.azure_devops = {
+            organization_url: editOrganizationUrl || undefined,
+            ...(editPersonalAccessToken && editPersonalAccessToken !== ''
+              ? { personal_access_token: editPersonalAccessToken }
+              : repository.azure_devops?.personal_access_token
+                ? { personal_access_token: repository.azure_devops.personal_access_token }
+                : {}),
+          }
+          updateData.username = undefined
+          updateData.password = undefined
+        } else {
+          updateData.username = editUsername || undefined
+          if (editPassword && editPassword !== '') {
+            updateData.password = editPassword
+          }
+          updateData.azure_devops = undefined
+        }
       }
 
       await apiClient.v1GitRepositoriesUpdate(repoId, updateData)
@@ -239,6 +358,7 @@ const GitRepoDetail: FC = () => {
 
       setEditDialogOpen(false)
       setEditPassword('')
+      setEditPersonalAccessToken('')
       snackbar.success('Repository updated successfully')
     } catch (error) {
       console.error('Failed to update repository:', error)
@@ -276,16 +396,39 @@ const GitRepoDetail: FC = () => {
     setTimeout(() => setCopiedClone(false), 2000)
   }
 
-  const handlePushPull = async () => {
+  const handleCopySha = (sha: string) => {
+    navigator.clipboard.writeText(sha)
+    setCopiedSha(sha)
+    snackbar.success('SHA copied to clipboard')
+    setTimeout(() => setCopiedSha(null), 2000)
+  }
+
+  const handlePushPull = async (force = false) => {
     if (!repoId) return
 
     try {
       const branch = currentBranch || repository?.default_branch || undefined
-      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch })
-      snackbar.success('Repository synchronized successfully')
-    } catch (error) {
+      await pushPullMutation.mutateAsync({ repositoryId: repoId, branch, force })
+      snackbar.success(force ? 'Repository force pushed successfully' : 'Repository synchronized successfully')
+      setForcePushDialogOpen(false)
+    } catch (error: any) {
       console.error('Failed to push/pull repository:', error)
-      snackbar.error('Failed to synchronize repository')
+      let errorMessage: string
+      if (error?.response?.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data
+        } else {
+          errorMessage = error.response.data.error || error.response.data.message || String(error)
+        }
+      } else {
+        errorMessage = error?.message || String(error)
+      }
+      const errorLower = errorMessage.toLowerCase()
+      if (errorLower.includes('non-fast-forward') || errorLower.includes('non fast forward')) {
+        setForcePushDialogOpen(true)
+      } else {
+        snackbar.error('Failed to synchronize repository, error: ' + errorMessage)
+      }
     }
   }
 
@@ -334,6 +477,31 @@ const GitRepoDetail: FC = () => {
     const newPath = parts.length === 0 ? '.' : parts.join('/')
     setCurrentPath(newPath)
     setSelectedFile(null)
+  }
+
+  const handleCreateBranch = async () => {
+    if (!repoId || !newBranchName.trim()) return
+
+    try {
+      await createBranchMutation.mutateAsync({
+        repositoryId: repoId,
+        request: {
+          branch_name: newBranchName.trim(),
+          base_branch: newBranchBase || undefined,
+        }
+      })
+
+      snackbar.success('Branch created successfully')
+      setCreateBranchDialogOpen(false)
+      setNewBranchName('')
+      setNewBranchBase('')
+      setCurrentBranch(newBranchName.trim())
+      setCurrentPath('.')
+      setSelectedFile(null)
+    } catch (error) {
+      console.error('Failed to create branch:', error)
+      snackbar.error('Failed to create branch')
+    }
   }
 
   const handleCreateFile = async () => {
@@ -506,26 +674,41 @@ const GitRepoDetail: FC = () => {
 
           {/* Navigation tabs */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={currentTab} onChange={(_, newValue) => setCurrentTab(newValue)}>
+            <Tabs value={currentTab} onChange={(_, newValue) => {
+              const tabName = newValue as TabName
+              setCurrentTab(tabName)
+              router.mergeParams({ tab: tabName })
+            }}>
               <Tab
-                icon={<Brain size={16} />}
-                iconPosition="start"
-                label="Code Intelligence"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
-              <Tab
+                value="code"
                 icon={<CodeIcon size={16} />}
                 iconPosition="start"
                 label="Code"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="commits"
+                icon={<GitCommit size={16} />}
+                iconPosition="start"
+                label="Commits"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                value="pull-requests"
+                icon={<GitPullRequest size={16} />}
+                iconPosition="start"
+                label="Pull Requests"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                value="settings"
                 icon={<Settings size={16} />}
                 iconPosition="start"
                 label="Settings"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
               <Tab
+                value="access"
                 icon={<Users size={16} />}
                 iconPosition="start"
                 label="Access"
@@ -537,705 +720,90 @@ const GitRepoDetail: FC = () => {
 
         {/* Tab panels */}
         <Box sx={{ mt: 3 }}>
-          {/* Code Intelligence Tab */}
-          {currentTab === 0 && (
-            <Box sx={{ maxWidth: 1200 }}>
-              {/* Kodit Status Display */}
-              {repository.metadata?.kodit_indexing ? (
-                <Box sx={{ mb: 4 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                    <Brain size={24} />
-                    <Typography variant="h5" sx={{ fontWeight: 600 }}>
-                      Code Intelligence
-                    </Typography>
-                    <Chip
-                      label={koditStatusData?.status || 'Active'}
-                      size="small"
-                      color={koditStatusData?.status === 'completed' ? 'success' : koditStatusData?.status === 'failed' ? 'error' : 'warning'}
-                      sx={{ ml: 1 }}
-                    />
-                  </Box>
-
-                  {koditStatusData?.message && (
-                    <Alert severity="info" sx={{ mb: 3 }}>
-                      {koditStatusData.message}
-                    </Alert>
-                  )}
-                </Box>
-              ) : (
-                <Alert severity="info" sx={{ mb: 4 }}>
-                  Code Intelligence is not enabled for this repository. Enable it in the Settings tab to start indexing.
-                </Alert>
-              )}
-
-              {/* Enrichments Cards - Sectioned by Type */}
-              {enrichments.length > 0 && Object.keys(groupedEnrichmentsByType).length > 0 ? (
-                <Stack spacing={4}>
-                  {/* Define the order of sections - also include any other types that exist */}
-                  {[KODIT_TYPE_DEVELOPER, KODIT_TYPE_USAGE, KODIT_TYPE_LIVING_DOCUMENTATION, ...Object.keys(groupedEnrichmentsByType).filter(t =>
-                    t !== KODIT_TYPE_DEVELOPER && t !== KODIT_TYPE_USAGE && t !== KODIT_TYPE_LIVING_DOCUMENTATION
-                  )].map((type) => {
-                    const typeEnrichments = groupedEnrichmentsByType[type]
-                    if (!typeEnrichments || typeEnrichments.length === 0) return null
-
-                    const typeName = getEnrichmentTypeName(type)
-                    const typeDescription = type === KODIT_TYPE_DEVELOPER
-                      ? 'Architecture, APIs, and technical documentation'
-                      : type === KODIT_TYPE_USAGE
-                      ? 'How-to guides and usage examples'
-                      : 'Recent changes and commit descriptions'
-
-                    return (
-                      <Box key={type}>
-                        {/* Section Header */}
-                        <Box sx={{ mb: 3 }}>
-                          <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
-                            {typeName}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {typeDescription}
-                          </Typography>
-                        </Box>
-
-                        {/* Cards Grid */}
-                        <Grid container spacing={2}>
-                          {typeEnrichments.map((enrichment: any, index: number) => {
-                            const subtype = enrichment.attributes?.subtype
-                            const subtypeName = getEnrichmentSubtypeName(subtype)
-
-                            // Choose color scheme based on type
-                            const borderColor = type === KODIT_TYPE_DEVELOPER
-                              ? 'primary.main'
-                              : type === KODIT_TYPE_USAGE
-                              ? 'success.main'
-                              : 'info.main'
-                            const iconColor = type === KODIT_TYPE_DEVELOPER
-                              ? '#1976d2'
-                              : type === KODIT_TYPE_USAGE
-                              ? '#2e7d32'
-                              : '#0288d1'
-
-                            return (
-                              <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>
-                                <Card
-                                  onClick={() => {
-                                    if (enrichment.id) {
-                                      setSelectedEnrichmentId(enrichment.id)
-                                    }
-                                  }}
-                                  sx={{
-                                    height: 280,
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    boxShadow: 1,
-                                    borderStyle: 'dashed',
-                                    borderWidth: 1,
-                                    borderColor: 'divider',
-                                    transition: 'all 0.2s',
-                                    cursor: 'pointer',
-                                    '&:hover': {
-                                      boxShadow: 4,
-                                      transform: 'translateY(-4px)',
-                                      borderColor: borderColor,
-                                      borderWidth: 2,
-                                      borderStyle: 'solid',
-                                    },
-                                  }}
-                                >
-                                  <CardHeader
-                                    avatar={
-                                      <Avatar sx={{ bgcolor: 'white', width: 40, height: 40, border: '2px solid', borderColor: borderColor }}>
-                                        {type === KODIT_TYPE_DEVELOPER ? (
-                                          <Brain size={24} color={iconColor} />
-                                        ) : type === KODIT_TYPE_USAGE ? (
-                                          <FileText size={24} color={iconColor} />
-                                        ) : (
-                                          <CodeIcon size={24} color={iconColor} />
-                                        )}
-                                      </Avatar>
-                                    }
-                                    title={subtypeName}
-                                    titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
-                                    subheader={enrichment.attributes?.updated_at ? new Date(enrichment.attributes.updated_at).toLocaleDateString() : ''}
-                                    subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
-                                    sx={{ pb: 1 }}
-                                  />
-                                  <CardContent sx={{
-                                    flexGrow: 1,
-                                    pt: 0,
-                                    overflow: 'hidden',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                  }}>
-                                    <Box
-                                      sx={{
-                                        fontSize: '0.8rem',
-                                        lineHeight: 1.5,
-                                        overflow: 'hidden',
-                                        color: 'text.secondary',
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 8,
-                                        WebkitBoxOrient: 'vertical',
-                                        '& p': {
-                                          margin: '0 0 0.5em 0',
-                                          '&:last-child': { margin: 0 }
-                                        },
-                                        '& ul, & ol': {
-                                          margin: '0 0 0.5em 0',
-                                          paddingLeft: '1.2em'
-                                        },
-                                        '& li': {
-                                          margin: '0.2em 0'
-                                        },
-                                        '& code': {
-                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                                          padding: '0.1em 0.3em',
-                                          borderRadius: '3px',
-                                          fontSize: '0.9em',
-                                          fontFamily: 'monospace'
-                                        },
-                                        '& pre': {
-                                          backgroundColor: 'rgba(0, 0, 0, 0.05)',
-                                          padding: '0.5em',
-                                          borderRadius: '4px',
-                                          overflow: 'auto',
-                                          fontSize: '0.85em'
-                                        },
-                                        '& h1, & h2, & h3, & h4, & h5, & h6': {
-                                          margin: '0.5em 0 0.3em 0',
-                                          fontWeight: 600
-                                        }
-                                      }}
-                                    >
-                                      <ReactMarkdown>
-                                        {enrichment.attributes?.content || 'No content available'}
-                                      </ReactMarkdown>
-                                    </Box>
-                                  </CardContent>
-                                </Card>
-                              </Grid>
-                            )
-                          })}
-                        </Grid>
-                      </Box>
-                    )
-                  })}
-                </Stack>
-              ) : repository.metadata?.kodit_indexing ? (
-                <Box sx={{ textAlign: 'center', py: 8 }}>
-                  <Brain size={48} color="#656d76" style={{ marginBottom: 16, opacity: 0.5 }} />
-                  <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
-                    No insights available yet
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Kodit is analyzing your repository. Check back soon!
-                  </Typography>
-                </Box>
-              ) : null}
-            </Box>
-          )}
-
           {/* Code Tab */}
-          {currentTab === 1 && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {/* File browser and file viewer */}
-              <Box sx={{ display: 'flex', gap: 3 }}>
-                {/* Main content - File browser */}
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-                    {/* Branch selector bar */}
-                    <Box sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      p: 2,
-                      borderBottom: 1,
-                      borderColor: 'divider',
-                      bgcolor: 'rgba(0, 0, 0, 0.02)'
-                    }}>
-                      <FormControl size="small" sx={{ minWidth: 200 }}>
-                        <Select
-                          value={currentBranch}
-                          onChange={(e) => {
-                            setCurrentBranch(e.target.value)
-                            setCurrentPath('.') // Reset to root when switching branches
-                            setSelectedFile(null) // Clear selected file
-                          }}
-                          displayEmpty
-                          renderValue={(value) => (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <GitBranch size={14} />
-                              <span>{value || repository?.default_branch || 'main'}</span>
-                            </Box>
-                          )}
-                          sx={{ fontWeight: 500 }}
-                        >
-                          <MenuItem value="">
-                            {repository?.default_branch || 'main'}
-                          </MenuItem>
-                          {branches?.filter(b => b !== repository?.default_branch).map((branch) => (
-                            <MenuItem key={branch} value={branch}>
-                              {branch}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                      <Button
-                        startIcon={<Plus size={16} />}
-                        variant="outlined"
-                        size="small"
-                        onClick={() => {
-                          setNewFilePath(currentPath === '.' ? '' : `${currentPath}/`)
-                          setNewFileContent('')
-                          setIsEditingFile(false)
-                          setCreateFileDialogOpen(true)
-                        }}
-                        sx={{ height: 40, whiteSpace: 'nowrap' }}
-                      >
-                        Add File
-                      </Button>
-                      {isExternal && (
-                        <Button
-                          startIcon={<ArrowUpDown size={16} />}
-                          variant="outlined"
-                          size="small"
-                          onClick={handlePushPull}
-                          disabled={pushPullMutation.isPending}
-                          sx={{ height: 40, whiteSpace: 'nowrap' }}
-                        >
-                          {pushPullMutation.isPending ? 'Syncing...' : 'Sync'}
-                        </Button>
-                      )}
-
-                      {/* Breadcrumb navigation */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, overflow: 'auto' }}>
-
-                        {getPathBreadcrumbs().map((part, index, arr) => {
-                          const path = arr.slice(0, index + 1).join('/')
-                          const isLast = index === arr.length - 1
-                          return (
-                            <React.Fragment key={path}>
-                              <ChevronRight size={14} color="#656d76" />
-                              <Chip
-                                label={part}
-                                size="small"
-                                onClick={() => handleNavigateToDirectory(path)}
-                                sx={{ cursor: 'pointer', fontWeight: 500 }}
-                                variant={isLast ? 'filled' : 'outlined'}
-                              />
-                            </React.Fragment>
-                          )
-                        })}
-                      </Box>
-                    </Box>
-
-                    {/* File tree */}
-                    <Box>
-                      {treeLoading ? (
-                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                          <CircularProgress size={24} />
-                        </Box>
-                      ) : (
-                        <>
-                          {currentPath !== '.' && (
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 2,
-                                px: 3,
-                                py: 1.5,
-                                cursor: 'pointer',
-                                borderBottom: 1,
-                                borderColor: 'divider',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                                },
-                              }}
-                              onClick={handleNavigateUp}
-                            >
-                              <Folder size={18} color="#54aeff" />
-                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                ..
-                              </Typography>
-                            </Box>
-                          )}
-
-                          {treeData?.entries && treeData.entries.length > 0 ? (
-                            treeData.entries
-                              .sort((a, b) => {
-                                // Directories first, then files
-                                if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-                                return (a.name || '').localeCompare(b.name || '')
-                              })
-                              .map((entry) => (
-                                <Box
-                                  key={entry.path}
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 2,
-                                    px: 3,
-                                    py: 1.5,
-                                    cursor: 'pointer',
-                                    borderBottom: 1,
-                                    borderColor: 'divider',
-                                    backgroundColor: selectedFile === entry.path ? 'rgba(25, 118, 210, 0.08)' : 'transparent',
-                                    '&:hover': {
-                                      backgroundColor: selectedFile === entry.path
-                                        ? 'rgba(25, 118, 210, 0.12)'
-                                        : 'rgba(0, 0, 0, 0.02)',
-                                    },
-                                    '&:last-child': {
-                                      borderBottom: 0,
-                                    },
-                                  }}
-                                  onClick={() => handleSelectFile(entry.path || '', entry.is_dir || false)}
-                                >
-                                  {entry.is_dir ? (
-                                    <Folder size={18} color="#54aeff" />
-                                  ) : (
-                                    <FileText size={18} color="#656d76" />
-                                  )}
-                                  <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>
-                                    {entry.name}
-                                  </Typography>
-                                  {!entry.is_dir && entry.size !== undefined && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      {entry.size > 1024
-                                        ? `${Math.round(entry.size / 1024)} KB`
-                                        : `${entry.size} B`}
-                                    </Typography>
-                                  )}
-                                </Box>
-                              ))
-                          ) : (
-                            <Box sx={{ py: 8, textAlign: 'center' }}>
-                              <Typography variant="body2" color="text.secondary">
-                                Empty directory
-                              </Typography>
-                            </Box>
-                          )}
-                        </>
-                      )}
-                    </Box>
-                  </Paper>
-
-                  {/* File viewer */}
-                  {selectedFile && (
-                    <Paper variant="outlined" sx={{ mt: 3, borderRadius: 2 }}>
-                      <Box sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        px: 3,
-                        py: 2,
-                        borderBottom: 1,
-                        borderColor: 'divider',
-                        bgcolor: 'rgba(0, 0, 0, 0.02)'
-                      }}>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                          {selectedFile.split('/').pop()}
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Tooltip title="Edit file">
-                            <IconButton
-                              size="small"
-                              onClick={() => {
-                                if (selectedFile && fileData?.content) {
-                                  setNewFilePath(selectedFile)
-                                  setNewFileContent(fileData.content)
-                                  setIsEditingFile(true)
-                                  setCreateFileDialogOpen(true)
-                                }
-                              }}
-                            >
-                              <Pencil size={16} />
-                            </IconButton>
-                          </Tooltip>
-                          <IconButton size="small" onClick={() => setSelectedFile(null)}>
-                            <CloseIcon size={16} />
-                          </IconButton>
-                        </Box>
-                      </Box>
-                      {fileLoading ? (
-                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                          <CircularProgress size={24} />
-                        </Box>
-                      ) : (
-                        <Box
-                          component="pre"
-                          sx={{
-                            fontFamily: 'monospace',
-                            fontSize: '0.875rem',
-                            color: 'text.primary',
-                            p: 3,
-                            overflow: 'auto',
-                            maxHeight: '600px',
-                            whiteSpace: 'pre',
-                            margin: 0,
-                          }}
-                        >
-                          {fileData?.content || 'No content'}
-                        </Box>
-                      )}
-                    </Paper>
-                  )}
-                </Box>
-
-                {/* Sidebar - About */}
-                <Box sx={{ width: 300, flexShrink: 0 }}>
-                  <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
-                      About
-                    </Typography>
-
-                    <Stack spacing={2}>
-                      {repository.description && (
-                        <Typography variant="body2" color="text.secondary">
-                          {repository.description}
-                        </Typography>
-                      )}
-
-                      <Divider />
-
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Type
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {repository.repo_type || 'project'}
-                        </Typography>
-                      </Box>
-
-                      {repository.default_branch && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                            Default Branch
-                          </Typography>
-                          <Chip
-                            icon={<GitBranch size={12} />}
-                            label={repository.default_branch}
-                            size="small"
-                            sx={{ fontWeight: 500 }}
-                          />
-                        </Box>
-                      )}
-
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                          Created
-                        </Typography>
-                        <Typography variant="body2">
-                          {repository.created_at ? new Date(repository.created_at).toLocaleDateString() : 'N/A'}
-                        </Typography>
-                      </Box>
-
-                      {repository.updated_at && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                            Last Updated
-                          </Typography>
-                          <Typography variant="body2">
-                            {new Date(repository.updated_at).toLocaleDateString()}
-                          </Typography>
-                        </Box>
-                      )}
-                    </Stack>
-                  </Paper>
-                </Box>
-              </Box>
-            </Box>
+          {currentTab === 'code' && (
+            <CodeTab
+              repository={repository}
+              enrichments={enrichments}
+              groupedEnrichments={groupedEnrichmentsBySubtype}
+              treeData={treeData}
+              treeLoading={treeLoading}
+              fileData={fileData}
+              fileLoading={fileLoading}
+              selectedFile={selectedFile}
+              setSelectedFile={setSelectedFile}
+              currentPath={currentPath}
+              setCurrentPath={setCurrentPath}
+              currentBranch={currentBranch}
+              setCurrentBranch={setCurrentBranch}
+              branches={branches}
+              isExternal={isExternal}
+              pushPullMutation={pushPullMutation}
+              handleNavigateToDirectory={handleNavigateToDirectory}
+              handleSelectFile={handleSelectFile}
+              handleNavigateUp={handleNavigateUp}
+              handlePushPull={handlePushPull}
+              handleCreateBranch={handleCreateBranch}
+              handleCreateFile={handleCreateFile}
+              getPathBreadcrumbs={getPathBreadcrumbs}
+              createBranchDialogOpen={createBranchDialogOpen}
+              setCreateBranchDialogOpen={setCreateBranchDialogOpen}
+              newBranchName={newBranchName}
+              setNewBranchName={setNewBranchName}
+              newBranchBase={newBranchBase}
+              setNewBranchBase={setNewBranchBase}
+              createFileDialogOpen={createFileDialogOpen}
+              setCreateFileDialogOpen={setCreateFileDialogOpen}
+              newFilePath={newFilePath}
+              setNewFilePath={setNewFilePath}
+              newFileContent={newFileContent}
+              setNewFileContent={setNewFileContent}
+              isEditingFile={isEditingFile}
+              setIsEditingFile={setIsEditingFile}
+              creatingFile={creatingFile}
+              createBranchMutation={createBranchMutation}
+              createOrUpdateFileMutation={createOrUpdateFileMutation}
+            />
           )}
 
           {/* Settings Tab */}
-          {currentTab === 2 && (
-            <Box sx={{ maxWidth: 800 }}>
-              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
-                <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                  Repository Settings
-                </Typography>
-
-                <Stack spacing={3}>
-                  <TextField
-                    label="Repository Name"
-                    fullWidth
-                    value={editName || repository.name}
-                    onChange={(e) => setEditName(e.target.value)}
-                    helperText="The name of this repository"
-                  />
-
-                  <TextField
-                    label="Description"
-                    fullWidth
-                    multiline
-                    rows={3}
-                    value={editDescription || repository.description}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    helperText="A short description of what this repository contains"
-                  />
-
-                  <TextField
-                    label="Default Branch"
-                    fullWidth
-                    value={editDefaultBranch || repository.default_branch || ''}
-                    onChange={(e) => setEditDefaultBranch(e.target.value)}
-                    helperText="The default branch for this repository"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <GitBranch size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={editKoditIndexing !== undefined ? editKoditIndexing : (repository.metadata?.kodit_indexing || false)}
-                        onChange={(e) => setEditKoditIndexing(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Brain size={18} />
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            Code Intelligence
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Index this repository with Kodit for AI-powered code understanding
-                          </Typography>
-                        </Box>
-                      </Box>
-                    }
-                  />
-
-                  <Divider />
-
-                  {(repository.is_external || repository.external_url) && (
-                    <>
-                      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
-                        External Repository Settings
-                      </Typography>
-
-                      <TextField
-                        label="External URL"
-                        fullWidth
-                        value={editExternalUrl || repository.external_url || ''}
-                        onChange={(e) => setEditExternalUrl(e.target.value)}
-                        helperText="Full URL to the external repository (e.g., https://github.com/org/repo)"
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <ExternalLink size={16} style={{ color: 'currentColor', opacity: 0.6 }} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-
-                      <TextField
-                        label="Username"
-                        fullWidth
-                        value={editUsername || repository.username || ''}
-                        onChange={(e) => setEditUsername(e.target.value)}
-                        helperText="Username for authenticating with the external repository"
-                      />
-
-                      <TextField
-                        label="Password"
-                        fullWidth
-                        type={showPassword ? 'text' : 'password'}
-                        value={editPassword}
-                        onChange={(e) => setEditPassword(e.target.value)}
-                        helperText={repository.password ? "Leave blank to keep current password" : "Password for authenticating with the external repository"}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                onClick={() => setShowPassword(!showPassword)}
-                                edge="end"
-                                size="small"
-                              >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                    </>
-                  )}
-
-                  <Divider />
-
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    {/* Add spacing between buttons */}
-                    <Box sx={{ flex: 1 }} />
-                    <Button
-                      color="secondary"
-                      onClick={handleUpdateRepository}
-                      variant="contained"
-                      disabled={updating}
-                    >
-                      {updating ? <CircularProgress size={20} /> : 'Save Changes'}
-                    </Button>
-                  </Box>
-
-                  <Divider sx={{ my: 2 }} />
-
-                  <Box>
-                    <Box
-                      onClick={() => setDangerZoneExpanded(!dangerZoneExpanded)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        mb: dangerZoneExpanded ? 2 : 0,
-                        '&:hover': {
-                          opacity: 0.8,
-                        },
-                      }}
-                    >
-                      <Typography variant="h6" sx={{ fontWeight: 600, color: 'error.main' }}>
-                        Danger Zone
-                      </Typography>
-                      <ChevronDown
-                        size={20}
-                        style={{
-                          color: 'var(--mui-palette-error-main)',
-                          transform: dangerZoneExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                        }}
-                      />
-                    </Box>
-                    <Collapse in={dangerZoneExpanded}>
-                      <Box>
-                        <Alert severity="error" sx={{ mb: 2 }}>
-                          Once you delete a repository, there is no going back. This action cannot be undone.
-                        </Alert>
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <Button
-                            onClick={() => setDeleteDialogOpen(true)}
-                            variant="outlined"
-                            color="error"
-                            startIcon={<Trash2 size={16} />}
-                          >
-                            Delete Repository
-                          </Button>
-                        </Box>
-                      </Box>
-                    </Collapse>
-                  </Box>
-                </Stack>
-              </Paper>
-            </Box>
+          {currentTab === 'settings' && (
+            <SettingsTab
+              repository={repository}
+              editName={editName}
+              setEditName={setEditName}
+              editDescription={editDescription}
+              setEditDescription={setEditDescription}
+              editDefaultBranch={editDefaultBranch}
+              setEditDefaultBranch={setEditDefaultBranch}
+              editKoditIndexing={editKoditIndexing}
+              setEditKoditIndexing={setEditKoditIndexing}
+              editExternalUrl={editExternalUrl}
+              setEditExternalUrl={setEditExternalUrl}
+              editExternalType={editExternalType}
+              setEditExternalType={setEditExternalType}
+              editUsername={editUsername}
+              setEditUsername={setEditUsername}
+              editPassword={editPassword}
+              setEditPassword={setEditPassword}
+              editOrganizationUrl={editOrganizationUrl}
+              setEditOrganizationUrl={setEditOrganizationUrl}
+              editPersonalAccessToken={editPersonalAccessToken}
+              setEditPersonalAccessToken={setEditPersonalAccessToken}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              showPersonalAccessToken={showPersonalAccessToken}
+              setShowPersonalAccessToken={setShowPersonalAccessToken}
+              updating={updating}
+              dangerZoneExpanded={dangerZoneExpanded}
+              setDangerZoneExpanded={setDangerZoneExpanded}
+              onUpdateRepository={handleUpdateRepository}
+              onDeleteClick={() => setDeleteDialogOpen(true)}
+            />
           )}
 
           {/* Access Tab */}
-          {currentTab === 3 && (
+          {currentTab === 'access' && (
             <Box sx={{ maxWidth: 800 }}>
               <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
                 <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
@@ -1264,6 +832,27 @@ const GitRepoDetail: FC = () => {
                 )}
               </Paper>
             </Box>
+          )}
+
+          {/* Commits Tab */}
+          {currentTab === 'commits' && (
+            <CommitsTab
+              repository={repository}
+              commitsBranch={commitsBranch}
+              setCommitsBranch={setCommitsBranch}
+              branches={branches}
+              commits={commits}
+              commitsLoading={commitsLoading}
+              handleCopySha={handleCopySha}
+              copiedSha={copiedSha}
+            />
+          )}
+
+          {/* Pull Requests Tab */}
+          {currentTab === 'pull-requests' && (
+            <PullRequests
+              repository={repository}
+            />
           )}
         </Box>
 
@@ -1477,6 +1066,123 @@ const GitRepoDetail: FC = () => {
           </DialogActions>
         </Dialog>
 
+        {/* Force Push Dialog */}
+        <Dialog open={forcePushDialogOpen} onClose={() => setForcePushDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Non-Fast-Forward Update</DialogTitle>
+          <DialogContent>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              The remote branch has commits that your local branch doesn't have. A regular push cannot be performed.
+            </Alert>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              You can force push to overwrite the remote branch with your local changes. This will discard any commits on the remote branch that aren't in your local branch.
+            </Typography>
+            <Typography variant="body2" color="error">
+              <strong>Warning:</strong> Force pushing can cause data loss if others are working on this branch. Only proceed if you're sure you want to overwrite the remote branch.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setForcePushDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => handlePushPull(true)}
+              variant="contained"
+              color="error"
+              disabled={pushPullMutation.isPending}
+            >
+              {pushPullMutation.isPending ? <CircularProgress size={20} /> : 'Force Push'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Create Branch Dialog */}
+        <Dialog
+          open={createBranchDialogOpen}
+          onClose={() => {
+            setCreateBranchDialogOpen(false)
+            setNewBranchName('')
+            setNewBranchBase('')
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Create New Branch
+            </Typography>
+            <IconButton
+              onClick={() => {
+                setCreateBranchDialogOpen(false)
+                setNewBranchName('')
+                setNewBranchBase('')
+              }}
+              edge="end"
+              size="small"
+            >
+              <CloseIcon size={20} />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 4, px: 3, pb: 2 }}>
+            <Stack spacing={3} pt={2}>
+              <TextField
+                label="Branch Name"
+                fullWidth
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="feature/my-feature"
+                helperText="Enter a name for the new branch"
+                InputProps={{
+                  sx: { fontFamily: 'monospace' }
+                }}
+                autoFocus
+              />
+              <FormControl fullWidth>
+                <InputLabel>Base Branch</InputLabel>
+                <Select
+                  value={newBranchBase}
+                  onChange={(e) => setNewBranchBase(e.target.value)}
+                  label="Base Branch"
+                  renderValue={(value) => (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <GitBranch size={14} />
+                      <span>{value}</span>
+                    </Box>
+                  )}
+                >
+                  <MenuItem value={getFallbackBranch(repository?.default_branch, branches)}>
+                    {getFallbackBranch(repository?.default_branch, branches)}
+                  </MenuItem>
+                  {branches.filter(b => b !== repository?.default_branch).map((branch) => (
+                    <MenuItem key={branch} value={branch}>
+                      {branch}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  The branch to create from
+                </Typography>
+              </FormControl>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button
+              onClick={() => {
+                setCreateBranchDialogOpen(false)
+                setNewBranchName('')
+                setNewBranchBase('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateBranch}
+              color="secondary"
+              variant="contained"
+              disabled={!newBranchName.trim() || createBranchMutation.isPending}
+            >
+              {createBranchMutation.isPending ? <CircularProgress size={20} /> : 'Create Branch'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
         {/* Create/Edit File Dialog */}
         <Dialog
           open={createFileDialogOpen}
@@ -1508,7 +1214,7 @@ const GitRepoDetail: FC = () => {
           </DialogTitle>
 
           <DialogContent sx={{ p: 3, height: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, height: '100%', pt: 2 }}>
               <TextField
                 label="Filename"
                 fullWidth
@@ -1626,8 +1332,8 @@ const GitRepoDetail: FC = () => {
                     enrichmentDetail.attributes?.type === KODIT_TYPE_DEVELOPER
                       ? 'primary'
                       : enrichmentDetail.attributes?.type === KODIT_TYPE_USAGE
-                      ? 'success'
-                      : 'info'
+                        ? 'success'
+                        : 'info'
                   }
                 />
                 {enrichmentDetail.attributes?.updated_at && (

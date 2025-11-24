@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/helixml/helix/api/pkg/store"
@@ -91,6 +91,18 @@ func (s *GitRepositoryService) Initialize(ctx context.Context) error {
 
 // CreateRepository creates a new git repository
 func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *types.GitRepositoryCreateRequest) (*types.GitRepository, error) {
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+		if request.AzureDevOps.PersonalAccessToken == "" {
+			return nil, fmt.Errorf("azure devops personal access token not provided")
+		}
+	}
+
 	// Check for duplicate repository name for this owner
 	existingRepos, err := s.store.ListGitRepositories(ctx, &types.ListGitRepositoriesRequest{
 		OrganizationID: request.OrganizationID,
@@ -164,6 +176,7 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		Metadata:       request.Metadata,
+		AzureDevOps:    request.AzureDevOps,
 	}
 
 	if gitRepo.ExternalURL == "" {
@@ -234,12 +247,13 @@ func (s *GitRepositoryService) CreateRepository(ctx context.Context, request *ty
 // GetRepository retrieves repository information by ID
 func (s *GitRepositoryService) GetRepository(ctx context.Context, repoID string) (*types.GitRepository, error) {
 	// Try to get metadata from store first (has correct LocalPath for all repo types)
-	log.Info().Str("repo_id", repoID).Msg("Getting repository metadata from store")
 
 	gitRepo, err := s.store.GetGitRepository(ctx, repoID)
 	if err != nil {
 		return nil, fmt.Errorf("repository %s not found: %w", repoID, err)
 	}
+
+	log.Info().Str("repo_id", repoID).Str("local_path", gitRepo.LocalPath).Msg("Got repository metadata from store")
 
 	// Got from database - verify the LocalPath exists if this is not external
 	if gitRepo.ExternalURL == "" {
@@ -272,6 +286,16 @@ func (s *GitRepositoryService) UpdateRepository(
 	repoID string,
 	request *types.GitRepositoryUpdateRequest,
 ) (*types.GitRepository, error) {
+
+	if request.ExternalType == types.ExternalRepositoryTypeADO {
+		if request.AzureDevOps == nil {
+			return nil, fmt.Errorf("azure devops repository not provided")
+		}
+		if request.AzureDevOps.OrganizationURL == "" {
+			return nil, fmt.Errorf("azure devops organization URL not provided")
+		}
+	}
+
 	// Get existing repository
 	existing, err := s.GetRepository(ctx, repoID)
 	if err != nil {
@@ -296,6 +320,22 @@ func (s *GitRepositoryService) UpdateRepository(
 		for k, v := range request.Metadata {
 			existing.Metadata[k] = v
 		}
+	}
+
+	if string(request.ExternalType) != "" {
+		existing.ExternalType = request.ExternalType
+	}
+	if request.ExternalURL != "" {
+		existing.ExternalURL = request.ExternalURL
+	}
+	if request.Username != "" {
+		existing.Username = request.Username
+	}
+	if request.Password != "" {
+		existing.Password = request.Password
+	}
+	if request.AzureDevOps != nil {
+		existing.AzureDevOps = request.AzureDevOps
 	}
 
 	existing.UpdatedAt = time.Now()
@@ -700,13 +740,7 @@ func (s *GitRepositoryService) updateRepositoryFromGit(gitRepo *types.GitReposit
 				Progress: os.Stdout,
 			}
 
-			if gitRepo.Password != "" {
-				username := gitRepo.Username
-				if username == "" {
-					username = "PAT"
-				}
-				cloneOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
-			}
+			cloneOptions.Auth = s.getAuthConfig(gitRepo)
 
 			repo, err = git.PlainClone(gitRepo.LocalPath, cloneOptions)
 			if err != nil {
@@ -1718,95 +1752,6 @@ dist/
 	return files
 }
 
-// BrowseTree lists files and directories at a given path in a specific branch
-func (s *GitRepositoryService) BrowseTree(ctx context.Context, repoID string, path string, branch string) ([]types.TreeEntry, error) {
-	// Get repository to find local path
-	repo, err := s.GetRepository(ctx, repoID)
-	if err != nil {
-		return nil, fmt.Errorf("repository not found: %w", err)
-	}
-
-	if repo.LocalPath == "" {
-		return nil, fmt.Errorf("repository has no local path")
-	}
-
-	// Open the bare repository
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open git repository: %w", err)
-	}
-
-	// Get reference for specified branch, default to HEAD
-	var ref *plumbing.Reference
-	if branch != "" {
-		// Try to resolve the branch
-		branchRef := plumbing.NewBranchReferenceName(branch)
-		ref, err = gitRepo.Reference(branchRef, true)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find branch %s: %w", branch, err)
-		}
-	} else {
-		// Default to HEAD
-		ref, err = gitRepo.Head()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get HEAD: %w", err)
-		}
-	}
-
-	// Get the commit
-	commit, err := gitRepo.CommitObject(ref.Hash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	// Get the tree
-	tree, err := commit.Tree()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tree: %w", err)
-	}
-
-	// Navigate to the requested path
-	if path != "." && path != "" {
-		tree, err = tree.Tree(path)
-		if err != nil {
-			return nil, fmt.Errorf("path not found in repository: %w", err)
-		}
-	}
-
-	// Build tree entries
-	result := make([]types.TreeEntry, 0, len(tree.Entries))
-	for _, entry := range tree.Entries {
-		entryPath := path
-		if entryPath == "." || entryPath == "" {
-			entryPath = entry.Name
-		} else {
-			entryPath = filepath.Join(path, entry.Name)
-		}
-
-		// Determine if entry is a directory
-		isDir := entry.Mode == filemode.Dir
-
-		// Get size (only available for files/blobs)
-		var size int64
-		if !isDir {
-			// Get blob to read size
-			blob, err := gitRepo.BlobObject(entry.Hash)
-			if err == nil {
-				size = blob.Size
-			}
-		}
-
-		result = append(result, types.TreeEntry{
-			Name:  entry.Name,
-			Path:  entryPath,
-			IsDir: isDir,
-			Size:  size,
-		})
-	}
-
-	return result, nil
-}
-
 // ListBranches returns all branches in the repository
 func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) ([]string, error) {
 	// Get repository to find local path
@@ -1846,120 +1791,66 @@ func (s *GitRepositoryService) ListBranches(ctx context.Context, repoID string) 
 	return branches, nil
 }
 
-// GetFileContents reads the contents of a file from a specific branch
-func (s *GitRepositoryService) GetFileContents(ctx context.Context, repoID string, path string, branch string) (string, error) {
-	// Get repository to find local path
-	repo, err := s.GetRepository(ctx, repoID)
+func (s *GitRepositoryService) pullChanges(repo *git.Repository, w *git.Worktree, gitRepoConfig *types.GitRepository) error {
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Checking for new commits")
+
+	// repo, err := git.PlainOpen(gitRepoConfig.LocalPath)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to open git repository %s: %w", gitRepoConfig.LocalPath, err)
+	// }
+
+	// worktree, err := repo.Worktree()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get worktree: %w", err)
+	// }
+
+	auth := s.getAuthConfig(gitRepoConfig)
+
+	// Fetch
+	err := repo.Fetch(&git.FetchOptions{
+		RemoteName: "origin",
+		Progress:   os.Stdout,
+		Auth:       auth,
+	})
 	if err != nil {
-		return "", fmt.Errorf("repository not found: %w", err)
-	}
-
-	if repo.LocalPath == "" {
-		return "", fmt.Errorf("repository has no local path")
-	}
-
-	// Open the bare repository
-	gitRepo, err := git.PlainOpen(repo.LocalPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open git repository: %w", err)
-	}
-
-	// Get branch reference - use HEAD if no branch specified
-	var ref *plumbing.Reference
-	if branch == "" {
-		ref, err = gitRepo.Head()
-		if err != nil {
-			return "", fmt.Errorf("failed to get HEAD: %w", err)
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			log.Info().Str("repo_id", gitRepoConfig.ID).Msg("External repository already up to date")
+			// OK
+		} else {
+			return fmt.Errorf("failed to fetch changes: %w", err)
 		}
-	} else {
-		ref, err = gitRepo.Reference(plumbing.NewBranchReferenceName(branch), true)
-		if err != nil {
-			return "", fmt.Errorf("failed to get branch reference: %w", err)
-		}
-	}
-
-	// Get the commit
-	commit, err := gitRepo.CommitObject(ref.Hash())
-	if err != nil {
-		return "", fmt.Errorf("failed to get commit: %w", err)
-	}
-
-	// Get the tree
-	tree, err := commit.Tree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get tree: %w", err)
-	}
-
-	// Get the file
-	file, err := tree.File(path)
-	if err != nil {
-		return "", fmt.Errorf("file not found in repository: %w", err)
-	}
-
-	// Read file contents
-	content, err := file.Contents()
-	if err != nil {
-		return "", fmt.Errorf("failed to read file contents: %w", err)
-	}
-
-	return content, nil
-}
-
-func (s *GitRepositoryService) pullChanges(gitRepo *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Checking for new commits")
-
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
 	pullOptions := &git.PullOptions{
 		RemoteName: "origin",
-	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pullOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
+		Auth:       auth,
 	}
 
-	err = worktree.Pull(pullOptions)
+	err = w.Pull(pullOptions)
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("failed to pull changes: %w", err)
 	}
 
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pulled latest changes")
+	log.Info().Str("repo_id", gitRepoConfig.ID).Msg("Pulled latest changes")
 
 	return nil
 }
 
-func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepository) error {
-	log.Info().Str("repo_id", gitRepo.ID).Msg("Pushing changes to external repository")
-
-	repo, err := git.PlainOpen(gitRepo.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open git repository %s: %w", gitRepo.LocalPath, err)
-	}
+func (s *GitRepositoryService) pushChangesToExternal(repo *git.Repository, gitRepo *types.GitRepository, branch string, force bool) error {
+	log.Info().Str("repo_id", gitRepo.ID).Bool("force", force).Msg("Pushing changes to external repository")
 
 	pushOptions := &git.PushOptions{
 		RemoteName: "origin",
 		Progress:   os.Stdout,
 	}
-	if gitRepo.Password != "" {
-		username := gitRepo.Username
-		if username == "" {
-			username = "PAT"
+	if force {
+		pushOptions.RefSpecs = []config.RefSpec{
+			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
 		}
-		pushOptions.Auth = &http.BasicAuth{Username: username, Password: gitRepo.Password}
 	}
+	pushOptions.Auth = s.getAuthConfig(gitRepo)
 
-	err = repo.Push(pushOptions)
+	err := repo.Push(pushOptions)
 	if err != nil {
 		if errors.Is(err, git.NoErrAlreadyUpToDate) {
 			log.Info().Str("repo_id", gitRepo.ID).Msg("External repository already up to date")
@@ -1975,7 +1866,7 @@ func (s *GitRepositoryService) pushChangesToExternal(gitRepo *types.GitRepositor
 
 // PushPullRequest pulls from external repository all commits and pushes any commits from the local repository to the external repository (upstream)
 // This is used to update the external repository with the latest commits from the local repository that we have made changes to
-func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string) error {
+func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, branchName string, force bool) error {
 	gitRepo, err := s.GetRepository(ctx, repoID)
 	if err != nil {
 		return fmt.Errorf("repository not found: %w", err)
@@ -1985,48 +1876,70 @@ func (s *GitRepositoryService) PushPullRequest(ctx context.Context, repoID, bran
 		return fmt.Errorf("repository is not external, cannot push/pull")
 	}
 
-	// If branchName is specified, checkout that branch first
-	if branchName != "" {
-		repo, err := git.PlainOpen(gitRepo.LocalPath)
-		if err != nil {
-			return fmt.Errorf("failed to open git repository: %w", err)
-		}
-
-		w, err := repo.Worktree()
-		if err != nil {
-			return fmt.Errorf("failed to get worktree: %w", err)
-		}
-
-		head, err := repo.Head()
-		if err != nil {
-			return fmt.Errorf("failed to get HEAD: %w", err)
-		}
-
-		if head.Name().Short() != branchName {
-			// Try to find the branch
-			branchRef := plumbing.NewBranchReferenceName(branchName)
-			err = w.Checkout(&git.CheckoutOptions{
-				Branch: branchRef,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
-			}
-		}
+	if branchName == "" {
+		return fmt.Errorf("branch name is required")
 	}
 
-	// 1. call pullChanges
-	err = s.pullChanges(gitRepo)
+	repo, err := git.PlainOpen(gitRepo.LocalPath)
 	if err != nil {
-		// Return error on merge conflict or other pull errors
-		return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	w, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	err = setBranch(w, branchName)
+	if err != nil {
+		return fmt.Errorf("failed to set branch %s: %w", branchName, err)
+	}
+
+	// head, err := repo.Head()
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get HEAD: %w", err)
+	// }
+
+	// if head.Name().Short() != branchName {
+	// 	// Try to find the branch
+	// 	branchRef := plumbing.NewBranchReferenceName(branchName)
+	// 	err = w.Checkout(&git.CheckoutOptions{
+	// 		Branch: branchRef,
+	// 	})
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	// 	}
+	// }
+
+	// 1. call pullChanges (skip if force push)
+	if !force {
+		log.Info().
+			Str("repo_id", gitRepo.ID).
+			Str("branch", branchName).
+			Msg("Pulling changes from external repository")
+		err = s.pullChanges(repo, w, gitRepo)
+		if err != nil {
+			// Return error on merge conflict or other pull errors
+			return fmt.Errorf("failed to pull changes (possible merge conflict): %w", err)
+		}
 	}
 
 	// 2. call pushChangesToExternal
-	err = s.pushChangesToExternal(gitRepo)
+	err = s.pushChangesToExternal(repo, gitRepo, branchName, force)
 	if err != nil {
 		return fmt.Errorf("failed to push changes: %w", err)
 	}
 
+	return nil
+}
+
+func setBranch(w *git.Worktree, branchName string) error {
+	err := w.Checkout(&git.CheckoutOptions{
+		Branch: plumbing.NewBranchReferenceName(branchName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w", branchName, err)
+	}
 	return nil
 }
 
@@ -2087,172 +2000,27 @@ func (s *GitRepositoryService) CreateBranch(ctx context.Context, repoID, branchN
 	return nil
 }
 
-// CreateOrUpdateFileContents creates or updates a file in a repository and commits it
-func (s *GitRepositoryService) CreateOrUpdateFileContents(
-	ctx context.Context,
-	repoID string,
-	path string,
-	branch string,
-	content []byte,
-	commitMessage string,
-	authorName string,
-	authorEmail string,
-) (string, error) {
-	repo, err := s.GetRepository(ctx, repoID)
-	if err != nil {
-		return "", fmt.Errorf("repository not found: %w", err)
-	}
-
-	if repo.LocalPath == "" {
-		return "", fmt.Errorf("repository has no local path")
-	}
-
-	if branch == "" {
-		branch = repo.DefaultBranch
-		if branch == "" {
-			branch = "main"
+// getAuthConfig returns the authentication configuration for the repository
+func (s *GitRepositoryService) getAuthConfig(gitRepo *types.GitRepository) transport.AuthMethod {
+	switch gitRepo.ExternalType {
+	case types.ExternalRepositoryTypeADO:
+		// If we have a PAT, use it
+		if gitRepo.AzureDevOps.PersonalAccessToken != "" {
+			return &http.BasicAuth{Username: "PAT", Password: gitRepo.AzureDevOps.PersonalAccessToken}
 		}
-	}
-
-	if commitMessage == "" {
-		commitMessage = fmt.Sprintf("Update %s", path)
-	}
-
-	tempClone, err := os.MkdirTemp("", "helix-git-update-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tempClone)
-
-	var gitRepo *git.Repository
-	if repo.IsExternal && repo.ExternalURL != "" {
-		cloneOptions := &git.CloneOptions{
-			URL: repo.ExternalURL,
+		// If we have a username and password, use it
+		if gitRepo.Username != "" && gitRepo.Password != "" {
+			return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
 		}
-		if repo.Password != "" {
-			username := repo.Username
-			if username == "" {
-				username = "PAT"
-			}
-			cloneOptions.Auth = &http.BasicAuth{
-				Username: username,
-				Password: repo.Password,
-			}
-		}
-		gitRepo, err = git.PlainClone(tempClone, cloneOptions)
-		if err != nil {
-			return "", fmt.Errorf("failed to clone external repository: %w", err)
-		}
-	} else {
-		cloneURL := repo.LocalPath
-		if !strings.HasPrefix(cloneURL, "file://") && !strings.HasPrefix(cloneURL, "http://") && !strings.HasPrefix(cloneURL, "https://") {
-			cloneURL = "file://" + cloneURL
-		}
-		gitRepo, err = git.PlainClone(tempClone, &git.CloneOptions{
-			URL: cloneURL,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to clone repository: %w", err)
-		}
+		// No auth config found
+		return nil
+	case types.ExternalRepositoryTypeGitHub:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeGitLab:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	case types.ExternalRepositoryTypeBitbucket:
+		return &http.BasicAuth{Username: gitRepo.Username, Password: gitRepo.Password}
+	default:
+		return nil
 	}
-
-	branchRef := plumbing.NewBranchReferenceName(branch)
-	_, err = gitRepo.Reference(branchRef, true)
-	if err != nil {
-		headRef, headErr := gitRepo.Head()
-		if headErr != nil {
-			return "", fmt.Errorf("failed to get HEAD and branch %s does not exist: %w", branch, err)
-		}
-		branchRef = plumbing.NewBranchReferenceName(branch)
-		err = gitRepo.Storer.SetReference(plumbing.NewHashReference(branchRef, headRef.Hash()))
-		if err != nil {
-			return "", fmt.Errorf("failed to create branch %s: %w", branch, err)
-		}
-	}
-
-	worktree, err := gitRepo.Worktree()
-	if err != nil {
-		return "", fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Branch: branchRef,
-		Create: false,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to checkout branch %s: %w", branch, err)
-	}
-
-	fullPath := filepath.Join(tempClone, path)
-	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	if err := os.WriteFile(fullPath, content, 0644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-
-	if _, err := worktree.Add(path); err != nil {
-		return "", fmt.Errorf("failed to stage file: %w", err)
-	}
-
-	status, err := worktree.Status()
-	if err != nil {
-		return "", fmt.Errorf("failed to get git status: %w", err)
-	}
-
-	if status.IsClean() {
-		existingContent, readErr := os.ReadFile(fullPath)
-		if readErr == nil && string(existingContent) == string(content) {
-			return string(content), nil
-		}
-	}
-
-	if authorName == "" {
-		authorName = s.gitUserName
-	}
-	if authorEmail == "" {
-		authorEmail = s.gitUserEmail
-	}
-
-	_, err = worktree.Commit(commitMessage, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  authorName,
-			Email: authorEmail,
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to commit: %w", err)
-	}
-
-	pushOptions := &git.PushOptions{
-		RemoteName: "origin",
-		RefSpecs: []config.RefSpec{
-			config.RefSpec(fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)),
-		},
-	}
-	if repo.IsExternal && repo.Password != "" {
-		username := repo.Username
-		if username == "" {
-			username = "PAT"
-		}
-		pushOptions.Auth = &http.BasicAuth{
-			Username: username,
-			Password: repo.Password,
-		}
-	}
-	err = gitRepo.Push(pushOptions)
-	if err != nil {
-		return "", fmt.Errorf("failed to push to repository: %w", err)
-	}
-
-	log.Info().
-		Str("repo_id", repoID).
-		Str("path", path).
-		Str("branch", branch).
-		Msg("Successfully created/updated file in repository")
-
-	return string(content), nil
 }

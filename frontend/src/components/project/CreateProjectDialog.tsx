@@ -61,14 +61,13 @@ const CreateProjectDialog: FC<CreateProjectDialogProps> = ({
           />
         </Box>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>
-          Cancel
-        </Button>
+      <DialogActions>        
         <Button
           variant="contained"
+          color="secondary"
           onClick={handleSubmit}
           disabled={isCreating}
+          sx={{ mr: 1, mb: 1 }}
         >
           {isCreating ? 'Creating...' : 'Create'}
         </Button>

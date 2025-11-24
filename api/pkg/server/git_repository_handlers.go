@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -645,10 +646,22 @@ func (apiServer *HelixAPIServer) browseGitRepositoryTree(w http.ResponseWriter, 
 	}
 
 	branch := r.URL.Query().Get("branch")
+	if branch == "" {
+		repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for default branch")
+			http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		branch = repository.DefaultBranch
+		if branch == "" {
+			branch = "main"
+		}
+	}
 
 	entries, err := apiServer.gitRepositoryService.BrowseTree(r.Context(), repoID, path, branch)
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Msg("Failed to browse repository tree")
+		log.Error().Err(err).Str("repo_id", repoID).Str("path", path).Str("branch", branch).Msg("Failed to browse repository tree")
 		http.Error(w, fmt.Sprintf("Failed to browse repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -721,7 +734,19 @@ func (apiServer *HelixAPIServer) getGitRepositoryFileContents(w http.ResponseWri
 		return
 	}
 
-	branch := r.URL.Query().Get("branch") // Optional branch parameter
+	branch := r.URL.Query().Get("branch")
+	if branch == "" {
+		repository, err := apiServer.gitRepositoryService.GetRepository(r.Context(), repoID)
+		if err != nil {
+			log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get repository for default branch")
+			http.Error(w, fmt.Sprintf("Failed to get repository: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		branch = repository.DefaultBranch
+		if branch == "" {
+			branch = "main"
+		}
+	}
 
 	content, err := apiServer.gitRepositoryService.GetFileContents(r.Context(), repoID, path, branch)
 	if err != nil {
@@ -797,9 +822,11 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 
 	if request.Branch == "" {
 		request.Branch = existing.DefaultBranch
-		if request.Branch == "" {
-			request.Branch = "main"
-		}
+	}
+
+	if request.Branch == "" {
+		writeErrResponse(w, system.NewHTTPError400("either specify a branch or set the default branch for the repository"), http.StatusBadRequest)
+		return
 	}
 
 	if request.Message == "" {
@@ -848,8 +875,7 @@ func (s *HelixAPIServer) createOrUpdateGitRepositoryFileContents(w http.Response
 		Content: fileContent,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeResponse(w, response, http.StatusOK)
 }
 
 // pushPullGitRepository pulls latest commits and pushes local commits to the remote repository
@@ -904,9 +930,11 @@ func (s *HelixAPIServer) pushPullGitRepository(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	err = s.gitRepositoryService.PushPullRequest(r.Context(), repoID, branchName)
+	force := r.URL.Query().Get("force") == "true"
+
+	err = s.gitRepositoryService.PushPullRequest(r.Context(), repoID, branchName, force)
 	if err != nil {
-		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Msg("Failed to push/pull repository")
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", branchName).Bool("force", force).Msg("Failed to push/pull repository")
 		http.Error(w, fmt.Sprintf("Failed to push/pull repository: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
@@ -928,4 +956,315 @@ type PushPullResponse struct {
 	Branch       string `json:"branch"`
 	Success      bool   `json:"success"`
 	Message      string `json:"message"`
+}
+
+// listGitRepositoryCommits lists all commits in a repository
+// @Summary List repository commits
+// @Description List all commits in a repository
+// @ID listGitRepositoryCommits
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param branch query string false "Branch name (defaults to repository default branch)"
+// @Param since query string false "Filter commits since this date (RFC3339 format)"
+// @Param until query string false "Filter commits until this date (RFC3339 format)"
+// @Param per_page query int false "Number of commits per page (default: 30)"
+// @Param page query int false "Page number (default: 1)"
+// @Success 200 {object} types.ListCommitsResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/commits [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listGitRepositoryCommits(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	branch := r.URL.Query().Get("branch")
+	since := r.URL.Query().Get("since")
+	until := r.URL.Query().Get("until")
+
+	perPage := 0
+	if perPageStr := r.URL.Query().Get("per_page"); perPageStr != "" {
+		if parsed, err := strconv.Atoi(perPageStr); err == nil && parsed > 0 {
+			perPage = parsed
+		}
+	}
+
+	page := 0
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if parsed, err := strconv.Atoi(pageStr); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	req := &types.ListCommitsRequest{
+		RepoID:  repoID,
+		Branch:  branch,
+		Since:   since,
+		Until:   until,
+		PerPage: perPage,
+		Page:    page,
+	}
+
+	response, err := s.gitRepositoryService.ListCommits(r.Context(), req)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list repository commits")
+		http.Error(w, fmt.Sprintf("Failed to list commits: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// createGitRepositoryBranch creates a new branch in the repository
+// @Summary Create branch
+// @Description Create a new branch in a repository
+// @ID createGitRepositoryBranch
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body types.CreateBranchRequest true "Create branch request"
+// @Success 200 {object} types.CreateBranchResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/branches [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createGitRepositoryBranch(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	var request types.CreateBranchRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if request.BranchName == "" {
+		http.Error(w, "Branch name is required", http.StatusBadRequest)
+		return
+	}
+
+	baseBranch := request.BaseBranch
+	if baseBranch == "" {
+		baseBranch = repository.DefaultBranch
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+	}
+
+	err = s.gitRepositoryService.CreateBranch(r.Context(), repoID, request.BranchName, baseBranch)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Str("branch", request.BranchName).Msg("Failed to create branch")
+		http.Error(w, fmt.Sprintf("Failed to create branch: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &types.CreateBranchResponse{
+		RepositoryID: repoID,
+		BranchName:   request.BranchName,
+		BaseBranch:   baseBranch,
+		Message:      "Branch created successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// listGitRepositoryPullRequests lists all pull requests in a repository
+// @Summary List pull requests
+// @Description List all pull requests in a repository
+// @ID listGitRepositoryPullRequests
+// @Tags git-repositories
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {array} types.PullRequest
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/pull-requests [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listGitRepositoryPullRequests(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	pullRequests, err := s.gitRepositoryService.ListPullRequests(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to list pull requests")
+		http.Error(w, fmt.Sprintf("Failed to list pull requests: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pullRequests)
+}
+
+// createGitRepositoryPullRequest creates a new pull request in a repository
+// @Summary Create pull request
+// @Description Create a new pull request in a repository. Changes must be committed and pushed to the branch first.
+// @ID createGitRepositoryPullRequest
+// @Tags git-repositories
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body types.CreatePullRequestRequest true "Create pull request request"
+// @Success 201 {object} types.CreatePullRequestResponse
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/git/repositories/{id}/pull-requests [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createGitRepositoryPullRequest(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	repoID := vars["id"]
+	if repoID == "" {
+		http.Error(w, "Repository ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user := getRequestUser(r)
+
+	repository, err := s.gitRepositoryService.GetRepository(r.Context(), repoID)
+	if err != nil {
+		log.Error().Err(err).Str("repo_id", repoID).Msg("Failed to get git repository")
+		http.Error(w, fmt.Sprintf("Repository not found: %s", err.Error()), http.StatusNotFound)
+		return
+	}
+
+	if repository.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, repository.OrganizationID)
+		if err != nil {
+			writeErrResponse(w, err, http.StatusForbidden)
+			return
+		}
+	}
+
+	if repository.OwnerID != user.ID {
+		writeErrResponse(w, system.NewHTTPError403("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	var request types.CreatePullRequestRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request format: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	if request.Title == "" {
+		http.Error(w, "Title is required", http.StatusBadRequest)
+		return
+	}
+
+	if request.SourceBranch == "" {
+		http.Error(w, "Source branch is required", http.StatusBadRequest)
+		return
+	}
+
+	if request.TargetBranch == "" {
+		http.Error(w, "Target branch is required", http.StatusBadRequest)
+		return
+	}
+
+	prID, err := s.gitRepositoryService.CreatePullRequest(r.Context(), repoID, request.Title, request.Description, request.SourceBranch, request.TargetBranch)
+	if err != nil {
+		log.Error().Err(err).
+			Str("repo_id", repoID).
+			Str("title", request.Title).
+			Str("description", request.Description).
+			Str("source_branch", request.SourceBranch).
+			Str("target_branch", request.TargetBranch).
+			Msg("Failed to create pull request")
+		http.Error(w, fmt.Sprintf("Failed to create pull request: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	response := &types.CreatePullRequestResponse{
+		ID:      prID,
+		Message: "Pull request created successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(response)
 }

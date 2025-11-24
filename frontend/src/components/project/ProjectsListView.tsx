@@ -165,19 +165,7 @@ const ProjectsListView: FC<ProjectsListViewProps> = ({
                   )}
                 </CardContent>
                 <CardActions>
-                  <Button size="small" onClick={() => onViewProject(project)}>
-                    Open
-                  </Button>
-                  <Button
-                    size="small"
-                    startIcon={<SettingsIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onNavigateToSettings(project.id)
-                    }}
-                  >
-                    Settings
-                  </Button>
+                  
                 </CardActions>
               </Card>
             </Grid>

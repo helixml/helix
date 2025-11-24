@@ -20,10 +20,9 @@ import {
   Select,
   MenuItem,
   FormControlLabel,
-  Switch,
-  Tooltip,
+  Switch, 
 } from '@mui/material'
-import { GitBranch, Plus, ExternalLink, Brain, Link } from 'lucide-react'
+import { GitBranch, Plus, Brain, Link } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import Page from '../components/system/Page'
@@ -56,8 +55,7 @@ const GitRepos: FC = () => {
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)
-  const [linkRepoDialogOpen, setLinkRepoDialogOpen] = useState(false)
+  const [demoRepoDialogOpen, setDemoRepoDialogOpen] = useState(false)  
   const [selectedSampleType, setSelectedSampleType] = useState('')
   const [demoRepoName, setDemoRepoName] = useState('')
   const [demoKoditIndexing, setDemoKoditIndexing] = useState(true)
@@ -549,92 +547,7 @@ const GitRepos: FC = () => {
               {creating ? <CircularProgress size={20} /> : 'Create'}
             </Button>
           </DialogActions>
-        </Dialog>
-
-        {/* Link External Repository Dialog */}
-        <Dialog open={linkRepoDialogOpen} onClose={() => setLinkRepoDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Link External Repository</DialogTitle>
-          <DialogContent>
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Link an existing repository from GitHub, GitLab, or Azure DevOps to enable AI collaboration.
-              </Typography>
-
-              <FormControl fullWidth required>
-                <InputLabel>Repository Type</InputLabel>
-                <Select
-                  value={externalRepoType}
-                  onChange={(e) => setExternalRepoType(e.target.value as 'github' | 'gitlab' | 'ado' | 'other')}
-                  label="Repository Type"
-                >
-                  <MenuItem value="github">GitHub</MenuItem>
-                  <MenuItem value="gitlab">GitLab</MenuItem>
-                  <MenuItem value="ado">Azure DevOps</MenuItem>
-                  <MenuItem value="other">Other (Bitbucket, Gitea, Self-hosted, etc.)</MenuItem>
-                </Select>
-              </FormControl>
-
-              <TextField
-                label="Repository URL"
-                fullWidth
-                required
-                value={externalRepoUrl}
-                onChange={(e) => setExternalRepoUrl(e.target.value)}
-                placeholder="https://github.com/org/repo.git"
-                helperText="Full URL to the external repository"
-              />
-
-              <TextField
-                label="Repository Name (Optional)"
-                fullWidth
-                value={externalRepoName}
-                onChange={(e) => setExternalRepoName(e.target.value)}
-                helperText="Display name (auto-extracted from URL if empty)"
-              />
-
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={externalKoditIndexing}
-                    onChange={(e) => setExternalKoditIndexing(e.target.checked)}
-                    color="primary"
-                  />
-                }
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Brain size={18} />
-                    <Typography variant="body2">
-                      Enable Code Intelligence
-                    </Typography>
-                  </Box>
-                }
-              />          
-
-              <Alert severity="info">
-                {externalKoditIndexing
-                  ? 'Code Intelligence enabled: Kodit will index this external repository to provide code snippets and architectural summaries via MCP server.'
-                  : 'Code Intelligence disabled: Repository will not be indexed by Kodit.'
-                }
-              </Alert>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => {
-              setLinkRepoDialogOpen(false)
-              setExternalRepoName('')
-              setExternalRepoUrl('')
-              setExternalRepoType('github')
-              setExternalKoditIndexing(true)
-            }}>Cancel</Button>
-            <Button
-              onClick={handleLinkExternalRepo}
-              variant="contained"
-              disabled={!externalRepoUrl.trim() || creating}
-            >
-              {creating ? <CircularProgress size={20} /> : 'Link Repository'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+        </Dialog>      
       </Container>
     </Page>
   )
