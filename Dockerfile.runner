@@ -111,14 +111,21 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     rm -rf $TEMP_DIR
 
 # Install build tools and Python 3.12 for best future compatibility
-# cmake is required for building vLLM from source (ROCm)
+# cmake >= 3.26 + ninja-build are required for building vLLM from source (ROCm)
+# Use Kitware's APT repo for newer cmake (Ubuntu 22.04 only has 3.22)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    cmake \
+    ninja-build \
     software-properties-common \
+    ca-certificates \
+    gpg \
+    wget \
+    && wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
+    && echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' | tee /etc/apt/sources.list.d/kitware.list >/dev/null \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
+    cmake \
     python3.12 \
     python3.12-venv \
     python3.12-dev \
@@ -141,6 +148,7 @@ RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
 # Create ROCm vLLM virtualenv using Python 3.12 (AMD GPUs)
 # Install PyTorch ROCm 6.4 + build vLLM from source (no ROCm wheels on PyPI)
 # Version pinning: torch 2.9.0 (required by vLLM 0.11.2), matching torchvision/torchaudio
+# VLLM_TARGET_DEVICE=rocm tells vLLM to build for ROCm instead of CUDA
 RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
     echo "Installing PyTorch 2.9.0 ROCm 6.4 for AMD GPUs" && \
     /workspace/vllm-rocm/venv/bin/python -m pip install uv && \
@@ -154,8 +162,9 @@ RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
     VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
     /workspace/vllm-rocm/venv/bin/uv pip install -r requirements/rocm.txt && \
     VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    VLLM_TARGET_DEVICE=rocm \
     PYTORCH_ROCM_ARCH="gfx908;gfx90a;gfx942;gfx1100;gfx1101;gfx1030" \
-    /workspace/vllm-rocm/venv/bin/python setup.py develop && \
+    /workspace/vllm-rocm/venv/bin/pip install --no-build-isolation . && \
     cd /workspace && rm -rf /tmp/vllm-rocm-src
 
 # Create the examples directory in both vLLM venv packages where they will look for templates

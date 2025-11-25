@@ -1,0 +1,25 @@
+# Runner-specific dockerignore - excludes .git since runner uses APP_VERSION build arg
+# This file is automatically used when building with Dockerfile.runner
+
+.env
+node_modules
+*.sw*
+venv
+vendor
+**/.venv/*
+
+# Large directories - runner doesn't need these
+.git
+wolf-debug-dumps
+*.tar.gz
+*.tar
+frontend/node_modules
+frontend/dist
+logs
+design
+test-zed-config
+zed-build
+
+# Binary artifacts (rebuilt in container)
+helix
+helix-runner
