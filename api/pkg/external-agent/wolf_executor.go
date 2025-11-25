@@ -637,7 +637,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
 	}
 
-	const maxConcurrentLobbies = 5
+	const maxConcurrentLobbies = 10
 	if len(lobbies) >= maxConcurrentLobbies {
 		log.Error().
 			Int("active_lobbies", len(lobbies)).
