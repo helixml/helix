@@ -16,10 +16,11 @@ if [ ! -f "$CONFIG_FILE" ] || [ ! -s "$CONFIG_FILE" ]; then
         echo "🆔 Generated UUID: $WOLF_UUID"
     fi
 
-    # Set hostname from env var (default: "local" if not set)
-    HELIX_HOSTNAME=${HELIX_HOSTNAME:-local}
-    sed -i "s/{{HELIX_HOSTNAME}}/$HELIX_HOSTNAME/g" "$CONFIG_FILE"
-    echo "🏷️  Set hostname: Helix ($HELIX_HOSTNAME)"
+    # Set hostname from WOLF_INSTANCE_ID (unique per sandbox machine)
+    # This allows multiple sandboxes to be distinguished in Moonlight's host list
+    WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+    sed -i "s/{{HELIX_HOSTNAME}}/$WOLF_INSTANCE_ID/g" "$CONFIG_FILE"
+    echo "🏷️  Set hostname: Helix ($WOLF_INSTANCE_ID)"
 
     # Set pairing PIN from env var if provided
     if [ ! -z "$MOONLIGHT_INTERNAL_PAIRING_PIN" ]; then
