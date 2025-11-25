@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -80,14 +81,28 @@ func main() {
 }
 
 func runRevDialClient(ctx context.Context) error {
-	// Parse server URL to extract host:port
-	host := extractHost(*serverURL)
+	// Parse server URL to extract host:port and TLS info
+	host, useTLS := extractHostAndTLS(*serverURL)
 	dialURL := fmt.Sprintf("%s?runnerid=%s", *serverURL, *runnerID)
 
-	log.Printf("Connecting to RevDial server: %s", dialURL)
+	log.Printf("Connecting to RevDial server: %s (TLS: %v)", dialURL, useTLS)
 
-	// Dial TCP connection directly (no http.Client - we need raw connection)
-	conn, err := net.DialTimeout("tcp", host, 10*time.Second)
+	// Dial connection (with TLS for https URLs)
+	var conn net.Conn
+	var err error
+	if useTLS {
+		// Extract hostname without port for TLS ServerName
+		hostOnly := host
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+			hostOnly = host[:colonIdx]
+		}
+		tlsConfig := &tls.Config{
+			ServerName: hostOnly,
+		}
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", host, tlsConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", host, 10*time.Second)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to dial server: %v", err)
 	}
@@ -130,12 +145,18 @@ func runRevDialClient(ctx context.Context) error {
 		HandshakeTimeout: 10 * time.Second,
 	}
 
+	// Determine WebSocket scheme based on TLS
+	wsScheme := "ws://"
+	if useTLS {
+		wsScheme = "wss://"
+	}
+
 	listener := revdial.NewListener(conn, func(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
 		// Dial back to server for DATA connections (these use WebSocket)
 		// Path comes from server like "/revdial?revdial.dialer=abc123"
 		// But our API is at /api/v1/revdial, so we need to rewrite the path
 		dataPath := strings.Replace(path, "/revdial", "/api/v1/revdial", 1)
-		dataURL := "ws://" + host + dataPath
+		dataURL := wsScheme + host + dataPath
 		header := http.Header{}
 		header.Set("Authorization", "Bearer "+*runnerToken)
 
@@ -212,15 +233,30 @@ func dialLocal(addr string) (net.Conn, error) {
 	return net.DialTimeout("tcp", addr, 5*time.Second)
 }
 
-func extractHost(url string) string {
-	// Extract host from URL (e.g., "http://api:8080/revdial" → "api:8080")
-	url = strings.TrimPrefix(url, "http://")
-	url = strings.TrimPrefix(url, "https://")
-	url = strings.TrimPrefix(url, "ws://")
-	url = strings.TrimPrefix(url, "wss://")
+func extractHostAndTLS(rawURL string) (host string, useTLS bool) {
+	// Extract host:port from URL (e.g., "http://api:8080/revdial" → "api:8080")
+	// For URLs without explicit port, use default ports (80 for http, 443 for https)
+	// Returns both the host:port and whether TLS should be used
+	useTLS = strings.HasPrefix(rawURL, "https://") || strings.HasPrefix(rawURL, "wss://")
 
-	parts := strings.Split(url, "/")
-	return parts[0]
+	rawURL = strings.TrimPrefix(rawURL, "http://")
+	rawURL = strings.TrimPrefix(rawURL, "https://")
+	rawURL = strings.TrimPrefix(rawURL, "ws://")
+	rawURL = strings.TrimPrefix(rawURL, "wss://")
+
+	parts := strings.Split(rawURL, "/")
+	host = parts[0]
+
+	// If no port specified, add default port
+	if !strings.Contains(host, ":") {
+		if useTLS {
+			host = host + ":443"
+		} else {
+			host = host + ":80"
+		}
+	}
+
+	return host, useTLS
 }
 
 // wsConnAdapter adapts websocket.Conn to net.Conn interface
