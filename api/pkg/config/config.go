@@ -420,6 +420,12 @@ type WebServer struct {
 	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
+
+	// SandboxAPIURL is the URL that sandbox containers use to connect back to the API.
+	// This is needed when the main SERVER_URL goes through a reverse proxy that doesn't
+	// support HTTP hijacking (used by RevDial). If not set, defaults to SERVER_URL.
+	// Example: http://api-internal.example.com:8080 (direct HTTP, bypassing Caddy)
+	SandboxAPIURL string `envconfig:"SANDBOX_API_URL" description:"Direct API URL for sandbox containers (bypasses reverse proxy). Defaults to SERVER_URL if not set."`
 }
 
 // AdminSrcType is an enum specifyin the type of Admin ID source.
