@@ -2,6 +2,8 @@ package crawler
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -122,10 +124,20 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping crawler test in short mode")
 	}
+
+	// Create a test server that delays response longer than our timeout
+	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Sleep longer than our timeout to guarantee timeout
+		time.Sleep(2 * time.Second)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<html><body>This should never be returned</body></html>"))
+	}))
+	defer slowServer.Close()
+
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
-				URLs: []string{"https://www.theguardian.com/uk-news/2024/sep/13/plans-unveiled-for-cheaper-high-speed-alternative-to-scrapped-hs2-northern-leg"},
+				URLs: []string{slowServer.URL},
 				Crawler: &types.WebsiteCrawler{
 					Enabled: false, // Will do single URL
 				},
@@ -146,15 +158,15 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	d, err := NewDefault(browserManager, k, updateProgress)
 	require.NoError(t, err)
 
-	// Setting very short timeout to force the page to timeout
-	d.pageTimeout = 5 * time.Millisecond
+	// Set timeout shorter than server delay to guarantee timeout
+	d.pageTimeout = 500 * time.Millisecond
 
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, len(docs))
 
-	// Check that the message is set
+	// Check that the message is set indicating timeout
 	assert.NotEmpty(t, docs[0].Message)
 	assert.Contains(t, docs[0].Message, "context deadline exceeded")
 }
