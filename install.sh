@@ -2378,7 +2378,7 @@ EOF
 
     # Extract hostname from API_HOST for TURN server and display name
     # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
-    TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+    TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed -E 's|:[0-9]+$||')
     HELIX_HOSTNAME="$TURN_PUBLIC_IP"
     # Default Moonlight credentials (must match control plane configuration)
     MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS:-helix}"
