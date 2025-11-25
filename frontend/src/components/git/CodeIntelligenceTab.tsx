@@ -78,6 +78,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     repoId,
     debouncedSearchQuery,
     20,
+    commitSha,
     { enabled: !!repoId && !!repository?.metadata?.kodit_indexing && debouncedSearchQuery.trim().length > 0 }
   )
 
@@ -119,7 +120,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                     label="Commit"
                     onChange={(e) => handleCommitChange(e.target.value)}
                   >
-                    <MenuItem value="all">All Commits (Latest)</MenuItem>
+                    <MenuItem value="all">Latest Commit</MenuItem>
                     {commits.map((commit: any) => (
                       <MenuItem key={commit.id} value={commit.id}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
@@ -206,11 +207,10 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                   const filePath = snippet.file_path || ''
 
                   // Use file path as title if available, otherwise use snippet ID
-                  let title = snippetId
+                  let fileName = null
                   if (filePath) {
                     // Extract filename from path
-                    const fileName = filePath.split('/').pop() || filePath
-                    title = fileName
+                    fileName = filePath.split('/').pop() || filePath
                   }
 
                   return (
@@ -245,9 +245,9 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                               <SearchIcon size={24} color="#ed6c02" />
                             </Avatar>
                           }
-                          title={title}
+                          title={snippetType}
                           titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
-                          subheader={filePath ? `${language} • ${snippetType}` : snippetType}
+                          subheader={fileName}
                           subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
                           sx={{ pb: 1 }}
                         />
@@ -309,8 +309,8 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
               const typeDescription = type === KODIT_TYPE_DEVELOPER
                 ? 'Architecture, APIs, and technical documentation'
                 : type === KODIT_TYPE_USAGE
-                ? 'How-to guides and usage examples'
-                : 'Recent changes and commit descriptions'
+                  ? 'How-to guides and usage examples'
+                  : 'Recent changes and commit descriptions'
 
               return (
                 <Box key={type}>
@@ -331,13 +331,13 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                       const borderColor = type === KODIT_TYPE_DEVELOPER
                         ? 'primary.main'
                         : type === KODIT_TYPE_USAGE
-                        ? 'success.main'
-                        : 'info.main'
+                          ? 'success.main'
+                          : 'info.main'
                       const iconColor = type === KODIT_TYPE_DEVELOPER
                         ? '#1976d2'
                         : type === KODIT_TYPE_USAGE
-                        ? '#2e7d32'
-                        : '#0288d1'
+                          ? '#2e7d32'
+                          : '#0288d1'
 
                       return (
                         <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>
