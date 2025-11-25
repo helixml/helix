@@ -1877,11 +1877,23 @@ EOF
                 echo "Creating Caddyfile..."
                 # Strip https:// and port from API_HOST
                 CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
-                sudo bash -c "cat << EOF > \"$CADDYFILE\"
+                sudo bash -c "cat << 'CADDYEOF' > \"$CADDYFILE\"
 $CADDY_HOST {
+    # RevDial endpoint needs special handling for long-lived hijacked connections
+    @revdial path /api/v1/revdial*
+    reverse_proxy @revdial localhost:8080 {
+        flush_interval -1
+        transport http {
+            response_header_timeout 0
+            read_timeout 0
+            write_timeout 0
+        }
+    }
     reverse_proxy localhost:8080
 }
-EOF"
+CADDYEOF"
+                # Substitute CADDY_HOST variable (since we used 'CADDYEOF' to prevent other expansion)
+                sudo sed -i "s/\\\$CADDY_HOST/$CADDY_HOST/g" "$CADDYFILE"
                 # Add OLLAMA_HOST environment variable to ollama.service on Linux
                 if [ "$OS" = "linux" ]; then
                     OLLAMA_SERVICE_FILE="/etc/systemd/system/ollama.service"

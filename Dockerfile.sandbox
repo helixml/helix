@@ -552,9 +552,10 @@ set -e
 
 echo "🐺 Starting Wolf (main process with automatic restart)..."
 
-# Make sure Wolf config folder exists
+# Make sure Wolf config folder and socket directory exist
 export WOLF_CFG_FOLDER=$HOST_APPS_STATE_FOLDER/cfg
 mkdir -p $WOLF_CFG_FOLDER
+mkdir -p /var/run/wolf
 export WOLF_CFG_FILE=$WOLF_CFG_FOLDER/config.toml
 export WOLF_PRIVATE_KEY_FILE=$WOLF_CFG_FOLDER/key.pem
 export WOLF_PRIVATE_CERT_FILE=$WOLF_CFG_FOLDER/cert.pem
