@@ -68,7 +68,7 @@ if [ -n "$USER_API_TOKEN" ] && [ -n "$HELIX_API_BASE_URL" ]; then
     # This ensures RBAC is enforced - agent can only access repos user has access to
     git config --global credential.helper 'store --file ~/.git-credentials'
 
-    # Extract host from HELIX_API_BASE_URL (e.g., "http://axa-private.helix.ml:8080" -> "axa-private.helix.ml:8080")
+    # Extract host from HELIX_API_BASE_URL (e.g., "http://example.helix.ml:8080" -> "example.helix.ml:8080")
     GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
     GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
 
@@ -112,7 +112,7 @@ if [ -n "$HELIX_REPOSITORIES" ] && [ -n "$USER_API_TOKEN" ]; then
         fi
 
         # Clone repository using HTTP with credentials in URL
-        # Use HELIX_API_BASE_URL (e.g., http://axa-private.helix.ml:8080) not hardcoded api:8080
+        # Use HELIX_API_BASE_URL not hardcoded api:8080
         GIT_API_HOST=$(echo "$HELIX_API_BASE_URL" | sed 's|^https\?://||')
         GIT_API_PROTOCOL=$(echo "$HELIX_API_BASE_URL" | grep -o '^https\?' || echo "http")
         echo "  📥 Cloning from ${GIT_API_PROTOCOL}://${GIT_API_HOST}/git/$REPO_ID..."
