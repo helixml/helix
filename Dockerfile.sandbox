@@ -344,8 +344,9 @@ if [ ! -f "$DATA_FILE" ] || [ ! -s "$DATA_FILE" ]; then
     # Must use 127.0.0.1 NOT localhost - Wolf only listens on IPv4, and "localhost"
     # resolves to IPv6 first on modern Linux, causing "LikelyOffline" errors
     sed 's/"address": "wolf"/"address": "127.0.0.1"/' "$DATA_TEMPLATE" > "$DATA_FILE"
-    HELIX_HOSTNAME=${HELIX_HOSTNAME:-local}
-    sed -i "s/{{HELIX_HOSTNAME}}/$HELIX_HOSTNAME/g" "$DATA_FILE"
+    # Use WOLF_INSTANCE_ID for consistency with Wolf hostname
+    WOLF_INSTANCE_ID=${WOLF_INSTANCE_ID:-local}
+    sed -i "s/{{HELIX_HOSTNAME}}/$WOLF_INSTANCE_ID/g" "$DATA_FILE"
     echo "✅ moonlight-web data.json initialized"
 fi
 
