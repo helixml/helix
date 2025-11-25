@@ -229,11 +229,23 @@ ENV GEMINI_TELEMETRY_ENABLED=false \
     DISABLE_ERROR_REPORTING=1 \
     DISABLE_AUTOUPDATER=1
 
+# Configure Kitty terminal
+RUN mkdir -p /home/retro/.config/kitty && \
+    cat > /home/retro/.config/kitty/kitty.conf <<'KITTY_CONFIG'
+# Close window when shell exits (don't leave orphan windows)
+close_on_child_death yes
+
+# Dark theme
+background #1e1e2e
+foreground #cdd6f4
+KITTY_CONFIG
+
 # Fix ownership - all configs must be owned by retro user (UID/GID 1000)
 RUN chown -R 1000:1000 /home/retro/.qwen \
                         /home/retro/.gemini \
                         /home/retro/.claude \
-                        /home/retro/.config/zed
+                        /home/retro/.config/zed \
+                        /home/retro/.config/kitty
 
 # ====================================================================
 # AI Agent Privacy Configuration Summary
