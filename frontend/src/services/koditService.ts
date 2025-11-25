@@ -127,17 +127,19 @@ export function useKoditSearch(
   repoId: string,
   query: string,
   limit?: number,
+  commitSha?: string,
   options?: { enabled?: boolean }
 ) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: koditSearchQueryKey(repoId, query),
+    queryKey: [...koditSearchQueryKey(repoId, query), commitSha],
     queryFn: async () => {
       const response = await apiClient.v1GitRepositoriesSearchSnippetsDetail(repoId, {
         query,
         limit,
+        commit_sha: commitSha,
       })
       // Response is an array of snippets
       const data = response.data as any

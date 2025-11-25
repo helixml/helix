@@ -202,6 +202,7 @@ func (apiServer *HelixAPIServer) getRepositoryKoditCommits(w http.ResponseWriter
 // @Param id path string true "Repository ID"
 // @Param query query string true "Search query"
 // @Param limit query int false "Limit number of results (default 20)"
+// @Param commit_sha query string false "Filter by commit SHA"
 // @Success 200 {array} services.KoditSearchResult
 // @Failure 400 {object} types.APIError
 // @Failure 404 {object} types.APIError
@@ -222,6 +223,9 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 		http.Error(w, "Query parameter is required", http.StatusBadRequest)
 		return
 	}
+
+	// Get optional commit SHA from query params
+	commitSHA := r.URL.Query().Get("commit_sha")
 
 	// Get optional limit from query params (default 20)
 	limit := 20
@@ -255,9 +259,9 @@ func (apiServer *HelixAPIServer) searchRepositorySnippets(w http.ResponseWriter,
 	}
 
 	// Search snippets from Kodit
-	snippets, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit)
+	snippets, err := apiServer.koditService.SearchSnippets(r.Context(), koditRepoID, query, limit, commitSHA)
 	if err != nil {
-		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Str("query", query).Msg("Failed to search snippets from Kodit")
+		log.Error().Err(err).Str("kodit_repo_id", koditRepoID).Str("query", query).Str("commit_sha", commitSHA).Msg("Failed to search snippets from Kodit")
 		http.Error(w, fmt.Sprintf("Failed to search snippets: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}

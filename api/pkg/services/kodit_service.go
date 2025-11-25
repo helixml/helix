@@ -251,6 +251,28 @@ func (s *KoditService) GetRepositoryCommits(ctx context.Context, koditRepoID str
 	return response.Data, nil
 }
 
+// SearchFilters represents the filters for kodit search API
+type SearchFilters struct {
+	Repositories []string  `json:"repositories"`
+	CommitSHA    []string  `json:"commit_sha,omitempty"`
+}
+
+// RelationshipData represents a single relationship data item
+type RelationshipData struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// RelationshipsAssociations represents the associations structure in relationships
+type RelationshipsAssociations struct {
+	Data []RelationshipData `json:"data"`
+}
+
+// RelationshipsWrapper represents the top-level relationships structure
+type RelationshipsWrapper struct {
+	Associations RelationshipsAssociations `json:"associations"`
+}
+
 // KoditSearchResult represents a search result with properly typed fields for frontend consumption
 type KoditSearchResult struct {
 	ID       string `json:"id"`
@@ -261,7 +283,7 @@ type KoditSearchResult struct {
 }
 
 // SearchSnippets searches for code snippets in a repository from Kodit
-func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query string, limit int) ([]KoditSearchResult, error) {
+func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query string, limit int, commitSHA string) ([]KoditSearchResult, error) {
 	if !s.enabled {
 		return nil, fmt.Errorf("kodit service not enabled")
 	}
@@ -295,8 +317,17 @@ func (s *KoditService) SearchSnippets(ctx context.Context, koditRepoID, query st
 
 	// Set repository filter
 	requestBody.Data.Attributes.Filters = &kodit.SearchAttributes_Filters{}
-	reposJSON, _ := json.Marshal(map[string][]string{"repositories": {koditRepoID}})
-	json.Unmarshal(reposJSON, &requestBody.Data.Attributes.Filters)
+	filters := SearchFilters{
+		Repositories: []string{koditRepoID},
+	}
+
+	// Add commit SHA filter if provided (must be a list)
+	if commitSHA != "" {
+		filters.CommitSHA = []string{commitSHA}
+	}
+
+	filtersJSON, _ := json.Marshal(filters)
+	json.Unmarshal(filtersJSON, &requestBody.Data.Attributes.Filters)
 
 	resp, err := s.client.SearchSnippetsApiV1SearchPost(ctx, requestBody)
 	if err != nil {
@@ -424,30 +455,18 @@ func extractCommitSHA(relationships *kodit.EnrichmentData_Relationships) string 
 
 	log.Debug().RawJSON("relationships", relationshipsJSON).Msg("extractCommitSHA: relationships JSON")
 
-	var relData map[string]interface{}
+	var relData RelationshipsWrapper
 	if err := json.Unmarshal(relationshipsJSON, &relData); err != nil {
 		log.Warn().Err(err).Msg("extractCommitSHA: failed to unmarshal relationships")
 		return ""
 	}
 
 	// Look for associations -> data array -> find commit type
-	if associations, ok := relData["associations"].(map[string]interface{}); ok {
-		if data, ok := associations["data"].([]interface{}); ok {
-			for _, item := range data {
-				if assoc, ok := item.(map[string]interface{}); ok {
-					if assocType, ok := assoc["type"].(string); ok && assocType == "commit" {
-						if id, ok := assoc["id"].(string); ok {
-							log.Debug().Str("commit_sha", id).Msg("extractCommitSHA: found commit SHA")
-							return id // This is the commit SHA
-						}
-					}
-				}
-			}
-		} else {
-			log.Debug().Msg("extractCommitSHA: associations.data is not an array")
+	for _, item := range relData.Associations.Data {
+		if item.Type == "commit" {
+			log.Debug().Str("commit_sha", item.ID).Msg("extractCommitSHA: found commit SHA")
+			return item.ID // This is the commit SHA
 		}
-	} else {
-		log.Debug().Msg("extractCommitSHA: no associations found in relationships")
 	}
 
 	log.Debug().Msg("extractCommitSHA: no commit SHA found")
