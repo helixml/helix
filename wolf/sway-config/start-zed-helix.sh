@@ -175,7 +175,7 @@ if [ -n "$HELIX_PRIMARY_REPO_NAME" ]; then
             # 3. Push to remote
             # 4. Switch back to default branch
             if git -C "$PRIMARY_REPO_PATH" checkout --orphan helix-specs 2>&1 && \
-               git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 && \
+               (git -C "$PRIMARY_REPO_PATH" rm -rf . 2>&1 || true) && \
                git -C "$PRIMARY_REPO_PATH" commit --allow-empty -m "Initialize helix-specs branch" 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" push origin helix-specs 2>&1 && \
                git -C "$PRIMARY_REPO_PATH" checkout "$REPO_DEFAULT_BRANCH" 2>&1; then
