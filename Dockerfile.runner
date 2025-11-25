@@ -111,8 +111,10 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     rm -rf $TEMP_DIR
 
 # Install build tools and Python 3.12 for best future compatibility
+# cmake is required for building vLLM from source (ROCm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    cmake \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
