@@ -127,7 +127,7 @@ COPY --from=uv /uv /bin/uv
 
 # Create CUDA vLLM virtualenv using Python 3.12 (NVIDIA GPUs)
 # This isolates vLLM from any system packages - completely clean environment
-# Let pip resolve dependencies for vLLM (simpler than pinning everything)
+# PyPI vLLM wheels include torch dependency (torch==2.9.0 for vLLM 0.11.2)
 ARG VLLM_VERSION
 RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
     echo "Installing vLLM ${VLLM_VERSION} for CUDA into clean virtualenv" && \
@@ -138,14 +138,14 @@ RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
 
 # Create ROCm vLLM virtualenv using Python 3.12 (AMD GPUs)
 # Install PyTorch ROCm 6.4 + build vLLM from source (no ROCm wheels on PyPI)
-# PyTorch versions available for ROCm 6.4: 2.8.0, 2.9.0, 2.9.1
+# Version pinning: torch 2.9.0 (required by vLLM 0.11.2), matching torchvision/torchaudio
 RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
-    echo "Installing PyTorch ROCm 6.4 for AMD GPUs" && \
+    echo "Installing PyTorch 2.9.0 ROCm 6.4 for AMD GPUs" && \
     /workspace/vllm-rocm/venv/bin/python -m pip install uv && \
     cd /workspace && \
     VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
     /workspace/vllm-rocm/venv/bin/uv pip install --index-url https://download.pytorch.org/whl/rocm6.4 \
-        torch==2.9.1 torchvision torchaudio && \
+        torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 && \
     echo "Building vLLM ${VLLM_VERSION} from source for ROCm (this takes ~10 minutes)" && \
     git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git /tmp/vllm-rocm-src && \
     cd /tmp/vllm-rocm-src && \
