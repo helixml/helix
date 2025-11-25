@@ -78,6 +78,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
     repoId,
     debouncedSearchQuery,
     20,
+    commitSha,
     { enabled: !!repoId && !!repository?.metadata?.kodit_indexing && debouncedSearchQuery.trim().length > 0 }
   )
 
@@ -119,7 +120,7 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                     label="Commit"
                     onChange={(e) => handleCommitChange(e.target.value)}
                   >
-                    <MenuItem value="all">All Commits (Latest)</MenuItem>
+                    <MenuItem value="all">Latest Commit</MenuItem>
                     {commits.map((commit: any) => (
                       <MenuItem key={commit.id} value={commit.id}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
@@ -309,8 +310,8 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
               const typeDescription = type === KODIT_TYPE_DEVELOPER
                 ? 'Architecture, APIs, and technical documentation'
                 : type === KODIT_TYPE_USAGE
-                ? 'How-to guides and usage examples'
-                : 'Recent changes and commit descriptions'
+                  ? 'How-to guides and usage examples'
+                  : 'Recent changes and commit descriptions'
 
               return (
                 <Box key={type}>
@@ -331,13 +332,13 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                       const borderColor = type === KODIT_TYPE_DEVELOPER
                         ? 'primary.main'
                         : type === KODIT_TYPE_USAGE
-                        ? 'success.main'
-                        : 'info.main'
+                          ? 'success.main'
+                          : 'info.main'
                       const iconColor = type === KODIT_TYPE_DEVELOPER
                         ? '#1976d2'
                         : type === KODIT_TYPE_USAGE
-                        ? '#2e7d32'
-                        : '#0288d1'
+                          ? '#2e7d32'
+                          : '#0288d1'
 
                       return (
                         <Grid item xs={12} sm={6} md={4} lg={3} key={`${type}-${subtype}-${enrichment.id || index}`}>

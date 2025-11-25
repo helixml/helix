@@ -6561,6 +6561,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: string;
         /** Limit number of results (default 20) */
         limit?: number;
+        /** Filter by commit SHA */
+        commit_sha?: string;
       },
       params: RequestParams = {},
     ) =>

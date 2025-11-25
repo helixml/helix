@@ -3513,6 +3513,12 @@ const docTemplate = `{
                         "description": "Limit number of results (default 20)",
                         "name": "limit",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by commit SHA",
+                        "name": "commit_sha",
+                        "in": "query"
                     }
                 ],
                 "responses": {

@@ -10061,6 +10061,10 @@ paths:
         in: query
         name: limit
         type: integer
+      - description: Filter by commit SHA
+        in: query
+        name: commit_sha
+        type: string
       produces:
       - application/json
       responses:
