@@ -152,6 +152,12 @@ custom_launcher() {
     "tooltip": true,
     "tooltip-format": "{app}: {title}"
   },
+  "sway/language": {
+    "format": "{short}",
+    "tooltip": true,
+    "tooltip-format": "Click to switch keyboard layout (current: {long})",
+    "on-click": "swaymsg input type:keyboard xkb_switch_layout next"
+  },
   "custom/clock": {
     "format": "  {}",
     "tooltip": false,

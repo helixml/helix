@@ -85,6 +85,14 @@ func (s *ProjectInternalRepoService) InitializeProjectRepo(ctx context.Context, 
 		return "", fmt.Errorf("failed to create .helix directory: %w", err)
 	}
 
+	// Create tasks and design-docs directories
+	if err := os.MkdirAll(filepath.Join(helixDir, "tasks"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create .helix/tasks directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(helixDir, "design-docs"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create .helix/design-docs directory: %w", err)
+	}
+
 	// Create project.json
 	projectConfig := ProjectConfig{
 		ProjectID:    project.ID,
