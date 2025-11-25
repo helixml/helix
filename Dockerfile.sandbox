@@ -170,8 +170,8 @@ COPY --from=wolf-upstream /etc/cont-init.d/05-init-wolf-config.sh /etc/cont-init
 RUN chmod +x /etc/cont-init.d/05-init-wolf-config.sh
 
 # Copy helix-sway tarball and hash file (will be loaded by start-dockerd.sh)
-COPY helix-sway.tar.gz /opt/images/helix-sway.tar.gz
-COPY helix-sway.tar.gz.hash /opt/images/helix-sway.tar.gz.hash
+COPY helix-sway.tar /opt/images/helix-sway.tar
+COPY helix-sway.tar.hash /opt/images/helix-sway.tar.hash
 
 # Create complete start-dockerd.sh script (based on ~/pm/wolf/docker/start-dockerd.sh with Helix additions)
 COPY <<'DOCKERD_SCRIPT' /etc/cont-init.d/04-start-dockerd.sh
@@ -252,11 +252,11 @@ else
 fi
 
 # Load helix-sway image into sandbox's dockerd (with hash-based skip optimization)
-if [ -f /opt/images/helix-sway.tar.gz ]; then
+if [ -f /opt/images/helix-sway.tar ]; then
     # Check if image already loaded with same hash (optimization to skip expensive docker load)
     SHOULD_LOAD=true
-    if [ -f /opt/images/helix-sway.tar.gz.hash ]; then
-        EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.gz.hash)
+    if [ -f /opt/images/helix-sway.tar.hash ]; then
+        EXPECTED_HASH=$(cat /opt/images/helix-sway.tar.hash)
         CURRENT_HASH=$(docker images helix-sway:latest --format '{{.ID}}' 2>/dev/null || echo "")
 
         if [ "$CURRENT_HASH" = "$EXPECTED_HASH" ] && [ -n "$CURRENT_HASH" ]; then
@@ -270,7 +270,7 @@ if [ -f /opt/images/helix-sway.tar.gz ]; then
     fi
 
     if [ "$SHOULD_LOAD" = true ]; then
-        if docker load -i /opt/images/helix-sway.tar.gz 2>&1 | tee /tmp/docker-load.log; then
+        if docker load -i /opt/images/helix-sway.tar 2>&1 | tee /tmp/docker-load.log; then
             echo "✅ helix-sway:latest loaded successfully"
         else
             echo "⚠️  Failed to load helix-sway tarball (may be corrupted or out of memory)"
