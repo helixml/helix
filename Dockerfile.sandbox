@@ -216,7 +216,7 @@ echo "Configured Wolf's dockerd with nvidia runtime support"
 # Start dockerd in background (redirect to stdout with prefix for unified logs)
 dockerd --config-file /etc/docker/daemon.json \
     --host=unix:///var/run/docker.sock \
-    2>&1 | sed 's/^/[DOCKERD] /' &
+    2>&1 | sed -u 's/^/[DOCKERD] /' &
 
 DOCKERD_PID=$!
 echo "Started dockerd with PID: $DOCKERD_PID"
@@ -457,17 +457,23 @@ echo "🔗 Starting Wolf RevDial client..."
 echo "   Control Plane: $HELIX_API_URL"
 echo "   Wolf Instance ID: $WOLF_INSTANCE_ID"
 
-# Start Wolf API RevDial client (proxies Wolf Unix socket, redirect to stdout with prefix)
+# Start Wolf API RevDial client with automatic restart (proxies Wolf Unix socket)
 # Use cgo DNS resolver to work around Go DNS issues in Docker
 # Use sed -u for unbuffered output (otherwise logs don't appear)
-GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
-    -server "$HELIX_API_URL/api/v1/revdial" \
-    -runner-id "wolf-$WOLF_INSTANCE_ID" \
-    -token "$RUNNER_TOKEN" \
-    -local "unix:///var/run/wolf/wolf.sock" \
-    2>&1 | sed -u 's/^/[WOLF-REVDIAL] /' &
-WOLF_REVDIAL_PID=$!
-echo "✅ Wolf RevDial client started (PID: $WOLF_REVDIAL_PID)"
+(
+    while true; do
+        echo "[$(date -Iseconds)] Starting Wolf RevDial client..."
+        GODEBUG=netdns=cgo /usr/local/bin/revdial-client \
+            -server "$HELIX_API_URL/api/v1/revdial" \
+            -runner-id "wolf-$WOLF_INSTANCE_ID" \
+            -token "$RUNNER_TOKEN" \
+            -local "unix:///var/run/wolf/wolf.sock"
+        EXIT_CODE=$?
+        echo "[$(date -Iseconds)] ⚠️  Wolf RevDial client exited with code $EXIT_CODE, restarting in 2s..."
+        sleep 2
+    done
+) 2>&1 | sed -u 's/^/[WOLF-REVDIAL] /' &
+echo "✅ Wolf RevDial client started with auto-restart"
 
 # NOTE: Moonlight Web RevDial client is started in startup-app.sh AFTER Moonlight Web starts
 # This ensures Moonlight Web is ready to accept connections before RevDial connects
@@ -505,7 +511,7 @@ echo "💓 Starting Wolf heartbeat service for instance: $WOLF_INSTANCE_ID"
         # Sleep for 30 seconds before next heartbeat
         sleep 30
     done
-) 2>&1 | sed 's/^/[HEARTBEAT] /' &
+) 2>&1 | sed -u 's/^/[HEARTBEAT] /' &
 
 HEARTBEAT_PID=$!
 echo "✅ Wolf heartbeat service started (PID: $HEARTBEAT_PID)"
@@ -585,29 +591,43 @@ wait_for_wolf() {
     done
 }
 
-# Function to start Moonlight Web (called once on first Wolf start)
+# Function to start Moonlight Web with auto-restart (called once on first Wolf start)
 MOONLIGHT_STARTED=false
 start_moonlight_web() {
     if [ "$MOONLIGHT_STARTED" = true ]; then
         return
     fi
 
-    echo "🌙 Starting Moonlight Web..."
-    cd /opt/moonlight-web
-    ./moonlight-web 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
-    MOONLIGHT_PID=$!
-    echo "✅ Moonlight Web started (PID: $MOONLIGHT_PID)"
+    echo "🌙 Starting Moonlight Web with auto-restart..."
+    (
+        cd /opt/moonlight-web
+        while true; do
+            echo "[$(date -Iseconds)] Starting Moonlight Web..."
+            ./moonlight-web
+            EXIT_CODE=$?
+            echo "[$(date -Iseconds)] ⚠️  Moonlight Web exited with code $EXIT_CODE, restarting in 2s..."
+            sleep 2
+        done
+    ) 2>&1 | sed -u 's/^/[MOONLIGHT] /' &
+    echo "✅ Moonlight Web started with auto-restart"
 
-    # Start Moonlight Web RevDial client (if HELIX_API_URL is set)
+    # Start Moonlight Web RevDial client with auto-restart (if HELIX_API_URL is set)
     if [ -n "$HELIX_API_URL" ]; then
-        echo "🔗 Starting Moonlight Web RevDial client..."
-        /usr/local/bin/revdial-client \
-            -server "$HELIX_API_URL/api/v1/revdial" \
-            -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
-            -token "${RUNNER_TOKEN:-}" \
-            -local "127.0.0.1:8080" \
-            2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
-        echo "✅ Moonlight Web RevDial client started (PID: $!)"
+        echo "🔗 Starting Moonlight Web RevDial client with auto-restart..."
+        (
+            while true; do
+                echo "[$(date -Iseconds)] Starting Moonlight Web RevDial client..."
+                /usr/local/bin/revdial-client \
+                    -server "$HELIX_API_URL/api/v1/revdial" \
+                    -runner-id "moonlight-${WOLF_INSTANCE_ID:-local}" \
+                    -token "${RUNNER_TOKEN:-}" \
+                    -local "127.0.0.1:8080"
+                EXIT_CODE=$?
+                echo "[$(date -Iseconds)] ⚠️  Moonlight Web RevDial client exited with code $EXIT_CODE, restarting in 2s..."
+                sleep 2
+            done
+        ) 2>&1 | sed -u 's/^/[MOONLIGHT-REVDIAL] /' &
+        echo "✅ Moonlight Web RevDial client started with auto-restart"
     fi
 
     # Start auto-pairing in background (gives Moonlight Web time to fully initialize)

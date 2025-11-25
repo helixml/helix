@@ -2092,6 +2092,11 @@ func execCommand(ctx context.Context, dir string, name string, args ...string) (
 // getContainerScreenshot fetches a screenshot from the container's screenshot server via RevDial
 // Used for saving paused screenshots - non-critical, fails gracefully if RevDial unavailable
 func (w *WolfExecutor) getContainerScreenshot(ctx context.Context, sessionID string) ([]byte, error) {
+	// RevDial connection manager may not be available in tests or local dev
+	if w.connman == nil {
+		return nil, fmt.Errorf("connection manager not available (tests or local dev mode)")
+	}
+
 	// Try to get RevDial connection to sandbox
 	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
 	revDialConn, err := w.connman.Dial(ctx, runnerID)
