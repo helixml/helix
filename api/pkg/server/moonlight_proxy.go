@@ -362,7 +362,7 @@ func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter,
 }
 
 // extractHelixSessionFromMoonlightRequest extracts Helix session ID from moonlight request
-// Moonlight uses session_id like "agent-ses_xxx" or "agent-req_xxx"
+// Moonlight uses session_id like "agent-ses_xxx" or "agent-req_xxx" with optional suffixes
 func (apiServer *HelixAPIServer) extractHelixSessionFromMoonlightRequest(r *http.Request) string {
 	// Check query parameter (used in WebSocket stream requests)
 	moonlightSessionID := r.URL.Query().Get("session_id")
@@ -373,17 +373,28 @@ func (apiServer *HelixAPIServer) extractHelixSessionFromMoonlightRequest(r *http
 	}
 
 	// Extract Helix session ID from moonlight format
-	// Format: "agent-ses_01k83m6bws1r77ez98w8kp83xb" → "ses_01k83m6bws1r77ez98w8kp83xb"
-	// Format: "agent-req_01k83m6bws1r77ez98w8kp83xb" → "req_01k83m6bws1r77ez98w8kp83xb"
-	if strings.HasPrefix(moonlightSessionID, "agent-") {
-		return strings.TrimPrefix(moonlightSessionID, "agent-")
-	}
+	// Supported formats (with optional suffixes for multi-tab support):
+	// - "agent-ses_01k83m6bws1r77ez98w8kp83xb" → "ses_01k83m6bws1r77ez98w8kp83xb"
+	// - "agent-ses_xxx-uuid" → "ses_xxx"
+	// - "agent-ses_xxx-kickoff" → "ses_xxx"
+	// - "agent-req_xxx-uuid" → "req_xxx"
 
-	// Also handle kickoff sessions (agent-ses_xxx-kickoff)
-	if strings.Contains(moonlightSessionID, "-kickoff") {
-		// Extract: "agent-ses_xxx-kickoff" → "ses_xxx"
-		sessionID := strings.TrimPrefix(moonlightSessionID, "agent-")
-		sessionID = strings.TrimSuffix(sessionID, "-kickoff")
+	// Strip "agent-" prefix if present
+	sessionID := strings.TrimPrefix(moonlightSessionID, "agent-")
+
+	// Find the Helix session ID pattern (ses_xxx or req_xxx)
+	// The ID is the portion up to the next hyphen after the underscore
+	if strings.HasPrefix(sessionID, "ses_") || strings.HasPrefix(sessionID, "req_") {
+		// Find the end of the ID (26 chars after ses_/req_)
+		// Format: ses_ + 26 chars = 30 total, req_ + 26 chars = 30 total
+		prefix := sessionID[:4] // "ses_" or "req_"
+		rest := sessionID[4:]
+
+		// Take up to the next hyphen or end of string
+		if idx := strings.Index(rest, "-"); idx > 0 {
+			return prefix + rest[:idx]
+		}
+		// No hyphen found, return as-is (simple format)
 		return sessionID
 	}
 

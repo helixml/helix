@@ -92,7 +92,9 @@ export class Stream {
             : `/host/stream`;
 
         // Build WebSocket URL (browser sends HttpOnly auth cookie automatically)
-        const wsUrl = `${api.host_url}${wsEndpoint}`;
+        // Include session_id in URL for routing to correct Moonlight Web instance via RevDial
+        const queryParams = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+        const wsUrl = `${api.host_url}${wsEndpoint}${queryParams}`;
         const wsLogPrefix = `[WS:${clientUniqueId?.substring(0, 20) || 'no-id'}...]`;
         console.log(`${wsLogPrefix} Creating WebSocket connection to:`, wsUrl);
         this.ws = new WebSocket(wsUrl)
