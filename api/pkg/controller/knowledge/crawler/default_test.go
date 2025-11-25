@@ -128,7 +128,7 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	// Create a test server that delays response longer than our timeout
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Sleep longer than our timeout to guarantee timeout
-		time.Sleep(2 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("<html><body>This should never be returned</body></html>"))
 	}))
@@ -159,7 +159,7 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set timeout shorter than server delay to guarantee timeout
-	d.pageTimeout = 500 * time.Millisecond
+	d.pageTimeout = 10 * time.Millisecond
 
 	docs, err := d.Crawl(context.Background())
 	require.NoError(t, err)
