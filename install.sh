@@ -2322,8 +2322,14 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e TURN_PASSWORD="$TURN_PASSWORD" \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
+    -e XDG_RUNTIME_DIR=/tmp/sockets \
+    -e HOST_APPS_STATE_FOLDER=/etc/wolf/cfg \
+    -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
+    -e WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem \
+    -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
+    -e WOLF_USE_ZERO_COPY=TRUE \
+    -e GOP_SIZE=120 \
     -v sandbox-storage:/var/lib/docker \
-    -v /var/run/wolf:/var/run/wolf:rw \
     -v /dev:/dev:rw \
     -v /run/udev:/run/udev:rw \
     --device /dev/dri \
