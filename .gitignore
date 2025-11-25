@@ -42,7 +42,8 @@ test-zed-config/
 wolf/config.toml
 wolf/config.toml.v4.old
 wolf/cfg/
-wolf/*/
+# Don't ignore sway-config - it's part of the codebase
+!wolf/sway-config/
 moonlight-web-config/data.json
 moonlight-web-config/config.json
 
