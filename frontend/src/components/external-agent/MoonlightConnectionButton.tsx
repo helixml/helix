@@ -260,7 +260,7 @@ const MoonlightConnectionButton: React.FC<MoonlightConnectionButtonProps> = ({
               <br />• Hardware-accelerated H.264/H.265 encoding
               <br />• Low-latency streaming optimized for gaming
               <br />• Gamepad and controller support
-              <br />• Up to 4K@60Hz streaming capability
+              <br />• Up to 1080p@60Hz streaming capability
             </Typography>
           </Alert>
         </DialogContent>
