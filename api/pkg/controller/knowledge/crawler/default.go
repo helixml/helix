@@ -41,6 +41,10 @@ type Default struct {
 	pageTimeout time.Duration
 
 	updateProgress func(progress types.KnowledgeProgress)
+
+	// disableDomainCheck disables colly's AllowedDomains restriction
+	// Useful for testing with localhost where AllowedDomains doesn't work properly
+	disableDomainCheck bool
 }
 
 func NewDefault(browser *browser.Browser, k *types.Knowledge, updateProgress func(progress types.KnowledgeProgress)) (*Default, error) {
@@ -100,14 +104,18 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	pageQueueCounter.Store(0)
 
 	collyOptions := []colly.CollectorOption{
-		// Allow crawling of the domains, this is normally
-		// based on the domain of the URL
-		colly.AllowedDomains(domains...),
 		// Some websites block requests with the same user agent
 		colly.UserAgent(userAgent),
 		// If you have this as "2" then it will crawl the current
 		// supplied page and the pages it links to
 		colly.MaxDepth(int(maxPages)),
+	}
+
+	// Only add AllowedDomains if domain checking is enabled
+	// Note: colly's AllowedDomains doesn't work well with localhost/IP addresses with ports
+	// For tests using localhost, set disableDomainCheck to true
+	if !d.disableDomainCheck && len(domains) > 0 {
+		collyOptions = append(collyOptions, colly.AllowedDomains(domains...))
 	}
 
 	if d.knowledge.Source.Web.Crawler.IgnoreRobotsTxt {
@@ -267,6 +275,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		err := collector.Visit(url)
 		if err != nil {
 			log.Warn().Err(err).Str("url", url).Msg("Error visiting URL")
+
 			// Continue with the next URL instead of returning
 			continue
 		}
