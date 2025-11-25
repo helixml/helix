@@ -2335,7 +2335,7 @@ docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
     -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
     -e XDG_RUNTIME_DIR=/tmp/sockets \
-    -e HOST_APPS_STATE_FOLDER=/etc/wolf/cfg \
+    -e HOST_APPS_STATE_FOLDER=/etc/wolf \
     -e WOLF_SOCKET_PATH=/var/run/wolf/wolf.sock \
     -e WOLF_PRIVATE_KEY_FILE=/etc/wolf/cfg/key.pem \
     -e WOLF_PRIVATE_CERT_FILE=/etc/wolf/cfg/cert.pem \
