@@ -640,3 +640,4 @@ type ProjectMembership struct { ... }
 - Never create files unless absolutely necessary
 - Prefer editing existing files
 - Never proactively create markdown/README files
+- **Never use `| tail` or `| head` on long-running commands** - piping to tail/head buffers all output until the command completes, which prevents watching progress. If you need to limit output, use `run_in_background: true` and check with `BashOutput` instead.
