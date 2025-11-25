@@ -1666,25 +1666,40 @@ EOF
         # Extract hostname from API_HOST for TURN server
         TURN_HOST=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
 
-        # Auto-detect first NVIDIA render node for Wolf
-        # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), NVIDIA starts at renderD129
+        # Auto-detect GPU render node for Wolf based on GPU_VENDOR
+        # On some systems (Lambda Labs), renderD128 is virtio-gpu (virtual), actual GPU starts at renderD129
         WOLF_RENDER_NODE="/dev/dri/renderD128"  # Default
         if [ -d "/sys/class/drm" ]; then
-            for render_node in /dev/dri/renderD*; do
-                if [ -e "$render_node" ]; then
-                    # Check if this render node is NVIDIA by checking driver symlink
-                    node_name=$(basename "$render_node")
-                    driver_link="/sys/class/drm/$node_name/device/driver"
-                    if [ -L "$driver_link" ]; then
-                        driver=$(readlink "$driver_link" | grep -o '[^/]*$')
-                        if [[ "$driver" == "nvidia" ]]; then
-                            WOLF_RENDER_NODE="$render_node"
-                            echo "Auto-detected NVIDIA render node: $WOLF_RENDER_NODE"
-                            break
+            # Determine which driver to look for based on GPU_VENDOR
+            case "$GPU_VENDOR" in
+                nvidia)
+                    target_driver="nvidia"
+                    ;;
+                amd)
+                    target_driver="amdgpu"
+                    ;;
+                *)
+                    target_driver=""
+                    ;;
+            esac
+
+            if [ -n "$target_driver" ]; then
+                for render_node in /dev/dri/renderD*; do
+                    if [ -e "$render_node" ]; then
+                        # Check if this render node matches our target driver
+                        node_name=$(basename "$render_node")
+                        driver_link="/sys/class/drm/$node_name/device/driver"
+                        if [ -L "$driver_link" ]; then
+                            driver=$(readlink "$driver_link" | grep -o '[^/]*$')
+                            if [[ "$driver" == "$target_driver" ]]; then
+                                WOLF_RENDER_NODE="$render_node"
+                                echo "Auto-detected $GPU_VENDOR render node: $WOLF_RENDER_NODE (driver: $driver)"
+                                break
+                            fi
                         fi
                     fi
-                fi
-            done
+                done
+            fi
         fi
 
         cat << EOF >> "$ENV_FILE"
