@@ -1221,7 +1221,8 @@ function build-and-push-helix-code() {
   echo ""
 
   # Track build status
-  local TOTAL_BUILDS=4
+  # Note: helix-sway (Zed agent) is built as part of build-sandbox, not separately
+  local TOTAL_BUILDS=3
   local COMPLETED_BUILDS=0
 
   # 1. Build Wolf
@@ -1237,23 +1238,9 @@ function build-and-push-helix-code() {
   fi
   echo ""
 
-  # 2. Build Sway+Zed agent (PDEs/External Agents)
+  # 2. Build Moonlight Web
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [2/$TOTAL_BUILDS] Building Sway+Zed agent (PDEs/External Agents)..."
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  # Skip transfer - image will be embedded in sandbox tarball
-  if SKIP_SWAY_TRANSFER=1 build-sway; then
-    echo "✅ Sway+Zed agent built and pushed successfully"
-    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
-  else
-    echo "❌ Failed to build Sway+Zed agent"
-    FAILED_BUILDS+=("zed-agent")
-  fi
-  echo ""
-
-  # 3. Build Moonlight Web
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [3/$TOTAL_BUILDS] Building Moonlight Web..."
+  echo "📦 [2/$TOTAL_BUILDS] Building Moonlight Web..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if build-moonlight-web; then
     echo "✅ Moonlight Web built and pushed successfully"
@@ -1264,9 +1251,10 @@ function build-and-push-helix-code() {
   fi
   echo ""
 
-  # 4. Build unified Sandbox (Wolf + Moonlight Web + RevDial + DinD)
+  # 3. Build unified Sandbox (Wolf + Moonlight Web + Sway/Zed + RevDial + DinD)
+  # Note: This also builds helix-sway (Zed agent) and embeds it as a tarball
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 [4/$TOTAL_BUILDS] Building unified Sandbox container..."
+  echo "📦 [3/$TOTAL_BUILDS] Building unified Sandbox container (includes Sway/Zed)..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   if build-sandbox; then
     echo "✅ Sandbox built and pushed successfully"
