@@ -1131,17 +1131,16 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
 fi
 
 if [ "$SANDBOX" = true ]; then
-    # When installing sandbox node, API_HOST, RUNNER_TOKEN, and TURN_PASSWORD are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ] || [ -z "$TURN_PASSWORD" ]; then
-        echo "Error: When installing sandbox node, you must specify --api-host, --runner-token, and --turn-password"
+    # When installing sandbox node, API_HOST, RUNNER_TOKEN are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
+        echo "Error: When installing sandbox node, you must specify --api-host, --runner-token"
         echo "to connect to an external controlplane, for example:"
         echo
         echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD"
         echo
         echo "You can find these values in <HELIX_INSTALL_DIR>/.env on the controlplane node:"
         echo "  - RUNNER_TOKEN=..."
-        echo "  - TURN_PASSWORD=..."
-        echo "  - MOONLIGHT_CREDENTIALS=... (optional, default: helix)"
+        echo "  - TURN_PASSWORD=... (optional)"
         exit 1
     fi
 fi
