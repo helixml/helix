@@ -207,11 +207,10 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                   const filePath = snippet.file_path || ''
 
                   // Use file path as title if available, otherwise use snippet ID
-                  let title = snippetId
+                  let fileName = null
                   if (filePath) {
                     // Extract filename from path
-                    const fileName = filePath.split('/').pop() || filePath
-                    title = fileName
+                    fileName = filePath.split('/').pop() || filePath
                   }
 
                   return (
@@ -246,9 +245,9 @@ const CodeIntelligenceTab: FC<CodeIntelligenceTabProps> = ({ repository, enrichm
                               <SearchIcon size={24} color="#ed6c02" />
                             </Avatar>
                           }
-                          title={title}
+                          title={snippetType}
                           titleTypographyProps={{ variant: 'subtitle1', fontWeight: 600, fontSize: '0.95rem' }}
-                          subheader={filePath ? `${language} • ${snippetType}` : snippetType}
+                          subheader={fileName}
                           subheaderTypographyProps={{ variant: 'caption', fontSize: '0.7rem' }}
                           sx={{ pb: 1 }}
                         />
