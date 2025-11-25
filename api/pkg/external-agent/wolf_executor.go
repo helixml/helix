@@ -1,14 +1,17 @@
 package external_agent
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,10 +31,9 @@ type lobbyCacheEntry struct {
 
 // WolfExecutor implements the Executor interface using Wolf API
 type WolfExecutor struct {
-	wolfClient WolfClientInterface
-	store      store.Store
-	sessions   map[string]*ZedSession
-	mutex      sync.RWMutex
+	store    store.Store
+	sessions map[string]*ZedSession
+	mutex    sync.RWMutex
 
 	// Zed configuration
 	zedImage      string
@@ -54,9 +56,36 @@ type WolfExecutor struct {
 	creationLocks      map[string]*sync.Mutex
 	creationLocksMutex sync.Mutex
 
-	// Track if nvidia-smi has ever worked (avoid false alarms on non-NVIDIA systems)
+	// Track if GPU monitoring (nvidia-smi/rocm-smi) has ever worked (avoid false alarms on systems without GPU monitoring)
 	hasSeenValidGPUStats bool
 	gpuStatsMutex        sync.RWMutex
+
+	// Wolf scheduler for multi-Wolf distributed deployment
+	wolfScheduler *store.WolfScheduler
+
+	// Connection manager for RevDial connections to sandboxes and remote Wolf instances
+	connman connmanInterface
+
+	// Max concurrent lobbies (GPU streaming sessions) - configurable via EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES
+	maxConcurrentLobbies int
+}
+
+// connmanInterface defines the interface for RevDial connection management
+type connmanInterface interface {
+	Dial(ctx context.Context, deviceID string) (net.Conn, error)
+}
+
+// getWolfClient returns a Wolf client for the specified instance
+// Uses RevDial to connect to Wolf API (Wolf runs in separate container/machine)
+// IMPORTANT: wolfInstanceID should ALWAYS be provided - there is no valid default
+// In multi-Wolf mode, each session is scheduled to a specific Wolf instance stored in the database
+func (w *WolfExecutor) getWolfClient(wolfInstanceID string) WolfClientInterface {
+	if wolfInstanceID == "" {
+		// This is a programming error - callers must always provide the Wolf instance ID
+		// by looking it up from the session or other context
+		panic("getWolfClient called without wolfInstanceID - this is a bug, all callers must look up the Wolf instance from session/database")
+	}
+	return wolf.NewRevDialClient(w.connman, wolfInstanceID)
 }
 
 // translateToHostPath converts API container path to absolute host path for Wolf mounting
@@ -119,9 +148,19 @@ type SwayWolfAppConfig struct {
 
 // createSwayWolfApp creates a Wolf app with Sway compositor (shared between PDEs and external agents)
 func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+	// Intel GPUs only need /dev/dri (already included)
+
 	// Build base environment variables (common to all Sway apps)
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -149,18 +188,18 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 		"/var/run/docker.sock:/var/run/docker.sock",
 	}
 
-	// Development mode: mount host files for hot-reloading
+	// Development mode: mount files for hot-reloading
+	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
+	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
 	// Production mode: use files baked into helix-sway image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		helixHostHome := os.Getenv("HELIX_HOST_HOME")
-		log.Info().
-			Str("helix_host_home", helixHostHome).
-			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
 
+		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
 		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			"/helix-dev/zed-build:/zed-build:ro",
+			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
+			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
 		)
 	} else {
 		log.Debug().Msg("Production mode - using files baked into helix-sway image")
@@ -182,6 +221,9 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 	mounts = append(mounts, config.ExtraMounts...)
 
 	// Standard Docker configuration (same for all Sway apps)
+	// CRITICAL: In DinD mode, sandboxes are on Wolf's isolated network
+	// Add extra_hosts to reach API container on host's network (dev mode)
+	// Production: RevDial handles all API communication
 	baseCreateJSON := fmt.Sprintf(`{
   "Hostname": "%s",
   "HostConfig": {
@@ -191,6 +233,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
     "CapAdd": ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"],
     "SecurityOpt": ["seccomp=unconfined", "apparmor=unconfined"],
     "DeviceCgroupRules": ["c 13:* rmw", "c 244:* rmw"],
+    "ExtraHosts": ["api:172.19.0.20"],
     "Ulimits": [
       {
         "Name": "nofile",
@@ -219,7 +262,7 @@ func (w *WolfExecutor) createSwayWolfApp(config SwayWolfAppConfig) *wolf.App {
 // NewWolfExecutor creates a Wolf executor based on WOLF_MODE environment variable
 // WOLF_MODE=lobbies (default) - lobbies persist naturally, no keepalive needed
 // WOLF_MODE=apps - requires keepalive sessions to prevent stale buffer crashes
-func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker) Executor {
+func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store, wsChecker WebSocketConnectionChecker, connmanInst connmanInterface) Executor {
 	wolfMode := os.Getenv("WOLF_MODE")
 	if wolfMode == "" {
 		wolfMode = "lobbies" // Default to lobbies - simpler, no keepalive needed
@@ -229,8 +272,9 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 
 	switch wolfMode {
 	case "lobbies":
-		return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store)
+		return NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, connmanInst)
 	case "apps":
+		// Apps mode doesn't support connman yet (legacy mode)
 		return NewAppWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken, store, wsChecker)
 	default:
 		log.Fatal().Str("wolf_mode", wolfMode).Msg("Invalid WOLF_MODE - must be 'apps' or 'lobbies'")
@@ -239,7 +283,7 @@ func NewWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string
 }
 
 // NewLobbyWolfExecutor creates a lobby-based Wolf executor (current implementation)
-func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, store store.Store) *WolfExecutor {
+func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken string, storeInst store.Store, connmanInst connmanInterface) *WolfExecutor {
 	// CRITICAL: Validate HELIX_HOST_HOME is set - required for dev mode bind-mounts
 	// In production mode (HELIX_DEV_MODE != true), files are baked into the image
 	devMode := os.Getenv("HELIX_DEV_MODE") == "true"
@@ -257,7 +301,9 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		log.Info().Msg("Wolf executor initialized (production mode - using files baked into image)")
 	}
 
-	wolfClient := wolf.NewClient(wolfSocketPath)
+	// Wolf client is created per-request based on session's WolfInstanceID
+	// This allows routing to different Wolf instances in multi-Wolf deployments
+	// See getWolfClient(wolfInstanceID) method below
 
 	// CRITICAL: Workspace paths need to work in two contexts:
 	// 1. Inside API container where we git clone: /filestore/workspaces
@@ -273,9 +319,17 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 			Msg("FILESTORE_VOLUME_PATH not set, using default Docker volume path")
 	}
 
+	// Get max concurrent lobbies from environment variable (default: 10)
+	maxLobbies := 10
+	if maxLobbiesStr := os.Getenv("EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES"); maxLobbiesStr != "" {
+		if parsed, err := strconv.Atoi(maxLobbiesStr); err == nil && parsed > 0 {
+			maxLobbies = parsed
+		}
+	}
+	log.Info().Int("max_concurrent_lobbies", maxLobbies).Msg("Wolf executor lobby limit configured")
+
 	executor := &WolfExecutor{
-		wolfClient:                   wolfClient,
-		store:                        store,
+		store:                        storeInst,
 		sessions:                     make(map[string]*ZedSession),
 		zedImage:                     zedImage,
 		helixAPIURL:                  helixAPIURL,
@@ -285,6 +339,9 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		lobbyCache:                   make(map[string]*lobbyCacheEntry),
 		lobbyCacheTTL:                5 * time.Second,              // Cache lobby lookups for 5 seconds to prevent Wolf API spam
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
+		wolfScheduler:                store.NewWolfScheduler(storeInst),
+		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
+		maxConcurrentLobbies:         maxLobbies,
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -325,6 +382,20 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Str("user_id", agent.UserID).
 		Str("project_path", agent.ProjectPath).
 		Msg("Starting external Zed agent via Wolf (with per-session creation lock)")
+
+	// Select best Wolf instance for this sandbox
+	// TODO: Extract GPU type from agent config if needed
+	wolfInstance, err := w.wolfScheduler.SelectWolfInstance(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("no Wolf instances available - ensure Wolf container is running and connected via RevDial: %w", err)
+	}
+
+	log.Info().
+		Str("wolf_id", wolfInstance.ID).
+		Str("wolf_name", wolfInstance.Name).
+		Int("current_load", wolfInstance.ConnectedSandboxes).
+		Int("max_capacity", wolfInstance.MaxSandboxes).
+		Msg("Selected Wolf instance for sandbox")
 
 	// Generate numeric Wolf app ID for Moonlight protocol compatibility
 	// Use session ID as environment name for consistency
@@ -388,7 +459,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		Msg("Creating Wolf app for external Zed agent")
 
 	// Create Sway compositor configuration (same as PDEs)
-	err := w.createSwayConfig(agent.SessionID)
+	err = w.createSwayConfig(agent.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Sway config: %w", err)
 	}
@@ -455,7 +526,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// Pass API base URL for git cloning (always api:8080 from Wolf container)
 	extraEnv = append(extraEnv, "HELIX_API_BASE_URL=http://api:8080")
 
-	// Add custom env vars from agent request
+	// Add custom env vars from agent request (includes USER_API_TOKEN for git + RevDial)
 	extraEnv = append(extraEnv, agent.Env...)
 
 	// Extract video settings from agent config (Phase 3.5) with defaults
@@ -528,31 +599,35 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 				Msg("Failed to track activity for reused lobby")
 		}
 
-		// Fetch PIN from session metadata for auto-join support
+		// Fetch PIN and Wolf instance ID from session metadata for auto-join support
 		// With the session_handlers fix, this will preserve existing PINs even if we return empty
 		var lobbyPIN string
+		var existingWolfInstanceID string
 		if helixSessionID != "" {
 			helixSession, err := w.store.GetSession(ctx, helixSessionID)
 			if err != nil {
 				log.Warn().Err(err).Str("helix_session_id", helixSessionID).Msg("Failed to get session for PIN retrieval")
 			} else {
 				lobbyPIN = helixSession.Metadata.WolfLobbyPIN
+				existingWolfInstanceID = helixSession.WolfInstanceID
 				log.Debug().
 					Str("helix_session_id", helixSessionID).
 					Bool("has_pin", lobbyPIN != "").
-					Msg("Retrieved lobby PIN from session metadata for reuse")
+					Str("wolf_instance_id", existingWolfInstanceID).
+					Msg("Retrieved lobby PIN and Wolf instance from session metadata for reuse")
 			}
 		}
 
 		// Build response using existing lobby
 		response := &types.ZedAgentResponse{
-			SessionID:     agent.SessionID,
-			ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-			StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
-			Status:        "running",
-			WolfLobbyID:   existingLobbyID,
-			WolfLobbyPIN:  lobbyPIN, // Include PIN for auto-join support
-			ContainerName: containerHostname,
+			SessionID:      agent.SessionID,
+			ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+			StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
+			Status:         "running",
+			WolfLobbyID:    existingLobbyID,
+			WolfLobbyPIN:   lobbyPIN, // Include PIN for auto-join support
+			WolfInstanceID: existingWolfInstanceID,
+			ContainerName:  containerHostname,
 		}
 
 		log.Info().
@@ -570,25 +645,24 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	// CRITICAL: Enforce hard limit of 5 concurrent lobbies to prevent GPU resource exhaustion
 	// Discovery: NVML fails at ~5-6 lobbies, GPU crashes at 6-7 lobbies
 	// See: design/2025-11-05-wolf-gpu-resource-limits-and-monitoring.md
-	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient(wolfInstance.ID).ListLobbies(ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to check lobby count before creation")
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
 	}
 
-	const maxConcurrentLobbies = 5
-	if len(lobbies) >= maxConcurrentLobbies {
+	if len(lobbies) >= w.maxConcurrentLobbies {
 		log.Error().
 			Int("active_lobbies", len(lobbies)).
-			Int("max_lobbies", maxConcurrentLobbies).
+			Int("max_lobbies", w.maxConcurrentLobbies).
 			Str("session_id", agent.SessionID).
 			Msg("GPU resource limit reached - cannot create new lobby")
-		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), maxConcurrentLobbies)
+		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), w.maxConcurrentLobbies)
 	}
 
 	log.Info().
 		Int("active_lobbies", len(lobbies)).
-		Int("max_lobbies", maxConcurrentLobbies).
+		Int("max_lobbies", w.maxConcurrentLobbies).
 		Msg("GPU capacity check passed, proceeding with lobby creation")
 
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)
@@ -655,7 +729,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 
 	// Create lobby (container starts immediately!)
-	lobbyResp, err := w.wolfClient.CreateLobby(ctx, lobbyReq)
+	lobbyResp, err := w.getWolfClient(wolfInstance.ID).CreateLobby(ctx, lobbyReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lobby for external agent: %w", err)
 	}
@@ -681,7 +755,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 	}
 	w.lobbyCacheMutex.Unlock()
 
-	// Update Helix session metadata with lobby ID and PIN so frontend can display them
+	// Update Helix session metadata with lobby ID, PIN, and Wolf instance ID
 	if helixSessionID != "" {
 		helixSession, err := w.store.GetSession(ctx, helixSessionID)
 		if err != nil {
@@ -690,6 +764,7 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 			// Update session metadata with Wolf lobby information
 			helixSession.Metadata.WolfLobbyID = lobbyResp.LobbyID
 			helixSession.Metadata.WolfLobbyPIN = lobbyPINString
+			helixSession.WolfInstanceID = wolfInstance.ID
 
 			_, err = w.store.UpdateSession(ctx, *helixSession)
 			if err != nil {
@@ -699,8 +774,22 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 					Str("helix_session_id", helixSessionID).
 					Str("lobby_id", lobbyResp.LobbyID).
 					Str("lobby_pin", lobbyPINString).
-					Msg("Updated Helix session metadata with Wolf lobby ID and PIN")
+					Str("wolf_instance_id", wolfInstance.ID).
+					Msg("Updated Helix session metadata with Wolf lobby ID, PIN, and instance")
 			}
+		}
+	}
+
+	// Increment Wolf's sandbox count
+	if wolfInstance != nil && wolfInstance.ID != "" {
+		err = w.store.IncrementWolfSandboxCount(ctx, wolfInstance.ID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_id", wolfInstance.ID).Msg("Failed to increment Wolf sandbox count")
+		} else {
+			log.Info().
+				Str("wolf_id", wolfInstance.ID).
+				Int("new_count", wolfInstance.ConnectedSandboxes+1).
+				Msg("Incremented Wolf sandbox count")
 		}
 	}
 
@@ -723,13 +812,14 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 
 	// Return response with screenshot URL, Moonlight info, and PIN
 	response := &types.ZedAgentResponse{
-		SessionID:     agent.SessionID,
-		ScreenshotURL: fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
-		StreamURL:     fmt.Sprintf("moonlight://localhost:47989"),
-		Status:        "running", // Lobby starts immediately
-		ContainerName: containerHostname,
-		WolfLobbyID:   lobbyResp.LobbyID, // NEW: Return lobby ID
-		WolfLobbyPIN:  lobbyPINString,    // NEW: Return PIN for storage in Helix session
+		SessionID:      agent.SessionID,
+		ScreenshotURL:  fmt.Sprintf("/api/v1/sessions/%s/screenshot", agent.SessionID),
+		StreamURL:      fmt.Sprintf("moonlight://localhost:47989"),
+		Status:         "running", // Lobby starts immediately
+		ContainerName:  containerHostname,
+		WolfLobbyID:    lobbyResp.LobbyID, // NEW: Return lobby ID
+		WolfLobbyPIN:   lobbyPINString,    // NEW: Return PIN for storage in Helix session
+		WolfInstanceID: wolfInstance.ID,   // NEW: Return Wolf instance ID for multi-Wolf deployment
 	}
 
 	log.Info().
@@ -829,7 +919,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	}
 	w.mutex.Unlock()
 
-	// Always fetch from database to get lobby ID and PIN (handles sessions created before restart)
+	// Always fetch from database to get lobby ID, PIN, and Wolf instance ID
 	// Use GetSessionIncludingDeleted to find soft-deleted sessions (e.g., from project deletion)
 	dbSession, err := w.store.GetSessionIncludingDeleted(ctx, sessionID)
 	if err != nil {
@@ -842,13 +932,13 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 		wolfLobbyID = dbSession.Metadata.WolfLobbyID
 	}
 
-	// Get PIN from database
+	// Get PIN and Wolf instance ID from database
 	wolfLobbyPIN := dbSession.Metadata.WolfLobbyPIN
+	wolfInstanceID := dbSession.WolfInstanceID
 
 	// Save final screenshot before stopping (for paused state preview)
 	screenshotPath := ""
-	containerName := fmt.Sprintf("zed-external-%s_%s", sessionID, wolfLobbyID)
-	screenshotBytes, err := w.getContainerScreenshot(ctx, containerName)
+	screenshotBytes, err := w.getContainerScreenshot(ctx, sessionID)
 	if err == nil && len(screenshotBytes) > 0 {
 		// Save to filestore (use cloning path since we're writing from API container)
 		screenshotPath = filepath.Join(w.workspaceBasePathForCloning, "paused-screenshots", fmt.Sprintf("%s.png", sessionID))
@@ -879,7 +969,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer listCancel()
 
-	sessions, err := w.wolfClient.ListSessions(listCtx)
+	sessions, err := w.getWolfClient(wolfInstanceID).ListSessions(listCtx)
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", sessionID).Msg("Failed to list Wolf sessions for cleanup - will skip session cleanup")
 	} else {
@@ -897,7 +987,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 				// Add timeout to prevent hanging on stuck Wolf sessions
 				stopCtx, stopCancel := context.WithTimeout(ctx, 5*time.Second)
-				err := w.wolfClient.StopSession(stopCtx, session.ClientID)
+				err := w.getWolfClient(wolfInstanceID).StopSession(stopCtx, session.ClientID)
 				stopCancel()
 
 				if err != nil {
@@ -946,7 +1036,7 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 
 		// Add timeout to prevent hanging on stuck Wolf API
 		lobbyStopCtx, lobbyStopCancel := context.WithTimeout(ctx, 10*time.Second)
-		err = w.wolfClient.StopLobby(lobbyStopCtx, stopReq)
+		err = w.getWolfClient(wolfInstanceID).StopLobby(lobbyStopCtx, stopReq)
 		lobbyStopCancel()
 
 		if err != nil {
@@ -982,6 +1072,18 @@ func (w *WolfExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 	w.lobbyCacheMutex.Lock()
 	delete(w.lobbyCache, sessionID)
 	w.lobbyCacheMutex.Unlock()
+
+	// Decrement Wolf's sandbox count
+	if wolfInstanceID != "" {
+		err = w.store.DecrementWolfSandboxCount(ctx, wolfInstanceID)
+		if err != nil {
+			log.Error().Err(err).Str("wolf_id", wolfInstanceID).Msg("Failed to decrement Wolf sandbox count")
+		} else {
+			log.Info().
+				Str("wolf_id", wolfInstanceID).
+				Msg("Decremented Wolf sandbox count")
+		}
+	}
 
 	log.Info().Str("session_id", sessionID).Msg("Zed agent stopped successfully")
 
@@ -1221,8 +1323,17 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	workspaceDir := filepath.Join(w.workspaceBasePathForCloning, instance.InstanceID)
 
 	// Create Wolf app using the same Sway configuration as the main creation function
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1", // Enable Sway compositor mode in GOW launcher
 		// Pass through API keys for Zed AI functionality
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
@@ -1239,16 +1350,21 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	}
 	mounts := []string{
 		fmt.Sprintf("%s:/home/retro/work", workspaceDir), // Mount persistent workspace
+		"/var/run/docker.sock:/var/run/docker.sock:rw",   // Mount Wolf's docker socket for devcontainer support
 	}
 
-	// Development mode: mount host files for hot-reloading
+	// Development mode: mount files for hot-reloading
+	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
+	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
 	// Production mode: use files baked into helix-sway image
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		helixHostHome := os.Getenv("HELIX_HOST_HOME")
+		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
+
+		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
 		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			"/helix-dev/zed-build:/zed-build:ro",
+			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
+			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
 		)
 	}
 
@@ -1292,13 +1408,13 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 	)
 
 	// Try to remove any existing app first to avoid conflicts
-	err := w.wolfClient.RemoveApp(ctx, wolfAppID)
+	err := w.getWolfClient("").RemoveApp(ctx, wolfAppID)
 	if err != nil {
 		log.Debug().Err(err).Str("wolf_app_id", wolfAppID).Msg("No existing Wolf app to remove (expected)")
 	}
 
 	// Add the app to Wolf
-	err = w.wolfClient.AddApp(ctx, app)
+	err = w.getWolfClient("").AddApp(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to recreate Wolf app: %w", err)
 	}
@@ -1313,7 +1429,7 @@ func (w *WolfExecutor) recreateWolfAppForInstance(ctx context.Context, instance 
 
 // checkWolfAppExists checks if a Wolf app with the given ID already exists
 func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bool, error) {
-	apps, err := w.wolfClient.ListApps(ctx)
+	apps, err := w.getWolfClient("").ListApps(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to list Wolf apps: %w", err)
 	}
@@ -1327,16 +1443,20 @@ func (w *WolfExecutor) checkWolfAppExists(ctx context.Context, appID string) (bo
 	return false, nil
 }
 
-// GetWolfClient returns the Wolf client for direct access to Wolf API
-// Note: This type-asserts the interface back to the concrete type.
-// Only use this when you need direct access to wolf.Client specific methods.
-func (w *WolfExecutor) GetWolfClient() *wolf.Client {
-	if client, ok := w.wolfClient.(*wolf.Client); ok {
-		return client
-	}
-	// This should never happen in production, only in tests with mocks
-	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
-	return nil
+// GetWolfClient returns the Wolf client for access to Wolf API via RevDial
+// DEPRECATED: This method should not be used - use GetWolfClientForSession instead
+// Callers must always provide a Wolf instance ID by looking it up from the session
+// This method exists only for backward compatibility and will fail at runtime
+func (w *WolfExecutor) GetWolfClient() WolfClientInterface {
+	// This is a programming error - all callers should use GetWolfClientForSession
+	// with the Wolf instance ID looked up from the session/database
+	panic("GetWolfClient() called without instance ID - use GetWolfClientForSession(wolfInstanceID) instead")
+}
+
+// GetWolfClientForSession returns a Wolf client for a specific Wolf instance ID
+// This is used by handlers that need to query a session's specific Wolf instance
+func (w *WolfExecutor) GetWolfClientForSession(wolfInstanceID string) WolfClientInterface {
+	return w.getWolfClient(wolfInstanceID)
 }
 
 // validateDisplayParams validates display configuration parameters
@@ -1384,7 +1504,18 @@ func (w *WolfExecutor) FindContainerBySessionID(ctx context.Context, helixSessio
 		Str("helix_session_id", helixSessionID).
 		Msg("Session not in memory, querying Wolf lobbies for container")
 
-	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	// Look up session to get Wolf instance ID
+	session, err := w.store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session for Wolf instance lookup: %w", err)
+	}
+
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		return "", fmt.Errorf("session %s has no Wolf instance ID - session may be corrupted or from before multi-Wolf support", helixSessionID)
+	}
+
+	lobbies, err := w.getWolfClient(wolfInstanceID).ListLobbies(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
 	}
@@ -1520,11 +1651,16 @@ func (w *WolfExecutor) cleanupIdleExternalAgents(ctx context.Context) {
 			}
 
 			// Stop lobby directly using Wolf API
+			// TODO: Activity record needs wolf_instance_id field for multi-Wolf support
+			// For now, this will only work if all sessions are on local Wolf
 			stopReq := &wolf.StopLobbyRequest{
 				LobbyID: activity.WolfLobbyID,
 				PIN:     lobbyPIN,
 			}
-			err := w.wolfClient.StopLobby(ctx, stopReq)
+			log.Warn().
+				Str("lobby_id", activity.WolfLobbyID).
+				Msg("Attempting to stop lobby without Wolf instance ID - only works for local Wolf (activity record needs wolf_instance_id field)")
+			err := w.getWolfClient("local").StopLobby(ctx, stopReq)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -1614,14 +1750,35 @@ func (w *WolfExecutor) wolfResourceMonitoringLoop(ctx context.Context) {
 
 // logWolfResourceMetrics logs detailed Wolf resource usage for trend analysis
 func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
-	memory, err := w.wolfClient.GetSystemMemory(ctx)
+	// Get all Wolf instances
+	instances, err := w.store.ListWolfInstances(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to get Wolf memory stats for monitoring")
+		log.Error().Err(err).Msg("Failed to list Wolf instances for monitoring")
 		return
 	}
 
+	// Monitor each Wolf instance
+	for _, instance := range instances {
+		memory, err := w.getWolfClient(instance.ID).GetSystemMemory(ctx)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("wolf_instance_id", instance.ID).
+				Msg("Failed to get Wolf memory stats for monitoring")
+			continue
+		}
+
+		// Log metrics for this Wolf instance
+		w.logWolfInstanceMetrics(instance.ID, memory)
+	}
+}
+
+// logWolfInstanceMetrics logs metrics for a specific Wolf instance
+func (w *WolfExecutor) logWolfInstanceMetrics(instanceID string, memory *wolf.SystemMemoryResponse) {
+
 	// Log overall Wolf metrics
 	log.Info().
+		Str("wolf_instance_id", instanceID).
 		Int64("wolf_process_rss_mb", memory.ProcessRSSBytes/(1024*1024)).
 		Int64("wolf_gstreamer_buffer_mb", memory.GStreamerBufferBytes/(1024*1024)).
 		Int64("wolf_total_memory_mb", memory.TotalMemoryBytes/(1024*1024)).
@@ -1652,9 +1809,9 @@ func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
 			w.gpuStatsMutex.Unlock()
 		}
 
-		// CRITICAL: Detect when GPU monitoring is broken (nvidia-smi failure)
-		// Only log scary error if we've previously seen valid GPU stats (NVIDIA system)
-		// This avoids false alarms on AMD/Intel GPU or CPU-only systems
+		// CRITICAL: Detect when GPU monitoring is broken (nvidia-smi/rocm-smi failure)
+		// Only log scary error if we've previously seen valid GPU stats (system with GPU monitoring)
+		// This avoids false alarms on systems without GPU monitoring tools
 		if memory.GPUStats.GPUName == "" || memory.GPUStats.MemoryTotalMB == 0 {
 			w.gpuStatsMutex.RLock()
 			hasSeenValid := w.hasSeenValidGPUStats
@@ -1664,10 +1821,10 @@ func (w *WolfExecutor) logWolfResourceMetrics(ctx context.Context) {
 				// GPU monitoring was working before but now broken - CRITICAL ALERT!
 				log.Error().
 					Int("active_lobbies", len(memory.Lobbies)).
-					Msg("⚠️ GPU MONITORING FAILED - nvidia-smi stopped working! NVML may be exhausted. Approaching resource limits!")
+					Msg("⚠️ GPU MONITORING FAILED - GPU monitoring tool stopped working! Approaching resource limits!")
 			} else {
-				// Never seen valid GPU stats - probably non-NVIDIA system, no alert needed
-				log.Debug().Msg("GPU stats not available (likely non-NVIDIA system)")
+				// Never seen valid GPU stats - probably system without GPU monitoring tools, no alert needed
+				log.Debug().Msg("GPU stats not available (likely system without GPU monitoring tools)")
 			}
 		}
 	} else {
@@ -1734,8 +1891,19 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 
 	// Cache miss or expired - query Wolf (no logging, too noisy)
 
+	// Look up session to get Wolf instance ID
+	session, err := w.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get session for Wolf instance lookup: %w", err)
+	}
+
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		return "", fmt.Errorf("session %s has no Wolf instance ID - session may be corrupted or from before multi-Wolf support", sessionID)
+	}
+
 	// Get all active lobbies from Wolf
-	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient(wolfInstanceID).ListLobbies(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to list Wolf lobbies: %w", err)
 	}
@@ -1780,10 +1948,28 @@ func (w *WolfExecutor) FindExistingLobbyForSession(ctx context.Context, sessionI
 
 // cleanupOrphanedWolfUISessions removes Wolf-UI streaming sessions without active Zed containers
 func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
-	// Get all Wolf-UI streaming sessions
-	sessions, err := w.wolfClient.ListSessions(ctx)
+	// Get all Wolf instances
+	instances, err := w.store.ListWolfInstances(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list Wolf sessions for orphan cleanup")
+		log.Error().Err(err).Msg("Failed to list Wolf instances for orphan cleanup")
+		return
+	}
+
+	// Clean up orphaned sessions on each Wolf instance
+	for _, instance := range instances {
+		w.cleanupOrphanedWolfUISessionsForInstance(ctx, instance.ID)
+	}
+}
+
+// cleanupOrphanedWolfUISessionsForInstance cleans up orphans on a specific Wolf instance
+func (w *WolfExecutor) cleanupOrphanedWolfUISessionsForInstance(ctx context.Context, wolfInstanceID string) {
+	// Get all Wolf-UI streaming sessions for this instance
+	sessions, err := w.getWolfClient(wolfInstanceID).ListSessions(ctx)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Failed to list Wolf sessions for orphan cleanup")
 		return
 	}
 
@@ -1793,9 +1979,12 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 
 	// Get all active lobbies from Wolf to check for orphans
 	// CRITICAL: Use Wolf lobbies list, not in-memory map (survives API restarts)
-	lobbies, err := w.wolfClient.ListLobbies(ctx)
+	lobbies, err := w.getWolfClient(wolfInstanceID).ListLobbies(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to list Wolf lobbies for orphan cleanup")
+		log.Error().
+			Err(err).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Failed to list Wolf lobbies for orphan cleanup")
 		return
 	}
 
@@ -1867,9 +2056,10 @@ func (w *WolfExecutor) cleanupOrphanedWolfUISessions(ctx context.Context) {
 			Str("client_id", session.ClientID).
 			Str("client_unique_id", session.ClientUniqueID).
 			Str("session_id", sessionID).
+			Str("wolf_instance_id", wolfInstanceID).
 			Msg("🧹 Found orphaned Wolf-UI session (no lobby), stopping...")
 
-		err := w.wolfClient.StopSession(ctx, session.ClientID)
+		err := w.getWolfClient(wolfInstanceID).StopSession(ctx, session.ClientID)
 		if err != nil {
 			log.Warn().
 				Err(err).
@@ -1899,22 +2089,38 @@ func execCommand(ctx context.Context, dir string, name string, args ...string) (
 	return string(output), err
 }
 
-// getContainerScreenshot fetches a screenshot from the container's screenshot server
-func (w *WolfExecutor) getContainerScreenshot(ctx context.Context, containerName string) ([]byte, error) {
-	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
+// getContainerScreenshot fetches a screenshot from the container's screenshot server via RevDial
+// Used for saving paused screenshots - non-critical, fails gracefully if RevDial unavailable
+func (w *WolfExecutor) getContainerScreenshot(ctx context.Context, sessionID string) ([]byte, error) {
+	// RevDial connection manager may not be available in tests or local dev
+	if w.connman == nil {
+		return nil, fmt.Errorf("connection manager not available (tests or local dev mode)")
+	}
 
-	screenshotReq, err := http.NewRequestWithContext(ctx, "GET", screenshotURL, nil)
+	// Try to get RevDial connection to sandbox
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := w.connman.Dial(ctx, runnerID)
+	if err != nil {
+		// RevDial not available - this is non-critical (just a paused screenshot preview)
+		return nil, fmt.Errorf("RevDial not available for paused screenshot (non-critical): %w", err)
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/screenshot", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create screenshot request: %w", err)
 	}
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		return nil, fmt.Errorf("failed to send screenshot request via RevDial: %w", err)
 	}
 
-	screenshotResp, err := httpClient.Do(screenshotReq)
+	// Read response from RevDial connection
+	screenshotResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get screenshot from container: %w", err)
+		return nil, fmt.Errorf("failed to read screenshot response from RevDial: %w", err)
 	}
 	defer screenshotResp.Body.Close()
 

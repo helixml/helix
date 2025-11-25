@@ -283,7 +283,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 			UsedMemory:    gpu.UsedMemory,
 			ModelName:     gpu.ModelName,
 			DriverVersion: gpu.DriverVersion,
-			CUDAVersion:   gpu.CUDAVersion,
+			SDKVersion:    gpu.SDKVersion,
 		})
 	}
 

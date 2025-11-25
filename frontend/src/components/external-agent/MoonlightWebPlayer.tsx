@@ -56,8 +56,9 @@ const MoonlightWebPlayer: React.FC<MoonlightWebPlayerProps> = ({
 
       if (wolfLobbyId) {
         // Lobbies mode: Fetch Wolf UI app ID dynamically from Wolf
+        // Pass session_id to identify which Wolf instance to query
         try {
-          const response = await fetch('/api/v1/wolf/ui-app-id');
+          const response = await fetch(`/api/v1/wolf/ui-app-id?session_id=${encodeURIComponent(sessionId)}`);
           if (response.ok) {
             const data = await response.json();
             const wolfUIAppID = data.wolf_ui_app_id;

@@ -10,7 +10,8 @@ WORKDIR /app/api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /screenshot-server ./cmd/screenshot-server && \
-    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /settings-sync-daemon ./cmd/settings-sync-daemon && \
+    CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w" -o /revdial-client ./cmd/revdial-client
 
 # ====================================================================
 # Sway Personal Dev Environment
@@ -103,9 +104,190 @@ ADD WORKDIR_README.md /opt/helix/WORKDIR_README.md
 # Copy screenshot-server and settings-sync-daemon binaries from Go build stage
 COPY --from=go-build-env /screenshot-server /usr/local/bin/screenshot-server
 COPY --from=go-build-env /settings-sync-daemon /usr/local/bin/settings-sync-daemon
+COPY --from=go-build-env /revdial-client /usr/local/bin/revdial-client
 
 # Copy Zed binary (built with ./stack build-zed before Docker build)
 # CRITICAL: Must be built with --features external_websocket_sync
 RUN mkdir -p /zed-build
 COPY zed-build/zed /zed-build/zed
 RUN chmod +x /zed-build/zed
+
+# ====================================================================
+# Install Node.js 20 (required for AI coding agents)
+# ====================================================================
+RUN apt-get update && \
+    apt-get install -y ca-certificates curl gnupg git && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# ====================================================================
+# Build Qwen Code from AUDITED source (NOT from npm)
+# ====================================================================
+# SECURITY: We build from the GitHub source we've audited rather than trusting
+# the npm package, which could differ from the source or be compromised.
+# This ensures the code running matches our security audit.
+WORKDIR /tmp/qwen-code-build
+RUN git clone https://github.com/QwenLM/qwen-code.git . && \
+    # Pin to specific audited commit for reproducibility and audit trail
+    # Commit: c9af7481 "fix: reset authType settings (#1091)"
+    # Audit Date: 2025-01-24
+    # Security Audit: PASSED (zero backdoors, zero hidden telemetry)
+    git checkout c9af7481 && \
+    npm install && \
+    npm run build && \
+    # Install globally from the built source
+    npm install -g . && \
+    # Clean up build artifacts
+    cd / && rm -rf /tmp/qwen-code-build && \
+    npm cache clean --force
+
+# Create Qwen Code configuration directory for retro user
+# IMPORTANT: This configuration DISABLES all telemetry and auto-updates
+RUN mkdir -p /home/retro/.qwen && \
+    cat > /home/retro/.qwen/settings.json <<'QWEN_CONFIG'
+{
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
+  "general": {
+    "disableAutoUpdate": true,
+    "disableUpdateNag": true
+  }
+}
+QWEN_CONFIG
+
+# ====================================================================
+# Configure Gemini CLI (if installed) - Same privacy settings as Qwen Code
+# ====================================================================
+# Gemini CLI uses identical telemetry settings (Qwen Code is a fork)
+RUN mkdir -p /home/retro/.gemini && \
+    cat > /home/retro/.gemini/settings.json <<'GEMINI_CONFIG'
+{
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
+  "general": {
+    "disableAutoUpdate": true,
+    "disableUpdateNag": true
+  }
+}
+GEMINI_CONFIG
+
+# ====================================================================
+# Configure Claude Code CLI Privacy Settings
+# ====================================================================
+RUN mkdir -p /home/retro/.claude && \
+    cat > /home/retro/.claude/settings.json <<'CLAUDE_CONFIG'
+{
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}
+CLAUDE_CONFIG
+
+# ====================================================================
+# Configure Zed Editor Privacy Settings + Qwen Code ACP Agent
+# ====================================================================
+RUN mkdir -p /home/retro/.config/zed && \
+    cat > /home/retro/.config/zed/settings.json <<'ZED_CONFIG'
+{
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "agent_servers": {
+    "qwen": {
+      "type": "custom",
+      "command": "qwen",
+      "args": [
+        "--experimental-acp",
+        "--no-telemetry"
+      ],
+      "env": {
+        "GEMINI_TELEMETRY_ENABLED": "false",
+        "OPENAI_BASE_URL": "http://host.docker.internal:8080/api/v1"
+      }
+    }
+  },
+  "default_agent": "qwen"
+}
+ZED_CONFIG
+
+# ====================================================================
+# Set environment variables for AI agent privacy (defense-in-depth)
+# ====================================================================
+ENV GEMINI_TELEMETRY_ENABLED=false \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_ERROR_REPORTING=1 \
+    DISABLE_AUTOUPDATER=1
+
+# Fix ownership - all configs must be owned by retro user (UID/GID 1000)
+RUN chown -R 1000:1000 /home/retro/.qwen \
+                        /home/retro/.gemini \
+                        /home/retro/.claude \
+                        /home/retro/.config/zed
+
+# ====================================================================
+# AI Agent Privacy Configuration Summary
+# ====================================================================
+# NOTE: OS-level telemetry firewall (iptables) is configured in the
+# sandbox container (Wolf host), not inside agent containers. This allows:
+#   - Centralized monitoring across all agents
+#   - Per-agent telemetry tracking (by container IP/name)
+#   - No iptables dependency in agent containers
+#
+# ====================================================================
+# The above configuration ensures ALL AI coding agents are privacy-compliant:
+#
+# QWEN CODE (built from audited source, NOT npm):
+#   - Source: Built from https://github.com/QwenLM/qwen-code (audited commit)
+#   - Config: /home/retro/.qwen/settings.json
+#   - Telemetry: DISABLED (Alibaba Cloud + Google blocked)
+#   - Auto-update: DISABLED
+#   - Env: GEMINI_TELEMETRY_ENABLED=false
+#   - Firewall: gb4w8c3ygj-default-sea.rum.aliyuncs.com, play.googleapis.com
+#
+# GEMINI CLI (if installed):
+#   - Config: /home/retro/.gemini/settings.json
+#   - Telemetry: DISABLED (same system as Qwen Code)
+#   - Auto-update: DISABLED
+#   - Firewall: Covered by Qwen Code rules
+#
+# CLAUDE CODE (if installed):
+#   - Config: /home/retro/.claude/settings.json
+#   - Telemetry: DISABLED (Statsig blocked)
+#   - Error reporting: DISABLED
+#   - Auto-update: DISABLED
+#   - Env: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+#   - Firewall: statsig, telemetry.anthropic.com
+#
+# ZED EDITOR:
+#   - Config: /home/retro/.config/zed/settings.json
+#   - Diagnostics: DISABLED (crash reports blocked)
+#   - Metrics: DISABLED (usage stats blocked)
+#   - Firewall: telemetry.zed.dev, zed.dev/api
+#
+# DEFENSE-IN-DEPTH LAYERS:
+#   1. Application config files (per-agent settings.json)
+#   2. Environment variables (global ENV in Dockerfile)
+#   3. OS-level iptables firewall (blocks even if configs bypassed)
+#   4. iptables counters (detect and log all phone-home attempts)
+#   5. Dashboard monitoring (real-time visibility in Helix UI)
+#
+# Monitoring:
+#   - Blocked attempts logged to: /var/log/telemetry-blocks.log
+#   - Counter metrics in: /var/run/telemetry-counters.json
+#   - Dashboard API: GET /api/v1/security/telemetry-status
+#
+# For self-hosted AI models, also set in Wolf app environment:
+#   export OPENAI_API_KEY="your-internal-api-key"
+#   export OPENAI_BASE_URL="http://your-internal-qwen-server:port/v1"
+# ====================================================================

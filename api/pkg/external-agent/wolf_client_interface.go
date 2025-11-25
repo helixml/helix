@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/helixml/helix/api/pkg/wolf"
 )
@@ -20,6 +21,11 @@ type WolfClientInterface interface {
 	StopSession(ctx context.Context, clientID string) error
 	GetSystemMemory(ctx context.Context) (*wolf.SystemMemoryResponse, error)
 	GetSystemHealth(ctx context.Context) (*wolf.SystemHealthResponse, error)
+	// Pairing operations (used by Wolf pairing handlers)
+	GetPendingPairRequests() ([]wolf.PendingPairRequest, error)
+	PairClient(pairSecret, pin string) error
+	// Raw HTTP access (used for SSE streaming)
+	Get(ctx context.Context, path string) (*http.Response, error)
 }
 
 // Ensure *wolf.Client implements WolfClientInterface at compile time

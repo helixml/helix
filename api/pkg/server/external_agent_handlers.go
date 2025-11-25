@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -727,26 +729,42 @@ func (apiServer *HelixAPIServer) getExternalAgentScreenshot(res http.ResponseWri
 		Str("user_id", user.ID).
 		Str("session_id", sessionID).
 		Str("container_name", containerName).
-		Msg("Requesting screenshot from external agent container screenshot server")
+		Msg("Requesting screenshot from sandbox via RevDial")
 
-	// Make HTTP request to screenshot server inside the container
-	screenshotURL := fmt.Sprintf("http://%s:9876/screenshot", containerName)
-
-	screenshotReq, err := http.NewRequestWithContext(req.Context(), "GET", screenshotURL, nil)
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create screenshot request")
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/screenshot", nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create screenshot request")
 		http.Error(res, "Failed to create screenshot request", http.StatusInternalServerError)
 		return
 	}
 
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
+	// Write request to RevDial connection
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
+		http.Error(res, "Failed to send screenshot request", http.StatusInternalServerError)
+		return
 	}
 
-	screenshotResp, err := httpClient.Do(screenshotReq)
+	// Read response from RevDial connection
+	screenshotResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get screenshot from container")
-		http.Error(res, "Failed to retrieve screenshot", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to read screenshot response from RevDial")
+		http.Error(res, "Failed to read screenshot response", http.StatusInternalServerError)
 		return
 	}
 	defer screenshotResp.Body.Close()
@@ -827,24 +845,43 @@ func (apiServer *HelixAPIServer) getExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Make HTTP request to clipboard endpoint inside the container
-	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_name", containerName).
+		Msg("Requesting clipboard from sandbox via RevDial")
 
-	clipboardReq, err := http.NewRequestWithContext(req.Context(), "GET", clipboardURL, nil)
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP request over RevDial tunnel
+	httpReq, err := http.NewRequest("GET", "http://localhost:9876/clipboard", nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create clipboard request")
 		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
 		return
 	}
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write clipboard request to RevDial")
+		http.Error(res, "Failed to send clipboard request", http.StatusInternalServerError)
+		return
 	}
 
-	clipboardResp, err := httpClient.Do(clipboardReq)
+	clipboardResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to get clipboard from container")
-		http.Error(res, "Failed to retrieve clipboard", http.StatusInternalServerError)
+		log.Error().Err(err).Msg("Failed to read clipboard response from RevDial")
+		http.Error(res, "Failed to read clipboard response", http.StatusInternalServerError)
 		return
 	}
 	defer clipboardResp.Body.Close()
@@ -932,24 +969,44 @@ func (apiServer *HelixAPIServer) setExternalAgentClipboard(res http.ResponseWrit
 		return
 	}
 
-	// Make HTTP POST request to clipboard endpoint inside the container
-	clipboardURL := fmt.Sprintf("http://%s:9876/clipboard", containerName)
+	log.Info().
+		Str("session_id", sessionID).
+		Str("container_name", containerName).
+		Int("clipboard_size", len(clipboardContent)).
+		Msg("Setting clipboard in sandbox via RevDial")
 
-	clipboardReq, err := http.NewRequestWithContext(req.Context(), "POST", clipboardURL, bytes.NewReader(clipboardContent))
+	// Get RevDial connection to sandbox (registered as "sandbox-{session_id}")
+	runnerID := fmt.Sprintf("sandbox-%s", sessionID)
+	revDialConn, err := apiServer.connman.Dial(req.Context(), runnerID)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to create clipboard request")
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Str("session_id", sessionID).
+			Msg("Failed to connect to sandbox via RevDial")
+		http.Error(res, fmt.Sprintf("Sandbox not connected: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer revDialConn.Close()
+
+	// Send HTTP POST request over RevDial tunnel
+	httpReq, err := http.NewRequest("POST", "http://localhost:9876/clipboard", bytes.NewReader(clipboardContent))
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create clipboard POST request")
 		http.Error(res, "Failed to create clipboard request", http.StatusInternalServerError)
 		return
 	}
-	clipboardReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", "application/json")
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+	if err := httpReq.Write(revDialConn); err != nil {
+		log.Error().Err(err).Msg("Failed to write clipboard POST to RevDial")
+		http.Error(res, "Failed to send clipboard request", http.StatusInternalServerError)
+		return
 	}
 
-	clipboardResp, err := httpClient.Do(clipboardReq)
+	clipboardResp, err := http.ReadResponse(bufio.NewReader(revDialConn), httpReq)
 	if err != nil {
-		log.Error().Err(err).Str("container_name", containerName).Msg("Failed to set clipboard in container")
+		log.Error().Err(err).Msg("Failed to read clipboard POST response from RevDial")
 		http.Error(res, "Failed to set clipboard", http.StatusInternalServerError)
 		return
 	}
@@ -1072,15 +1129,26 @@ func (apiServer *HelixAPIServer) autoJoinExternalAgentLobby(res http.ResponseWri
 // SECURITY: Backend derives wolf_client_id from Wolf API by matching client_unique_id pattern
 //           This prevents frontend manipulation of which Wolf client gets joined to the lobby
 func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSessionID string, lobbyID string, lobbyPIN string) error {
-	// Get Wolf client from executor
-	type WolfClientProvider interface {
-		GetWolfClient() *wolf.Client
+	// Look up session to get Wolf instance ID
+	session, err := apiServer.Store.GetSession(ctx, helixSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session for Wolf instance lookup: %w", err)
 	}
-	provider, ok := apiServer.externalAgentExecutor.(WolfClientProvider)
+
+	wolfInstanceID := session.WolfInstanceID
+	if wolfInstanceID == "" {
+		return fmt.Errorf("session %s has no Wolf instance ID - session may be corrupted", helixSessionID)
+	}
+
+	// Get Wolf client for this session's Wolf instance
+	type WolfClientForSessionProvider interface {
+		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
+	}
+	provider, ok := apiServer.externalAgentExecutor.(WolfClientForSessionProvider)
 	if !ok {
 		return fmt.Errorf("Wolf executor does not provide Wolf client")
 	}
-	wolfClient := provider.GetWolfClient()
+	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
 
 	// Get Wolf apps using the existing ListApps method
 	apps, err := wolfClient.ListApps(ctx)
@@ -1105,30 +1173,10 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		Str("wolf_ui_app_id", wolfUIAppID).
 		Msg("[AUTO-JOIN] Found Wolf UI app, querying sessions to find client")
 
-	// Query Wolf sessions to find the Wolf UI client
-	sessionsResp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+	// Query Wolf sessions to find the Wolf UI client via interface
+	sessions, err := wolfClient.ListSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to query Wolf sessions: %w", err)
-	}
-	defer sessionsResp.Body.Close()
-
-	if sessionsResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(sessionsResp.Body)
-		return fmt.Errorf("Wolf sessions API returned status %d: %s", sessionsResp.StatusCode, string(body))
-	}
-
-	var sessionsData struct {
-		Success  bool `json:"success"`
-		Sessions []struct {
-			AppID          string `json:"app_id"`
-			ClientID       string `json:"client_id"`        // Wolf's session_id (hash of client cert)
-			ClientIP       string `json:"client_ip"`        // All same IP in Docker network
-			ClientUniqueID string `json:"client_unique_id"` // Moonlight uniqueid for matching
-		} `json:"sessions"`
-	}
-	err = json.NewDecoder(sessionsResp.Body).Decode(&sessionsData)
-	if err != nil {
-		return fmt.Errorf("failed to parse Wolf sessions response: %w", err)
 	}
 
 	// SECURITY: Derive client_id by matching client_unique_id pattern
@@ -1147,7 +1195,7 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 	var matchedCount int
 	var wolfUISessions []string
 
-	for _, session := range sessionsData.Sessions {
+	for _, session := range sessions {
 		if session.AppID == wolfUIAppID {
 			sessionInfo := fmt.Sprintf("client_id=%s unique_id=%s ip=%s",
 				session.ClientID, session.ClientUniqueID, session.ClientIP)
@@ -1189,37 +1237,21 @@ func (apiServer *HelixAPIServer) autoJoinWolfLobby(ctx context.Context, helixSes
 		log.Warn().
 			Str("expected_unique_id", expectedUniqueID).
 			Strs("available_sessions", wolfUISessions).
-			Int("total_sessions", len(sessionsData.Sessions)).
+			Int("total_sessions", len(sessions)).
 			Msg("[AUTO-JOIN] No Wolf UI session found - client may not have connected yet")
 		return fmt.Errorf("Wolf UI session not found - client may not have connected yet")
 	}
 
 	// DEFENSIVE CHECK: Verify Wolf-UI session still exists (not stopped/orphaned)
 	// Re-query Wolf sessions to ensure session wasn't stopped since we last checked
-	freshSessionsResp, err := wolfClient.Get(ctx, "/api/v1/sessions")
+	freshSessions, err := wolfClient.ListSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to re-query Wolf sessions: %w", err)
-	}
-	defer freshSessionsResp.Body.Close()
-
-	if freshSessionsResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(freshSessionsResp.Body)
-		return fmt.Errorf("Wolf sessions API returned status %d: %s", freshSessionsResp.StatusCode, string(body))
-	}
-
-	var freshSessionsData struct {
-		Success  bool `json:"success"`
-		Sessions []struct {
-			ClientID string `json:"client_id"`
-		} `json:"sessions"`
-	}
-	if err := json.NewDecoder(freshSessionsResp.Body).Decode(&freshSessionsData); err != nil {
-		return fmt.Errorf("failed to parse fresh Wolf sessions response: %w", err)
 	}
 
 	// Verify the Wolf session we're trying to use still exists
 	sessionExists := false
-	for _, session := range freshSessionsData.Sessions {
+	for _, session := range freshSessions {
 		if session.ClientID == moonlightSessionID {
 			sessionExists = true
 			break

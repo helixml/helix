@@ -41,6 +41,8 @@ test-zed-config/
 *.dump
 wolf/config.toml
 wolf/config.toml.v4.old
+wolf/cfg/
+wolf/*/
 moonlight-web-config/data.json
 moonlight-web-config/config.json
 
@@ -54,4 +56,8 @@ test-websocket-sync.sh
 test-screenshot.png
 screencopy-frames/
 
-design/*
+wolf-debug-dumps/
+
+# Build artifacts (cached tarballs for fast rebuilds)
+helix-sway.tar.gz
+helix-sway.tar.gz.hash

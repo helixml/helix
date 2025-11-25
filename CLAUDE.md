@@ -2,6 +2,152 @@
 
 See also: @.cursor/rules/helix.mdc, @.cursor/rules/go-api-handlers.mdc, @.cursor/rules/use-gorm-for-database.mdc, @.cursor/rules/use-frontend-api-client.mdc
 
+## 🚨 CRITICAL: NEVER RUN ./stack start 🚨
+
+**NEVER run `./stack start` - only the user runs this command**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN
+./stack start                          # NEVER DO THIS
+bash -c "./stack start"                # OR THIS
+```
+
+**Why this is forbidden:**
+- `./stack start` creates a tmux session that requires interactive terminal
+- You cannot interact with tmux sessions (you'll get "not a terminal" errors)
+- Starting services disrupts user's workflow and terminal setup
+- User manages their own development environment startup
+
+**What to do instead:**
+- ✅ Tell user to run `./stack start` if services need starting
+- ✅ Use `./stack up` for specific services if absolutely necessary
+- ✅ Check service status with `docker compose ps`
+- ✅ View logs with `docker compose logs`
+
+**Other stack commands you CAN use:**
+- `./stack build` - Build containers
+- `./stack build-zed` - Build Zed binary
+- `./stack build-sway` - Build Sway container
+- `./stack rebuild-wolf` - Rebuild Wolf
+- `./stack update_openapi` - Update OpenAPI docs
+- `./stack up <service>` - Start specific service (use sparingly)
+
+## 🚨 CRITICAL: NEVER DELETE GIT INDEX LOCK 🚨
+
+**NEVER delete .git/index.lock - it causes git index corruption**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Deleting git lock files
+rm .git/index.lock                    # NEVER DO THIS
+rm -f .git/index.lock                 # OR THIS
+find .git -name "*.lock" -delete      # OR THIS
+```
+
+**Why this is forbidden:**
+- Lock file exists because another git process is ACTUALLY running
+- Deleting it while git process is active corrupts the git index
+- Corrupted index requires git fsck or re-cloning repository
+- Data loss risk if index is corrupted during commit
+
+**What to do instead:**
+1. **Wait for the git process to complete** (usually < 10 seconds)
+2. **Check for hung processes:** `ps aux | grep git`
+3. **If lock persists:** ASK THE USER FOR HELP - never automate lock removal
+4. **Never automate lock deletion** - always investigate why it exists
+
+**Correct approach:**
+```bash
+# ✅ Wait for existing process
+sleep 10
+git status  # Will work when lock is released
+
+# ✅ If still locked after waiting, check for processes
+ps aux | grep git
+
+# ✅ If you find hung processes: ASK USER FOR HELP
+# DO NOT automatically kill processes or remove locks
+# User may need to investigate why git is stuck
+```
+
+**IMPORTANT: ASK USER FOR HELP if git lock persists**
+
+When encountering `.git/index.lock`:
+- ❌ NEVER delete the lock file
+- ❌ NEVER kill git processes automatically
+- ✅ WAIT for processes to complete (sleep 10-30 seconds)
+- ✅ ASK USER if lock persists after waiting
+- ✅ Let user decide whether to kill processes or investigate
+
+**NEVER automate git lock removal or process killing.**
+
+## 🚨 CRITICAL: NEVER RENAME CURRENT WORKING DIRECTORY 🚨
+
+**NEVER rename or move your present working directory - it breaks your shell session**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Renaming current directory
+mv /home/luke/pm/helix /home/luke/pm/helix-backup    # NEVER DO THIS
+mv . ../helix-renamed                                 # OR THIS
+# EVEN WITH ABSOLUTE PATHS - if you're in that directory, DON'T RENAME IT
+```
+
+**Why this is forbidden:**
+- Shell maintains a reference to current working directory by inode
+- Renaming the directory breaks the shell's internal state
+- All subsequent commands will fail or behave unpredictably
+- You cannot cd, cannot run commands, session becomes unusable
+- Forces session restart and complete loss of context
+- Using absolute paths doesn't help - if you're IN the directory, don't rename it
+
+**What to do instead:**
+
+**ONLY ONE CORRECT APPROACH: ASK THE USER**
+
+If you need to rename a directory:
+1. ✅ **ASK THE USER to stop Claude/exit the session**
+2. ✅ **Let user rename the directory themselves**
+3. ✅ **User restarts Claude in the new location**
+
+**DO NOT attempt to:**
+- ❌ Navigate out and rename (still breaks context)
+- ❌ Use absolute paths (still breaks if you're in that directory)
+- ❌ Automate directory renaming in any way
+
+**ASK USER FOR HELP - Never rename directories yourself.**
+
+## 🚨 CRITICAL: NEVER DELETE SOURCE FILES 🚨
+
+**NEVER delete source code files, even if they have compilation errors**
+
+```bash
+# ❌ ABSOLUTELY FORBIDDEN: Deleting source files
+rm api/pkg/server/some_handler.go         # NEVER DO THIS
+rm -rf frontend/src/components/broken/     # OR THIS
+```
+
+**Why this is forbidden:**
+- File may be work from another agent running in parallel
+- File may be incomplete work in progress that needs fixing
+- Compilation errors should be FIXED, not deleted
+- You don't own all code - respect other developers' work
+
+**What to do instead:**
+1. **If you created the file:** Fix the compilation errors
+2. **If another agent created it:** Ask user what to do
+3. **If unsure who created it:** Ask user what to do
+4. **If blocking your work:** Comment out the problematic code and add a TODO
+
+**Example of correct approach:**
+```go
+// TODO: Fix compilation errors in this function
+// Error: undefined type Foo
+// func BrokenFunction() {
+//     var x Foo
+// }
+```
+
+**NEVER assume you can delete someone else's code.**
+
 ## 🚨 CRITICAL: NEVER RESTART HUNG PRODUCTION PROCESSES 🚨
 
 **DEBUGGING HUNG PROCESSES IS ALWAYS MORE IMPORTANT THAN QUICK RECOVERY**

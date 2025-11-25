@@ -9,10 +9,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/data"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/wolf"
 	"github.com/rs/zerolog/log"
 )
 
@@ -734,16 +734,20 @@ func (s *HelixAPIServer) detachRepositoryFromProject(_ http.ResponseWriter, r *h
 }
 
 // checkWolfLobbyExists checks if a Wolf lobby exists by querying the Wolf API
-func (s *HelixAPIServer) checkWolfLobbyExists(ctx context.Context, lobbyID string) (bool, error) {
-	// Get Wolf client from executor
-	type WolfClientProvider interface {
-		GetWolfClient() *wolf.Client
+func (s *HelixAPIServer) checkWolfLobbyExists(ctx context.Context, lobbyID string, wolfInstanceID string) (bool, error) {
+	if wolfInstanceID == "" {
+		return false, fmt.Errorf("wolfInstanceID is required to check lobby existence")
 	}
-	provider, ok := s.externalAgentExecutor.(WolfClientProvider)
+
+	// Get Wolf client from executor via RevDial
+	type WolfClientForSessionProvider interface {
+		GetWolfClientForSession(wolfInstanceID string) external_agent.WolfClientInterface
+	}
+	provider, ok := s.externalAgentExecutor.(WolfClientForSessionProvider)
 	if !ok {
 		return false, fmt.Errorf("executor does not provide Wolf client")
 	}
-	wolfClient := provider.GetWolfClient()
+	wolfClient := provider.GetWolfClientForSession(wolfInstanceID)
 	if wolfClient == nil {
 		return false, fmt.Errorf("Wolf client is nil")
 	}
@@ -882,9 +886,10 @@ func (s *HelixAPIServer) startExploratorySession(_ http.ResponseWriter, r *http.
 		// Session exists - check if lobby is still running
 		// If lobby stopped, restart it with fresh startup script
 		lobbyID := existingSession.Metadata.WolfLobbyID
-		if lobbyID != "" {
+		wolfInstanceID := existingSession.WolfInstanceID
+		if lobbyID != "" && wolfInstanceID != "" {
 			// Check if lobby exists in Wolf
-			lobbyExists, checkErr := s.checkWolfLobbyExists(r.Context(), lobbyID)
+			lobbyExists, checkErr := s.checkWolfLobbyExists(r.Context(), lobbyID, wolfInstanceID)
 			if checkErr != nil {
 				log.Warn().Err(checkErr).Str("lobby_id", lobbyID).Msg("Failed to check lobby status")
 			}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto/v2"
+	"github.com/function61/holepunch-server/pkg/wsconnadapter"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -222,6 +223,9 @@ func NewServer(
 	// Create simple adapter for WebSocket connection checking
 	wsChecker := &serverWSChecker{manager: externalAgentWSManager}
 
+	// Initialize connection manager for reverse dial BEFORE executor (needed for RevDial screenshot/clipboard)
+	connectionManager := connman.New()
+
 	externalAgentExecutor := external_agent.NewWolfExecutor(
 		wolfSocketPath,
 		zedImage,
@@ -229,13 +233,11 @@ func NewServer(
 		cfg.WebServer.RunnerToken,
 		store,
 		wsChecker,
+		connectionManager,
 	)
 
 	// Initialize external agent runner connection manager
 	externalAgentRunnerManager := NewExternalAgentRunnerManager()
-
-	// Initialize connection manager for reverse dial
-	connectionManager := connman.New()
 
 	log.Info().Msg("External agent architecture initialized: WebSocket-based runner pool ready")
 
@@ -522,6 +524,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Usage
 	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getDailyUsage)).Methods(http.MethodGet)
 
+	// Security telemetry monitoring routes
+	// TODO: Fix compilation errors in security_telemetry_handlers.go before enabling
+	// apiServer.registerSecurityRoutes(subRouter)
+
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
@@ -663,9 +669,16 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Wolf system health monitoring (thread heartbeats, deadlock detection)
 	authRouter.HandleFunc("/wolf/health", apiServer.getWolfHealth).Methods("GET")
 
-	// Reverse dial endpoint for external agent runners (requires runner token authentication)
-	// This handles both control connections (non-WebSocket) and data connections (WebSocket)
-	runnerRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
+	// Wolf instance registry routes (multi-Wolf support)
+	authRouter.HandleFunc("/wolf-instances/register", apiServer.registerWolfInstance).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances/{id}/heartbeat", apiServer.wolfInstanceHeartbeat).Methods("POST")
+	authRouter.HandleFunc("/wolf-instances", apiServer.listWolfInstances).Methods("GET")
+	authRouter.HandleFunc("/wolf-instances/{id}", apiServer.deregisterWolfInstance).Methods("DELETE")
+
+	// Reverse dial endpoint for user sandboxes (spec tasks, PDEs)
+	// Accepts user API tokens with session ownership validation
+	// Future: May also accept runner tokens for remote Wolf instances
+	authRouter.Handle("/revdial", apiServer.handleRevDial()).Methods("GET")
 
 	// RDP proxy management endpoints
 	// Note: RDP proxy health endpoint removed - not implemented
@@ -854,7 +867,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
 
 	// Moonlight Web observability endpoint (authenticated)
-	authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
+	// TODO: Re-implement for unified sandbox (needs RevDial proxy to sandbox Moonlight Web)
+	// authRouter.HandleFunc("/moonlight/status", apiServer.getMoonlightStatus).Methods(http.MethodGet)
 
 	// Moonlight Web Stream reverse proxy (requires auth - uses extractMiddleware then checks in handler)
 	moonlightRouter := router.PathPrefix("/moonlight/").Subrouter()
@@ -1710,33 +1724,86 @@ func getWebSocketMessageTypeName(messageType int) string {
 }
 
 // handleRevDial handles reverse dial connections from external agent runners
+// ensureWolfInstanceRegistered auto-registers a Wolf instance if it doesn't exist
+// This allows Wolf containers to self-register on first connection
+func (apiServer *HelixAPIServer) ensureWolfInstanceRegistered(ctx context.Context, wolfInstanceID string, remoteAddr string) {
+	// Check if already registered
+	instances, err := apiServer.Store.ListWolfInstances(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check existing Wolf instances for auto-registration")
+		return
+	}
+
+	for _, instance := range instances {
+		if instance.ID == wolfInstanceID {
+			// Already registered
+			log.Debug().Str("wolf_instance_id", wolfInstanceID).Msg("Wolf instance already registered")
+			return
+		}
+	}
+
+	// Not registered - auto-register it
+	instance := &types.WolfInstance{
+		ID:           wolfInstanceID,
+		Name:         fmt.Sprintf("Wolf %s", wolfInstanceID),
+		Address:      remoteAddr,
+		MaxSandboxes: 20, // Default capacity
+		GPUType:      "",
+	}
+
+	err = apiServer.Store.RegisterWolfInstance(ctx, instance)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("wolf_instance_id", wolfInstanceID).
+			Msg("Failed to auto-register Wolf instance")
+		return
+	}
+
+	log.Info().
+		Str("wolf_instance_id", wolfInstanceID).
+		Str("name", instance.Name).
+		Str("address", instance.Address).
+		Int("max_sandboxes", instance.MaxSandboxes).
+		Msg("✅ Auto-registered Wolf instance on first RevDial connection")
+}
+
 func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 	// Create the WebSocket handler for data connections using revdial.ConnHandler
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for now
 		},
+		// Disable strict header validation for compatibility
+		EnableCompression: false,
 	}
 
 	revDialConnHandler := revdial.ConnHandler(upgrader)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if this is a WebSocket upgrade request (data connection)
-		if websocket.IsWebSocketUpgrade(r) {
-			log.Debug().Msg("Handling revdial WebSocket data connection")
+		// Check if this is a DATA connection (WebSocket with revdial.dialer parameter)
+		// Control connections are WebSocket too, but without the dialer parameter
+		dialerParam := r.URL.Query().Get("revdial.dialer")
+		if websocket.IsWebSocketUpgrade(r) && dialerParam != "" {
+			log.Debug().Str("dialer_id", dialerParam).Msg("Handling revdial WebSocket DATA connection")
 			// This is a data connection - use the revdial ConnHandler
 			revDialConnHandler.ServeHTTP(w, r)
 			return
 		}
 
-		// This is a control connection - proceed with existing logic
-		log.Debug().Msg("Handling revdial control connection")
+		// This is a CONTROL connection (WebSocket without dialer parameter, or non-WebSocket)
+		log.Info().
+			Bool("is_websocket", websocket.IsWebSocketUpgrade(r)).
+			Str("upgrade_header", r.Header.Get("Upgrade")).
+			Str("connection_header", r.Header.Get("Connection")).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("Handling revdial CONTROL connection")
 
-		// Get authenticated user from middleware (runner token authentication)
+		// Get authenticated user from middleware (accepts both runner and user tokens)
 		user := getRequestUser(r)
-		if user == nil || user.TokenType != types.TokenTypeRunner {
-			log.Error().Msg("Unauthorized reverse dial request - runner token required")
-			http.Error(w, "runner token required", http.StatusUnauthorized)
+		if user == nil {
+			log.Error().Msg("Unauthorized reverse dial request - authentication required")
+			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
 
@@ -1748,30 +1815,85 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 			return
 		}
 
+		// If using a user token (not runner token), validate session ownership
+		if user.TokenType != types.TokenTypeRunner {
+			// Extract session ID from runner ID (format: sandbox-{session_id})
+			sessionID := strings.TrimPrefix(runnerID, "sandbox-")
+			if sessionID == runnerID {
+				log.Error().
+					Str("runner_id", runnerID).
+					Msg("Invalid runner ID format - must be sandbox-{session_id}")
+				http.Error(w, "invalid runner ID format", http.StatusBadRequest)
+				return
+			}
+
+			// Verify the session belongs to this user
+			session, err := apiServer.Store.GetSession(r.Context(), sessionID)
+			if err != nil || session.Owner != user.ID {
+				log.Error().
+					Err(err).
+					Str("user_id", user.ID).
+					Str("session_id", sessionID).
+					Msg("Unauthorized: session not found or not owned by user")
+				http.Error(w, "unauthorized: session not owned by user", http.StatusForbidden)
+				return
+			}
+
+			log.Info().
+				Str("user_id", user.ID).
+				Str("session_id", sessionID).
+				Msg("User token validated for RevDial connection")
+		}
+
 		log.Info().
 			Str("remote_addr", r.RemoteAddr).
 			Str("runner_id", runnerID).
 			Str("token_type", string(user.TokenType)).
-			Msg("Authenticated external agent runner establishing reverse dial connection")
+			Msg("Authenticated RevDial connection (runner or user token)")
+
+		// Auto-register Wolf instances if this is a wolf-* or moonlight-* runner ID
+		if strings.HasPrefix(runnerID, "wolf-") {
+			wolfInstanceID := strings.TrimPrefix(runnerID, "wolf-")
+			apiServer.ensureWolfInstanceRegistered(r.Context(), wolfInstanceID, r.RemoteAddr)
+		}
 
 		log.Info().Str("runner_id", runnerID).Msg("Establishing reverse dial connection")
 
-		// Hijack the HTTP connection to get raw TCP connection
-		hijacker, ok := w.(http.Hijacker)
-		if !ok {
-			log.Error().Msg("HTTP hijacking not supported")
-			http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
-			return
-		}
+		// Handle WebSocket control connection vs non-WebSocket control connection
+		var conn net.Conn
+		if websocket.IsWebSocketUpgrade(r) {
+			// Upgrade WebSocket for control connection
+			log.Debug().Msg("Upgrading WebSocket for RevDial control connection")
+			wsConn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to upgrade WebSocket")
+				http.Error(w, "WebSocket upgrade failed", http.StatusInternalServerError)
+				return
+			}
 
-		// Send HTTP 200 response before hijacking
-		w.WriteHeader(http.StatusOK)
+			// Wrap WebSocket as net.Conn using wsconnadapter
+			conn = wsconnadapter.New(wsConn)
+			log.Debug().Str("runner_id", runnerID).Msg("WebSocket control connection established")
+		} else {
+			// HTTP hijack for non-WebSocket control connection
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				log.Error().Msg("HTTP hijacking not supported")
+				http.Error(w, "HTTP hijacking not supported", http.StatusInternalServerError)
+				return
+			}
 
-		// Hijack the connection to get raw TCP
-		conn, _, err := hijacker.Hijack()
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
-			return
+			// Send HTTP 200 response before hijacking
+			w.WriteHeader(http.StatusOK)
+
+			// Hijack the connection to get raw TCP
+			var err error
+			conn, _, err = hijacker.Hijack()
+			if err != nil {
+				log.Error().Err(err).Str("runner_id", runnerID).Msg("Failed to hijack connection")
+				return
+			}
+			log.Debug().Str("runner_id", runnerID).Msg("HTTP control connection hijacked")
 		}
 
 		// Register the reverse dial connection in connman
@@ -1779,7 +1901,7 @@ func (apiServer *HelixAPIServer) handleRevDial() http.Handler {
 		log.Info().Str("runner_id", runnerID).Msg("Registered reverse dial connection in connman")
 
 		// The connection is now managed by connman
-		// It will be used when rdpProxyManager calls connman.Dial(runnerID)
+		// It will be used when external_agent_handlers.go calls connman.Dial(runnerID)
 	})
 }
 
