@@ -8,7 +8,7 @@ xwayland disable
 # Set Helix wallpaper
 output * bg /usr/share/backgrounds/helix-logo.png fill
 
-# Configure HiDPI scaling for display WL-1
-output WL-1 scale 1.5
+# Configure display scaling for WL-1 (1x for 1080p)
+output WL-1 scale 1
 
 # Note: Key bindings are added in startup-app.sh (after $mod is defined)
