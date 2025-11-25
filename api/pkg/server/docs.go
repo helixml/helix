@@ -10947,6 +10947,15 @@ const docTemplate = `{
                     "Wolf"
                 ],
                 "summary": "Get Wolf system health",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Wolf instance ID to query",
+                        "name": "wolf_instance_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +65,9 @@ type WolfExecutor struct {
 
 	// Connection manager for RevDial connections to sandboxes and remote Wolf instances
 	connman connmanInterface
+
+	// Max concurrent lobbies (GPU streaming sessions) - configurable via EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES
+	maxConcurrentLobbies int
 }
 
 // connmanInterface defines the interface for RevDial connection management
@@ -315,6 +319,15 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 			Msg("FILESTORE_VOLUME_PATH not set, using default Docker volume path")
 	}
 
+	// Get max concurrent lobbies from environment variable (default: 10)
+	maxLobbies := 10
+	if maxLobbiesStr := os.Getenv("EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES"); maxLobbiesStr != "" {
+		if parsed, err := strconv.Atoi(maxLobbiesStr); err == nil && parsed > 0 {
+			maxLobbies = parsed
+		}
+	}
+	log.Info().Int("max_concurrent_lobbies", maxLobbies).Msg("Wolf executor lobby limit configured")
+
 	executor := &WolfExecutor{
 		store:                        storeInst,
 		sessions:                     make(map[string]*ZedSession),
@@ -328,6 +341,7 @@ func NewLobbyWolfExecutor(wolfSocketPath, zedImage, helixAPIURL, helixAPIToken s
 		creationLocks:                make(map[string]*sync.Mutex), // Per-session locks for lobby creation
 		wolfScheduler:                store.NewWolfScheduler(storeInst),
 		connman:                      connmanInst, // RevDial connection manager for screenshot/clipboard and remote Wolf instances
+		maxConcurrentLobbies:         maxLobbies,
 	}
 
 	// Lobbies mode doesn't need health monitoring or reconciliation
@@ -637,19 +651,18 @@ func (w *WolfExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent)
 		return nil, fmt.Errorf("failed to check GPU resource availability: %w", err)
 	}
 
-	const maxConcurrentLobbies = 10
-	if len(lobbies) >= maxConcurrentLobbies {
+	if len(lobbies) >= w.maxConcurrentLobbies {
 		log.Error().
 			Int("active_lobbies", len(lobbies)).
-			Int("max_lobbies", maxConcurrentLobbies).
+			Int("max_lobbies", w.maxConcurrentLobbies).
 			Str("session_id", agent.SessionID).
 			Msg("GPU resource limit reached - cannot create new lobby")
-		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), maxConcurrentLobbies)
+		return nil, fmt.Errorf("GPU resource limit reached (%d/%d lobbies active). Please close an unused session and try again", len(lobbies), w.maxConcurrentLobbies)
 	}
 
 	log.Info().
 		Int("active_lobbies", len(lobbies)).
-		Int("max_lobbies", maxConcurrentLobbies).
+		Int("max_lobbies", w.maxConcurrentLobbies).
 		Msg("GPU capacity check passed, proceeding with lobby creation")
 
 	// Generate PIN for lobby access control (Phase 3: Multi-tenancy)

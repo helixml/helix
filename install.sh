@@ -135,6 +135,8 @@ PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
 GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
+TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
+MOONLIGHT_CREDENTIALS=""  # Moonlight Web credentials for sandbox nodes (default: helix)
 
 # Enhanced environment detection
 detect_environment() {
@@ -247,6 +249,8 @@ Options:
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
   --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
+  --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
+  --moonlight-credentials <creds> Specify the Moonlight Web credentials for sandbox nodes (default: helix, must match control plane MOONLIGHT_CREDENTIALS)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
@@ -307,7 +311,7 @@ Examples:
     ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
 
 15. Install sandbox node (Wolf + Moonlight Web + RevDial client):
-    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD
 
 EOF
 }
@@ -401,6 +405,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --runner-token)
             RUNNER_TOKEN="$2"
+            shift 2
+            ;;
+        --turn-password=*)
+            TURN_PASSWORD="${1#*=}"
+            shift
+            ;;
+        --turn-password)
+            TURN_PASSWORD="$2"
+            shift 2
+            ;;
+        --moonlight-credentials=*)
+            MOONLIGHT_CREDENTIALS="${1#*=}"
+            shift
+            ;;
+        --moonlight-credentials)
+            MOONLIGHT_CREDENTIALS="$2"
             shift 2
             ;;
         --together-api-key=*)
@@ -1111,14 +1131,17 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
 fi
 
 if [ "$SANDBOX" = true ]; then
-    # When installing sandbox node, both API_HOST and RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: When installing sandbox node, you must specify --api-host and --runner-token"
+    # When installing sandbox node, API_HOST, RUNNER_TOKEN, and TURN_PASSWORD are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ] || [ -z "$TURN_PASSWORD" ]; then
+        echo "Error: When installing sandbox node, you must specify --api-host, --runner-token, and --turn-password"
         echo "to connect to an external controlplane, for example:"
         echo
-        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD"
         echo
-        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        echo "You can find these values in <HELIX_INSTALL_DIR>/.env on the controlplane node:"
+        echo "  - RUNNER_TOKEN=..."
+        echo "  - TURN_PASSWORD=..."
+        echo "  - MOONLIGHT_CREDENTIALS=... (optional, default: helix)"
         exit 1
     fi
 fi
@@ -2219,10 +2242,14 @@ if [ "$SANDBOX" = true ]; then
 # Configuration variables (set by install.sh)
 SANDBOX_TAG="${SANDBOX_TAG}"
 HELIX_API_URL="${HELIX_API_URL}"
-WOLF_ID="${WOLF_ID}"
+WOLF_INSTANCE_ID="${WOLF_INSTANCE_ID}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 GPU_VENDOR="${GPU_VENDOR}"
 MAX_SANDBOXES="${MAX_SANDBOXES}"
+TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
+TURN_PASSWORD="${TURN_PASSWORD}"
+HELIX_HOSTNAME="${HELIX_HOSTNAME}"
+MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
 
 # Check if helix_default network exists, create it if it doesn't
 if ! docker network inspect helix_default >/dev/null 2>&1; then
@@ -2257,9 +2284,10 @@ fi
 
 echo "Starting Helix Sandbox container..."
 echo "  Control Plane: $HELIX_API_URL"
-echo "  Wolf ID: $WOLF_ID"
+echo "  Wolf Instance ID: $WOLF_INSTANCE_ID"
 echo "  GPU Vendor: $GPU_VENDOR"
 echo "  Max Sandboxes: $MAX_SANDBOXES"
+echo "  TURN Server: $TURN_PUBLIC_IP"
 
 # Run the sandbox container
 eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
@@ -2268,10 +2296,14 @@ eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
     --name helix-sandbox \
     --network="helix_default" \
     -e HELIX_API_URL="$HELIX_API_URL" \
-    -e WOLF_ID="$WOLF_ID" \
+    -e WOLF_INSTANCE_ID="$WOLF_INSTANCE_ID" \
     -e RUNNER_TOKEN="$RUNNER_TOKEN" \
     -e MAX_SANDBOXES="$MAX_SANDBOXES" \
     -e ZED_IMAGE=helix-sway:latest \
+    -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
+    -e TURN_PASSWORD="$TURN_PASSWORD" \
+    -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
+    -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
     -v sandbox-storage:/var/lib/docker \
     -v /var/run/wolf:/var/run/wolf:rw \
     -v /dev:/dev:rw \
@@ -2303,13 +2335,24 @@ else
 fi
 EOF
 
+    # Extract hostname from API_HOST for TURN server and display name
+    # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
+    TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+    HELIX_HOSTNAME="$TURN_PUBLIC_IP"
+    # Default Moonlight credentials (must match control plane configuration)
+    MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS:-helix}"
+
     # Substitute variables in the script
     sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
-    sed -i "s|\${WOLF_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${WOLF_INSTANCE_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
     sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
 
     if [ "$ENVIRONMENT" = "gitbash" ]; then
         chmod +x $INSTALL_DIR/sandbox.sh
@@ -2334,6 +2377,20 @@ EOF
     echo "│"
     echo "│ Connected to: $API_HOST"
     echo "│ Wolf Instance ID: $WOLF_ID"
+    echo "│ TURN Server: $TURN_PUBLIC_IP"
+    echo "│"
+    echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
+    echo "│"
+    echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
+    echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
+    echo "│"
+    echo "│ ⚠️  For native Moonlight client connections, also open:"
+    echo "│   - TCP 47984, 47989, 48010: Moonlight protocol"
+    echo "│   - UDP 47415, 47999, 48100, 48200: Moonlight streaming"
+    echo "│   - TCP 8081: Moonlight Web UI"
+    echo "│"
+    echo "│ ⚠️  Ensure the control plane has these ports open:"
+    echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"
     echo "│"
     echo "│ To check logs:"
     if [ "$NEED_SUDO" = "true" ]; then

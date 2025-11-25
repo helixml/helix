@@ -10029,10 +10029,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/wolf/health
      * @secure
      */
-    v1WolfHealthList: (params: RequestParams = {}) =>
+    v1WolfHealthList: (
+      query: {
+        /** Wolf instance ID to query */
+        wolf_instance_id: string;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<WolfSystemHealthResponse, string>({
         path: `/api/v1/wolf/health`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

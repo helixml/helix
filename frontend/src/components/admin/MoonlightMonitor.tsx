@@ -75,17 +75,22 @@ interface WolfMemoryData {
   clients: WolfClientConnection[]
 }
 
-const MoonlightMonitor: FC = () => {
+interface MoonlightMonitorProps {
+  sandboxInstanceId: string;
+}
+
+const MoonlightMonitor: FC<MoonlightMonitorProps> = ({ sandboxInstanceId }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const [wolfStates, setWolfStates] = useState<Record<string, string>>({})
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['moonlight-status'],
+    queryKey: ['moonlight-status', sandboxInstanceId],
     queryFn: async () => {
+      if (!sandboxInstanceId) return null
       try {
-        const response = await api.get<MoonlightStatusResponse>('/api/v1/moonlight/status')
+        const response = await api.get<MoonlightStatusResponse>(`/api/v1/moonlight/status?wolf_instance_id=${sandboxInstanceId}`)
         // Handle both direct data and wrapped response
         if (response && response.data) {
           return response.data
@@ -98,22 +103,20 @@ const MoonlightMonitor: FC = () => {
         throw err
       }
     },
+    enabled: !!sandboxInstanceId,
     refetchInterval: 3000, // Poll every 3 seconds
     retry: 1,
   })
 
   // Fetch Wolf live state using generated client + React Query
   const { data: wolfDebugData } = useQuery({
-    queryKey: ['wolf-debug'],
+    queryKey: ['wolf-debug', sandboxInstanceId],
     queryFn: async () => {
-      const response = await apiClient.v1AdminAgentSandboxesDebugList()
-      console.log('[MoonlightMonitor] Wolf debug response:', response)
-      console.log('[MoonlightMonitor] Response.data:', response.data)
-      console.log('[MoonlightMonitor] Memory data:', response.data?.memory)
-      console.log('[MoonlightMonitor] Memory.lobbies:', response.data?.memory?.lobbies)
-      console.log('[MoonlightMonitor] Memory.clients:', response.data?.memory?.clients)
+      if (!sandboxInstanceId) return null
+      const response = await apiClient.v1AdminAgentSandboxesDebugList({ wolf_instance_id: sandboxInstanceId })
       return response.data
     },
+    enabled: !!sandboxInstanceId,
     refetchInterval: 3000,
     retry: 1,
   })
@@ -157,7 +160,19 @@ const MoonlightMonitor: FC = () => {
   }, [data?.sessions])
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['moonlight-status'] })
+    queryClient.invalidateQueries({ queryKey: ['moonlight-status', sandboxInstanceId] })
+    queryClient.invalidateQueries({ queryKey: ['wolf-debug', sandboxInstanceId] })
+  }
+
+  // Show message if no sandbox selected
+  if (!sandboxInstanceId) {
+    return (
+      <Paper sx={{ p: 3 }}>
+        <Alert severity="info">
+          Select an agent sandbox from the dropdown above to view Moonlight status.
+        </Alert>
+      </Paper>
+    )
   }
 
   if (isLoading) {

@@ -627,12 +627,16 @@ ENV GST_GL_API=gles2 \
 
 # Helix sandbox environment variables
 ENV HELIX_API_URL="" \
-    WOLF_ID="" \
+    WOLF_INSTANCE_ID="" \
     RUNNER_TOKEN="" \
     GPU_TYPE="nvidia" \
     MAX_SANDBOXES="10" \
     HELIX_DEV_MODE="false" \
-    ZED_IMAGE="helix-sway:latest"
+    ZED_IMAGE="helix-sway:latest" \
+    TURN_PUBLIC_IP="" \
+    TURN_PASSWORD="" \
+    HELIX_HOSTNAME="" \
+    MOONLIGHT_CREDENTIALS="helix"
 
 # XDG_RUNTIME_DIR (creates volume when starting container)
 VOLUME /run/user/wolf/

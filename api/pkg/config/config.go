@@ -35,6 +35,7 @@ type ServerConfig struct {
 	SSL                SSL
 	Organizations      Organizations
 	TURN               TURN
+	ExternalAgents     ExternalAgents
 
 	DisableLLMCallLogging bool `envconfig:"DISABLE_LLM_CALL_LOGGING" default:"false"`
 	DisableUsageLogging   bool `envconfig:"DISABLE_USAGE_LOGGING" default:"false"`
@@ -554,4 +555,10 @@ type TURN struct {
 	Realm    string `envconfig:"TURN_REALM" default:"helix.ai" description:"Authentication realm for TURN server."`
 	Username string `envconfig:"TURN_USERNAME" default:"helix" description:"Username for TURN authentication."`
 	Password string `envconfig:"TURN_PASSWORD" default:"helix-turn-secret" description:"Password for TURN authentication."`
+}
+
+type ExternalAgents struct {
+	// MaxConcurrentLobbies is the maximum number of Wolf lobbies that can be created concurrently.
+	// Each lobby uses GPU resources (VRAM for video encoding).
+	MaxConcurrentLobbies int `envconfig:"EXTERNAL_AGENTS_MAX_CONCURRENT_LOBBIES" default:"10" description:"Maximum number of concurrent Wolf lobbies (GPU streaming sessions)."`
 }

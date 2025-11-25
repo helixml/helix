@@ -14694,6 +14694,12 @@ paths:
     get:
       description: Get Wolf system health status including thread heartbeat monitoring
         and deadlock detection
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
