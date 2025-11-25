@@ -15,6 +15,10 @@ import {
   ListItemText,
   ListItemIcon,
   Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material'
 import {
   PhoneAndroid as PhoneIcon,
@@ -22,15 +26,20 @@ import {
   Tv as TvIcon,
   SportsEsports as GamepadIcon,
   AddBox as AddComputerIcon,
+  Storage as StorageIcon,
 } from '@mui/icons-material'
+import { useQuery } from '@tanstack/react-query'
 
 import useApi from '../../hooks/useApi'
+import { TypesWolfInstanceResponse } from '../../api/api'
 
 interface PendingPairRequest {
   client_name: string
   uuid: string
   pin: string
   expires_at: number
+  wolf_instance_id?: string  // Which Wolf instance this request is from
+  wolf_instance_name?: string  // Display name of the Wolf instance
 }
 
 interface MoonlightPairingOverlayProps {
@@ -45,6 +54,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   onPairingComplete,
 }) => {
   const api = useApi()
+  const apiClient = api.getApiClient()
 
   const [pendingRequests, setPendingRequests] = useState<PendingPairRequest[]>([])
   const [selectedRequest, setSelectedRequest] = useState<PendingPairRequest | null>(null)
@@ -53,18 +63,53 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  // Fetch list of registered Wolf instances
+  const { data: wolfInstances, isLoading: isLoadingInstances } = useQuery({
+    queryKey: ['wolf-instances'],
+    queryFn: async () => {
+      const response = await apiClient.v1WolfInstancesList()
+      return response.data
+    },
+    enabled: open, // Only fetch when dialog is open
+    refetchInterval: 10000,
+  })
+
+  // Aggregate pairing requests from all Wolf instances
   const loadPendingRequests = async (showLoading = false) => {
+    if (!wolfInstances || wolfInstances.length === 0) {
+      setPendingRequests([])
+      return
+    }
+
     try {
       if (showLoading) {
         setLoading(true)
       }
       setError(null)
 
-      const response = await api.get('/api/v1/wolf/pairing/pending')
+      // Fetch pairing requests from each Wolf instance in parallel
+      const allRequests: PendingPairRequest[] = []
+      await Promise.all(
+        wolfInstances.map(async (instance) => {
+          try {
+            const response = await api.get(`/api/v1/wolf/pairing/pending?wolf_instance_id=${instance.id}`)
+            const requests = response || []
+            // Add wolf instance info to each request
+            requests.forEach((req: PendingPairRequest) => {
+              allRequests.push({
+                ...req,
+                wolf_instance_id: instance.id,
+                wolf_instance_name: instance.name,
+              })
+            })
+          } catch (err) {
+            console.warn(`Failed to fetch pairing requests from Wolf instance ${instance.name}:`, err)
+            // Continue with other instances
+          }
+        })
+      )
 
-      // api.get() already returns res.data, so response IS the array
-      const requests = response || []
-      setPendingRequests(requests)
+      setPendingRequests(allRequests)
     } catch (err: any) {
       console.error('Failed to load pending pair requests:', err)
       setError(err.message || 'Failed to load pending requests')
@@ -76,7 +121,7 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   }
 
   const completePairing = async () => {
-    if (!selectedRequest || !enteredPin.trim()) {
+    if (!selectedRequest || !enteredPin.trim() || !selectedRequest.wolf_instance_id) {
       return
     }
 
@@ -84,7 +129,8 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
       setLoading(true)
       setError(null)
 
-      await api.post('/api/v1/wolf/pairing/complete', {
+      // Pass wolf_instance_id as query parameter
+      await api.post(`/api/v1/wolf/pairing/complete?wolf_instance_id=${selectedRequest.wolf_instance_id}`, {
         uuid: selectedRequest.uuid,
         pin: enteredPin,
       })
@@ -142,14 +188,14 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
   }
 
   useEffect(() => {
-    if (open) {
+    if (open && wolfInstances && wolfInstances.length > 0) {
       loadPendingRequests(true) // Show loading spinner on initial load
 
       // Poll for new requests every 5 seconds (no loading spinner during polling)
       const interval = setInterval(() => loadPendingRequests(false), 5000)
       return () => clearInterval(interval)
     }
-  }, [open])
+  }, [open, wolfInstances])
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
@@ -196,24 +242,32 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
               </Alert>
             )}
 
-            {loading && !selectedRequest ? (
+            {/* Show loading state while fetching Wolf instances or pairing requests */}
+            {(isLoadingInstances || (loading && !selectedRequest)) ? (
               <Box display="flex" justifyContent="center" py={4}>
                 <CircularProgress />
               </Box>
+            ) : !wolfInstances || wolfInstances.length === 0 ? (
+              <Alert severity="info">
+                No Wolf sandbox instances are registered. Install a sandbox first using:
+                <br />
+                <code style={{ fontSize: '0.8em' }}>export RUNNER_TOKEN=TOKEN && ./install.sh --sandbox --controlplane-url URL</code>
+              </Alert>
             ) : pendingRequests.length === 0 ? (
               <Alert severity="info">
-                No pending pairing requests. Start the pairing process from your Moonlight client to continue.
+                No pending pairing requests from any of the {wolfInstances.length} registered Wolf instance{wolfInstances.length !== 1 ? 's' : ''}.
+                Start the pairing process from your Moonlight client to continue.
               </Alert>
             ) : !selectedRequest ? (
               <>
                 <Typography variant="subtitle2" gutterBottom>
-                  Pending Pairing Requests: ({pendingRequests.length})
+                  Pending Pairing Requests: ({pendingRequests.length}) from {new Set(pendingRequests.map(r => r.wolf_instance_id)).size} sandbox{new Set(pendingRequests.map(r => r.wolf_instance_id)).size !== 1 ? 'es' : ''}
                 </Typography>
                 {console.log('🎨 Rendering pending requests:', pendingRequests)}
                 <List>
                   {pendingRequests.map((request) => (
                     <ListItem
-                      key={request.uuid}
+                      key={`${request.wolf_instance_id}-${request.uuid}`}
                       button
                       onClick={() => setSelectedRequest(request)}
                       sx={{
@@ -227,10 +281,23 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
                         {getClientIcon(request.client_name)}
                       </ListItemIcon>
                       <ListItemText
-                        primary={request.client_name}
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <span>{request.client_name}</span>
+                            {request.wolf_instance_name && (
+                              <Chip
+                                icon={<StorageIcon sx={{ fontSize: '0.9rem' }} />}
+                                label={request.wolf_instance_name}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 20, '& .MuiChip-label': { px: 0.75 } }}
+                              />
+                            )}
+                          </Box>
+                        }
                         secondary={`Expires in: ${formatTimeRemaining(request.expires_at)}`}
                       />
-                      <Chip label="Click to pair" size="small" />
+                      <Chip label="Click to pair" size="small" color="primary" />
                     </ListItem>
                   ))}
                 </List>
@@ -239,6 +306,14 @@ const MoonlightPairingOverlay: FC<MoonlightPairingOverlayProps> = ({
               <Box>
                 <Typography variant="subtitle2" gutterBottom>
                   Pairing with: {selectedRequest.client_name}
+                  {selectedRequest.wolf_instance_name && (
+                    <Chip
+                      icon={<StorageIcon sx={{ fontSize: '0.9rem' }} />}
+                      label={`on ${selectedRequest.wolf_instance_name}`}
+                      size="small"
+                      sx={{ ml: 1, height: 20 }}
+                    />
+                  )}
                 </Typography>
 
                 <Alert severity="warning" sx={{ mb: 2, fontWeight: 'bold' }}>

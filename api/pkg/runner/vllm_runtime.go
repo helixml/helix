@@ -664,12 +664,27 @@ func formatGPUIndices(gpuIndices []int) string {
 }
 
 func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer, crashCallback func(stderr string)) (*exec.Cmd, string, error) {
-	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
-	vllmPath := "/workspace/vllm/venv/bin/python"
-	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
-		return nil, "", fmt.Errorf("vLLM virtualenv not found at %s - Docker build may have failed or vLLM installation incomplete", vllmPath)
+	// Detect GPU vendor at runtime to select correct vLLM venv
+	var vllmPath string
+	var gpuVendor string
+
+	// Check for NVIDIA GPU first
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		gpuVendor = "nvidia"
+		vllmPath = "/workspace/vllm-cuda/venv/bin/python"
+	} else if _, err := exec.LookPath("rocm-smi"); err == nil {
+		gpuVendor = "amd"
+		vllmPath = "/workspace/vllm-rocm/venv/bin/python"
+	} else {
+		// Fallback to CUDA venv (backward compatibility)
+		gpuVendor = "unknown"
+		vllmPath = "/workspace/vllm-cuda/venv/bin/python"
 	}
-	log.Debug().Str("python_path", vllmPath).Msg("Using clean vLLM virtualenv Python 3.12 - completely isolated from system packages")
+
+	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
+		return nil, "", fmt.Errorf("vLLM virtualenv not found at %s (GPU vendor: %s) - Docker build may have failed", vllmPath, gpuVendor)
+	}
+	log.Info().Str("python_path", vllmPath).Str("gpu_vendor", gpuVendor).Msg("Selected vLLM virtualenv based on GPU vendor")
 
 	// Prepare vLLM serve command
 	log.Debug().

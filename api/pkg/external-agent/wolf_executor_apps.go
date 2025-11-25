@@ -657,15 +657,9 @@ func (w *AppWolfExecutor) connectKeepaliveWebSocketForAppSingle(ctx context.Cont
 }
 
 // GetWolfClient returns the Wolf client for direct access to Wolf API
-// Note: This type-asserts the interface back to the concrete type.
-// Only use this when you need direct access to wolf.Client specific methods.
-func (w *AppWolfExecutor) GetWolfClient() *wolf.Client {
-	if client, ok := w.wolfClient.(*wolf.Client); ok {
-		return client
-	}
-	// This should never happen in production, only in tests with mocks
-	log.Warn().Msg("GetWolfClient called but wolfClient is not *wolf.Client (likely a test mock)")
-	return nil
+// Returns the WolfClientInterface which works with both local and remote Wolf instances
+func (w *AppWolfExecutor) GetWolfClient() WolfClientInterface {
+	return w.wolfClient
 }
 
 // waitForZedConnection waits for the Zed instance to connect via WebSocket
@@ -875,8 +869,17 @@ input * {
 }
 
 func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPIToken string) *wolf.App {
+	// Build GPU-specific device list based on GPU_VENDOR
+	gpuVendor := os.Getenv("GPU_VENDOR") // Set by install.sh: "nvidia", "amd", or "intel"
+	gpuDevices := "/dev/input/* /dev/dri/*"
+	if gpuVendor == "nvidia" {
+		gpuDevices += " /dev/nvidia*"
+	} else if gpuVendor == "amd" {
+		gpuDevices += " /dev/kfd" // AMD ROCm Kernel Fusion Driver
+	}
+
 	env := []string{
-		"GOW_REQUIRED_DEVICES=/dev/input/* /dev/dri/* /dev/nvidia*",
+		fmt.Sprintf("GOW_REQUIRED_DEVICES=%s", gpuDevices),
 		"RUN_SWAY=1",
 		fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
 		"ZED_EXTERNAL_SYNC_ENABLED=true",
@@ -896,19 +899,19 @@ func createSwayWolfAppForAppsMode(config SwayWolfAppConfig, zedImage, helixAPITo
 		"/var/run/docker.sock:/var/run/docker.sock",
 	}
 
-	// Development mode: bind-mount Zed build and startup scripts from host
+	// Development mode: bind-mount Zed build and startup scripts
+	// CRITICAL: In DinD mode, use paths INSIDE Wolf container (/helix-dev/...), not host paths!
+	// These files are mounted into Wolf via docker-compose, then re-mounted into sandboxes
 	// Production mode: these are baked into the ZED_IMAGE
 	if os.Getenv("HELIX_DEV_MODE") == "true" {
-		helixHostHome := os.Getenv("HELIX_HOST_HOME")
-		log.Info().
-			Str("helix_host_home", helixHostHome).
-			Msg("HELIX_DEV_MODE enabled - mounting dev files from host for hot-reloading")
+		log.Info().Msg("HELIX_DEV_MODE enabled - mounting dev files for hot-reloading (DinD-aware paths)")
 
+		// Use paths inside Wolf's filesystem (bind-mounted from host into Wolf)
 		mounts = append(mounts,
-			fmt.Sprintf("%s/zed-build:/zed-build:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/config:/cfg/sway/custom-cfg:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro", helixHostHome),
-			fmt.Sprintf("%s/wolf/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro", helixHostHome),
+			"/helix-dev/zed-build:/zed-build:ro",
+			"/helix-dev/sway-config/config:/cfg/sway/custom-cfg:ro",
+			"/helix-dev/sway-config/startup-app.sh:/opt/gow/startup-app.sh:ro",
+			"/helix-dev/sway-config/start-zed-helix.sh:/usr/local/bin/start-zed-helix.sh:ro",
 		)
 	} else {
 		log.Debug().Msg("Production mode - using files baked into helix-sway image")

@@ -4,6 +4,9 @@ set -e
 
 echo "Starting Helix Personal Dev Environment with Sway..."
 
+# NOTE: Telemetry firewall is configured in the sandbox container (Wolf host),
+# not inside agent containers. This provides centralized monitoring across all agents.
+
 # Create symlink to Zed binary if not exists
 if [ -f /zed-build/zed ] && [ ! -f /usr/local/bin/zed ]; then
     sudo ln -sf /zed-build/zed /usr/local/bin/zed
@@ -39,6 +42,27 @@ mkdir -p ~/.cache
 ln -sf $ZED_STATE_DIR/cache ~/.cache/zed
 
 echo "✅ Zed state symlinks created (settings-sync-daemon can write immediately)"
+
+# Start RevDial client for reverse proxy (screenshot server, clipboard, git HTTP)
+# CRITICAL: Starts BEFORE Sway so API can reach sandbox immediately
+# Uses user's API token for authentication (session-scoped, user-owned)
+if [ -n "$HELIX_API_BASE_URL" ] && [ -n "$HELIX_SESSION_ID" ] && [ -n "$USER_API_TOKEN" ]; then
+    REVDIAL_SERVER="${HELIX_API_BASE_URL}/api/v1/revdial"
+    RUNNER_ID="sandbox-${HELIX_SESSION_ID}"
+
+    echo "Starting RevDial client for API ↔ sandbox communication..."
+    /usr/local/bin/revdial-client \
+        -server "$REVDIAL_SERVER" \
+        -runner-id "$RUNNER_ID" \
+        -token "$USER_API_TOKEN" \
+        -local "localhost:9876" \
+        >> /tmp/revdial-client.log 2>&1 &
+
+    REVDIAL_PID=$!
+    echo "✅ RevDial client started (PID: $REVDIAL_PID) - API can now reach this sandbox"
+else
+    echo "⚠️  RevDial client not started (missing HELIX_API_BASE_URL, HELIX_SESSION_ID, or USER_API_TOKEN)"
+fi
 
 # Start screenshot server in background (if binary exists)
 # NOTE: Start AFTER Sway is running to get correct WAYLAND_DISPLAY

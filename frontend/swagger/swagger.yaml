@@ -744,7 +744,7 @@ definitions:
       gpu_stats:
         allOf:
         - $ref: '#/definitions/server.GPUStats'
-        description: GPU encoder stats from Wolf (via nvidia-smi)
+        description: GPU encoder stats from Wolf (via nvidia-smi or rocm-smi)
       gstreamer_pipelines:
         allOf:
         - $ref: '#/definitions/server.GStreamerPipelineStats'
@@ -1507,7 +1507,7 @@ definitions:
       gpu_stats:
         allOf:
         - $ref: '#/definitions/server.GPUStats'
-        description: From Wolf's nvidia-smi query
+        description: From Wolf's GPU monitoring query (nvidia-smi or rocm-smi)
       gstreamer_buffer_bytes:
         type: integer
       gstreamer_pipelines:
@@ -3544,11 +3544,8 @@ definitions:
     type: object
   types.GPUStatus:
     properties:
-      cuda_version:
-        description: CUDA version
-        type: string
       driver_version:
-        description: NVIDIA driver version
+        description: GPU driver version (NVIDIA or AMD)
         type: string
       free_memory:
         description: Free memory in bytes
@@ -3557,8 +3554,11 @@ definitions:
         description: GPU index (0, 1, 2, etc.)
         type: integer
       model_name:
-        description: GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX
-          4090")
+        description: GPU model name (e.g., "NVIDIA H100 PCIe", "AMD Radeon RX 7900
+          XTX")
+        type: string
+      sdk_version:
+        description: GPU SDK version (CUDA for NVIDIA, ROCm for AMD)
         type: string
       total_memory:
         description: Total memory in bytes
@@ -5813,6 +5813,10 @@ definitions:
         description: e.g. text, image
       updated:
         type: string
+      wolf_instance_id:
+        description: WolfInstanceID tracks which Wolf instance is running this session's
+          sandbox (if any)
+        type: string
     type: object
   types.SessionChatRequest:
     properties:
@@ -7670,6 +7674,40 @@ definitions:
       user_agent:
         type: string
     type: object
+  types.WolfInstanceRequest:
+    properties:
+      address:
+        type: string
+      gpu_type:
+        type: string
+      max_sandboxes:
+        type: integer
+      name:
+        type: string
+    type: object
+  types.WolfInstanceResponse:
+    properties:
+      address:
+        type: string
+      connected_sandboxes:
+        type: integer
+      created_at:
+        type: string
+      gpu_type:
+        type: string
+      id:
+        type: string
+      last_heartbeat:
+        type: string
+      max_sandboxes:
+        type: integer
+      name:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
   types.WorkloadSummary:
     properties:
       created:
@@ -7809,6 +7847,12 @@ paths:
       - application/json
       description: Retrieves combined debug data from Wolf (memory, lobbies, sessions)
         for the Agent Sandboxes dashboard
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       produces:
       - application/json
       responses:
@@ -7863,6 +7907,11 @@ paths:
         name: lobbyId
         required: true
         type: string
+      - description: Wolf instance ID to operate on
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -7890,6 +7939,11 @@ paths:
       - description: Session ID (client_id from Wolf)
         in: path
         name: sessionId
+        required: true
+        type: string
+      - description: Wolf instance ID to operate on
+        in: query
+        name: wolf_instance_id
         required: true
         type: string
       responses:
@@ -14877,10 +14931,111 @@ paths:
       summary: Get a wallet
       tags:
       - wallets
+  /api/v1/wolf-instances:
+    get:
+      description: Get all registered Wolf streaming instances
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.WolfInstanceResponse'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List all Wolf instances
+      tags:
+      - wolf
+  /api/v1/wolf-instances/{id}:
+    delete:
+      description: Remove a Wolf instance from the registry
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Wolf instance not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Deregister a Wolf instance
+      tags:
+      - wolf
+  /api/v1/wolf-instances/{id}/heartbeat:
+    post:
+      description: Update the last heartbeat timestamp for a Wolf instance
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Wolf instance not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Send heartbeat for a Wolf instance
+      tags:
+      - wolf
+  /api/v1/wolf-instances/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new Wolf streaming instance with the control plane
+      parameters:
+      - description: Wolf instance registration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.WolfInstanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.WolfInstanceResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Register a new Wolf instance
+      tags:
+      - wolf
   /api/v1/wolf/health:
     get:
       description: Get Wolf system health status including thread heartbeat monitoring
         and deadlock detection
+      parameters:
+      - description: Wolf instance ID to query
+        in: query
+        name: wolf_instance_id
+        required: true
+        type: string
       responses:
         "200":
           description: OK
@@ -14902,6 +15057,11 @@ paths:
   /api/v1/wolf/ui-app-id:
     get:
       description: Get the Wolf UI app ID for lobbies mode streaming
+      parameters:
+      - description: Session ID to look up Wolf instance
+        in: query
+        name: session_id
+        type: string
       produces:
       - application/json
       responses:

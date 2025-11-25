@@ -128,20 +128,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy UV binary before we use it
 COPY --from=uv /uv /bin/uv
 
-# Create clean vLLM virtualenv using Python 3.12 (latest, best future compatibility)
+# Create CUDA vLLM virtualenv using Python 3.12 (NVIDIA GPUs)
 # This isolates vLLM from any system packages - completely clean environment
-RUN python3.12 -m venv /workspace/vllm/venv && \
-    echo "Installing vLLM into clean virtualenv using UV (much faster than pip)" && \
-    /workspace/vllm/venv/bin/python -m pip install uv && \
-    cd /workspace/vllm && \
-    VIRTUAL_ENV=/workspace/vllm/venv PATH="/workspace/vllm/venv/bin:$PATH" \
-    /workspace/vllm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
+RUN python3.12 -m venv /workspace/vllm-cuda/venv && \
+    echo "Installing vLLM CUDA into clean virtualenv using UV" && \
+    /workspace/vllm-cuda/venv/bin/python -m pip install uv && \
+    cd /workspace && \
+    VIRTUAL_ENV=/workspace/vllm-cuda/venv PATH="/workspace/vllm-cuda/venv/bin:$PATH" \
+    /workspace/vllm-cuda/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
 
-# Create the examples directory in the vLLM venv package where it will look for templates (Python 3.12)
-RUN mkdir -p /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples
+# Create ROCm vLLM virtualenv using Python 3.12 (AMD GPUs)
+# Install PyTorch ROCm 6.2 + build vLLM from source (no ROCm wheels on PyPI)
+RUN python3.12 -m venv /workspace/vllm-rocm/venv && \
+    echo "Installing PyTorch ROCm + building vLLM from source for AMD GPUs" && \
+    /workspace/vllm-rocm/venv/bin/python -m pip install uv && \
+    cd /workspace && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    /workspace/vllm-rocm/venv/bin/uv pip install --index-url https://download.pytorch.org/whl/rocm6.4 \
+        torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 && \
+    echo "Installing vLLM build dependencies for ROCm" && \
+    /workspace/vllm-rocm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt && \
+    echo "Building vLLM from source for ROCm" && \
+    git clone --depth 1 --branch v${VLLM_VERSION} https://github.com/vllm-project/vllm.git /tmp/vllm-rocm-src && \
+    cd /tmp/vllm-rocm-src && \
+    VIRTUAL_ENV=/workspace/vllm-rocm/venv PATH="/workspace/vllm-rocm/venv/bin:$PATH" \
+    PYTORCH_ROCM_ARCH="gfx908;gfx90a;gfx942;gfx1100;gfx1101;gfx1030" \
+    /workspace/vllm-rocm/venv/bin/python setup.py develop && \
+    cd /workspace && rm -rf /tmp/vllm-rocm-src
 
-# Copy the example templates to the vLLM venv package examples directory
-COPY --from=vllm-templates /vllm-templates/* /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples/
+# Create the examples directory in both vLLM venv packages where they will look for templates
+RUN mkdir -p /workspace/vllm-cuda/venv/lib/python3.12/site-packages/vllm/examples && \
+    mkdir -p /workspace/vllm-rocm/venv/lib/python3.12/site-packages/vllm/examples
+
+# Copy the example templates to both vLLM venv package examples directories
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm-cuda/venv/lib/python3.12/site-packages/vllm/examples/
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm-rocm/venv/lib/python3.12/site-packages/vllm/examples/
+
+# Create symlink for backward compatibility: /workspace/vllm/venv → /workspace/vllm-cuda/venv
+# This ensures existing code paths work (will be updated to use vendor-specific paths)
+RUN ln -s /workspace/vllm-cuda /workspace/vllm
 
 # Create a clean /vllm directory with examples subdirectory
 RUN mkdir -p /vllm/examples

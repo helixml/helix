@@ -12,28 +12,83 @@ export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 
-# Helper function to check for NVIDIA GPU and set appropriate variables
+# Helper function to check for GPU and set appropriate runner profile
 function setup_runner_profile() {
   export FORCE_CPU=${FORCE_CPU:=""}
 
-  if [[ -n "$FORCE_CPU" ]] || ! (command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null); then
-    # CPU mode
-    if [[ -n "$FORCE_CPU" ]]; then
-      echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
-    else
-      echo "❌ No NVIDIA GPU detected, running without GPU support"
-    fi
+  if [[ -n "$FORCE_CPU" ]]; then
+    # Forced CPU mode
+    echo "💻 FORCE_CPU is set, forcing CPU mode regardless of GPU detection"
     export RUNNER_CONTAINER="runner"
     export RUNNER_PROFILE="--profile runner"
     export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
     export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
-  else
-    # GPU mode
+  elif command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    # NVIDIA GPU mode
     echo "🚀 NVIDIA GPU detected, using GPU support"
     export RUNNER_CONTAINER="runner_gpu"
     export RUNNER_PROFILE="--profile runner_gpu"
     export DEV_CPU_ONLY_CMD=""
     export VLLM_ENV_VARS=""
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    # AMD GPU mode (ROCm)
+    echo "🚀 AMD GPU detected (ROCm), using AMD GPU support"
+    export RUNNER_CONTAINER="runner_gpu_amd"
+    export RUNNER_PROFILE="--profile runner_gpu_amd"
+    export DEV_CPU_ONLY_CMD=""
+    export VLLM_ENV_VARS=""
+  else
+    # CPU mode (fallback)
+    echo "❌ No supported GPU detected, running without GPU support"
+    export RUNNER_CONTAINER="runner"
+    export RUNNER_PROFILE="--profile runner"
+    export DEV_CPU_ONLY_CMD="DEVELOPMENT_CPU_ONLY=true "
+    export VLLM_ENV_VARS="VLLM_DEVICE=cpu VLLM_LOGGING_LEVEL=DEBUG"
+  fi
+}
+
+# Helper function to detect GPU type and set appropriate sandbox profile
+# Sets COMPOSE_PROFILES to include 'code' (NVIDIA) or 'code-amd' (AMD/Intel) if not already set
+function setup_sandbox_profile() {
+  # Load existing .env if present
+  if [[ -f "$DIR/.env" ]]; then
+    source "$DIR/.env"
+  fi
+
+  # If COMPOSE_PROFILES already contains 'code', don't override
+  if [[ "$COMPOSE_PROFILES" == *"code"* ]]; then
+    echo "🎮 Using existing sandbox profile from .env: $COMPOSE_PROFILES"
+    return
+  fi
+
+  # Auto-detect GPU type
+  local gpu_profile=""
+
+  # Check for NVIDIA GPU first
+  if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    gpu_profile="code"
+    echo "🎮 NVIDIA GPU detected, using 'code' sandbox profile"
+  # Check for AMD GPU (ROCm)
+  elif [[ -e "/dev/kfd" ]] && [[ -d "/dev/dri" ]] && command -v lspci &> /dev/null && lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+    gpu_profile="code-amd"
+    echo "🎮 AMD GPU detected (ROCm), using 'code-amd' sandbox profile"
+  # Check for Intel GPU (or generic /dev/dri)
+  elif [[ -d "/dev/dri" ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
+    gpu_profile="code-amd"  # Intel uses same profile as AMD (no nvidia runtime)
+    echo "🎮 Intel/Generic GPU detected, using 'code-amd' sandbox profile"
+  else
+    echo "⚠️  No GPU detected, sandbox features may not work"
+    return
+  fi
+
+  # Add to COMPOSE_PROFILES if we detected a GPU
+  if [[ -n "$gpu_profile" ]]; then
+    if [[ -n "$COMPOSE_PROFILES" ]]; then
+      export COMPOSE_PROFILES="${COMPOSE_PROFILES},${gpu_profile}"
+    else
+      export COMPOSE_PROFILES="$gpu_profile"
+    fi
+    echo "📋 COMPOSE_PROFILES set to: $COMPOSE_PROFILES"
   fi
 }
 
@@ -289,7 +344,7 @@ function start() {
   # Check if Wolf container exists, build if needed
   if ! docker image inspect wolf:helix-fixed &> /dev/null; then
     echo "🐺 Wolf container not found, building automatically..."
-    rebuild-wolf || {
+    build-wolf || {
       echo "❌ Failed to build Wolf. Please check the error messages above."
       exit 1
     }
@@ -307,13 +362,14 @@ function start() {
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  # Clean Wolf and moonlight-web pairing state for fresh startup
-  echo "🧹 Cleaning Wolf and moonlight-web pairing state..."
+  # Clean Wolf and Moonlight Web pairing state for fresh startup
+  echo "🧹 Cleaning Wolf and Moonlight Web pairing state..."
 
-  # Stop services if running (ignore errors if already stopped)
-  docker compose -f docker-compose.dev.yaml stop wolf moonlight-web 2>/dev/null || true
+  # Stop sandbox if running (Wolf + Moonlight Web are unified in sandbox now)
+  docker compose -f docker-compose.dev.yaml stop sandbox 2>/dev/null || true
 
   # Remove state files to force fresh pairing on startup
+  # These are bind-mounted into the sandbox container
   rm -f "$DIR/wolf/config.toml" "$DIR/moonlight-web-config/data.json" 2>/dev/null || true
   echo "✅ Pairing state cleaned (will auto-pair on startup)"
 
@@ -321,6 +377,9 @@ function start() {
 
   # Setup runner profiles first
   setup_runner_profile
+
+  # Setup sandbox profile based on GPU detection
+  setup_sandbox_profile
 
   # Start services based on enabled profiles
   if [[ -n "$WITH_RUNNER" ]]; then
@@ -401,9 +460,9 @@ function start() {
 
   # Middle row (3-5): Context-aware based on WITH_RUNNER
   if [[ -n "$WITH_RUNNER" ]]; then
-    # WITH_RUNNER mode: Wolf logs in pane 3
-    tmux select-pane -t 3 -T "Wolf Logs"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+    # WITH_RUNNER mode: Sandbox logs in pane 3
+    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
 
     tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
     tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
@@ -412,12 +471,12 @@ function start() {
     tmux select-pane -t 5 -T "GPU Runner ($RUNNER_CONTAINER)"
     tmux send-keys -t 5 'echo "Monitoring GPU Runner logs (with air hot reloading)..." && sleep 3 && docker compose -f docker-compose.dev.yaml --profile '"$RUNNER_CONTAINER"' logs -f '"$RUNNER_CONTAINER" C-m
   else
-    # WITHOUT_RUNNER mode: Moonlight-web logs in pane 3, Wolf in pane 4
-    tmux select-pane -t 3 -T "Moonlight-web Logs"
-    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f moonlight-web' C-m
+    # WITHOUT_RUNNER mode: Unified sandbox logs (Wolf + Moonlight Web in one container)
+    tmux select-pane -t 3 -T "Sandbox Logs (Wolf + Moonlight)"
+    tmux send-keys -t 3 'docker compose -f docker-compose.dev.yaml logs -f sandbox' C-m
 
-    tmux select-pane -t 4 -T "Wolf Logs"
-    tmux send-keys -t 4 'docker compose -f docker-compose.dev.yaml logs -f wolf' C-m
+    tmux select-pane -t 4 -T "🔨 HACKING TERMINAL"
+    tmux send-keys -t 4 'echo "🔨 Hacking terminal ready!" && echo "💡 Tip: Use this for development, debugging, and building"' C-m
 
     # Middle right pane (5) - contextual based on demos
     if [[ -n "$WITH_DEMOS" ]]; then
@@ -562,8 +621,11 @@ function up() {
     echo "✅ Wolf repository cloned successfully"
   fi
 
-  # Wolf services are optional via --profile wolf flag
-  # To enable Wolf and Moonlight Web: ./stack up --profile wolf
+  # Setup sandbox profile based on GPU detection (if not already in .env)
+  setup_sandbox_profile
+
+  # Sandbox services are enabled via COMPOSE_PROFILES in .env or auto-detected above
+  # Profile 'code' = NVIDIA GPU, 'code-amd' = AMD/Intel GPU
 
   docker compose -f docker-compose.dev.yaml up -d $@
 }
@@ -674,8 +736,8 @@ function push_image_tags() {
   return 0
 }
 
-function rebuild-wolf() {
-  echo "🐺 Rebuilding Wolf container with latest source code..."
+function build-wolf() {
+  echo "🐺 Building Wolf container with latest source code..."
 
   # Check if Wolf source directory exists
   if [ ! -d "../wolf" ]; then
@@ -687,7 +749,7 @@ function rebuild-wolf() {
     echo "  cd .."
     echo "  git clone https://github.com/games-on-whales/wolf.git"
     echo "  cd helix"
-    echo "  ./stack rebuild-wolf"
+    echo "  ./stack build-wolf"
     exit 1
   fi
 
@@ -721,26 +783,9 @@ function rebuild-wolf() {
   fi
   cd - > /dev/null
 
-  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/wolf"
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Wolf images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Wolf images to registry (continuing anyway)"
-    fi
-    echo "📦 Registry images pushed"
-  fi
-
-  # Remove and recreate Wolf container to use updated image (skip if SKIP_DEV_RESTART is set)
-  if [ -z "${SKIP_DEV_RESTART:-}" ]; then
-    echo "🔄 Removing old Wolf container and recreating with updated image..."
-    docker compose -f docker-compose.dev.yaml rm -f wolf
-    docker compose -f docker-compose.dev.yaml up -d wolf
-
-    echo "✅ Wolf container rebuilt and restarted successfully"
-    echo "🐺 Wolf is ready for testing with latest source code changes"
-  fi
+  # Note: Wolf image is an intermediate build artifact, embedded in helix-sandbox
+  # It's not pushed to registry separately - only the sandbox container is pushed
+  # Wolf runs inside the sandbox container now, not as a standalone service
 }
 
 function build-xfce() {
@@ -818,18 +863,40 @@ function build-sway() {
     exit 1
   fi
 
-  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/zed-agent"
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Sway/Zed agent images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Sway/Zed agent images to registry (continuing anyway)"
-    fi
-    echo "📦 Registry images pushed"
+  echo "✅ Sway container build completed"
+  echo "📦 Note: helix-sway is embedded in helix-sandbox (not pushed separately to registry)"
+
+  # Transfer helix-sway image to sandbox's dockerd (Wolf runs inside sandbox container)
+  # Only transfer if sandbox is already running (hot reload during development)
+  # Skip if called from build-sandbox (which restarts sandbox with embedded tarball)
+  if [ -z "${SKIP_SWAY_TRANSFER:-}" ]; then
+    transfer-sway-to-sandbox
+  fi
+}
+
+function transfer-sway-to-sandbox() {
+  # Transfer helix-sway image from host to sandbox's isolated dockerd
+  # This is required because sandbox runs its own dockerd (DinD) and doesn't have access to host images
+
+  # Check if sandbox container is running
+  if ! docker compose -f docker-compose.dev.yaml ps sandbox | grep -q "Up"; then
+    echo "ℹ️  Sandbox container not running, skipping image transfer (will transfer on next start)"
+    return 0
   fi
 
-  echo "✅ Sway container build completed"
+  # Check if helix-sway image exists on host
+  if ! docker images helix-sway:latest -q | grep -q .; then
+    echo "⚠️  helix-sway:latest not found on host, skipping transfer"
+    return 0
+  fi
+
+  echo "📦 Transferring helix-sway:latest to sandbox's dockerd..."
+  if docker save helix-sway:latest | docker exec -i helix-sandbox-1 docker load 2>/dev/null; then
+    echo "✅ helix-sway:latest transferred to sandbox's dockerd"
+  else
+    echo "ℹ️  Could not transfer image to sandbox (container may be starting/restarting)"
+    echo "   Image will be loaded from embedded tarball when sandbox is ready"
+  fi
 }
 
 function build-moonlight-web() {
@@ -888,26 +955,204 @@ function build-moonlight-web() {
   fi
   cd - > /dev/null
 
-  # Push to registry only in production mode (when PUSH_TO_REGISTRY is set)
-  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
-    local IMAGE_BASE="registry.helixml.tech/helix/moonlight-web"
-    if push_image_tags "$IMAGE_BASE"; then
-      echo "✅ Moonlight Web images pushed to registry successfully"
-    else
-      echo "⚠️  Failed to push Moonlight Web images to registry (continuing anyway)"
+  # Note: Moonlight Web image is an intermediate build artifact, embedded in helix-sandbox
+  # It's not pushed to registry separately - only the sandbox container is pushed
+  # Moonlight Web runs inside the sandbox container now, not as a standalone service
+}
+
+function build-sandbox() {
+  echo "📦 Building unified Helix Sandbox container (Wolf + Moonlight Web + RevDial + DinD)..."
+  echo ""
+  echo "This builds a unified container with:"
+  echo "  • Wolf streaming platform (from ~/pm/wolf)"
+  echo "  • Moonlight Web (from ~/pm/moonlight-web-stream)"
+  echo "  • RevDial client (built from source)"
+  echo "  • Docker-in-Docker with NVIDIA runtime"
+  echo "  • helix-sway image (pre-loaded into Wolf's dockerd)"
+  echo "  • GOW base-app init system (cont-init.d + entrypoint.sh)"
+  echo ""
+
+  local COMMIT_HASH=$(git rev-parse --short HEAD)
+  local GIT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "")
+
+  # Step 0: Build Wolf and Moonlight Web (fast if unchanged due to Docker cache)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [0/4] Building Wolf and Moonlight Web dependencies..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build Wolf (skip container restart - we'll restart sandbox instead)
+  echo "🐺 Building Wolf..."
+  if ! SKIP_DEV_RESTART=1 build-wolf; then
+    echo "❌ Failed to build Wolf"
+    return 1
+  fi
+
+  # Build Moonlight Web (skip container restart - we'll restart sandbox instead)
+  echo "🌙 Building Moonlight Web..."
+  if ! SKIP_DEV_RESTART=1 build-moonlight-web; then
+    echo "❌ Failed to build Moonlight Web"
+    return 1
+  fi
+  echo ""
+
+  # Step 1: Build Zed if needed (required for helix-sway)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [1/4] Checking Zed binary..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if [ ! -f "./zed-build/zed" ] || [ -n "${SKIP_DEV_RESTART:-}" ]; then
+    echo "Building Zed in release mode..."
+    if ! build-zed release; then
+      echo "❌ Failed to build Zed"
+      return 1
     fi
-    echo "📦 Registry images pushed"
+  else
+    echo "✅ Using existing Zed binary"
+  fi
+  echo ""
+
+  # Step 2: Build helix-sway and export as tarball
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [2/4] Building helix-sway and exporting tarball..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build helix-sway image (Sway + Zed desktop environment)
+  echo "🔨 Building helix-sway:latest..."
+
+  # Capture build output to check if it was cached
+  # Skip image transfer since we'll restart sandbox with new embedded tarball
+  BUILD_OUTPUT=$(SKIP_SWAY_TRANSFER=1 build-sway 2>&1)
+  BUILD_EXIT=$?
+  echo "$BUILD_OUTPUT"
+
+  if [ $BUILD_EXIT -ne 0 ]; then
+    echo "❌ Failed to build helix-sway"
+    return 1
   fi
 
-  # Remove and recreate Moonlight Web container to use updated image (skip if SKIP_DEV_RESTART is set)
+  # Check if build had any non-cached layers
+  # Cached builds only have "#N CACHED" lines
+  # Non-cached builds have lines like "#N exporting layers 3.3s done" (lowercase "done")
+  # Count lines with lowercase "done" (actual work) vs uppercase "DONE" (stage completion)
+  # Exclude Docker metadata operations: exporting, transferring, writing, naming
+  NON_CACHED_STEPS=$(echo "$BUILD_OUTPUT" | grep -E "^#[0-9]+ .* [0-9]+\.[0-9]+s done$" | grep -v -E "exporting|transferring|writing image|naming to" | wc -l)
+
+  # Export tarball if: (1) helix-sway changed, OR (2) tarball doesn't exist
+  # This keeps tarball between builds for fast rebuilds
+  if [ "$NON_CACHED_STEPS" -gt 0 ]; then
+    # Build had changes - must export fresh tarball
+    echo "📦 Exporting fresh helix-sway tarball (build had $NON_CACHED_STEPS non-cached steps)..."
+    docker save helix-sway:latest | gzip > helix-sway.tar.gz
+    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+
+    # Generate hash file for startup optimization (skip docker load if image unchanged)
+    echo "🔢 Generating image hash..."
+    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
+    echo "✅ Tarball created: helix-sway.tar.gz ($TARBALL_SIZE)"
+  elif [ ! -f helix-sway.tar.gz ]; then
+    # Build was cached but no tarball - create one
+    echo "📦 Creating helix-sway tarball (build was cached but tarball missing)..."
+    docker save helix-sway:latest | gzip > helix-sway.tar.gz
+    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+
+    # Generate hash file for startup optimization
+    echo "🔢 Generating image hash..."
+    docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
+    echo "✅ Tarball created: helix-sway.tar.gz ($TARBALL_SIZE)"
+  else
+    # Build was cached AND tarball exists - reuse it (fast path!)
+    TARBALL_SIZE=$(du -h helix-sway.tar.gz | cut -f1)
+
+    # Update hash file if it doesn't exist or if image changed
+    if [ ! -f helix-sway.tar.gz.hash ]; then
+      echo "🔢 Generating image hash..."
+      docker images helix-sway:latest --format '{{.ID}}' > helix-sway.tar.gz.hash
+    fi
+    echo "✅ Reusing existing tarball: helix-sway.tar.gz ($TARBALL_SIZE) (helix-sway was fully cached)"
+  fi
+  echo ""
+
+  # Step 3: Build unified sandbox container with embedded tarball
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [3/4] Building helix-sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Build sandbox with tarball embedded
+  if [ -n "$GIT_TAG" ]; then
+    echo "🏷️  Git tag detected: ${GIT_TAG}"
+    docker build -f Dockerfile.sandbox \
+      -t helix-sandbox:latest \
+      -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
+      -t "registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}" \
+      .
+  else
+    docker build -f Dockerfile.sandbox \
+      -t helix-sandbox:latest \
+      -t "registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}" \
+      .
+  fi
+
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to build helix-sandbox container"
+    rm -f helix-sway.tar.gz
+    return 1
+  fi
+
+  # Keep tarball for future builds (enables fast rebuilds when helix-sway is cached)
+  # Only cleanup on failure or when explicitly requested
+  echo "✅ helix-sandbox container built successfully (kept helix-sway.tar.gz for next build)"
+  echo ""
+
+  # Step 4: Restart sandbox and transfer fresh image
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📝 [4/4] Restarting sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # Restart to pick up new image (handled by existing code below)
+
+  # Push to registry in production mode
+  if [ -n "${PUSH_TO_REGISTRY:-}" ]; then
+    echo "📤 Pushing sandbox image to registry..."
+
+    # Push helix-sandbox (contains Wolf + Moonlight Web + helix-sway tarball)
+    local SANDBOX_BASE="registry.helixml.tech/helix/helix-sandbox"
+    if push_image_tags "$SANDBOX_BASE"; then
+      echo "✅ Sandbox images pushed successfully"
+    else
+      echo "⚠️  Failed to push sandbox images"
+      return 1
+    fi
+
+    echo "📦 Registry images pushed (helix-sway is embedded, not pushed separately)"
+  fi
+
+  # Restart sandbox in dev mode
   if [ -z "${SKIP_DEV_RESTART:-}" ]; then
-    echo "🔄 Removing old Moonlight Web container and recreating with updated image..."
-    docker compose -f docker-compose.dev.yaml rm -f moonlight-web
-    docker compose -f docker-compose.dev.yaml up -d moonlight-web
+    echo "🔄 Restarting sandbox container with updated image..."
+    docker compose -f docker-compose.dev.yaml rm -f sandbox
+    docker compose -f docker-compose.dev.yaml up -d sandbox
 
-    echo "✅ Moonlight Web container rebuilt and restarted successfully"
-    echo "🌙 Moonlight Web is ready for testing with latest source code changes"
+    echo "✅ Sandbox container rebuilt and restarted successfully"
   fi
+
+  echo ""
+  echo "📦 Unified sandbox ready: helix-sandbox:latest"
+  echo ""
+  echo "Components included:"
+  echo "  • Wolf (streaming platform)"
+  echo "  • Moonlight Web (WebRTC browser streaming)"
+  echo "  • RevDial client (control plane connection)"
+  echo "  • Docker-in-Docker (Wolf's isolated dockerd)"
+  echo "  • helix-sway image (pre-loaded tarball: $TARBALL_SIZE)"
+  echo ""
+  echo "Services managed by GOW's init system:"
+  echo "  • 04-start-dockerd.sh - starts Wolf's dockerd + loads helix-sway"
+  echo "  • 05-init-wolf-config.sh - initializes Wolf config"
+  echo "  • 06-init-moonlight-config.sh - initializes Moonlight Web"
+  echo "  • 07-start-moonlight-web.sh - starts Moonlight Web daemon"
+  echo "  • 08-start-revdial-client.sh - starts RevDial daemon (if configured)"
+  echo "  • startup-app.sh - starts Wolf as main process"
+  echo ""
+  echo "🎉 Sandbox build completed successfully!"
 }
 
 # NOTE: This function requires specific branches to be checked out in dependency repositories:
@@ -919,7 +1164,7 @@ function build-and-push-helix-code() {
   echo "🚀 Building and pushing Helix Code components for production deployment"
   echo "========================================================================"
   echo ""
-  echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, and Moonlight Web"
+  echo "Note: API and Frontend are built by CI - this builds Wolf, Zed Agent, Moonlight Web, and Sandbox"
   echo ""
 
   # Enable image pushing to registry for production builds
@@ -940,14 +1185,14 @@ function build-and-push-helix-code() {
   echo ""
 
   # Track build status
-  local TOTAL_BUILDS=3
+  local TOTAL_BUILDS=4
   local COMPLETED_BUILDS=0
 
   # 1. Build Wolf
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📦 [1/$TOTAL_BUILDS] Building Wolf streaming platform..."
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  if rebuild-wolf; then
+  if build-wolf; then
     echo "✅ Wolf built and pushed successfully"
     COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
   else
@@ -982,6 +1227,19 @@ function build-and-push-helix-code() {
   fi
   echo ""
 
+  # 4. Build unified Sandbox (Wolf + Moonlight Web + RevDial + DinD)
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 [4/$TOTAL_BUILDS] Building unified Sandbox container..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if build-sandbox; then
+    echo "✅ Sandbox built and pushed successfully"
+    COMPLETED_BUILDS=$((COMPLETED_BUILDS + 1))
+  else
+    echo "❌ Failed to build Sandbox"
+    FAILED_BUILDS+=("sandbox")
+  fi
+  echo ""
+
   # Build summary
   local BUILD_END=$(date +%s)
   local BUILD_DURATION=$((BUILD_END - BUILD_START))
@@ -1001,15 +1259,13 @@ function build-and-push-helix-code() {
     echo "✅ All images built and pushed successfully!"
     echo ""
     echo "📦 Production images ready (commit: ${COMMIT_HASH}):"
-    echo "   • registry.helixml.tech/helix/wolf:${COMMIT_HASH}"
-    echo "   • registry.helixml.tech/helix/zed-agent:${COMMIT_HASH}"
-    echo "   • registry.helixml.tech/helix/moonlight-web:${COMMIT_HASH}"
+    echo "   • registry.helixml.tech/helix/helix-sandbox:${COMMIT_HASH}"
+    echo ""
+    echo "📝 Note: helix-sandbox contains Wolf + Moonlight Web + helix-sway (all embedded)"
     if [ -n "$GIT_TAG" ]; then
       echo ""
       echo "📦 Also tagged with git tag (${GIT_TAG}):"
-      echo "   • registry.helixml.tech/helix/wolf:${GIT_TAG}"
-      echo "   • registry.helixml.tech/helix/zed-agent:${GIT_TAG}"
-      echo "   • registry.helixml.tech/helix/moonlight-web:${GIT_TAG}"
+      echo "   • registry.helixml.tech/helix/helix-sandbox:${GIT_TAG}"
     fi
     echo ""
     echo "🚀 Ready for production deployment!"
@@ -1400,7 +1656,8 @@ function help() {
   echo ""
   echo "Production build commands:"
   echo "  build-and-push-helix-code - Build ALL Helix Code images and push to registry (full stack)"
-  echo "  rebuild-wolf       - Rebuild Wolf container with latest source code and push to registry"
+  echo "  build-sandbox      - Build unified sandbox container (Wolf + Moonlight Web + RevDial + DinD)"
+  echo "  build-wolf         - Build Wolf container with latest source code"
   echo "  build-xfce         - Build custom XFCE container with passwordless sudo"
   echo "  build-sway         - Build Sway+Zed container image and push to registry (builds Zed if needed)"
   echo "  build-moonlight-web - Build Moonlight Web container and push to registry"

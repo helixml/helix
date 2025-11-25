@@ -1,0 +1,72 @@
+# Example Docker Compose configuration for remote Wolf instance with RevDial
+#
+# This file demonstrates how to deploy a Wolf instance that connects to a remote
+# Helix control plane via RevDial, enabling distributed deployment.
+#
+# Usage:
+#   1. Copy this file: cp docker-compose.example.yaml docker-compose.yaml
+#   2. Create .env file with RUNNER_TOKEN
+#   3. Update HELIX_API_URL to point to your control plane
+#   4. Run: docker compose up -d
+
+version: '3.8'
+
+services:
+  # Wolf streaming server
+  wolf:
+    image: ghcr.io/helixml/wolf:latest
+    privileged: true  # Required for Docker-in-Docker
+    runtime: nvidia   # Use nvidia runtime for GPU support (or remove for CPU-only)
+    devices:
+      - /dev/dri           # Required for GPU-accelerated rendering
+      - /dev/nvidia0       # NVIDIA GPU (remove for AMD/Intel)
+      - /dev/nvidiactl
+      - /dev/nvidia-uvm
+      # For AMD GPUs, use:
+      # - /dev/kfd
+      # - /dev/dri
+    volumes:
+      - wolf-docker:/var/lib/docker  # Wolf's isolated dockerd storage
+    ports:
+      - "127.0.0.1:8080:8080"  # Wolf API (localhost only, accessed via RevDial)
+    environment:
+      - WOLF_ID=${WOLF_ID:-wolf-1}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/apps"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # RevDial client (connects Wolf to control plane)
+  wolf-revdial-client:
+    image: ghcr.io/helixml/helix/wolf-revdial-client:latest
+    depends_on:
+      - wolf
+    environment:
+      # Control plane API URL (REQUIRED - change to your control plane)
+      HELIX_API_URL: ${HELIX_API_URL:-http://api.example.com:8080}
+
+      # Unique Wolf instance ID (REQUIRED)
+      WOLF_ID: ${WOLF_ID:-wolf-1}
+
+      # Runner token for authentication (REQUIRED - set in .env file)
+      RUNNER_TOKEN: ${RUNNER_TOKEN}
+
+    # Auto-restart on connection failures
+    restart: unless-stopped
+
+    # Share network with Wolf to access localhost:8080
+    network_mode: "service:wolf"
+
+volumes:
+  # Persistent storage for Wolf's dockerd
+  # Stores container images, layers, and sandbox containers
+  wolf-docker:
+    driver: local
+
+# Example .env file:
+#
+# HELIX_API_URL=https://api.example.com
+# WOLF_ID=wolf-us-west-2-gpu-1
+# RUNNER_TOKEN=your-runner-token-here

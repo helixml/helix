@@ -1,12 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"strings"
 
@@ -20,7 +21,7 @@ import (
 func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	log.Info().
+	log.Error().
 		Str("method", r.Method).
 		Str("path", r.URL.Path).
 		Str("query", r.URL.RawQuery).
@@ -28,7 +29,7 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 		Str("upgrade_header", r.Header.Get("Upgrade")).
 		Str("connection_header", r.Header.Get("Connection")).
 		Bool("is_websocket", r.Header.Get("Upgrade") == "websocket").
-		Msg("🌐 Moonlight proxy request received")
+		Msg("🌐🌐🌐 MOONLIGHT PROXY REQUEST RECEIVED 🌐🌐🌐")
 
 	// Extract user context (added by auth middleware)
 	user := getRequestUser(r)
@@ -51,7 +52,9 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 	// Format: "agent-ses_xxx" or "agent-req_xxx" in session_id query param
 	sessionID := apiServer.extractHelixSessionFromMoonlightRequest(r)
 
-	// If we have a session ID, verify user has access
+	// Determine which Moonlight Web instance to route to based on session's Wolf instance
+	var moonlightRunnerID string
+
 	if sessionID != "" {
 		// Check access to session (checks owner, access grants, org membership)
 		if !apiServer.canUserStreamSession(ctx, user, sessionID) {
@@ -67,51 +70,295 @@ func (apiServer *HelixAPIServer) proxyToMoonlightWeb(w http.ResponseWriter, r *h
 			Str("session_id", sessionID).
 			Str("user_id", user.ID).
 			Msg("Streaming access granted")
+
+		// Get session to determine Wolf instance
+		session, err := apiServer.Store.GetSession(ctx, sessionID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("session_id", sessionID).
+				Msg("Failed to get session for Moonlight routing")
+			http.Error(w, "Session not found", http.StatusNotFound)
+			return
+		}
+
+		// Route to the Wolf instance running this session
+		// Format: moonlight-{wolfInstanceID}
+		if session.WolfInstanceID != "" {
+			moonlightRunnerID = "moonlight-" + session.WolfInstanceID
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("wolf_instance_id", session.WolfInstanceID).
+				Str("moonlight_runner_id", moonlightRunnerID).
+				Msg("Routing to Wolf instance's Moonlight Web")
+		}
 	}
 
-	// Moonlight Web service URL (from docker-compose network)
-	moonlightWebURL := "http://moonlight-web:8080"
+	// Fallback to environment variable or dev default
+	if moonlightRunnerID == "" {
+		moonlightRunnerID = os.Getenv("MOONLIGHT_RUNNER_ID")
+		if moonlightRunnerID == "" {
+			moonlightRunnerID = "moonlight-dev" // Default for dev mode
+		}
+	}
 
-	// Handle WebSocket upgrade separately (reverse proxy can't handle this)
+	log.Debug().
+		Str("runner_id", moonlightRunnerID).
+		Str("path", r.URL.Path).
+		Msg("Proxying to Moonlight Web via RevDial")
+
+	// Dial Moonlight Web via RevDial
+	conn, err := apiServer.connman.Dial(ctx, moonlightRunnerID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", moonlightRunnerID).
+			Msg("Failed to dial Moonlight Web via RevDial")
+		http.Error(w, "Failed to connect to Moonlight Web - check that sandbox is running", http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	log.Debug().
+		Str("runner_id", moonlightRunnerID).
+		Msg("Connected to Moonlight Web via RevDial")
+
+	// Handle WebSocket upgrade (for WebRTC signaling)
 	if r.Header.Get("Upgrade") == "websocket" {
-		apiServer.proxyWebSocket(w, r, moonlightWebURL, user)
+		apiServer.proxyWebSocketViaRevDial(w, r, conn, user)
 		return
 	}
 
-	// Handle regular HTTP requests with reverse proxy
-	target, err := url.Parse(moonlightWebURL)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to parse moonlight-web URL")
+	// Handle regular HTTP requests via RevDial tunnel
+	// Strip /moonlight prefix and add /api prefix for Moonlight Web
+	// Frontend sends: /moonlight/api/sessions
+	// Moonlight Web expects: /api/sessions
+	backendPath := strings.TrimPrefix(r.URL.Path, "/moonlight")
+	if backendPath == "" {
+		backendPath = "/"
+	}
+	if !strings.HasPrefix(backendPath, "/api/") {
+		backendPath = "/api" + backendPath
+	}
+
+	log.Debug().
+		Str("original_path", r.URL.Path).
+		Str("backend_path", backendPath).
+		Msg("Forwarding HTTP request to Moonlight Web via RevDial")
+
+	// Clone request with modified path
+	backendReq := r.Clone(ctx)
+	backendReq.URL.Path = backendPath
+	backendReq.RequestURI = backendPath
+	if r.URL.RawQuery != "" {
+		backendReq.RequestURI += "?" + r.URL.RawQuery
+	}
+
+	// Write HTTP request to RevDial connection
+	if err := backendReq.Write(conn); err != nil {
+		log.Error().Err(err).Msg("Failed to write request to RevDial connection")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Read HTTP response from RevDial connection
+	resp, err := http.ReadResponse(bufio.NewReader(conn), r)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to read response from RevDial connection")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
 
-	// Customize proxy director to inject moonlight credentials
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
 
-		// Inject moonlight-web credentials for backend authentication
+	// Copy response status and body
+	w.WriteHeader(resp.StatusCode)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		log.Error().Err(err).Msg("Failed to copy response body")
+		return
+	}
+}
+
+// proxyWebSocketViaRevDial proxies WebSocket connections through RevDial tunnel
+func (apiServer *HelixAPIServer) proxyWebSocketViaRevDial(w http.ResponseWriter, r *http.Request, revdialConn net.Conn, user *types.User) {
+	// Upgrade client connection to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins (RBAC already enforced)
+		},
+	}
+
+	clientWS, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade client WebSocket")
+		return
+	}
+	defer clientWS.Close()
+
+	// Strip /moonlight prefix and add /api prefix for Moonlight Web
+	// Frontend sends: /moonlight/host/stream
+	// Moonlight Web expects: /api/host/stream
+	backendPath := strings.TrimPrefix(r.URL.Path, "/moonlight")
+	if backendPath == "" {
+		backendPath = "/"
+	}
+	if !strings.HasPrefix(backendPath, "/api/") {
+		backendPath = "/api" + backendPath
+	}
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Str("original_path", r.URL.Path).
+		Str("backend_path", backendPath).
+		Msg("Client WebSocket upgraded, sending request to Moonlight Web via RevDial")
+
+	// Clone the request with modified path
+	backendReq := r.Clone(r.Context())
+	backendReq.URL.Path = backendPath
+	backendReq.RequestURI = backendPath
+	if r.URL.RawQuery != "" {
+		backendReq.RequestURI += "?" + r.URL.RawQuery
+	}
+
+	// Instead of manually handling WebSocket frames over raw TCP,
+	// create a proper WebSocket client connection via RevDial using a custom dialer
+	moonlightCreds := apiServer.getMoonlightCredentials()
+
+	// Create custom dialer that uses our existing RevDial connection
+	backendWSURL := fmt.Sprintf("ws://moonlight-web%s", backendPath)
+	if r.URL.RawQuery != "" {
+		backendWSURL += "?" + r.URL.RawQuery
+	}
+
+	log.Debug().
+		Str("backend_url", backendWSURL).
+		Msg("Creating WebSocket connection to Moonlight Web via RevDial")
+
+	// Create WebSocket connection using the RevDial connection as transport
+	backendHeaders := http.Header{}
+	backendHeaders.Set("Authorization", "Bearer "+moonlightCreds)
+
+	dialer := websocket.Dialer{
+		NetDial: func(network, addr string) (net.Conn, error) {
+			// Return our existing RevDial connection instead of creating a new one
+			return revdialConn, nil
+		},
+	}
+
+	backendWS, resp, err := dialer.Dial(backendWSURL, backendHeaders)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("backend_url", backendWSURL).
+			Int("status", func() int {
+				if resp != nil {
+					return resp.StatusCode
+				}
+				return 0
+			}()).
+			Msg("Failed to establish WebSocket to Moonlight Web via RevDial")
+		return
+	}
+	defer backendWS.Close()
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+
+	log.Debug().Msg("WebSocket connection established to Moonlight Web, starting bidirectional proxy")
+
+	errChan := make(chan error, 2)
+
+	// Client → Moonlight Web (with credential replacement on first message)
+	go func() {
 		moonlightCreds := apiServer.getMoonlightCredentials()
-		req.Header.Set("Authorization", "Bearer "+moonlightCreds)
+		firstMessage := true
 
-		log.Debug().
-			Str("user_id", user.ID).
-			Str("original_path", r.URL.Path).
-			Str("proxy_path", req.URL.Path).
-			Msg("Proxying HTTP request to moonlight-web")
+		for {
+			messageType, message, err := clientWS.ReadMessage()
+			if err != nil {
+				if err != io.EOF && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					errChan <- fmt.Errorf("client read error: %w", err)
+				} else {
+					errChan <- nil
+				}
+				return
+			}
+
+			// Replace Helix JWT with Moonlight credentials in first message (AuthenticateAndInit)
+			transformedMessage := message
+			if firstMessage && messageType == websocket.TextMessage {
+				var msg map[string]interface{}
+				if err := json.Unmarshal(message, &msg); err == nil {
+					if authInitRaw, exists := msg["AuthenticateAndInit"]; exists {
+						if authInit, ok := authInitRaw.(map[string]interface{}); ok {
+							log.Debug().
+								Str("user_id", user.ID).
+								Str("old_creds_prefix", func() string {
+									if creds, ok := authInit["credentials"].(string); ok && len(creds) > 20 {
+										return creds[:20] + "..."
+									}
+									return "unknown"
+								}()).
+								Str("new_creds", moonlightCreds).
+								Msg("🔄 Replacing Helix JWT with Moonlight credentials")
+
+							authInit["credentials"] = moonlightCreds
+							msg["AuthenticateAndInit"] = authInit
+
+							if transformedBytes, err := json.Marshal(msg); err == nil {
+								transformedMessage = transformedBytes
+								log.Debug().Msg("✅ Credentials replaced successfully")
+							} else {
+								log.Error().Err(err).Msg("Failed to marshal transformed message, using original")
+							}
+						}
+					}
+				}
+				firstMessage = false
+			}
+
+			// Forward to Moonlight Web
+			if err := backendWS.WriteMessage(messageType, transformedMessage); err != nil {
+				errChan <- fmt.Errorf("backend write error: %w", err)
+				return
+			}
+		}
+	}()
+
+	// Moonlight Web → Client
+	go func() {
+		for {
+			messageType, message, err := backendWS.ReadMessage()
+			if err != nil {
+				if err != io.EOF && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					errChan <- fmt.Errorf("backend read error: %w", err)
+				} else {
+					errChan <- nil
+				}
+				return
+			}
+
+			// Forward to client
+			if err := clientWS.WriteMessage(messageType, message); err != nil {
+				errChan <- fmt.Errorf("client write error: %w", err)
+				return
+			}
+		}
+	}()
+
+	// Wait for either direction to close
+	err = <-errChan
+	if err != nil {
+		log.Debug().Err(err).Msg("WebSocket proxy error")
 	}
 
-	// Modify the request to remove /moonlight prefix
-	r.URL.Path = strings.TrimPrefix(r.URL.Path, "/moonlight")
-	if r.URL.Path == "" {
-		r.URL.Path = "/"
-	}
-
-	// Proxy the request
-	proxy.ServeHTTP(w, r)
+	log.Debug().Msg("WebSocket proxy connection closed")
 }
 
 // extractHelixSessionFromMoonlightRequest extracts Helix session ID from moonlight request
@@ -143,6 +390,10 @@ func (apiServer *HelixAPIServer) extractHelixSessionFromMoonlightRequest(r *http
 	return ""
 }
 
+// OLD IMPLEMENTATION - DELETED
+// This was the Docker-in-Docker version that connected directly to moonlight-web:8080
+// Now we use RevDial proxy above (proxyToMoonlightWeb + proxyWebSocketViaRevDial)
+//
 // getMoonlightCredentials returns the moonlight-web authentication credentials
 // SECURITY: Read directly from env, do NOT expose via config endpoint
 func (apiServer *HelixAPIServer) getMoonlightCredentials() string {
@@ -156,8 +407,8 @@ func (apiServer *HelixAPIServer) getMoonlightCredentials() string {
 	return creds
 }
 
-// proxyWebSocket handles WebSocket upgrade and proxies to moonlight-web
-func (apiServer *HelixAPIServer) proxyWebSocket(w http.ResponseWriter, r *http.Request, moonlightWebURL string, user *types.User) {
+// proxyWebSocket_OLD - UNUSED (kept for reference, uses Docker-in-Docker architecture)
+func (apiServer *HelixAPIServer) proxyWebSocket_OLD(w http.ResponseWriter, r *http.Request, moonlightWebURL string, user *types.User) {
 	// Remove /moonlight prefix for backend
 	// Note: moonlight-web WebSocket is at /api/host/stream, not just /host/stream
 	backendPath := strings.TrimPrefix(r.URL.Path, "/moonlight")

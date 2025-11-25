@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	revdial "golang.org/x/build/revdial/v2"
+	"github.com/helixml/helix/api/pkg/revdial"
 )
 
 var (
@@ -42,4 +42,21 @@ func (m *ConnectionManager) Dial(ctx context.Context, key string) (net.Conn, err
 	m.lock.RUnlock()
 
 	return dialer.Dial(ctx)
+}
+
+func (m *ConnectionManager) Remove(key string) {
+	m.lock.Lock()
+	delete(m.deviceDialers, key)
+	m.lock.Unlock()
+}
+
+func (m *ConnectionManager) List() []string {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	keys := make([]string, 0, len(m.deviceDialers))
+	for k := range m.deviceDialers {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -717,6 +717,9 @@ type Session struct {
 	QuestionSetExecutionID string `json:"question_set_execution_id"` // The question set execution this session belongs to, if any
 
 	Trigger string `json:"trigger"`
+
+	// WolfInstanceID tracks which Wolf instance is running this session's sandbox (if any)
+	WolfInstanceID string `json:"wolf_instance_id" gorm:"type:varchar(255);index"`
 }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
@@ -1870,6 +1873,8 @@ type ZedAgentResponse struct {
 	WolfLobbyID string `json:"wolf_lobby_id,omitempty"`
 	// Wolf lobby PIN for access control (NEW - Phase 3: Multi-tenancy)
 	WolfLobbyPIN string `json:"wolf_lobby_pin,omitempty"`
+	// Wolf instance ID running this sandbox (for multi-Wolf deployment)
+	WolfInstanceID string `json:"wolf_instance_id,omitempty"`
 	// Container name for direct access
 	ContainerName string `json:"container_name,omitempty"`
 	// WebSocket URL for thread sync connection

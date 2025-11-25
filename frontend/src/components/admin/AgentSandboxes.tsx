@@ -491,27 +491,33 @@ const PipelineNetworkVisualization: FC<{ data: AgentSandboxesDebugResponse }> = 
   )
 }
 
-const AgentSandboxes: FC = () => {
+interface AgentSandboxesProps {
+  selectedSandboxId: string;
+}
+
+const AgentSandboxes: FC<AgentSandboxesProps> = ({ selectedSandboxId }) => {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
   const snackbar = useSnackbar()
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['agent-sandboxes-debug'],
+    queryKey: ['agent-sandboxes-debug', selectedSandboxId],
     queryFn: async () => {
-      const response = await apiClient.v1AdminAgentSandboxesDebugList()
+      if (!selectedSandboxId) return null
+      const response = await apiClient.v1AdminAgentSandboxesDebugList({ wolf_instance_id: selectedSandboxId })
       return response.data
     },
+    enabled: !!selectedSandboxId, // Only fetch when an instance is selected
     refetchInterval: 5000,
   })
 
   // Mutation to stop Wolf lobby
   const stopLobbyMutation = useMutation({
-    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId),
+    mutationFn: (lobbyId: string) => apiClient.v1AdminWolfLobbiesDelete(lobbyId, { wolf_instance_id: selectedSandboxId }),
     onSuccess: () => {
       snackbar.success('Lobby stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedSandboxId] })
     },
     onError: (err: any) => {
       snackbar.error(`Failed to stop lobby: ${err.message || 'Unknown error'}`)
@@ -520,10 +526,10 @@ const AgentSandboxes: FC = () => {
 
   // Mutation to stop Wolf streaming session
   const stopSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId),
+    mutationFn: (sessionId: string) => apiClient.v1AdminWolfSessionsDelete(sessionId, { wolf_instance_id: selectedSandboxId }),
     onSuccess: () => {
       snackbar.success('Streaming session stopped successfully')
-      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-sandboxes-debug', selectedSandboxId] })
     },
     onError: (err: any) => {
       snackbar.error(`Failed to stop session: ${err.message || 'Unknown error'}`)
@@ -537,10 +543,21 @@ const AgentSandboxes: FC = () => {
   const containers = isAppsMode ? apps : lobbies
   const sessions = data?.sessions || []
 
+  // Show message if no sandbox selected
+  if (!selectedSandboxId) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="info">
+          Select an agent sandbox from the dropdown above to view its status.
+        </Alert>
+      </Box>
+    )
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Agent Sandboxes Dashboard</Typography>
+        <Typography variant="h5">Wolf Streaming Overview</Typography>
         <IconButton onClick={() => refetch()} disabled={isLoading} sx={{ color: 'primary.main' }}>
           {isLoading ? <CircularProgress size={24} /> : <RefreshIcon />}
         </IconButton>
@@ -567,7 +584,7 @@ const AgentSandboxes: FC = () => {
                 title="GPU Encoder Stats"
                 subheader={
                   <>
-                    {data.gpu_stats.gpu_name || 'NVIDIA GPU'}
+                    {data.gpu_stats.gpu_name || 'GPU'}
                     {data.gstreamer_pipelines && (
                       <>
                         {' • '}
@@ -579,7 +596,7 @@ const AgentSandboxes: FC = () => {
                     {data.gpu_stats.query_duration_ms > 0 && (
                       <>
                         {' • '}
-                        nvidia-smi: {data.gpu_stats.query_duration_ms}ms (cached 2s)
+                        GPU query: {data.gpu_stats.query_duration_ms}ms (cached 2s)
                       </>
                     )}
                   </>

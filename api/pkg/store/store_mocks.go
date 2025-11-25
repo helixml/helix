@@ -945,6 +945,20 @@ func (mr *MockStoreMockRecorder) CreateWallet(ctx, wallet any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWallet", reflect.TypeOf((*MockStore)(nil).CreateWallet), ctx, wallet)
 }
 
+// DecrementWolfSandboxCount mocks base method.
+func (m *MockStore) DecrementWolfSandboxCount(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecrementWolfSandboxCount", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DecrementWolfSandboxCount indicates an expected call of DecrementWolfSandboxCount.
+func (mr *MockStoreMockRecorder) DecrementWolfSandboxCount(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementWolfSandboxCount", reflect.TypeOf((*MockStore)(nil).DecrementWolfSandboxCount), ctx, id)
+}
+
 // DeleteAPIKey mocks base method.
 func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey string) error {
 	m.ctrl.T.Helper()
@@ -1574,6 +1588,20 @@ func (m *MockStore) DeleteZedSettingsOverride(ctx context.Context, sessionID str
 func (mr *MockStoreMockRecorder) DeleteZedSettingsOverride(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).DeleteZedSettingsOverride), ctx, sessionID)
+}
+
+// DeregisterWolfInstance mocks base method.
+func (m *MockStore) DeregisterWolfInstance(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeregisterWolfInstance", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeregisterWolfInstance indicates an expected call of DeregisterWolfInstance.
+func (mr *MockStoreMockRecorder) DeregisterWolfInstance(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeregisterWolfInstance", reflect.TypeOf((*MockStore)(nil).DeregisterWolfInstance), ctx, id)
 }
 
 // DetachRepositoryFromProject mocks base method.
@@ -2895,6 +2923,36 @@ func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
 }
 
+// GetWolfInstance mocks base method.
+func (m *MockStore) GetWolfInstance(ctx context.Context, id string) (*types.WolfInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWolfInstance", ctx, id)
+	ret0, _ := ret[0].(*types.WolfInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWolfInstance indicates an expected call of GetWolfInstance.
+func (mr *MockStoreMockRecorder) GetWolfInstance(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWolfInstance", reflect.TypeOf((*MockStore)(nil).GetWolfInstance), ctx, id)
+}
+
+// GetWolfInstancesOlderThanHeartbeat mocks base method.
+func (m *MockStore) GetWolfInstancesOlderThanHeartbeat(ctx context.Context, olderThan time.Time) ([]*types.WolfInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWolfInstancesOlderThanHeartbeat", ctx, olderThan)
+	ret0, _ := ret[0].([]*types.WolfInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWolfInstancesOlderThanHeartbeat indicates an expected call of GetWolfInstancesOlderThanHeartbeat.
+func (mr *MockStoreMockRecorder) GetWolfInstancesOlderThanHeartbeat(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWolfInstancesOlderThanHeartbeat", reflect.TypeOf((*MockStore)(nil).GetWolfInstancesOlderThanHeartbeat), ctx, olderThan)
+}
+
 // GetZedSettingsOverride mocks base method.
 func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string) (*types.ZedSettingsOverride, error) {
 	m.ctrl.T.Helper()
@@ -2908,6 +2966,20 @@ func (m *MockStore) GetZedSettingsOverride(ctx context.Context, sessionID string
 func (mr *MockStoreMockRecorder) GetZedSettingsOverride(ctx, sessionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetZedSettingsOverride", reflect.TypeOf((*MockStore)(nil).GetZedSettingsOverride), ctx, sessionID)
+}
+
+// IncrementWolfSandboxCount mocks base method.
+func (m *MockStore) IncrementWolfSandboxCount(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementWolfSandboxCount", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementWolfSandboxCount indicates an expected call of IncrementWolfSandboxCount.
+func (mr *MockStoreMockRecorder) IncrementWolfSandboxCount(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementWolfSandboxCount", reflect.TypeOf((*MockStore)(nil).IncrementWolfSandboxCount), ctx, id)
 }
 
 // ListAPIKeys mocks base method.
@@ -3710,6 +3782,21 @@ func (mr *MockStoreMockRecorder) ListUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsers", reflect.TypeOf((*MockStore)(nil).ListUsers), ctx, query)
 }
 
+// ListWolfInstances mocks base method.
+func (m *MockStore) ListWolfInstances(ctx context.Context) ([]*types.WolfInstance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWolfInstances", ctx)
+	ret0, _ := ret[0].([]*types.WolfInstance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWolfInstances indicates an expected call of ListWolfInstances.
+func (mr *MockStoreMockRecorder) ListWolfInstances(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWolfInstances", reflect.TypeOf((*MockStore)(nil).ListWolfInstances), ctx)
+}
+
 // ListWorkSessionsBySpecTask mocks base method.
 func (m *MockStore) ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error) {
 	m.ctrl.T.Helper()
@@ -3795,6 +3882,20 @@ func (m *MockStore) ParseAndCreateImplementationTasks(ctx context.Context, specT
 func (mr *MockStoreMockRecorder) ParseAndCreateImplementationTasks(ctx, specTaskID, implementationPlan any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseAndCreateImplementationTasks", reflect.TypeOf((*MockStore)(nil).ParseAndCreateImplementationTasks), ctx, specTaskID, implementationPlan)
+}
+
+// RegisterWolfInstance mocks base method.
+func (m *MockStore) RegisterWolfInstance(ctx context.Context, instance *types.WolfInstance) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterWolfInstance", ctx, instance)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RegisterWolfInstance indicates an expected call of RegisterWolfInstance.
+func (mr *MockStoreMockRecorder) RegisterWolfInstance(ctx, instance any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterWolfInstance", reflect.TypeOf((*MockStore)(nil).RegisterWolfInstance), ctx, instance)
 }
 
 // ResetRunningExecutions mocks base method.
@@ -4596,6 +4697,34 @@ func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, am
 func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
+}
+
+// UpdateWolfHeartbeat mocks base method.
+func (m *MockStore) UpdateWolfHeartbeat(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWolfHeartbeat", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWolfHeartbeat indicates an expected call of UpdateWolfHeartbeat.
+func (mr *MockStoreMockRecorder) UpdateWolfHeartbeat(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWolfHeartbeat", reflect.TypeOf((*MockStore)(nil).UpdateWolfHeartbeat), ctx, id)
+}
+
+// UpdateWolfStatus mocks base method.
+func (m *MockStore) UpdateWolfStatus(ctx context.Context, id, status string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWolfStatus", ctx, id, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWolfStatus indicates an expected call of UpdateWolfStatus.
+func (mr *MockStoreMockRecorder) UpdateWolfStatus(ctx, id, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWolfStatus", reflect.TypeOf((*MockStore)(nil).UpdateWolfStatus), ctx, id, status)
 }
 
 // UpsertExternalAgentActivity mocks base method.

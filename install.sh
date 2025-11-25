@@ -114,7 +114,7 @@ AUTO=true
 CLI=false
 CONTROLPLANE=false
 RUNNER=false
-EXTERNAL_ZED_AGENT=false
+SANDBOX=false
 LARGE=false
 HAYSTACK=""
 KODIT=""
@@ -131,11 +131,12 @@ PROXY=https://get.helixml.tech
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
-EXTERNAL_ZED_RUNNER_ID=""
-EXTERNAL_ZED_CONCURRENCY="1"
 PROVIDERS_MANAGEMENT_ENABLED="true"
 SPLIT_RUNNERS="1"
 EXCLUDE_GPUS=""
+GPU_VENDOR=""  # Will be set to "nvidia", "amd", or "intel" during GPU detection
+TURN_PASSWORD=""  # TURN server password for sandbox nodes connecting to remote control plane
+MOONLIGHT_CREDENTIALS=""  # Moonlight Web credentials for sandbox nodes (default: helix)
 
 # Enhanced environment detection
 detect_environment() {
@@ -241,13 +242,15 @@ Options:
   --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
-  --external-zed-agent     Install the external Zed agent runner (connects to existing controlplane)
+  --sandbox                Install sandbox node (Wolf + Moonlight Web + RevDial client for remote machine)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
   --kodit                  Enable the kodit code indexing service
   --code                   Enable Helix Code features (Wolf streaming, External Agents, PDEs with Zed, Moonlight Web). Requires GPU (Intel/AMD/NVIDIA) with drivers installed and --api-host parameter.
-  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
-  --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
+  --api-host <host>        Specify the API host for the API to serve on and/or the runner/sandbox to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
+  --runner-token <token>   Specify the runner token when connecting a runner or sandbox to an existing controlplane
+  --turn-password <pass>   Specify the TURN server password for sandbox nodes (required for WebRTC NAT traversal when connecting to remote control plane)
+  --moonlight-credentials <creds> Specify the Moonlight Web credentials for sandbox nodes (default: helix, must match control plane MOONLIGHT_CREDENTIALS)
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
@@ -256,8 +259,6 @@ Options:
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   --providers-management-enabled <true|false> Enable/disable user-facing AI provider API keys management (default: true)
   --no-providers-management Disable user-facing AI provider API keys management (shorthand for --providers-management-enabled=false)
-  --external-zed-runner-id <id> Specify runner ID for external Zed agent (default: external-zed-{hostname})
-  --external-zed-concurrency <n> Specify concurrency for external Zed agent (default: 1)
   --split-runners <n>      Split GPUs across N runner containers (default: 1, must divide evenly into total GPU count)
   --exclude-gpu <id>       Exclude specific GPU(s) from runner (can be specified multiple times, e.g., --exclude-gpu 0 --exclude-gpu 1)
   -y                       Auto approve the installation
@@ -288,29 +289,29 @@ Examples:
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-8. Install external Zed agent to connect to existing controlplane:
-   ./install.sh --external-zed-agent --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
-
-9. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
-10. Install CLI and controlplane with custom embeddings provider:
+9. Install CLI and controlplane with custom embeddings provider:
    ./install.sh --cli --controlplane --embeddings-provider openai
 
-11. Install on Windows Git Bash (requires Docker Desktop):
-   ./install.sh --cli --controlplane
+10. Install on Windows Git Bash (requires Docker Desktop):
+    ./install.sh --cli --controlplane
 
-12. Install with Helix Code (auto-enables --cli --controlplane):
-   ./install.sh --code --api-host https://helix.mycompany.com
+11. Install with Helix Code (auto-enables --cli --controlplane):
+    ./install.sh --code --api-host https://helix.mycompany.com
 
-13. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
-   ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
+12. Install everything locally on a GPU machine (controlplane + runner + code + haystack):
+    ./install.sh --runner --code --haystack --api-host https://helix.mycompany.com
 
-14. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
-   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
+13. Install runner with GPUs split across 4 containers (for 8 GPUs = 2 GPUs per container):
+    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --split-runners 4
 
-15. Install runner excluding GPU 0 (use GPUs 1-7 only):
-   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
+14. Install runner excluding GPU 0 (use GPUs 1-7 only):
+    ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --exclude-gpu 0
+
+15. Install sandbox node (Wolf + Moonlight Web + RevDial client):
+    ./install.sh --sandbox --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD
 
 EOF
 }
@@ -369,8 +370,8 @@ while [[ $# -gt 0 ]]; do
             AUTO=false
             shift
             ;;
-        --external-zed-agent)
-            EXTERNAL_ZED_AGENT=true
+        --sandbox)
+            SANDBOX=true
             AUTO=false
             shift
             ;;
@@ -404,6 +405,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --runner-token)
             RUNNER_TOKEN="$2"
+            shift 2
+            ;;
+        --turn-password=*)
+            TURN_PASSWORD="${1#*=}"
+            shift
+            ;;
+        --turn-password)
+            TURN_PASSWORD="$2"
+            shift 2
+            ;;
+        --moonlight-credentials=*)
+            MOONLIGHT_CREDENTIALS="${1#*=}"
+            shift
+            ;;
+        --moonlight-credentials)
+            MOONLIGHT_CREDENTIALS="$2"
             shift 2
             ;;
         --together-api-key=*)
@@ -484,22 +501,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cli-install-path)
             CLI_INSTALL_PATH="$2"
-            shift 2
-            ;;
-        --external-zed-runner-id=*)
-            EXTERNAL_ZED_RUNNER_ID="${1#*=}"
-            shift
-            ;;
-        --external-zed-runner-id)
-            EXTERNAL_ZED_RUNNER_ID="$2"
-            shift 2
-            ;;
-        --external-zed-concurrency=*)
-            EXTERNAL_ZED_CONCURRENCY="${1#*=}"
-            shift
-            ;;
-        --external-zed-concurrency)
-            EXTERNAL_ZED_CONCURRENCY="$2"
             shift 2
             ;;
         --split-runners=*)
@@ -733,7 +734,7 @@ install_docker_compose_only() {
 DOCKER_CMD="docker"
 
 # Only check docker sudo if we need docker (i.e., not CLI-only installation)
-if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$EXTERNAL_ZED_AGENT" = false ]; then
+if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ] && [ "$SANDBOX" = false ]; then
     NEED_SUDO="false"
 else
     # Docker is needed - check if it's installed
@@ -820,7 +821,23 @@ check_nvidia_gpu() {
     fi
 }
 
+# Function to check for AMD GPU specifically (for Helix Code with ROCm)
+check_amd_gpu() {
+    # Check for AMD GPU via lspci
+    if command -v lspci &> /dev/null; then
+        if lspci | grep -iE "(VGA|3D|Display).*AMD" &> /dev/null; then
+            # Verify /dev/kfd (ROCm Kernel Fusion Driver) and /dev/dri exist
+            if [ -e "/dev/kfd" ] && [ -d "/dev/dri" ] && [ -n "$(ls -A /dev/dri 2>/dev/null)" ]; then
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
 # Function to check for Intel/AMD GPU (for Helix Code)
+# Note: This checks for /dev/dri but doesn't distinguish between Intel and AMD
+# Use check_amd_gpu() for specific AMD detection with ROCm support
 check_intel_amd_gpu() {
     # Check for /dev/dri devices, but only if NVIDIA is NOT present
     # (NVIDIA also creates /dev/dri, so we check NVIDIA first in the calling code)
@@ -1046,36 +1063,39 @@ fi
 
 # Validate GPU requirements for --runner flag (MUST happen before token validation)
 if [ "$RUNNER" = true ]; then
-    if ! check_nvidia_gpu; then
+    # Check for NVIDIA GPU first
+    if check_nvidia_gpu; then
+        echo "NVIDIA GPU detected. Runner requirements satisfied."
+        GPU_VENDOR="nvidia"
+
+        if check_nvidia_runtime_needed; then
+            # Check if toolkit already installed or needs fresh install
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
+        fi
+    elif check_amd_gpu; then
+        echo "AMD GPU detected with ROCm support. Runner requirements satisfied."
+        echo "Note: Ollama will use AMD GPU. vLLM will use CPU until ROCm-enabled runner image is available."
+        GPU_VENDOR="amd"
+    else
         echo "┌───────────────────────────────────────────────────────────────────────────"
-        echo "│ ❌ ERROR: --runner requires NVIDIA GPU"
+        echo "│ ❌ ERROR: --runner requires GPU (NVIDIA or AMD)"
         echo "│"
-        echo "│ No NVIDIA GPU detected. Helix Runner requires an NVIDIA GPU."
+        echo "│ No compatible GPU detected. Helix Runner requires a GPU with drivers."
         echo "│"
         echo "│ If you have an NVIDIA GPU:"
-        echo "│   1. Install NVIDIA drivers (Ubuntu/Debian):"
-        echo "│      sudo ubuntu-drivers install"
-        echo "│      # OR manually: sudo apt install nvidia-driver-<version>"
+        echo "│   1. Install NVIDIA drivers: sudo ubuntu-drivers install"
+        echo "│   2. Reboot: sudo reboot"
+        echo "│   3. Verify: nvidia-smi"
         echo "│"
-        echo "│   2. Reboot your system:"
-        echo "│      sudo reboot"
-        echo "│"
-        echo "│   3. Verify drivers are loaded:"
-        echo "│      nvidia-smi"
-        echo "│"
-        echo "│   4. Re-run this installer - it will automatically install Docker and"
-        echo "│      the NVIDIA Docker runtime for you."
+        echo "│ If you have an AMD GPU:"
+        echo "│   1. Install AMD drivers and ROCm"
+        echo "│   2. Verify: ls /dev/kfd /dev/dri"
         echo "└───────────────────────────────────────────────────────────────────────────"
         exit 1
-    fi
-    echo "NVIDIA GPU detected. Runner requirements satisfied."
-    if check_nvidia_runtime_needed; then
-        # Check if toolkit already installed or needs fresh install
-        if command -v nvidia-container-toolkit &> /dev/null; then
-            echo "Note: NVIDIA Docker runtime will be configured automatically."
-        else
-            echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
-        fi
     fi
 fi
 
@@ -1110,15 +1130,18 @@ if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ]; then
     fi
 fi
 
-if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-    # When installing external Zed agent, both API_HOST and RUNNER_TOKEN are required
-    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: When installing the external Zed agent, you must specify --api-host and --runner-token"
+if [ "$SANDBOX" = true ]; then
+    # When installing sandbox node, API_HOST, RUNNER_TOKEN, and TURN_PASSWORD are required
+    if [ -z "$API_HOST" ] || [ -z "$RUNNER_TOKEN" ] || [ -z "$TURN_PASSWORD" ]; then
+        echo "Error: When installing sandbox node, you must specify --api-host, --runner-token, and --turn-password"
         echo "to connect to an external controlplane, for example:"
         echo
-        echo "./install.sh --external-zed-agent --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo "./install.sh --sandbox --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN --turn-password YOUR_TURN_PASSWORD"
         echo
-        echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
+        echo "You can find these values in <HELIX_INSTALL_DIR>/.env on the controlplane node:"
+        echo "  - RUNNER_TOKEN=..."
+        echo "  - TURN_PASSWORD=..."
+        echo "  - MOONLIGHT_CREDENTIALS=... (optional, default: helix)"
         exit 1
     fi
 fi
@@ -1128,6 +1151,7 @@ if [ "$CODE" = true ]; then
     # Check NVIDIA first (most specific detection via nvidia-smi)
     if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="nvidia"
 
         if check_nvidia_runtime_needed; then
             # Check if toolkit already installed or needs fresh install
@@ -1137,9 +1161,14 @@ if [ "$CODE" = true ]; then
                 echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
             fi
         fi
+    elif check_amd_gpu; then
+        # AMD GPU with ROCm support
+        echo "AMD GPU detected with ROCm support (/dev/kfd + /dev/dri). Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="amd"
     elif check_intel_amd_gpu; then
-        # No NVIDIA, but /dev/dri exists - assume Intel/AMD GPU
-        echo "Intel/AMD GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+        # No NVIDIA/AMD, but /dev/dri exists - assume Intel GPU
+        echo "Intel GPU detected (/dev/dri). Helix Code desktop streaming requirements satisfied."
+        GPU_VENDOR="intel"
     else
         # No GPU detected
         echo "┌───────────────────────────────────────────────────────────────────────────"
@@ -1177,7 +1206,7 @@ gather_modifications() {
     fi
 
     # Check if Docker needs to be installed
-    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
         if check_docker_needed; then
             # Only add Docker installation for Ubuntu/Debian/Fedora on Linux
             if [ "$OS" = "linux" ] && [ -f /etc/os-release ]; then
@@ -1217,9 +1246,9 @@ gather_modifications() {
         fi
     fi
 
-    if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-        modifications+="  - Build Zed agent Docker image\n"
-        modifications+="  - Install External Zed Agent runner script\n"
+
+    if [ "$SANDBOX" = true ]; then
+        modifications+="  - Set up Docker Compose for Sandbox Node (Wolf + Moonlight Web + RevDial client)\n"
     fi
 
     echo -e "$modifications"
@@ -1257,7 +1286,7 @@ ask_for_approval() {
 ask_for_approval
 
 # Install Docker if needed and approved (only after user approval)
-if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$EXTERNAL_ZED_AGENT" = true ]; then
+if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ] || [ "$SANDBOX" = true ]; then
     if check_docker_needed; then
         install_docker
 
@@ -1277,6 +1306,31 @@ fi
 if [ "$CODE" = true ] && [ "$RUNNER" = false ]; then
     if check_nvidia_runtime_needed; then
         install_nvidia_docker
+    fi
+fi
+
+# Load uhid kernel module for Helix Code (required for virtual HID devices in Wolf)
+if [ "$CODE" = true ]; then
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        echo "Skipping uhid module check on Windows Git Bash"
+    else
+        # Check if uhid module is already loaded
+        if lsmod | grep -q "^uhid "; then
+            echo "✓ uhid module already loaded"
+        else
+            echo "uhid module not loaded - loading now for virtual HID device support..."
+            if sudo modprobe uhid 2>/dev/null; then
+                echo "✓ uhid module loaded"
+
+                # Only configure auto-load if we had to load it manually
+                if [ ! -f /etc/modules-load.d/helix.conf ] || ! grep -q "^uhid" /etc/modules-load.d/helix.conf; then
+                    echo "uhid" | sudo tee -a /etc/modules-load.d/helix.conf > /dev/null
+                    echo "✓ uhid module configured to auto-load on boot (/etc/modules-load.d/helix.conf)"
+                fi
+            else
+                echo "Warning: Failed to load uhid module - Wolf may not work correctly"
+            fi
+        fi
     fi
 fi
 
@@ -1459,7 +1513,12 @@ EOF
         COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
     fi
     if [[ -n "$CODE" ]]; then
-        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
+        # Use code-amd profile for AMD GPUs, code profile for NVIDIA/Intel
+        if [[ "$GPU_VENDOR" == "amd" ]]; then
+            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code-amd"
+        else
+            COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}code"
+        fi
     fi
 
     # Set RAG provider
@@ -1482,6 +1541,9 @@ SERVER_URL=${API_HOST}
 
 # Docker Compose profiles
 COMPOSE_PROFILES=$COMPOSE_PROFILES
+
+# GPU vendor (nvidia, amd, intel, or empty)
+GPU_VENDOR=${GPU_VENDOR:-}
 
 # Haystack features
 RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
@@ -1895,7 +1957,10 @@ fi
 
 # Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
-    install_nvidia_docker
+    # Only install NVIDIA Docker runtime if GPU is NVIDIA (not AMD)
+    if [ "$GPU_VENDOR" = "nvidia" ]; then
+        install_nvidia_docker
+    fi
 
     # Determine runner tag
     if [ "$LARGE" = true ]; then
@@ -1925,6 +1990,7 @@ API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 SPLIT_RUNNERS="${SPLIT_RUNNERS}"
 EXCLUDE_GPUS="${EXCLUDE_GPUS}"
+GPU_VENDOR="${GPU_VENDOR}"  # Set by install.sh: "nvidia" or "amd"
 
 # HF_TOKEN is now managed by the control plane and distributed to runners automatically
 # No longer setting HF_TOKEN on runners to avoid confusion
@@ -1944,10 +2010,26 @@ else
     echo "helix_default network already exists."
 fi
 
-# Detect total number of GPUs
-ALL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
-if [ "\$ALL_GPUS" -eq 0 ]; then
-    echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+# Detect total number of GPUs based on vendor
+if [ "\$GPU_VENDOR" = "nvidia" ]; then
+    ALL_GPUS=\$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
+    if [ "\$ALL_GPUS" -eq 0 ]; then
+        echo "Error: No NVIDIA GPUs detected. Cannot start runner."
+        exit 1
+    fi
+elif [ "\$GPU_VENDOR" = "amd" ]; then
+    # Count AMD GPUs via rocm-smi or /dev/dri/card* devices
+    if command -v rocm-smi &> /dev/null; then
+        ALL_GPUS=\$(rocm-smi --showid 2>/dev/null | grep -c "^GPU")
+    else
+        ALL_GPUS=\$(ls -1 /dev/dri/card* 2>/dev/null | wc -l)
+    fi
+    if [ "\$ALL_GPUS" -eq 0 ]; then
+        echo "Error: No AMD GPUs detected. Cannot start runner."
+        exit 1
+    fi
+else
+    echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
     exit 1
 fi
 
@@ -2058,10 +2140,24 @@ for i in \$(seq 1 \$SPLIT_RUNNERS); do
 
     echo "Starting \$CONTAINER_NAME with GPU(s): \$GPU_DEVICES (runner ID: \$RUNNER_ID)"
 
-    # Run the docker container with specific GPU devices
-    # Note: --privileged removed to properly enforce GPU isolation via --gpus device=X
-    # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
-    docker run --gpus '"'device=\$GPU_DEVICES'"' \\
+    # Build vendor-specific GPU flags
+    if [ "\$GPU_VENDOR" = "nvidia" ]; then
+        # NVIDIA: Use --gpus device=X flag
+        # Docker automatically renumbers GPUs inside container (e.g., host GPUs 2,3 become container GPUs 0,1)
+        GPU_FLAGS="--gpus '\"'device=\$GPU_DEVICES'\"'"
+        ENV_FLAGS=""
+    elif [ "\$GPU_VENDOR" = "amd" ]; then
+        # AMD: Use device pass-through + ROCR_VISIBLE_DEVICES env var
+        # Note: ROCR_VISIBLE_DEVICES uses GPU IDs (0,1,2) same as CUDA
+        GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+        ENV_FLAGS="-e ROCR_VISIBLE_DEVICES=\$GPU_DEVICES"
+    else
+        echo "Error: Unknown GPU_VENDOR: \$GPU_VENDOR"
+        exit 1
+    fi
+
+    # Run the docker container with vendor-specific GPU configuration
+    eval docker run \$GPU_FLAGS \$ENV_FLAGS \\
         --shm-size=10g --restart=always -d \\
         --name \$CONTAINER_NAME --ipc=host --ulimit memlock=-1 \\
         --ulimit stack=67108864 \\
@@ -2092,68 +2188,233 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
-# Install external Zed agent if requested
-if [ "$EXTERNAL_ZED_AGENT" = true ]; then
-    # Set default runner ID if not provided
-    if [ -z "$EXTERNAL_ZED_RUNNER_ID" ]; then
-        EXTERNAL_ZED_RUNNER_ID="external-zed-$(hostname)"
-    fi
+# Install sandbox node if requested
+if [ "$SANDBOX" = true ]; then
+    echo -e "\nInstalling Helix Sandbox Node (Wolf + Moonlight Web + RevDial client)..."
+    echo "=================================================="
+    echo
+    echo "API Host: $API_HOST"
+    echo "Runner Token: ${RUNNER_TOKEN:0:20}..."
+    echo
 
-    echo -e "\nInstalling External Zed Agent..."
+    # Detect GPU type for sandbox
+    if check_nvidia_gpu; then
+        GPU_TYPE="nvidia"
+        GPU_VENDOR="nvidia"
+        echo "NVIDIA GPU detected"
 
-    # Download the external Zed agent scripts
-    echo "Downloading external Zed agent scripts..."
-    if [ "$ENVIRONMENT" = "gitbash" ]; then
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
-        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
-        chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
+        if check_nvidia_runtime_needed; then
+            if command -v nvidia-container-toolkit &> /dev/null; then
+                echo "Note: NVIDIA Docker runtime will be configured automatically."
+            else
+                echo "Note: NVIDIA Docker runtime will be installed and configured automatically."
+            fi
+        fi
+    elif check_amd_gpu; then
+        GPU_TYPE="amd"
+        GPU_VENDOR="amd"
+        echo "AMD GPU detected with ROCm support"
+    elif check_intel_amd_gpu; then
+        GPU_TYPE="intel"
+        GPU_VENDOR="intel"
+        echo "Intel GPU detected"
     else
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/run-external-zed-agent.sh" -o "$INSTALL_DIR/run-external-zed-agent.sh"
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/external-zed-agent.env.example" -o "$INSTALL_DIR/external-zed-agent.env.example"
-        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/Dockerfile.zed-agent" -o "$INSTALL_DIR/Dockerfile.zed-agent"
-        sudo chmod +x "$INSTALL_DIR/run-external-zed-agent.sh"
-        # Change ownership to current user
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/run-external-zed-agent.sh"
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/external-zed-agent.env.example"
-        sudo chown $(id -un):$(id -gn) "$INSTALL_DIR/Dockerfile.zed-agent"
+        echo "Warning: No GPU detected. Sandbox may not work correctly."
+        GPU_TYPE=""
+        GPU_VENDOR="none"
     fi
 
-    # Create environment file with user settings
-    ENV_FILE="$INSTALL_DIR/external-zed-agent.env"
-    cat << EOF > "$ENV_FILE"
-# External Zed Agent Configuration
-API_HOST=$API_HOST
-API_TOKEN=$RUNNER_TOKEN
-RUNNER_ID=$EXTERNAL_ZED_RUNNER_ID
-CONCURRENCY=$EXTERNAL_ZED_CONCURRENCY
-MAX_TASKS=0
-SESSION_TIMEOUT=3600
-WORKSPACE_DIR=/tmp/zed-workspaces
-DISPLAY_NUM=1
-LOG_LEVEL=info
-DOCKER_IMAGE=helix-zed-agent:latest
-CONTAINER_NAME=helix-external-zed-agent
+    # Generate unique Wolf instance ID (hostname)
+    WOLF_ID=$(hostname)
+    echo "Wolf Instance ID: $WOLF_ID"
+    echo
+
+    # Configure NVIDIA runtime if needed
+    if [ "$GPU_VENDOR" = "nvidia" ] && check_nvidia_runtime_needed; then
+        echo "Configuring NVIDIA Docker runtime..."
+        configure_nvidia_runtime
+    fi
+
+    # Create sandbox.sh script (embedded, like runner.sh)
+    cat << 'EOF' > $INSTALL_DIR/sandbox.sh
+#!/bin/bash
+
+# Configuration variables (set by install.sh)
+SANDBOX_TAG="${SANDBOX_TAG}"
+HELIX_API_URL="${HELIX_API_URL}"
+WOLF_INSTANCE_ID="${WOLF_INSTANCE_ID}"
+RUNNER_TOKEN="${RUNNER_TOKEN}"
+GPU_VENDOR="${GPU_VENDOR}"
+MAX_SANDBOXES="${MAX_SANDBOXES}"
+TURN_PUBLIC_IP="${TURN_PUBLIC_IP}"
+TURN_PASSWORD="${TURN_PASSWORD}"
+HELIX_HOSTNAME="${HELIX_HOSTNAME}"
+MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS}"
+
+# Check if helix_default network exists, create it if it doesn't
+if ! docker network inspect helix_default >/dev/null 2>&1; then
+    echo "Creating helix_default network..."
+    docker network create helix_default
+else
+    echo "helix_default network already exists."
+fi
+
+# Stop and remove existing sandbox container if it exists
+if docker ps -a --format '{{.Names}}' | grep -q "^helix-sandbox$"; then
+    echo "Stopping and removing existing container: helix-sandbox"
+    docker stop helix-sandbox >/dev/null 2>&1 || true
+    docker rm helix-sandbox >/dev/null 2>&1 || true
+fi
+
+# Build GPU-specific flags
+if [ "$GPU_VENDOR" = "nvidia" ]; then
+    GPU_FLAGS="--gpus all --runtime nvidia"
+    GPU_ENV_FLAGS="-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all"
+elif [ "$GPU_VENDOR" = "amd" ]; then
+    GPU_FLAGS="--device /dev/kfd --device /dev/dri --group-add video --group-add render"
+    GPU_ENV_FLAGS="-e GPU_TYPE=amd"
+elif [ "$GPU_VENDOR" = "intel" ]; then
+    GPU_FLAGS="--device /dev/dri"
+    GPU_ENV_FLAGS="-e GPU_TYPE=intel"
+else
+    GPU_FLAGS=""
+    GPU_ENV_FLAGS=""
+    echo "Warning: No GPU support configured"
+fi
+
+echo "Starting Helix Sandbox container..."
+echo "  Control Plane: $HELIX_API_URL"
+echo "  Wolf Instance ID: $WOLF_INSTANCE_ID"
+echo "  GPU Vendor: $GPU_VENDOR"
+echo "  Max Sandboxes: $MAX_SANDBOXES"
+echo "  TURN Server: $TURN_PUBLIC_IP"
+
+# Run the sandbox container
+eval docker run $GPU_FLAGS $GPU_ENV_FLAGS \
+    --privileged \
+    --restart=always -d \
+    --name helix-sandbox \
+    --network="helix_default" \
+    -e HELIX_API_URL="$HELIX_API_URL" \
+    -e WOLF_INSTANCE_ID="$WOLF_INSTANCE_ID" \
+    -e RUNNER_TOKEN="$RUNNER_TOKEN" \
+    -e MAX_SANDBOXES="$MAX_SANDBOXES" \
+    -e ZED_IMAGE=helix-sway:latest \
+    -e TURN_PUBLIC_IP="$TURN_PUBLIC_IP" \
+    -e TURN_PASSWORD="$TURN_PASSWORD" \
+    -e HELIX_HOSTNAME="$HELIX_HOSTNAME" \
+    -e MOONLIGHT_CREDENTIALS="$MOONLIGHT_CREDENTIALS" \
+    -v sandbox-storage:/var/lib/docker \
+    -v /var/run/wolf:/var/run/wolf:rw \
+    -v /dev:/dev:rw \
+    -v /run/udev:/run/udev:rw \
+    --device /dev/dri \
+    --device /dev/uinput \
+    --device /dev/uhid \
+    --device-cgroup-rule 'c 13:* rmw' \
+    -p 47984:47984 \
+    -p 47989:47989 \
+    -p 48010:48010 \
+    -p 47415:47415/udp \
+    -p 47999:47999/udp \
+    -p 48100:48100/udp \
+    -p 48200:48200/udp \
+    -p 8081:8080 \
+    -p 40000-40100:40000-40100/udp \
+    registry.helixml.tech/helix/helix-sandbox:${SANDBOX_TAG}
+
+if [ $? -eq 0 ]; then
+    echo "✅ Helix Sandbox container started successfully"
+    echo
+    echo "To view logs: docker logs -f helix-sandbox"
+    echo "To stop: docker stop helix-sandbox"
+    echo "To restart: $0"
+else
+    echo "❌ Failed to start Helix Sandbox container"
+    exit 1
+fi
 EOF
 
-    echo "External Zed Agent has been installed to $INSTALL_DIR"
+    # Extract hostname from API_HOST for TURN server and display name
+    # (e.g., https://helix.mycompany.com -> helix.mycompany.com)
+    TURN_PUBLIC_IP=$(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||')
+    HELIX_HOSTNAME="$TURN_PUBLIC_IP"
+    # Default Moonlight credentials (must match control plane configuration)
+    MOONLIGHT_CREDENTIALS="${MOONLIGHT_CREDENTIALS:-helix}"
+
+    # Substitute variables in the script
+    sed -i "s|\${SANDBOX_TAG}|${LATEST_RELEASE}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${HELIX_API_URL}|${API_HOST}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${WOLF_INSTANCE_ID}|${WOLF_ID}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${RUNNER_TOKEN}|${RUNNER_TOKEN}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${GPU_VENDOR}|${GPU_VENDOR}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${MAX_SANDBOXES}|10|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${TURN_PUBLIC_IP}|${TURN_PUBLIC_IP}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${TURN_PASSWORD}|${TURN_PASSWORD}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${HELIX_HOSTNAME}|${HELIX_HOSTNAME}|g" $INSTALL_DIR/sandbox.sh
+    sed -i "s|\${MOONLIGHT_CREDENTIALS}|${MOONLIGHT_CREDENTIALS}|g" $INSTALL_DIR/sandbox.sh
+
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        chmod +x $INSTALL_DIR/sandbox.sh
+    else
+        sudo chmod +x $INSTALL_DIR/sandbox.sh
+    fi
+
+    echo "Sandbox script created at $INSTALL_DIR/sandbox.sh"
+    echo
+
+    # Run the sandbox script to start the container
+    echo "Starting sandbox container..."
+    if [ "$NEED_SUDO" = "true" ]; then
+        sudo $INSTALL_DIR/sandbox.sh
+    else
+        $INSTALL_DIR/sandbox.sh
+    fi
+
+    echo
     echo "┌───────────────────────────────────────────────────────────────────────────"
-    echo "│ To complete the External Zed Agent setup:"
+    echo "│ ✅ Helix Sandbox Node installed successfully!"
     echo "│"
-    echo "│ 1. Build the Zed agent Docker image:"
-    echo "│    cd $INSTALL_DIR"
-    echo "│    # First, build Zed with external sync support (requires Helix source)"
-    echo "│    # ./stack build-zed"
-    echo "│    # docker build -f Dockerfile.zed-agent -t helix-zed-agent:latest ."
+    echo "│ Connected to: $API_HOST"
+    echo "│ Wolf Instance ID: $WOLF_ID"
+    echo "│ TURN Server: $TURN_PUBLIC_IP"
     echo "│"
-    echo "│ 2. Start the external Zed agent:"
-    echo "│    source $INSTALL_DIR/external-zed-agent.env"
-    echo "│    $INSTALL_DIR/run-external-zed-agent.sh"
+    echo "│ ℹ️  WebRTC streaming (browser) works behind NAT via the control plane's TURN server."
     echo "│"
-    echo "│ The agent will connect to: $API_HOST"
-    echo "│ Runner ID: $EXTERNAL_ZED_RUNNER_ID"
-    echo "│ Concurrency: $EXTERNAL_ZED_CONCURRENCY"
+    echo "│ ⚠️  For better performance (direct connections), open these ports on the sandbox:"
+    echo "│   - UDP 40000-40100: WebRTC media (bypasses TURN, reduces latency)"
+    echo "│"
+    echo "│ ⚠️  For native Moonlight client connections, also open:"
+    echo "│   - TCP 47984, 47989, 48010: Moonlight protocol"
+    echo "│   - UDP 47415, 47999, 48100, 48200: Moonlight streaming"
+    echo "│   - TCP 8081: Moonlight Web UI"
+    echo "│"
+    echo "│ ⚠️  Ensure the control plane has these ports open:"
+    echo "│   - UDP/TCP 3478: TURN server for WebRTC NAT traversal"
+    echo "│"
+    echo "│ To check logs:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo docker logs -f helix-sandbox"
+    else
+        echo "│   docker logs -f helix-sandbox"
+    fi
+    echo "│"
+    echo "│ To restart:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo $INSTALL_DIR/sandbox.sh"
+    else
+        echo "│   $INSTALL_DIR/sandbox.sh"
+    fi
+    echo "│"
+    echo "│ To stop:"
+    if [ "$NEED_SUDO" = "true" ]; then
+        echo "│   sudo docker stop helix-sandbox"
+    else
+        echo "│   docker stop helix-sandbox"
+    fi
     echo "└───────────────────────────────────────────────────────────────────────────"
+
+    exit 0
 fi
 
 if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
@@ -2164,8 +2425,8 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo "chmod +x install.sh"
     echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
     echo
-    echo "To connect an external Zed agent to this controlplane:"
-    echo "./install.sh --external-zed-agent --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo "To connect a sandbox node to this controlplane:"
+    echo "./install.sh --sandbox --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."
